@@ -17,7 +17,9 @@ This is not a general browser, a complete HTML5 game-engine implementation, or a
 - Each game is assigned a separate WebView multi-profile session. Its DOM storage (including `localStorage`) is therefore separated from other games. The player fails closed when the installed Android System WebView does not support multi-profile sessions.
 - File and content URL access are disabled. File-to-file and universal file URL access are disabled as well.
 - Supported embedded base64 image and audio data URIs in a standalone HTML document are streamed into the game's private `assets` directory during import; HTML references are rewritten to the local appassets origin. The extraction has per-resource and total size limits.
-- The player reports JavaScript console errors, local asset loading failures, the installed WebView version, and a post-visual-state DOM summary in its runtime status area. The summary includes viewport dimensions, menu/card/button bounds and CSS visibility, the element hit-tested at the Play button center, stage state, and the native WebView's measured/visible bounds and hardware-acceleration state. Main-frame JavaScript errors are shown as an explicit failure instead of leaving an unexplained blank player.
+- The player reports JavaScript console errors, local asset loading failures, the installed WebView version, and a post-visual-state DOM summary in its runtime status area. The summary includes viewport dimensions, menu/card/button bounds and CSS visibility, the element hit-tested at the Play button center, stage state, and the native WebView's measured/visible bounds and hardware-acceleration state.
+- The initial HTML navigation starts only after the Compose-hosted WebView has non-zero measured bounds. The Activity handles orientation/screen-layout changes, then requests a native WebView relayout and redraw so the retained WebView can update its viewport without discarding the current page.
+- Main-frame JavaScript errors are shown as an explicit failure instead of leaving an unexplained blank player.
 - The player does not add a JavaScript interface or expose Android methods to game scripts.
 - Network loads, mixed content, pop-up windows, external navigation, geolocation, and WebView permission requests are blocked. The Android app does not request the `INTERNET` permission.
 
@@ -42,9 +44,10 @@ JavaScript and DOM storage are enabled because the local fixture needs dialogue 
 6. Open an external link or trigger an external resource request and confirm it is blocked.
 7. Import two copies of the fixture, write different values to local storage in each, and verify their values are not shared.
 8. Import a self-contained HTML page with embedded base64 background images and audio; confirm the assets are extracted and the scene renders.
-9. Rotate the device while a scene and its audio are playing; confirm the current WebView session and audio are retained.
-10. Send Ramen to the background and return; confirm the WebView pauses and resumes without crashing.
-11. Check the runtime status area for the WebView version, DOM geometry (`menu`, card, Play button, hit-tested element, stage, viewport), and native WebView geometry (`Native WebView` size, screen position, visible rectangle, hardware acceleration). Record these values and any JavaScript or local-resource errors shown there.
-12. Repeat on a second Android version / Android System WebView release if available.
+9. Launch in portrait and confirm the reported DOM viewport roughly matches the native WebView size in dp; rotate to landscape and confirm both dimensions change to the new orientation without reloading the page. Repeat in the opposite direction.
+10. Rotate the device while a scene and its audio are playing; confirm the current WebView session and audio are retained.
+11. Send Ramen to the background and return; confirm the WebView pauses and resumes without crashing.
+12. Check the runtime status area for the WebView version, DOM geometry (`menu`, card, Play button, hit-tested element, stage, viewport), and native WebView geometry (`Native WebView` size, screen position, visible rectangle, hardware acceleration). Record these values and any JavaScript or local-resource errors shown there.
+13. Repeat on a second Android version / Android System WebView release if available.
 
 Passing CI is not a substitute for this physical-device checklist.
