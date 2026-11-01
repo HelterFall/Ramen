@@ -1,6 +1,7 @@
 package io.github.helterfall.ramen.runtime.html5
 
 import android.graphics.Rect
+import android.content.res.Configuration
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.ConsoleMessage
@@ -100,6 +101,25 @@ class Html5PlayerActivity : ComponentActivity() {
                     gameDirectory = safeDirectory!!,
                     onExit = ::finish,
                     onWebViewCreated = { playerWebView = it }
+                )
+            }
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+
+        // This Activity keeps the same WebView instance across orientation changes.
+        // Ask the native view system to recalculate its drawing surface and viewport.
+        playerWebView?.let { view ->
+            view.requestLayout()
+            view.invalidate()
+            view.post {
+                view.requestLayout()
+                view.invalidate()
+                view.evaluateJavascript(
+                    "window.dispatchEvent(new Event('resize'));",
+                    null
                 )
             }
         }
@@ -447,18 +467,38 @@ private fun createRestrictedWebView(
         }
     }
 
+    var initialLoadStarted = false
     webView.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
         val visibleRect = Rect()
         val isGloballyVisible = view.getGlobalVisibleRect(visibleRect)
         val location = IntArray(2)
         view.getLocationOnScreen(location)
+        val density = view.resources.displayMetrics.density.takeIf { it > 0f } ?: 1f
         onNativeLayout(
-            "Native WebView ${view.width}x${view.height} " +
+            "Native WebView ${view.width}x${view.height}px " +
+                "(${"%.0f".format(view.width / density)}x${"%.0f".format(view.height / density)}dp) " +
                 "@ ${location[0]},${location[1]} " +
                 "visible=${isGloballyVisible}:${visibleRect.width()}x${visibleRect.height()} " +
                 "shown=${view.isShown} hw=${view.isHardwareAccelerated} " +
                 "alpha=${view.alpha} layer=${view.layerType}"
         )
+
+        // Wait until AndroidView has its final measured bounds before the first navigation.
+        // Loading in the factory can capture display metrics from the previous orientation.
+        if (!initialLoadStarted && view.width > 0 && view.height > 0) {
+            initialLoadStarted = true
+            onRuntimeNotice(
+                "WebView измерен: ${"%.0f".format(view.width / density)}x" +
+                    "${"%.0f".format(view.height / density)}dp; загружаю HTML."
+            )
+            view.post {
+                if (webView.width > 0 && webView.height > 0) {
+                    webView.loadUrl(ENTRY_POINT_URL)
+                } else {
+                    initialLoadStarted = false
+                }
+            }
+        }
     }
 
     webView.webChromeClient = object : WebChromeClient() {
@@ -492,7 +532,6 @@ private fun createRestrictedWebView(
         ): Boolean = false
     }
 
-    webView.loadUrl(ENTRY_POINT_URL)
     return webView
 }
 
