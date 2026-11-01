@@ -394,7 +394,7 @@ private fun createRestrictedWebView(
                                                 ? '.' + hitAtPlay.className.trim().replace(/\s+/g, '.')
                                                 : '') : 'none'),
                                     'stage ' + describe(stage) +
-                                        ' sceneCount=' + (data ? (JSON.parse(data.textContent).scene || []).length : 'no-data'),
+                                        ' gameDataChars=' + (data ? data.textContent.length : 'missing'),
                                     'body ' + describe(body)
                                 ].join('\n');
                             })();
