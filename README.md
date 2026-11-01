@@ -2,13 +2,21 @@
 
 **Ramen** is an Android-first player and library for visual novels. The goal is to make one focused app that can identify, organize, and run visual novels through engine-specific runtime adapters.
 
-> **Project status:** planning / architecture validation. No game engine is currently supported by this repository.
+> **Project status:** Android application scaffold in progress. The library UI shell exists; no game engine is supported yet.
 
 ## Product idea
 
 Instead of trying to emulate every kind of desktop software, Ramen focuses on one category: visual novels. The app should provide one library and one consistent mobile experience while delegating game execution to the runtime that understands each game's engine.
 
 The long-term ambition is broad compatibility. It is **not** a promise that every game or file format will work.
+
+## Current foundation
+
+- Kotlin and Jetpack Compose Android app shell.
+- Dark first-run library screen.
+- Version-pinned Gradle configuration.
+- GitHub Actions workflow for debug build, unit tests, and lint.
+- No broad storage permissions and no game runtime integrations yet.
 
 ## Initial MVP
 
@@ -25,8 +33,8 @@ The first milestone is a reliable end-to-end path for a few test projects, not a
 
 - **Language:** Kotlin
 - **UI:** Jetpack Compose
-- **Persistence:** Room
-- **Android file access:** Storage Access Framework
+- **Persistence:** Room (planned; not integrated yet)
+- **Android file access:** Storage Access Framework (planned; not integrated yet)
 - **First runtime candidate:** HTML5 content, including suitable TyranoScript exports
 - **Native engine integrations:** evaluated separately; C/C++ and Android NDK may be appropriate for some engines
 
@@ -47,12 +55,17 @@ These are starting decisions, not a claim that every engine can be embedded thro
 - [Architecture](docs/ARCHITECTURE.md)
 - [Engine compatibility](docs/ENGINE_COMPATIBILITY.md)
 - [Roadmap](docs/ROADMAP.md)
+- [Android build setup](docs/BUILD_SETUP.md)
 - [Contributing](CONTRIBUTING.md)
+
+## Build
+
+See [Android Build Setup](docs/BUILD_SETUP.md) for the pinned toolchain and local build commands.
 
 ## Current next step
 
-Validate the HTML5 runtime path with a tiny original test game, then create the Android project skeleton. Do not add third-party game assets to the repository.
+Complete and verify the Android scaffold in CI, then build the importer and original HTML5 test fixture. Do not add third-party game assets to the repository.
 
 ## Naming
 
-Ramen is the project name. The app's final package ID, icon, visual identity, and release branding are not decided yet.
+Ramen is the project name. The app's final icon, visual identity, and release branding can evolve as the prototype develops.
