@@ -2,6 +2,7 @@ package io.github.helterfall.ramen.runtime.html5
 
 import android.net.Uri
 import android.os.Bundle
+import android.webkit.ConsoleMessage
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -146,8 +147,9 @@ private fun Html5PlayerScreen(
 ) {
     val context = LocalContext.current
     var runtimeError by remember(game.id) { mutableStateOf<String?>(null) }
+    val webViewVersion = WebView.getCurrentWebViewPackage()?.versionName ?: "не определена"
     var runtimeNotice by remember(game.id) {
-        mutableStateOf("Офлайн-режим: внешние адреса и сетевые запросы заблокированы.")
+        mutableStateOf("WebView $webViewVersion • офлайн-режим: внешние запросы заблокированы.")
     }
 
     BackHandler(onBack = onExit)
@@ -221,6 +223,8 @@ private fun Html5PlayerScreen(
                                 game = game,
                                 gameDirectory = gameDirectory,
                                 onMainFrameError = { message -> runtimeError = message },
+                                onRuntimeError = { message -> runtimeError = message },
+                                onRuntimeNotice = { message -> runtimeNotice = message },
                                 onNavigationBlocked = { host ->
                                     runtimeNotice = if (host.isNullOrBlank()) {
                                         "Внешний переход заблокирован."
@@ -259,6 +263,8 @@ private fun createRestrictedWebView(
     game: GameRecord,
     gameDirectory: File,
     onMainFrameError: (String) -> Unit,
+    onRuntimeError: (String) -> Unit,
+    onRuntimeNotice: (String) -> Unit,
     onNavigationBlocked: (String?) -> Unit
 ): WebView {
     check(WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
@@ -321,13 +327,48 @@ private fun createRestrictedWebView(
             return true
         }
 
+        override fun onPageStarted(view: WebView, url: String, favicon: android.graphics.Bitmap?) {
+            onRuntimeNotice("WebView начал загрузку локальной страницы.")
+        }
+
+        override fun onPageFinished(view: WebView, url: String) {
+            // onPageFinished means the main-frame load ended, not that the updated DOM
+            // has necessarily reached the screen. Wait for the visual-state callback first.
+            view.postVisualStateCallback(
+                VISUAL_STATE_REQUEST_ID,
+                object : WebView.VisualStateCallback() {
+                    override fun onComplete(requestId: Long) {
+                        view.evaluateJavascript(
+                            """
+                            (function() {
+                                const menu = document.getElementById('novel-menu');
+                                const stage = document.getElementById('stage');
+                                const data = document.getElementById('game-data');
+                                return 'HTML=' + document.readyState +
+                                    '; menu=' + (menu ? (menu.hidden ? 'hidden' : getComputedStyle(menu).display) : 'missing') +
+                                    '; stage=' + (stage ? getComputedStyle(stage).display : 'missing') +
+                                    '; game-data=' + (data ? 'present' : 'missing');
+                            })();
+                            """.trimIndent(),
+                            { result ->
+                                onRuntimeNotice("WebView отрисовал страницу: ${result ?: "нет DOM-ответа"}")
+                            }
+                        )
+                    }
+                }
+            )
+        }
+
         override fun onReceivedError(
             view: WebView,
             request: WebResourceRequest,
             error: WebResourceErrorCompat
         ) {
+            val description = error.description?.toString() ?: "неизвестная ошибка"
             if (request.isForMainFrame) {
-                onMainFrameError("Ошибка загрузки локального проекта: ${error.description}")
+                onMainFrameError("Ошибка загрузки локального проекта: $description")
+            } else if (isAllowedGameUrl(request.url)) {
+                onRuntimeNotice("Не загрузился ресурс ${request.url.lastPathSegment}: $description")
             }
         }
 
@@ -336,8 +377,11 @@ private fun createRestrictedWebView(
             request: WebResourceRequest,
             response: WebResourceResponse
         ) {
-            if (request.isForMainFrame && response.statusCode >= 400) {
+            if (response.statusCode < 400) return
+            if (request.isForMainFrame) {
                 onMainFrameError("Локальный проект вернул ошибку HTTP ${response.statusCode}.")
+            } else if (isAllowedGameUrl(request.url)) {
+                onRuntimeNotice("Ресурс ${request.url.lastPathSegment} вернул HTTP ${response.statusCode}.")
             }
         }
 
@@ -351,6 +395,17 @@ private fun createRestrictedWebView(
     }
 
     webView.webChromeClient = object : WebChromeClient() {
+        override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+            if (consoleMessage.messageLevel() == ConsoleMessage.MessageLevel.ERROR) {
+                val source = consoleMessage.sourceId()?.substringAfterLast('/') ?: "HTML"
+                onRuntimeError(
+                    "Ошибка JavaScript: ${consoleMessage.message()} " +
+                        "($source:${consoleMessage.lineNumber()})"
+                )
+            }
+            return true
+        }
+
         override fun onPermissionRequest(request: PermissionRequest) {
             request.deny()
         }
@@ -411,3 +466,4 @@ private fun blockedResponse() = WebResourceResponse(
 private const val ASSET_DOMAIN = "appassets.androidplatform.net"
 private const val GAME_PATH_PREFIX = "/game/"
 private const val ENTRY_POINT_URL = "https://appassets.androidplatform.net/game/index.html"
+private const val VISUAL_STATE_REQUEST_ID = 1L
