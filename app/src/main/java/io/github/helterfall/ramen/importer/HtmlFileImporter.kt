@@ -14,7 +14,8 @@ import java.util.UUID
 class HtmlFileImporter(
     private val context: Context,
     private val detector: VisualNovelDetector = VisualNovelDetector(),
-    private val streamCopier: SafeHtmlStreamCopier = SafeHtmlStreamCopier()
+    private val streamCopier: SafeHtmlStreamCopier = SafeHtmlStreamCopier(),
+    private val inlineResourceExtractor: HtmlInlineResourceExtractor = HtmlInlineResourceExtractor()
 ) {
     fun import(uri: Uri): GameRecord {
         val metadata = readMetadata(uri)
@@ -72,6 +73,9 @@ class HtmlFileImporter(
                 throw IOException("The selected HTML file is empty.")
             }
 
+            // Move large embedded data:image/data:audio payloads to local files before WebView parses the page.
+            val inlineResources = inlineResourceExtractor.extract(outputFile, stagingDirectory)
+
             val detection = detector.detect(stagingDirectory)
             if (detection.engineId != "html5") {
                 throw IOException("The selected file could not be imported as a standalone HTML page.")
@@ -93,7 +97,12 @@ class HtmlFileImporter(
                 engineId = "html5",
                 engineLabel = "HTML5 · один файл",
                 compatibilityStatus = "SUPPORTED_LIMITED",
-                evidence = "Импортирован только HTML-файл. Соседние CSS, JS, изображения и звук не копировались.",
+                evidence = if (inlineResources.extractedCount > 0) {
+                    "Извлечено встроенных локальных ресурсов: ${inlineResources.extractedCount}. " +
+                        "Соседние CSS, JS и файлы игры не копировались."
+                } else {
+                    "Импортирован только HTML-файл. Соседние CSS, JS, изображения и звук не копировались."
+                },
                 importedAtEpochMillis = System.currentTimeMillis()
             )
         } catch (error: Exception) {
