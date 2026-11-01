@@ -1,9 +1,7 @@
 package io.github.helterfall.ramen.runtime.html5
 
-import android.app.Activity
 import android.net.Uri
 import android.os.Bundle
-import android.view.ViewGroup
 import android.webkit.PermissionRequest
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
@@ -24,7 +22,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.weight
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -391,7 +388,7 @@ private fun isAllowedGameUrl(uri: Uri): Boolean {
             segment != "." &&
             segment != ".." &&
             '\\' !in segment &&
-            segment.none(Char::isISOControl)
+            segment.none { it.isISOControl() }
     }
 }
 
