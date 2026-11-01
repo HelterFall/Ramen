@@ -116,6 +116,9 @@ class SafeFolderCopierTest {
         private val bytes: ByteArray = byteArrayOf(),
         private val children: List<FakeNode> = emptyList()
     ) : FolderEntryNode {
+        override val sourceId: String
+            get() = name ?: "unnamed"
+
         override val isDirectory: Boolean
             get() = directory
 
