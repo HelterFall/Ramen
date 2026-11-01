@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -155,8 +154,7 @@ private fun EmptyLibraryCard() {
             )
 
             Text(
-                text = "Истории
-начинаются здесь.",
+                text = "Истории\nначинаются здесь.",
                 color = RamenText,
                 fontSize = 30.sp,
                 lineHeight = 35.sp,
@@ -195,8 +193,7 @@ private fun EmptyLibraryCard() {
                 Spacer(modifier = Modifier.weight(1f))
 
                 Text(
-                    text = "ИМПОРТ
-СКОРО",
+                    text = "ИМПОРТ\nСКОРО",
                     color = RamenAccent,
                     fontSize = 11.sp,
                     lineHeight = 15.sp,
