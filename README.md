@@ -16,15 +16,15 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - Dark first-run library screen.
 - Version-pinned Gradle Wrapper with distribution checksum verification.
 - GitHub Actions workflow for debug build, unit tests, lint, and APK artifact upload.
-- User-selected ZIP and folder import into app-private storage, with bounded copying and path-traversal checks.
+- User-selected ZIP and folder import into app-private storage, with bounded copying and path-traversal checks; bounded standalone HTML file import is under review.
 - Initial engine-marker detection that clearly distinguishes detection from playability.
-- A restricted HTML5 WebView prototype using app-controlled local resource loading, per-game browser profiles, and an offline-only policy (under review).
+- A restricted HTML5 WebView runtime using app-controlled local resource loading, per-game browser profiles, and an offline-only policy; physical-device validation remains pending.
 - No broad storage permissions. Other engine-specific runtime integrations are not available yet.
 
 ## Initial MVP
 
 1. Android app shell with a game library.
-2. Import a game folder or archive using Android's system file picker.
+2. Import a full game folder or ZIP archive; standalone .html/.htm files can also be added as single-page projects.
 3. Inspect files and identify likely engine signatures.
 4. Show a clear status: supported, detected but unsupported, or unknown.
 5. Run a small, deliberately selected set of HTML5 visual-novel projects in an isolated WebView-based runtime.
