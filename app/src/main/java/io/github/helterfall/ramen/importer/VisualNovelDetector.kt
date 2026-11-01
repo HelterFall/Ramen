@@ -52,10 +52,7 @@ class VisualNovelDetector {
             )
         }
 
-        val indexHtml = files.firstOrNull { path ->
-            path == "index.html" ||
-                (path.endsWith("/index.html") && path.count { it == '/' } <= 2)
-        }
+        val indexHtml = files.firstOrNull { it == "index.html" }
         if (indexHtml != null) {
             val tyranoMarker = files.firstOrNull { path ->
                 path.endsWith("/tyrano.js") ||
@@ -63,14 +60,19 @@ class VisualNovelDetector {
                     path.endsWith("/tyrano/tyrano.js")
             }
 
-            return unsupported(
-                engineId = if (tyranoMarker != null) "tyranoscript" else "html5",
-                engineLabel = if (tyranoMarker != null) "TyranoScript / HTML5" else "HTML5",
-                evidence = if (tyranoMarker != null) {
-                    "Found $indexHtml and $tyranoMarker"
-                } else {
-                    "Found an HTML entry point: $indexHtml"
-                }
+            if (tyranoMarker != null) {
+                return unsupported(
+                    engineId = "tyranoscript",
+                    engineLabel = "TyranoScript / HTML5",
+                    evidence = "Found $indexHtml and $tyranoMarker"
+                )
+            }
+
+            return GameDetection(
+                engineId = "html5",
+                engineLabel = "HTML5 (ограниченная поддержка)",
+                compatibilityStatus = "SUPPORTED_LIMITED",
+                evidence = "Found the root HTML entry point: index.html"
             )
         }
 

@@ -2,7 +2,7 @@
 
 **Ramen** is an Android-first player and library for visual novels. The goal is to make one focused app that can identify, organize, and run visual novels through engine-specific runtime adapters.
 
-> **Project status:** Android scaffold is in `main`; ZIP import and engine-marker detection are under review in `feature/zip-import`. No playback runtime is supported yet.
+> **Project status:** Android scaffold, bounded ZIP import, folder import, and the first restricted HTML5 runtime are being developed in small CI-verified steps. The HTML5 player supports only self-contained projects with a root `index.html`; it is not a general engine emulator.
 
 ## Product idea
 
@@ -16,9 +16,10 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - Dark first-run library screen.
 - Version-pinned Gradle Wrapper with distribution checksum verification.
 - GitHub Actions workflow for debug build, unit tests, lint, and APK artifact upload.
-- User-selected ZIP import into app-private storage, with extraction limits and path-traversal checks (feature branch under review).
+- User-selected ZIP and folder import into app-private storage, with bounded copying and path-traversal checks.
 - Initial engine-marker detection that clearly distinguishes detection from playability.
-- No broad storage permissions and no playback runtime integrations yet.
+- A restricted HTML5 WebView prototype using app-controlled local resource loading, per-game browser profiles, and an offline-only policy (under review).
+- No broad storage permissions. Other engine-specific runtime integrations are not available yet.
 
 ## Initial MVP
 
@@ -37,7 +38,7 @@ The first milestone is a reliable end-to-end path for a few test projects, not a
 - **UI:** Jetpack Compose
 - **Persistence:** Room (planned; not integrated yet)
 - **Android file access:** Storage Access Framework (planned; not integrated yet)
-- **First runtime candidate:** HTML5 content, including suitable TyranoScript exports
+- **First runtime candidate:** self-contained HTML5 projects with a root-level `index.html`; engine-specific exports such as TyranoScript remain unsupported.
 - **Native engine integrations:** evaluated separately; C/C++ and Android NDK may be appropriate for some engines
 
 These are starting decisions, not a claim that every engine can be embedded through the same interface.
@@ -60,7 +61,7 @@ These are starting decisions, not a claim that every engine can be embedded thro
 - [Android build setup](docs/BUILD_SETUP.md)
 - [ZIP import security and behavior](docs/ZIP_IMPORT.md)
 - [Folder import security and behavior](docs/FOLDER_IMPORT.md)
-- [ZIP import security and behavior](docs/ZIP_IMPORT.md)
+- [HTML5 runtime security and behavior](docs/HTML5_RUNTIME.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Build
@@ -69,7 +70,7 @@ Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](doc
 
 ## Current next step
 
-Complete and verify the Android scaffold in CI, then build the importer and original HTML5 test fixture. Do not add third-party game assets to the repository.
+Run the original HTML5 fixture on a physical Android device, verify WebView storage isolation and lifecycle behavior, then expand the runtime only against reproducible test projects. Do not add third-party game assets to the repository.
 
 ## Naming
 

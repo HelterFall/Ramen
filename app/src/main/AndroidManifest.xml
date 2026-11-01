@@ -8,6 +8,10 @@
         android:theme="@style/Theme.Ramen">
 
         <activity
+            android:name=".runtime.html5.Html5PlayerActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".MainActivity"
             android:exported="true">
             <intent-filter>

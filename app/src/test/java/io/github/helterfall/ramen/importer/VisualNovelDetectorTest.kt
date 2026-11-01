@@ -7,7 +7,7 @@ import org.junit.Test
 
 class VisualNovelDetectorTest {
     @Test
-    fun detectsHtmlEntryPointAsCandidateNotSupportedRuntime() {
+    fun detectsRootHtmlEntryPointAsLimitedSupportedRuntime() {
         val root = Files.createTempDirectory("ramen-html-detect").toFile()
 
         try {
@@ -16,7 +16,25 @@ class VisualNovelDetectorTest {
             val result = VisualNovelDetector().detect(root)
 
             assertEquals("html5", result.engineId)
-            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+            assertEquals("SUPPORTED_LIMITED", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun nestedHtmlEntryPointIsNotMistakenForRootRuntime() {
+        val root = Files.createTempDirectory("ramen-nested-html-detect").toFile()
+
+        try {
+            val nested = File(root, "www")
+            nested.mkdirs()
+            File(nested, "index.html").writeText("<html></html>")
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("unknown", result.engineId)
+            assertEquals("UNKNOWN", result.compatibilityStatus)
         } finally {
             root.deleteRecursively()
         }
