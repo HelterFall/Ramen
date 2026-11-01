@@ -494,7 +494,7 @@ private fun createRestrictedWebView(
                 if (view.width > 0 && view.height > 0) {
                     view.requestLayout()
                     view.invalidate()
-                    view.evaluateJavascript(
+                    webView.evaluateJavascript(
                         "window.dispatchEvent(new Event('resize'));",
                         null
                     )
