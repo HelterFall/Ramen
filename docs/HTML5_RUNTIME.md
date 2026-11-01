@@ -6,7 +6,7 @@ The first WebView-backed HTML5 player is implemented as a prototype. CI verifies
 
 ## What can launch
 
-Ramen currently enables the **limited HTML5** status only when an imported project has a root-level `index.html` and no detected TyranoScript marker. For a full project, import the directory containing the root `index.html` or a ZIP of that directory; its scripts, styles, images, audio, and other resources can then be loaded using relative URLs. A separate **HTML file** import is also being added for standalone `.html`/`.htm` pages. That option copies only the selected document as `index.html`; it does not import neighbouring CSS, JavaScript, images, or audio, so it is suitable only when the page is self-contained.
+Ramen currently enables the **limited HTML5** status only when an imported project has a root-level `index.html` and no detected TyranoScript marker. For a full project, import the directory containing the root `index.html` or a ZIP of that directory; its scripts, styles, images, audio, and other resources can then be loaded using relative URLs. A separate **HTML file** import is available for standalone `.html`/`.htm` pages. It copies the selected document as `index.html` and extracts supported embedded base64 images and audio into private local asset files. It does not import neighbouring CSS, JavaScript, images, or audio files, so relative references to adjacent files still require folder or ZIP import.
 
 This is not a general browser, a complete HTML5 game-engine implementation, or a claim that arbitrary projects will work.
 
@@ -16,6 +16,7 @@ This is not a general browser, a complete HTML5 game-engine implementation, or a
 - `WebViewAssetLoader` serves only the currently selected game's directory through the app-controlled `https://appassets.androidplatform.net/game/` origin. The handler is rooted at that game's directory, not the whole application data directory.
 - Each game is assigned a separate WebView multi-profile session. Its DOM storage (including `localStorage`) is therefore separated from other games. The player fails closed when the installed Android System WebView does not support multi-profile sessions.
 - File and content URL access are disabled. File-to-file and universal file URL access are disabled as well.
+- Supported embedded base64 image and audio data URIs in a standalone HTML document are streamed into the game's private `assets` directory during import; HTML references are rewritten to the local appassets origin. The extraction has per-resource and total size limits.
 - The player does not add a JavaScript interface or expose Android methods to game scripts.
 - Network loads, mixed content, pop-up windows, external navigation, geolocation, and WebView permission requests are blocked. The Android app does not request the `INTERNET` permission.
 
@@ -24,7 +25,7 @@ JavaScript and DOM storage are enabled because the local fixture needs dialogue 
 ## Known limitations
 
 - Only a root-level `index.html` is eligible for this initial runtime.
-- Single-file imports are limited to one HTML document (maximum 512 MiB). Assets beside the original file are not copied; use folder or ZIP import for a multi-file project.
+- Single-file imports are limited to one HTML document (maximum 512 MiB). Supported embedded base64 images and audio are extracted, but assets beside the original file are not copied; use folder or ZIP import for a multi-file project.
 - External fonts, APIs, CDNs, remote assets, and network-dependent features will not work.
 - TyranoScript, Ren'Py, KiriKiri, and other engine-specific formats remain unsupported even when their markers are detected.
 - There is no Android-to-JavaScript bridge, native save integration, download handling, gamepad layer, engine-specific full-screen/orientation policy, or advanced browser extension support.
@@ -39,7 +40,9 @@ JavaScript and DOM storage are enabled because the local fixture needs dialogue 
 5. Tap **Проверить звук** after the page's user interaction and confirm the Web Audio test tone plays.
 6. Open an external link or trigger an external resource request and confirm it is blocked.
 7. Import two copies of the fixture, write different values to local storage in each, and verify their values are not shared.
-8. Send Ramen to the background and return; confirm the WebView pauses and resumes without crashing.
-9. Repeat on a second Android version / Android System WebView release if available.
+8. Import a self-contained HTML page with embedded base64 background images and audio; confirm the assets are extracted and the scene renders.
+9. Rotate the device while a scene and its audio are playing; confirm the current WebView session and audio are retained.
+10. Send Ramen to the background and return; confirm the WebView pauses and resumes without crashing.
+11. Repeat on a second Android version / Android System WebView release if available.
 
 Passing CI is not a substitute for this physical-device checklist.
