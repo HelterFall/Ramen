@@ -49,6 +49,7 @@ import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
 import java.io.ByteArrayInputStream
 import java.io.File
+import org.json.JSONTokener
 
 class Html5PlayerActivity : ComponentActivity() {
     private var playerWebView: WebView? = null
@@ -400,7 +401,10 @@ private fun createRestrictedWebView(
                             })();
                             """.trimIndent(),
                             { result ->
-                                onRuntimeNotice("WebView отрисовал страницу: ${result ?: "нет DOM-ответа"}")
+                                val summary = result?.let { raw ->
+                                    runCatching { JSONTokener(raw).nextValue() as? String }.getOrNull()
+                                } ?: result ?: "нет DOM-ответа"
+                                onRuntimeNotice("DOM после отрисовки:\n$summary")
                             }
                         )
                     }
