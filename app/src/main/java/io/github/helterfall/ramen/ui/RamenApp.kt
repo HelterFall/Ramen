@@ -435,30 +435,34 @@ private fun LibrarySummaryCard(
         color = RamenSurface,
         shape = RoundedCornerShape(20.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column {
-                Text(
-                    text = gameCount.toString(),
-                    color = RamenText,
-                    fontSize = 25.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = if (gameCount == 1) "игра в библиотеке" else "игр в библиотеке",
-                    color = RamenMuted,
-                    fontSize = 12.sp
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text(
+                        text = gameCount.toString(),
+                        color = RamenText,
+                        fontSize = 25.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (gameCount == 1) "игра в библиотеке" else "игр в библиотеке",
+                        color = RamenMuted,
+                        fontSize = 12.sp
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
                 Button(
                     onClick = onImportClick,
                     enabled = !isImporting,
+                    modifier = Modifier.weight(1f),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = RamenAccent,
                         contentColor = Color(0xFF24190B)
@@ -470,6 +474,7 @@ private fun LibrarySummaryCard(
                 OutlinedButton(
                     onClick = onImportFolderClick,
                     enabled = !isImporting,
+                    modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(13.dp)
                 ) {
                     Text("Папка")
