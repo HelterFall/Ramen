@@ -3,7 +3,6 @@ package io.github.helterfall.ramen.importer
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.File
-import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -152,7 +151,7 @@ class HtmlInlineResourceExtractor(
             return null
         }
 
-        val metadata = header.removePrefix("data:")
+        val metadata = header.toString().removePrefix("data:")
         val mimeType = metadata.substringBefore(';').lowercase()
         val isBase64 = metadata.split(';').drop(1).any {
             it.equals("base64", ignoreCase = true)
@@ -195,7 +194,7 @@ class HtmlInlineResourceExtractor(
                     writtenBytes += chunkSize
                 }
             }
-            decodedInputClose(encodedInput, reader)
+            consumeTrailingBase64(encodedInput)
 
             if (!encodedInput.closingQuoteConsumed) {
                 throw IOException("Встроенный ресурс HTML-файла не завершён.")
@@ -215,7 +214,7 @@ class HtmlInlineResourceExtractor(
         )
     }
 
-    private fun decodedInputClose(input: InputStream, reader: BufferedReader) {
+    private fun consumeTrailingBase64(input: InputStream) {
         // Consume trailing whitespace after base64 padding, through the closing quote.
         while (input.read() >= 0) {
             // QuotedBase64InputStream validates every remaining character.
@@ -270,7 +269,7 @@ class HtmlInlineResourceExtractor(
             if (!isWhitespace && !isBase64) {
                 throw IOException("Встроенный ресурс содержит некорректные base64-данные.")
             }
-            if (paddingSeen && !isWhitespace) {
+            if (paddingSeen && !isWhitespace && character != '=') {
                 throw IOException("Некорректное завершение base64-ресурса.")
             }
             if (character == '=') paddingSeen = true
