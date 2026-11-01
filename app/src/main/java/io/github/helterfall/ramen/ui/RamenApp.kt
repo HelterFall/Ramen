@@ -1,5 +1,7 @@
 package io.github.helterfall.ramen.ui
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -26,6 +28,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
@@ -45,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
@@ -69,7 +73,7 @@ fun RamenApp() {
     }
     var isImporting by remember { mutableStateOf(false) }
     var statusMessage by remember {
-        mutableStateOf("Выбери ZIP-архив с визуальной новеллой.")
+        mutableStateOf("Добавь ZIP-архив или выбери папку с визуальной новеллой.")
     }
 
     val executor = remember { Executors.newSingleThreadExecutor() }
@@ -81,42 +85,96 @@ fun RamenApp() {
         }
     }
 
+    fun enqueueImport(
+        uri: Uri,
+        progressMessage: String,
+        releaseReadPermission: Boolean = false,
+        importOperation: (Uri) -> GameRecord
+    ) {
+        if (isImporting) return
+
+        isImporting = true
+        statusMessage = progressMessage
+
+        executor.execute {
+            var importedGame: GameRecord? = null
+
+            try {
+                val game = importOperation(uri)
+                importedGame = game
+
+                val updatedLibrary = repository.load().toMutableList().apply {
+                    add(0, game)
+                }
+                repository.save(updatedLibrary)
+
+                mainHandler.post {
+                    games.clear()
+                    games.addAll(updatedLibrary)
+                    isImporting = false
+                    statusMessage = "Добавлено в библиотеку: " + game.title
+                }
+            } catch (error: Exception) {
+                importedGame?.let { game ->
+                    File(context.filesDir, game.relativeDirectory).deleteRecursively()
+                }
+
+                mainHandler.post {
+                    isImporting = false
+                    statusMessage = error.message ?: "Не удалось импортировать игру."
+                }
+            } finally {
+                if (releaseReadPermission) {
+                    runCatching {
+                        context.contentResolver.releasePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     val documentPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) {
-            statusMessage = "Импорт отменён."
-        } else if (!isImporting) {
-            isImporting = true
-            statusMessage = "Проверяю и распаковываю архив…"
+            statusMessage = "Импорт ZIP отменён."
+        } else {
+            enqueueImport(
+                uri = uri,
+                progressMessage = "Проверяю и распаковываю ZIP…"
+            ) { selectedUri ->
+                ZipGameImporter(context.applicationContext).import(selectedUri)
+            }
+        }
+    }
 
-            executor.execute {
-                var importedGame: GameRecord? = null
+    val folderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri == null) {
+            statusMessage = "Выбор папки отменён."
+        } else if (isImporting) {
+            statusMessage = "Дождись окончания текущего импорта."
+        } else {
+            val permissionTaken = runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }.isSuccess
 
-                try {
-                    val game = ZipGameImporter(context.applicationContext).import(uri)
-                    importedGame = game
-
-                    val updatedLibrary = repository.load().toMutableList().apply {
-                        add(0, game)
-                    }
-                    repository.save(updatedLibrary)
-
-                    mainHandler.post {
-                        games.clear()
-                        games.addAll(updatedLibrary)
-                        isImporting = false
-                        statusMessage = "Добавлено в библиотеку: " + game.title
-                    }
-                } catch (error: Exception) {
-                    importedGame?.let { game ->
-                        File(context.filesDir, game.relativeDirectory).deleteRecursively()
-                    }
-
-                    mainHandler.post {
-                        isImporting = false
-                        statusMessage = error.message ?: "Не удалось импортировать архив."
-                    }
+            if (!permissionTaken) {
+                statusMessage = "Android не предоставил постоянный доступ к папке."
+            } else {
+                enqueueImport(
+                    uri = uri,
+                    progressMessage = "Копирую выбранную папку в приватное хранилище…",
+                    releaseReadPermission = true
+                ) { selectedUri ->
+                    SafFolderImporter(context.applicationContext).import(selectedUri)
                 }
             }
         }
@@ -132,6 +190,12 @@ fun RamenApp() {
                     "application/octet-stream"
                 )
             )
+        }
+    }
+
+    val onImportFolderClick: () -> Unit = {
+        if (!isImporting) {
+            folderPicker.launch(null)
         }
     }
 
@@ -168,7 +232,8 @@ fun RamenApp() {
                     item {
                         EmptyLibraryCard(
                             isImporting = isImporting,
-                            onImportClick = onImportClick
+                            onImportClick = onImportClick,
+                            onImportFolderClick = onImportFolderClick
                         )
                     }
                 } else {
@@ -176,7 +241,8 @@ fun RamenApp() {
                         LibrarySummaryCard(
                             gameCount = games.size,
                             isImporting = isImporting,
-                            onImportClick = onImportClick
+                            onImportClick = onImportClick,
+                            onImportFolderClick = onImportFolderClick
                         )
                     }
                     item { SectionHeading("ТВОЯ БИБЛИОТЕКА") }
@@ -257,7 +323,8 @@ private fun BrandHeader() {
 @Composable
 private fun EmptyLibraryCard(
     isImporting: Boolean,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    onImportFolderClick: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -286,7 +353,7 @@ private fun EmptyLibraryCard(
             )
 
             Text(
-                text = "Добавь ZIP-архив. Ramen распакует его в приватное хранилище телефона и попробует определить игровой движок.",
+                text = "Добавь ZIP-архив или выбери папку. Ramen скопирует игру в приватное хранилище телефона и попробует определить движок.",
                 color = RamenMuted,
                 fontSize = 14.sp,
                 lineHeight = 21.sp
@@ -326,20 +393,33 @@ private fun EmptyLibraryCard(
                 )
             }
 
-            Button(
-                onClick = onImportClick,
-                enabled = !isImporting,
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = RamenAccent,
-                    contentColor = Color(0xFF24190B)
-                ),
-                shape = RoundedCornerShape(14.dp)
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Text(
-                    text = if (isImporting) "Импортирую…" else "Добавить ZIP-архив",
-                    fontWeight = FontWeight.Bold
-                )
+                Button(
+                    onClick = onImportClick,
+                    enabled = !isImporting,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = RamenAccent,
+                        contentColor = Color(0xFF24190B)
+                    ),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text(
+                        text = if (isImporting) "Импорт…" else "ZIP-архив",
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                OutlinedButton(
+                    onClick = onImportFolderClick,
+                    enabled = !isImporting,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Text("Выбрать папку")
+                }
             }
         }
     }
@@ -349,43 +429,58 @@ private fun EmptyLibraryCard(
 private fun LibrarySummaryCard(
     gameCount: Int,
     isImporting: Boolean,
-    onImportClick: () -> Unit
+    onImportClick: () -> Unit,
+    onImportFolderClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         color = RamenSurface,
         shape = RoundedCornerShape(20.dp)
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Column {
-                Text(
-                    text = gameCount.toString(),
-                    color = RamenText,
-                    fontSize = 25.sp,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = if (gameCount == 1) "игра в библиотеке" else "игр в библиотеке",
-                    color = RamenMuted,
-                    fontSize = 12.sp
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text(
+                        text = gameCount.toString(),
+                        color = RamenText,
+                        fontSize = 25.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = if (gameCount == 1) "игра в библиотеке" else "игр в библиотеке",
+                        color = RamenMuted,
+                        fontSize = 12.sp
+                    )
+                }
             }
 
-            Spacer(modifier = Modifier.weight(1f))
-
-            Button(
-                onClick = onImportClick,
-                enabled = !isImporting,
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = RamenAccent,
-                    contentColor = Color(0xFF24190B)
-                ),
-                shape = RoundedCornerShape(13.dp)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text(if (isImporting) "Импорт…" else "Добавить ZIP")
+                Button(
+                    onClick = onImportClick,
+                    enabled = !isImporting,
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = RamenAccent,
+                        contentColor = Color(0xFF24190B)
+                    ),
+                    shape = RoundedCornerShape(13.dp)
+                ) {
+                    Text(if (isImporting) "Импорт…" else "ZIP")
+                }
+                OutlinedButton(
+                    onClick = onImportFolderClick,
+                    enabled = !isImporting,
+                    modifier = Modifier.weight(1f),
+                    shape = RoundedCornerShape(13.dp)
+                ) {
+                    Text("Папка")
+                }
             }
         }
     }
@@ -492,16 +587,11 @@ private fun ComingNextSection() {
 
         FeatureRow(
             number = "01",
-            title = "Импорт папок",
-            description = "Добавление игр без упаковки в ZIP"
-        )
-        FeatureRow(
-            number = "02",
             title = "Игровые модули",
             description = "Запуск распознанных форматов"
         )
         FeatureRow(
-            number = "03",
+            number = "02",
             title = "Сохранения и прогресс",
             description = "Возвращайся к истории с нужного места"
         )
