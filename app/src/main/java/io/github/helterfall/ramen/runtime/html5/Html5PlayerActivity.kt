@@ -1,5 +1,6 @@
 package io.github.helterfall.ramen.runtime.html5
 
+import android.graphics.Rect
 import android.net.Uri
 import android.os.Bundle
 import android.webkit.ConsoleMessage
@@ -149,7 +150,10 @@ private fun Html5PlayerScreen(
     var runtimeError by remember(game.id) { mutableStateOf<String?>(null) }
     val webViewVersion = WebView.getCurrentWebViewPackage()?.versionName ?: "не определена"
     var runtimeNotice by remember(game.id) {
-        mutableStateOf("WebView $webViewVersion • офлайн-режим: внешние запросы заблокированы.")
+        mutableStateOf("Офлайн-режим: внешние запросы заблокированы.")
+    }
+    var nativeLayout by remember(game.id) {
+        mutableStateOf("Native WebView: ожидается измерение.")
     }
 
     BackHandler(onBack = onExit)
@@ -225,6 +229,7 @@ private fun Html5PlayerScreen(
                                 onMainFrameError = { message -> runtimeError = message },
                                 onRuntimeError = { message -> runtimeError = message },
                                 onRuntimeNotice = { message -> runtimeNotice = message },
+                                onNativeLayout = { message -> nativeLayout = message },
                                 onNavigationBlocked = { host ->
                                     runtimeNotice = if (host.isNullOrBlank()) {
                                         "Внешний переход заблокирован."
@@ -246,13 +251,14 @@ private fun Html5PlayerScreen(
             }
 
             Text(
-                text = runtimeNotice,
+                text = "WebView $webViewVersion\n$runtimeNotice\n$nativeLayout",
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Color(0xFF1A1E25))
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                    .padding(horizontal = 12.dp, vertical = 7.dp),
                 color = Color(0xFFA8ADB7),
-                fontSize = 10.sp
+                fontSize = 9.sp,
+                lineHeight = 11.sp
             )
         }
     }
@@ -265,6 +271,7 @@ private fun createRestrictedWebView(
     onMainFrameError: (String) -> Unit,
     onRuntimeError: (String) -> Unit,
     onRuntimeNotice: (String) -> Unit,
+    onNativeLayout: (String) -> Unit,
     onNavigationBlocked: (String?) -> Unit
 ): WebView {
     check(WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)) {
@@ -342,12 +349,55 @@ private fun createRestrictedWebView(
                             """
                             (function() {
                                 const menu = document.getElementById('novel-menu');
+                                const card = menu && menu.querySelector('.novel-menu-card');
+                                const play = document.getElementById('menu-play');
                                 const stage = document.getElementById('stage');
                                 const data = document.getElementById('game-data');
-                                return 'HTML=' + document.readyState +
-                                    '; menu=' + (menu ? (menu.hidden ? 'hidden' : getComputedStyle(menu).display) : 'missing') +
-                                    '; stage=' + (stage ? getComputedStyle(stage).display : 'missing') +
-                                    '; game-data=' + (data ? 'present' : 'missing');
+                                const describe = function(element) {
+                                    if (!element) return 'missing';
+                                    const rect = element.getBoundingClientRect();
+                                    const style = getComputedStyle(element);
+                                    const round = value => Math.round(value);
+                                    return round(rect.left) + ',' + round(rect.top) + ' ' +
+                                        round(rect.width) + 'x' + round(rect.height) +
+                                        ' d=' + style.display +
+                                        ' v=' + style.visibility +
+                                        ' o=' + style.opacity +
+                                        ' z=' + style.zIndex +
+                                        ' pe=' + style.pointerEvents +
+                                        ' pos=' + style.position +
+                                        ' bg=' + style.backgroundColor +
+                                        (style.backgroundImage !== 'none' ? '+image' : '');
+                                };
+                                const menuRect = menu && menu.getBoundingClientRect();
+                                const playRect = play && play.getBoundingClientRect();
+                                const hitAtPlay = playRect && playRect.width > 0 && playRect.height > 0
+                                    ? document.elementFromPoint(
+                                        playRect.left + playRect.width / 2,
+                                        playRect.top + playRect.height / 2
+                                    )
+                                    : null;
+                                const root = document.documentElement;
+                                const body = document.body;
+                                return [
+                                    'DOM ' + window.innerWidth + 'x' + window.innerHeight +
+                                        ' doc=' + root.clientWidth + 'x' + root.clientHeight +
+                                        ' dpr=' + window.devicePixelRatio,
+                                    'menu hidden=' + (menu ? menu.hidden : 'missing') +
+                                        ' children=' + (menu ? menu.children.length : 0) +
+                                        ' ' + describe(menu),
+                                    'card ' + describe(card),
+                                    'play ' + describe(play) +
+                                        ' text=' + (play ? JSON.stringify(play.textContent.trim()) : '-') +
+                                        ' hit=' + (hitAtPlay ? hitAtPlay.tagName.toLowerCase() +
+                                            (hitAtPlay.id ? '#' + hitAtPlay.id : '') +
+                                            (hitAtPlay.className && typeof hitAtPlay.className === 'string'
+                                                ? '.' + hitAtPlay.className.trim().replace(/\\s+/g, '.')
+                                                : '') : 'none'),
+                                    'stage ' + describe(stage) +
+                                        ' sceneCount=' + (data ? (JSON.parse(data.textContent).scene || []).length : 'no-data'),
+                                    'body ' + describe(body)
+                                ].join('\\n');
                             })();
                             """.trimIndent(),
                             { result ->
@@ -392,6 +442,20 @@ private fun createRestrictedWebView(
             onMainFrameError("Процесс WebView завершился. Вернись в библиотеку и попробуй снова.")
             return true
         }
+    }
+
+    webView.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+        val visibleRect = Rect()
+        val isGloballyVisible = view.getGlobalVisibleRect(visibleRect)
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        onNativeLayout(
+            "Native WebView ${view.width}x${view.height} " +
+                "@ ${location[0]},${location[1]} " +
+                "visible=${isGloballyVisible}:${visibleRect.width()}x${visibleRect.height()} " +
+                "shown=${view.isShown} hw=${view.isHardwareAccelerated} " +
+                "alpha=${view.alpha} layer=${view.layerType}"
+        )
     }
 
     webView.webChromeClient = object : WebChromeClient() {
