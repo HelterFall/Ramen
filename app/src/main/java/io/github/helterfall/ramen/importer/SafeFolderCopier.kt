@@ -10,6 +10,8 @@ import java.util.Locale
 
 interface FolderEntryNode {
     val name: String?
+    val sourceId: String?
+        get() = null
     val isDirectory: Boolean
     val declaredSizeBytes: Long?
     fun listChildren(): List<FolderEntryNode>
@@ -53,6 +55,8 @@ class SafeFolderCopier(
         val canonicalRoot = destination.canonicalFile
         val rootPath = canonicalRoot.toPath()
         val seenPaths = HashSet<String>()
+        val seenSourceIds = HashSet<String>()
+        root.sourceId?.let(seenSourceIds::add)
         var entryCount = 0
         var fileCount = 0
         var directoryCount = 0
@@ -65,6 +69,12 @@ class SafeFolderCopier(
             }
             if (depth > maxPathDepth) {
                 throw IOException("The selected folder is nested too deeply.")
+            }
+
+            node.sourceId?.let { sourceId ->
+                if (!seenSourceIds.add(sourceId)) {
+                    throw IOException("The folder provider returned the same item more than once.")
+                }
             }
 
             val segment = validateSegment(node.name)
@@ -92,7 +102,11 @@ class SafeFolderCopier(
                 }
                 directoryCount += 1
 
-                node.listChildren().forEach { child ->
+                val children = node.listChildren()
+                if (children.size > maxEntries - entryCount) {
+                    throw IOException("The selected folder contains too many entries.")
+                }
+                children.forEach { child ->
                     copyNode(child, output, relativePath, depth + 1)
                 }
                 return
