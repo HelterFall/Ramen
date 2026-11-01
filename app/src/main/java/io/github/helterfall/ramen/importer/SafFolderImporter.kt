@@ -72,6 +72,9 @@ class SafFolderImporter(
         override val name: String?
             get() = document.name
 
+        override val sourceId: String
+            get() = document.uri.toString()
+
         override val isDirectory: Boolean
             get() = document.isDirectory
 
