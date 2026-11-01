@@ -59,6 +59,8 @@ These are starting decisions, not a claim that every engine can be embedded thro
 - [Roadmap](docs/ROADMAP.md)
 - [Android build setup](docs/BUILD_SETUP.md)
 - [ZIP import security and behavior](docs/ZIP_IMPORT.md)
+- [Folder import security and behavior](docs/FOLDER_IMPORT.md)
+- [ZIP import security and behavior](docs/ZIP_IMPORT.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Build
