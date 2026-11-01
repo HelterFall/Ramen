@@ -6,7 +6,7 @@ The first WebView-backed HTML5 player is implemented as a prototype. CI verifies
 
 ## What can launch
 
-Ramen currently enables the **limited HTML5** status only when an imported project has a root-level `index.html` and no detected TyranoScript marker. The player is intended for self-contained projects whose scripts, styles, images, audio, and other resources are stored beside that entry point and referenced with relative URLs.
+Ramen currently enables the **limited HTML5** status only when an imported project has a root-level `index.html` and no detected TyranoScript marker. For a full project, import the directory containing the root `index.html` or a ZIP of that directory; its scripts, styles, images, audio, and other resources can then be loaded using relative URLs. A separate **HTML file** import is also being added for standalone `.html`/`.htm` pages. That option copies only the selected document as `index.html`; it does not import neighbouring CSS, JavaScript, images, or audio, so it is suitable only when the page is self-contained.
 
 This is not a general browser, a complete HTML5 game-engine implementation, or a claim that arbitrary projects will work.
 
@@ -24,6 +24,7 @@ JavaScript and DOM storage are enabled because the local fixture needs dialogue 
 ## Known limitations
 
 - Only a root-level `index.html` is eligible for this initial runtime.
+- Single-file imports are limited to one HTML document (maximum 512 MiB). Assets beside the original file are not copied; use folder or ZIP import for a multi-file project.
 - External fonts, APIs, CDNs, remote assets, and network-dependent features will not work.
 - TyranoScript, Ren'Py, KiriKiri, and other engine-specific formats remain unsupported even when their markers are detected.
 - There is no Android-to-JavaScript bridge, native save integration, download handling, gamepad layer, engine-specific full-screen/orientation policy, or advanced browser extension support.
@@ -31,7 +32,7 @@ JavaScript and DOM storage are enabled because the local fixture needs dialogue 
 
 ## Device acceptance checklist
 
-1. Import `testdata/html5-demo` using **Choose folder** or package the fixture as a ZIP and import it.
+1. Import `testdata/html5-demo` using **Choose folder** or package the fixture as a ZIP and import it. For a standalone page, use **HTML file** and select a `.html`/`.htm` file.
 2. Confirm the library labels it `HTML5 (ограниченная поддержка)` and shows **Запустить**.
 3. Launch it and confirm the first dialogue, continuation, choices, and distinct endings work.
 4. Save progress, restart the story, load the saved point, close the player, and relaunch to verify the save remains.

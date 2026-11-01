@@ -48,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
@@ -74,7 +75,7 @@ fun RamenApp() {
     }
     var isImporting by remember { mutableStateOf(false) }
     var statusMessage by remember {
-        mutableStateOf("Добавь ZIP-архив или выбери папку с визуальной новеллой.")
+        mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
     }
 
     val executor = remember { Executors.newSingleThreadExecutor() }
@@ -152,6 +153,21 @@ fun RamenApp() {
         }
     }
 
+    val htmlFilePicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) {
+            statusMessage = "Импорт HTML отменён."
+        } else {
+            enqueueImport(
+                uri = uri,
+                progressMessage = "Копирую выбранный HTML-файл…"
+            ) { selectedUri ->
+                HtmlFileImporter(context.applicationContext).import(selectedUri)
+            }
+        }
+    }
+
     val folderPicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocumentTree()
     ) { uri ->
@@ -200,6 +216,14 @@ fun RamenApp() {
         }
     }
 
+    val onImportHtmlClick: () -> Unit = {
+        if (!isImporting) {
+            // Some providers label .html as text/plain or octet-stream,
+            // so accept the selection broadly and validate it in HtmlFileImporter.
+            htmlFilePicker.launch(arrayOf("*/*"))
+        }
+    }
+
     val colors = darkColorScheme(
         primary = RamenAccent,
         onPrimary = Color(0xFF2B1D0A),
@@ -234,7 +258,8 @@ fun RamenApp() {
                         EmptyLibraryCard(
                             isImporting = isImporting,
                             onImportClick = onImportClick,
-                            onImportFolderClick = onImportFolderClick
+                            onImportFolderClick = onImportFolderClick,
+                            onImportHtmlClick = onImportHtmlClick
                         )
                     }
                 } else {
@@ -243,7 +268,8 @@ fun RamenApp() {
                             gameCount = games.size,
                             isImporting = isImporting,
                             onImportClick = onImportClick,
-                            onImportFolderClick = onImportFolderClick
+                            onImportFolderClick = onImportFolderClick,
+                            onImportHtmlClick = onImportHtmlClick
                         )
                     }
                     item { SectionHeading("ТВОЯ БИБЛИОТЕКА") }
@@ -329,7 +355,8 @@ private fun BrandHeader() {
 private fun EmptyLibraryCard(
     isImporting: Boolean,
     onImportClick: () -> Unit,
-    onImportFolderClick: () -> Unit
+    onImportFolderClick: () -> Unit,
+    onImportHtmlClick: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -358,7 +385,7 @@ private fun EmptyLibraryCard(
             )
 
             Text(
-                text = "Добавь ZIP-архив или выбери папку. Ramen скопирует игру в приватное хранилище телефона и попробует определить движок.",
+                text = "Добавь ZIP, отдельный HTML-файл или выбери папку целиком. Для игры с CSS, JavaScript, изображениями и звуком лучше импортировать всю папку.",
                 color = RamenMuted,
                 fontSize = 14.sp,
                 lineHeight = 21.sp
@@ -426,6 +453,15 @@ private fun EmptyLibraryCard(
                     Text("Выбрать папку")
                 }
             }
+
+            OutlinedButton(
+                onClick = onImportHtmlClick,
+                enabled = !isImporting,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp)
+            ) {
+                Text("HTML-файл (только одна страница)")
+            }
         }
     }
 }
@@ -435,7 +471,8 @@ private fun LibrarySummaryCard(
     gameCount: Int,
     isImporting: Boolean,
     onImportClick: () -> Unit,
-    onImportFolderClick: () -> Unit
+    onImportFolderClick: () -> Unit,
+    onImportHtmlClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -486,6 +523,15 @@ private fun LibrarySummaryCard(
                 ) {
                     Text("Папка")
                 }
+            }
+
+            OutlinedButton(
+                onClick = onImportHtmlClick,
+                enabled = !isImporting,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(13.dp)
+            ) {
+                Text("HTML-файл")
             }
         }
     }
