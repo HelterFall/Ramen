@@ -2,7 +2,7 @@
 
 **Ramen** is an Android-first player and library for visual novels. The goal is to make one focused app that can identify, organize, and run visual novels through engine-specific runtime adapters.
 
-> **Project status:** Android application scaffold in progress. The library UI shell exists; no game engine is supported yet.
+> **Project status:** Android scaffold is in `main`; ZIP import and engine-marker detection are under review in `feature/zip-import`. No playback runtime is supported yet.
 
 ## Product idea
 
@@ -16,7 +16,9 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - Dark first-run library screen.
 - Version-pinned Gradle Wrapper with distribution checksum verification.
 - GitHub Actions workflow for debug build, unit tests, lint, and APK artifact upload.
-- No broad storage permissions and no game runtime integrations yet.
+- User-selected ZIP import into app-private storage, with extraction limits and path-traversal checks (feature branch under review).
+- Initial engine-marker detection that clearly distinguishes detection from playability.
+- No broad storage permissions and no playback runtime integrations yet.
 
 ## Initial MVP
 
@@ -56,6 +58,7 @@ These are starting decisions, not a claim that every engine can be embedded thro
 - [Engine compatibility](docs/ENGINE_COMPATIBILITY.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Android build setup](docs/BUILD_SETUP.md)
+- [ZIP import security and behavior](docs/ZIP_IMPORT.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Build
