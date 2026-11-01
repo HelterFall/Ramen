@@ -257,9 +257,7 @@ class HtmlInlineResourceExtractor(
             }
 
             val isWhitespace = character == ' ' ||
-                character == '\\t' ||
-                character == '\\r' ||
-                character == '\\n'
+                character.code == 9 || character.code == 13 || character.code == 10
             val isBase64 = character in 'A'..'Z' ||
                 character in 'a'..'z' ||
                 character in '0'..'9' ||
