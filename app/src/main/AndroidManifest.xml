@@ -9,7 +9,8 @@
 
         <activity
             android:name=".runtime.html5.Html5PlayerActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden" />
 
         <activity
             android:name=".MainActivity"
