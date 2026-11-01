@@ -1,0 +1,77 @@
+package io.github.helterfall.ramen.importer
+
+import java.io.File
+import java.nio.file.Files
+import org.junit.Assert.assertEquals
+import org.junit.Test
+
+class VisualNovelDetectorTest {
+    @Test
+    fun detectsHtmlEntryPointAsCandidateNotSupportedRuntime() {
+        val root = Files.createTempDirectory("ramen-html-detect").toFile()
+
+        try {
+            File(root, "index.html").writeText("<html></html>")
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("html5", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun detectsTyranoMarker() {
+        val root = Files.createTempDirectory("ramen-tyrano-detect").toFile()
+
+        try {
+            File(root, "index.html").writeText("<html></html>")
+            val marker = File(root, "tyrano/tyrano.js")
+            marker.parentFile?.mkdirs()
+            marker.writeText("// original fixture marker")
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("tyranoscript", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun detectsRenpyScript() {
+        val root = Files.createTempDirectory("ramen-renpy-detect").toFile()
+        val gameFolder = File(root, "game")
+
+        try {
+            gameFolder.mkdirs()
+            File(gameFolder, "script.rpy").writeText("label start:")
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("renpy", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun unknownContentStaysUnknown() {
+        val root = Files.createTempDirectory("ramen-unknown-detect").toFile()
+
+        try {
+            File(root, "readme.txt").writeText("not an engine marker")
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("unknown", result.engineId)
+            assertEquals("UNKNOWN", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+}
