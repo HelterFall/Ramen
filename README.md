@@ -14,8 +14,8 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 
 - Kotlin and Jetpack Compose Android app shell.
 - Dark first-run library screen.
-- Version-pinned Gradle configuration.
-- GitHub Actions workflow for debug build, unit tests, and lint.
+- Version-pinned Gradle Wrapper with distribution checksum verification.
+- GitHub Actions workflow for debug build, unit tests, lint, and APK artifact upload.
 - No broad storage permissions and no game runtime integrations yet.
 
 ## Initial MVP
@@ -60,7 +60,7 @@ These are starting decisions, not a claim that every engine can be embedded thro
 
 ## Build
 
-See [Android Build Setup](docs/BUILD_SETUP.md) for the pinned toolchain and local build commands.
+Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](docs/BUILD_SETUP.md) for the pinned toolchain and local build commands.
 
 ## Current next step
 
