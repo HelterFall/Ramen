@@ -296,8 +296,16 @@ private fun createRestrictedWebView(
         override fun shouldInterceptRequest(
             view: WebView,
             request: WebResourceRequest
-        ): WebResourceResponse {
+        ): WebResourceResponse? {
             val url = request.url
+
+            // Embedded images and audio use data: URIs inside some standalone HTML games.
+            // Let WebView decode these document-contained resources itself; this does not
+            // enable network access. All other non-appassets schemes remain blocked below.
+            if (url.scheme.equals("data", ignoreCase = true)) {
+                return null
+            }
+
             if (!isAllowedGameUrl(url)) {
                 return blockedResponse()
             }
