@@ -369,7 +369,6 @@ private fun createRestrictedWebView(
                                         ' bg=' + style.backgroundColor +
                                         (style.backgroundImage !== 'none' ? '+image' : '');
                                 };
-                                const menuRect = menu && menu.getBoundingClientRect();
                                 const playRect = play && play.getBoundingClientRect();
                                 const hitAtPlay = playRect && playRect.width > 0 && playRect.height > 0
                                     ? document.elementFromPoint(
@@ -392,12 +391,12 @@ private fun createRestrictedWebView(
                                         ' hit=' + (hitAtPlay ? hitAtPlay.tagName.toLowerCase() +
                                             (hitAtPlay.id ? '#' + hitAtPlay.id : '') +
                                             (hitAtPlay.className && typeof hitAtPlay.className === 'string'
-                                                ? '.' + hitAtPlay.className.trim().replace(/\\s+/g, '.')
+                                                ? '.' + hitAtPlay.className.trim().replace(/\s+/g, '.')
                                                 : '') : 'none'),
                                     'stage ' + describe(stage) +
                                         ' sceneCount=' + (data ? (JSON.parse(data.textContent).scene || []).length : 'no-data'),
                                     'body ' + describe(body)
-                                ].join('\\n');
+                                ].join('\n');
                             })();
                             """.trimIndent(),
                             { result ->
