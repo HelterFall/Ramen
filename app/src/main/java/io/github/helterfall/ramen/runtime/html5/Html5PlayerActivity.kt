@@ -22,7 +22,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -271,16 +274,24 @@ private fun Html5PlayerScreen(
                 )
             }
 
-            Text(
-                text = "WebView $webViewVersion\n$runtimeNotice\n$nativeLayout",
+            // Keep the diagnostics panel at a fixed size from the first composition.
+            // Expanding it after onPageFinished would shrink AndroidView after navigation,
+            // while the HTML page could retain its previous CSS viewport dimensions.
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .height(124.dp)
                     .background(Color(0xFF1A1E25))
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
-                color = Color(0xFFA8ADB7),
-                fontSize = 9.sp,
-                lineHeight = 11.sp
-            )
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 12.dp, vertical = 7.dp)
+            ) {
+                Text(
+                    text = "WebView $webViewVersion\n$runtimeNotice\n$nativeLayout",
+                    color = Color(0xFFA8ADB7),
+                    fontSize = 9.sp,
+                    lineHeight = 11.sp
+                )
+            }
         }
     }
 }
@@ -468,7 +479,29 @@ private fun createRestrictedWebView(
     }
 
     var initialLoadStarted = false
+    var previousWidth = 0
+    var previousHeight = 0
     webView.addOnLayoutChangeListener { view, _, _, _, _, _, _, _, _ ->
+        val dimensionsChanged = previousWidth != 0 &&
+            (view.width != previousWidth || view.height != previousHeight)
+        previousWidth = view.width
+        previousHeight = view.height
+
+        if (dimensionsChanged && initialLoadStarted) {
+            // Compose can resize AndroidView when its surrounding layout changes.
+            // Notify the document so fixed/dvh-based game layouts are recalculated.
+            view.post {
+                if (view.width > 0 && view.height > 0) {
+                    view.requestLayout()
+                    view.invalidate()
+                    webView.evaluateJavascript(
+                        "window.dispatchEvent(new Event('resize'));",
+                        null
+                    )
+                }
+            }
+        }
+
         val visibleRect = Rect()
         val isGloballyVisible = view.getGlobalVisibleRect(visibleRect)
         val location = IntArray(2)
