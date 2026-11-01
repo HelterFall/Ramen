@@ -156,6 +156,8 @@ fun RamenApp() {
     ) { uri ->
         if (uri == null) {
             statusMessage = "Выбор папки отменён."
+        } else if (isImporting) {
+            statusMessage = "Дождись окончания текущего импорта."
         } else {
             val permissionTaken = runCatching {
                 context.contentResolver.takePersistableUriPermission(
