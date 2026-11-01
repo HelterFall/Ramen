@@ -492,8 +492,8 @@ private fun createRestrictedWebView(
                     "${"%.0f".format(view.height / density)}dp; загружаю HTML."
             )
             view.post {
-                if (view.width > 0 && view.height > 0) {
-                    view.loadUrl(ENTRY_POINT_URL)
+                if (webView.width > 0 && webView.height > 0) {
+                    webView.loadUrl(ENTRY_POINT_URL)
                 } else {
                     initialLoadStarted = false
                 }
