@@ -399,10 +399,30 @@ private fun createRestrictedWebView(
                                     : null;
                                 const root = document.documentElement;
                                 const body = document.body;
+
+                                // A high-contrast DOM marker distinguishes a WebView compositor
+                                // failure from page-specific CSS/layout problems.
+                                let probe = document.getElementById('ramen-render-probe');
+                                if (!probe) {
+                                    probe = document.createElement('div');
+                                    probe.id = 'ramen-render-probe';
+                                    probe.textContent = 'RAMEN WEBVIEW RENDER TEST';
+                                    probe.style.cssText =
+                                        'position:fixed!important;top:12px!important;left:12px!important;' +
+                                        'z-index:2147483647!important;display:block!important;' +
+                                        'padding:14px!important;background:#ff00ff!important;color:#ffffff!important;' +
+                                        'font: bold 18px sans-serif!important;opacity:1!important;' +
+                                        'visibility:visible!important;pointer-events:none!important;';
+                                    body.appendChild(probe);
+                                }
+                                const visual = window.visualViewport;
                                 return [
                                     'DOM ' + window.innerWidth + 'x' + window.innerHeight +
                                         ' doc=' + root.clientWidth + 'x' + root.clientHeight +
-                                        ' dpr=' + window.devicePixelRatio,
+                                        ' dpr=' + window.devicePixelRatio +
+                                        ' visual=' + (visual ? Math.round(visual.width) + 'x' +
+                                            Math.round(visual.height) + '@' + Math.round(visual.scale) : 'none') +
+                                        ' screen=' + window.screen.width + 'x' + window.screen.height,
                                     'menu hidden=' + (menu ? menu.hidden : 'missing') +
                                         ' children=' + (menu ? menu.children.length : 0) +
                                         ' ' + describe(menu),
@@ -416,7 +436,8 @@ private fun createRestrictedWebView(
                                                 : '') : 'none'),
                                     'stage ' + describe(stage) +
                                         ' gameDataChars=' + (data ? data.textContent.length : 'missing'),
-                                    'body ' + describe(body)
+                                    'body ' + describe(body) +
+                                        ' probe=' + describe(probe)
                                 ].join('\n');
                             })();
                             """.trimIndent(),
