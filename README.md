@@ -19,7 +19,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - User-selected ZIP and folder import into app-private storage, with bounded copying and path-traversal checks.
 - Initial engine-marker detection that clearly distinguishes detection from playability.
 - A restricted HTML5 WebView prototype using app-controlled local resource loading, per-game browser profiles, and an offline-only policy (under review).
-- No broad storage permissions and no playback runtime integrations yet.
+- No broad storage permissions. Other engine-specific runtime integrations are not available yet.
 
 ## Initial MVP
 
@@ -38,7 +38,7 @@ The first milestone is a reliable end-to-end path for a few test projects, not a
 - **UI:** Jetpack Compose
 - **Persistence:** Room (planned; not integrated yet)
 - **Android file access:** Storage Access Framework (planned; not integrated yet)
-- **First runtime candidate:** HTML5 content, including suitable TyranoScript exports
+- **First runtime candidate:** self-contained HTML5 projects with a root-level `index.html`; engine-specific exports such as TyranoScript remain unsupported.
 - **Native engine integrations:** evaluated separately; C/C++ and Android NDK may be appropriate for some engines
 
 These are starting decisions, not a claim that every engine can be embedded through the same interface.
@@ -62,7 +62,6 @@ These are starting decisions, not a claim that every engine can be embedded thro
 - [ZIP import security and behavior](docs/ZIP_IMPORT.md)
 - [Folder import security and behavior](docs/FOLDER_IMPORT.md)
 - [HTML5 runtime security and behavior](docs/HTML5_RUNTIME.md)
-- [ZIP import security and behavior](docs/ZIP_IMPORT.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Build
