@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="ru">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#11151b">
+    <meta name="description" content="Original HTML5 visual-novel fixture for testing the Ramen runtime.">
+    <title>Тихий свет — Ramen HTML5 fixture</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="app.js" defer></script>
+</head>
+<body>
+    <main class="app-shell">
+        <header class="topbar">
+            <div class="brand">
+                <span class="brand-mark" aria-hidden="true">R</span>
+                <span>
+                    <strong>RAMEN TEST PROJECT</strong>
+                    <small>HTML5 runtime fixture</small>
+                </span>
+            </div>
+            <span class="local-label">LOCAL ONLY</span>
+        </header>
+
+        <section class="scene-panel" aria-labelledby="scene-title">
+            <div class="scene-art" aria-hidden="true">
+                <div class="moon"></div>
+                <div class="window-frame"></div>
+                <div class="table-shape"></div>
+                <div class="character">
+                    <span class="character-hair"></span>
+                    <span class="character-face">N</span>
+                </div>
+                <span class="art-caption">A QUIET EVENING</span>
+            </div>
+
+            <div class="story-panel">
+                <div class="speaker-row">
+                    <span id="speaker" class="speaker">Рассказчик</span>
+                    <span id="scene-index" class="scene-index">SCENE 01</span>
+                </div>
+
+                <h1 id="scene-title" class="visually-hidden">Тихий свет</h1>
+                <p id="dialogue" class="dialogue" aria-live="polite">
+                    В небольшой библиотеке за окном медленно гаснут огни города.
+                </p>
+
+                <div id="choices" class="choices" hidden></div>
+
+                <div class="story-controls">
+                    <button id="continue-button" class="primary-button" type="button">
+                        Продолжить
+                    </button>
+                    <button id="restart-button" class="quiet-button" type="button">
+                        Сначала
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <section class="tools-panel" aria-label="Тестовые функции">
+            <div class="tools-heading">
+                <span>RUNTIME CHECKS</span>
+                <span>LOCAL DATA</span>
+            </div>
+            <div class="tool-buttons">
+                <button id="save-button" class="tool-button" type="button">Сохранить</button>
+                <button id="load-button" class="tool-button" type="button">Загрузить</button>
+                <button id="sound-button" class="tool-button" type="button">Проверить звук</button>
+            </div>
+            <p id="status" class="status" role="status" aria-live="polite">
+                Демонстрация готова к запуску.
+            </p>
+        </section>
+
+        <footer class="footer">
+            <span>ORIGINAL TEST CONTENT</span>
+            <span>NO EXTERNAL REQUESTS</span>
+        </footer>
+    </main>
+</body>
+</html>
