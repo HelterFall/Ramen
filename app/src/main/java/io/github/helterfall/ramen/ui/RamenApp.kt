@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
+import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
 import java.io.File
@@ -247,7 +248,11 @@ fun RamenApp() {
                     }
                     item { SectionHeading("ТВОЯ БИБЛИОТЕКА") }
                     items(games, key = { it.id }) { game ->
-                        GameCard(game)
+                        GameCard(game) {
+                            val intent = Intent(context, Html5PlayerActivity::class.java)
+                                .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
+                            context.startActivity(intent)
+                        }
                     }
                 }
 
@@ -498,7 +503,10 @@ private fun SectionHeading(text: String) {
 }
 
 @Composable
-private fun GameCard(game: GameRecord) {
+private fun GameCard(
+    game: GameRecord,
+    onLaunch: () -> Unit
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
@@ -522,10 +530,13 @@ private fun GameCard(game: GameRecord) {
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = if (game.compatibilityStatus == "UNKNOWN") {
-                    "Движок пока не определён. Запуск недоступен."
-                } else {
-                    "Движок распознан. Игровой модуль ещё не подключён."
+                text = when (game.compatibilityStatus) {
+                    "SUPPORTED_LIMITED" ->
+                        "Доступен ограниченный автономный HTML5-запуск."
+                    "UNKNOWN" ->
+                        "Движок пока не определён. Запуск недоступен."
+                    else ->
+                        "Движок распознан, но игровой модуль пока не подключён."
                 },
                 color = RamenMuted,
                 fontSize = 12.sp,
@@ -537,6 +548,19 @@ private fun GameCard(game: GameRecord) {
                 fontSize = 10.sp,
                 lineHeight = 14.sp
             )
+            if (game.compatibilityStatus == "SUPPORTED_LIMITED") {
+                Button(
+                    onClick = onLaunch,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(13.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = RamenAccent,
+                        contentColor = Color(0xFF24190B)
+                    )
+                ) {
+                    Text("Запустить", fontWeight = FontWeight.Bold)
+                }
+            }
         }
     }
 }
