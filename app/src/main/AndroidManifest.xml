@@ -17,6 +17,10 @@
             android:exported="false" />
 
         <activity
+            android:name=".runtime.scenario.ScriptScenarioPlayerActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".runtime.resources.ResourceInspectorActivity"
             android:exported="false" />
 

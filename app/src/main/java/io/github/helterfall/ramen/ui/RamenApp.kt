@@ -57,6 +57,7 @@ import io.github.helterfall.ramen.importer.VisualNovelDetector
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.scenario.ScenarioDemoActivity
+import io.github.helterfall.ramen.runtime.scenario.ScriptScenarioPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
 import io.github.helterfall.ramen.inspection.DirectoryInventoryJsonWriter
@@ -102,7 +103,10 @@ fun RamenApp() {
     // was connected. Refresh only UNKNOWN records when the library screen opens.
     LaunchedEffect(Unit) {
         val unknownIds = games
-            .filter { it.engineId == "unknown" && it.compatibilityStatus == "UNKNOWN" }
+            .filter {
+                (it.engineId == "unknown" && it.compatibilityStatus == "UNKNOWN") ||
+                    it.engineId == "ramen-binary-signature"
+            }
             .map { it.id }
             .toSet()
         if (unknownIds.isNotEmpty()) {
@@ -443,8 +447,20 @@ fun RamenApp() {
                                 context.startActivity(intent)
                             },
                             onLaunch = {
-                                val intent = Intent(context, Html5PlayerActivity::class.java)
-                                    .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
+                                val intent = if (game.engineId == "ramen-script-v1") {
+                                    Intent(context, ScriptScenarioPlayerActivity::class.java)
+                                        .putExtra(
+                                            ScriptScenarioPlayerActivity.EXTRA_GAME_RELATIVE_DIRECTORY,
+                                            game.relativeDirectory
+                                        )
+                                        .putExtra(
+                                            ScriptScenarioPlayerActivity.EXTRA_GAME_TITLE,
+                                            game.title
+                                        )
+                                } else {
+                                    Intent(context, Html5PlayerActivity::class.java)
+                                        .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
+                                }
                                 context.startActivity(intent)
                             }
                         )
@@ -829,6 +845,8 @@ private fun GameCard(
             )
             Text(
                 text = when {
+                    game.engineId == "ramen-script-v1" ->
+                        "Script v1 обнаружен. Доступен запуск тестового бинарного сценария."
                     game.engineId == "ramen-binary-signature" ->
                         "Статус: Detected. Просмотр ресурсов доступен; запуск игры пока не поддерживается."
                     game.compatibilityStatus == "SUPPORTED_LIMITED" ->
@@ -864,7 +882,9 @@ private fun GameCard(
             ) {
                 Text("Сохранить отчёт (JSON)")
             }
-            if (game.compatibilityStatus == "SUPPORTED_LIMITED") {
+            if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
+                game.engineId == "ramen-script-v1"
+            ) {
                 Button(
                     onClick = onLaunch,
                     enabled = actionsEnabled,
@@ -875,7 +895,11 @@ private fun GameCard(
                         contentColor = Color(0xFF24190B)
                     )
                 ) {
-                    Text("Запустить", fontWeight = FontWeight.Bold)
+                    Text(
+                        if (game.engineId == "ramen-script-v1") "Запустить Script v1"
+                        else "Запустить",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
