@@ -22,7 +22,8 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - A read-only binary inspector for PE/ELF and common file signatures, including standard PE32/PE32+ imported DLL names.
 - A bounded deterministic directory inventory with per-file size, SHA-256 fingerprint, binary metadata, and explicit scan/hash limits.
 - A streaming, versioned JSON writer for inventory reports; a user-facing export/share screen is still pending.
-- Bounded, read-only parsers for the observed paired GPK/GTB image and VPK/VTB audio resource archives, plus fixed-buffer streaming of individual payload ranges; decoding and game playback are not implemented. Android image decoding now uses a bounded BitmapFactory adapter, and Ogg payloads can be staged in a size-limited app cache file for a media API.
+- Bounded, read-only parsers for the observed paired GPK/GTB image and VPK/VTB audio resource archives, plus fixed-buffer streaming of individual payload ranges.
+- A resource inspector screen can open matching archive pairs, browse image/audio metadata, preview GPK images through a bounded Android BitmapFactory decoder, and play selected Ogg resources through Android MediaPlayer with basic play/pause/stop controls. Selected archives are copied to app-private cache with a 512 MiB per-file cap.
 - No broad storage permissions. Native/proprietary engine runtime integrations are not available yet.
 
 ## Initial MVP
@@ -78,7 +79,7 @@ Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](doc
 
 ## Current next step
 
-Add an Android media-player lifecycle around the cached Ogg file and validate image/audio behavior on Android devices. The inventory save/share flow and positional access for user-selected sources remain pending. Image decoding and Ogg cache staging are APIs only; there is no game playback or engine runtime yet. Do not claim compatibility from filenames alone and do not add third-party game assets to the repository.
+Validate the resource inspector on physical Android devices, including image rendering and Ogg playback across supported Android versions. Add a polished resource-browser experience and improve playback controls after device testing. The inventory save/share flow and positional access for user-selected sources remain pending. This inspector previews individual assets; it is not a game runtime and does not execute the original Windows engine. Do not claim compatibility from filenames alone and do not add third-party game assets to the repository.
 
 ## Naming
 
