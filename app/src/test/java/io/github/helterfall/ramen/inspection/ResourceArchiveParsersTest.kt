@@ -91,6 +91,46 @@ class ResourceArchiveParsersTest {
     }
 
     @Test
+    fun parsesDibOnlyBmpAndRecoversAStaleFileHeaderOffset() {
+        val dibOnlyPayload = createDibOnlyBmp1x1()
+        val dibOnlyBlock = ByteArray(64) { (it + 1).toByte() } + dibOnlyPayload
+
+        val staleFileHeaderPayload = createBmp1x1().also { bytes ->
+            // The 40-byte DIB header and pixel rows are still intact; these
+            // two BITMAPFILEHEADER fields are stale in the observed variant.
+            putU32(bytes, 2, 0L)
+            putU32(bytes, 10, 0L)
+        }
+        val staleFileHeaderBlock = createGpkBlock("BMP", staleFileHeaderPayload)
+        val index = createGtbIndex(
+            names = listOf("dib-only", "stale-file-header"),
+            blockSizes = listOf(dibOnlyBlock.size, staleFileHeaderBlock.size)
+        )
+
+        withSources(index, dibOnlyBlock + staleFileHeaderBlock) { indexSource, archiveSource ->
+            val parsed = GpkGtbArchiveParser().parse(indexSource, archiveSource)
+
+            assertEquals(2, parsed.entries.size)
+            val dibOnly = parsed.entries[0]
+            assertEquals(GpkImageFormat.BMP, dibOnly.format)
+            assertEquals(1, dibOnly.widthPixels)
+            assertEquals(1, dibOnly.heightPixels)
+            assertEquals(40L, dibOnly.bmpPixelDataOffsetBytes)
+            assertEquals(24, dibOnly.bmpBitsPerPixel)
+            assertEquals(0L, dibOnly.bmpCompression)
+            assertEquals(false, dibOnly.bmpTopDown)
+
+            val recovered = parsed.entries[1]
+            assertEquals(GpkImageFormat.BMP, recovered.format)
+            assertEquals(1, recovered.widthPixels)
+            assertEquals(1, recovered.heightPixels)
+            assertEquals(54L, recovered.bmpPixelDataOffsetBytes)
+            assertEquals(24, recovered.bmpBitsPerPixel)
+            assertEquals(0L, recovered.bmpCompression)
+        }
+    }
+
+    @Test
     fun keepsGpkEntriesReadableWithShiftJisAndMalformedNameBytes() {
         val firstPayload = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x01)
         val secondPayload = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x02)
@@ -336,6 +376,22 @@ class ResourceArchiveParsersTest {
             0x01, 0x11, 0x00, // component id, sampling, quantization table
             0xFF.toByte(), 0xD9.toByte()
         )
+
+    private fun createDibOnlyBmp1x1(): ByteArray {
+        val bytes = ByteArray(44)
+        putU32(bytes, 0, 40)
+        putU32(bytes, 4, 1)
+        putU32(bytes, 8, 1)
+        putU16(bytes, 12, 1)
+        putU16(bytes, 14, 24)
+        putU32(bytes, 16, 0)
+        putU32(bytes, 20, 4)
+        bytes[40] = 0x20
+        bytes[41] = 0x40
+        bytes[42] = 0x60
+        bytes[43] = 0
+        return bytes
+    }
 
     private fun createBmp1x1(): ByteArray {
         val bytes = ByteArray(58)
