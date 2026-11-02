@@ -25,7 +25,7 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Connect the random-access source to the PE binary inspector.
 - [x] Add streaming, versioned JSON serialization for inventory reports.
 - [ ] Add a user-facing save/share flow for inspection results.
-- [ ] Add bounded streaming of individual resource payload ranges returned by the proprietary archive parsers.
+- [x] Add bounded fixed-buffer streaming for individual resource payload ranges returned by the proprietary archive parsers.
 - [ ] Add a positional source implementation for Android Storage Access Framework documents where supported.
 
 ## M0 — Project foundation
