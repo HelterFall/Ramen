@@ -142,6 +142,9 @@ Make the binary inventory portable and comparable without requiring the original
 - Added tests for PE metadata serialization, null/unavailable values, escaping, and output-stream ownership.
 - Added a separate schema document and updated README, roadmap, engine research, and format registry.
 
+### CI follow-up
+- The first CI run compiled the app but failed three JSON writer tests because the quote-emission helper did not write the quote character correctly. The implementation now writes the `"` code point explicitly; the tests remain strict about complete JSON keys and escaping. A follow-up run is required.
+
 ### Limits
 - The writer is a serialization component only; the app does not yet expose a save/share UI.
 - Schema version is currently 1. Breaking field or semantic changes require an explicit versioning decision.
