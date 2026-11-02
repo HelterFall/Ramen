@@ -12,10 +12,13 @@ The work must remain engine-agnostic until the evidence supports a specific adap
 ## What has been implemented
 
 - `BinaryArtifactInspector` performs bounded, read-only inspection of common binary signatures.
-- PE inspection reads the DOS header's PE offset, validates the PE signature, and reports the COFF machine type, optional-header kind, section count, and DLL flag.
+- PE inspection reads the DOS header's PE offset, validates the PE signature, and reports the COFF machine type, optional-header kind, section count, and DLL flag. A bounded PE32/PE32+ import-directory parser also reports imported DLL names.
 - Known signatures include PE, ELF, ZIP, RIFF, Ogg, PNG, and JPEG.
 - `ContainerFormatRegistry` separates verified signature-backed formats from extension-only observations.
-- Unit tests cover PE32/x86, PE32+/ARM64 DLL metadata, ZIP/Ogg signatures, unknown extensions, malformed MZ input, and evidence-level separation.
+- Unit tests cover PE32/x86, PE32+/ARM64 DLL metadata, PE32/PE32+ import tables, invalid import RVAs, ZIP/Ogg signatures, unknown extensions, malformed MZ input, and evidence-level separation.
+- Added `ReadOnlyRandomAccessSource` with a positional `FileChannel` implementation.
+- Added incremental SHA-256 fingerprinting with a fixed-size buffer.
+- Added a container-probe contract with explicit `MATCH`, `NO_MATCH`, and `MALFORMED` results and a fixed-signature probe.
 
 ## Evidence from the initial directory listing
 
@@ -33,7 +36,7 @@ The repository therefore records the extension families as **unverified observat
 ## Research workflow
 
 1. **Inventory without execution.** Record filenames, sizes, directory relationships, hashes, and byte signatures. Do not launch imported executables during inspection.
-2. **Inspect executable metadata.** Identify PE/ELF architecture and headers; later add a bounded PE import-table reader, version-resource metadata, and dependency graph.
+2. **Inspect executable metadata.** Identify PE/ELF architecture and headers. The bounded PE import-directory reader is implemented; version-resource metadata, delay-load imports, and a transitive dependency graph remain future work.
 3. **Identify containers by bytes.** Record magic bytes, header fields, endianness, declared lengths, index offsets, compression markers, and checksums only when visible and validated.
 4. **Model relationships as hypotheses.** Keep observations separate from confirmed structure. A pair of extensions does not prove an index/data relationship.
 5. **Build neutral fixtures.** Use tiny original or appropriately licensed sample files to test parsers and malformed-input handling.
