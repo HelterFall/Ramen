@@ -16,7 +16,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - Dark first-run library screen.
 - Version-pinned Gradle Wrapper with distribution checksum verification.
 - GitHub Actions workflow for debug build, unit tests, lint, and APK artifact upload.
-- User-selected ZIP and folder import into app-private storage, with bounded copying and path-traversal checks; bounded standalone HTML file import is under review.
+- User-selected ZIP and folder import into app-private storage, with bounded copying and path-traversal checks; standalone HTML file import, including extraction of supported embedded media.
 - Initial engine-marker detection that clearly distinguishes detection from playability.
 - A restricted HTML5 WebView runtime using app-controlled local resource loading, per-game browser profiles, and an offline-only policy.
 - A read-only binary inspector for PE/ELF and common file signatures, plus an evidence-aware container-format registry.
