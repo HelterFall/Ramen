@@ -4,7 +4,7 @@
 
 > **Project status:** Android library, safe import, a restricted HTML5 runtime, read-only binary inspection, bounded resource previews, and an experimental engine-neutral scenario runtime are implemented as prototypes. A complete metadata-only inventory has been recorded for one representative directory. No proprietary Windows engine runtime is currently supported.
 
-A validated synthetic Script v1 or IF PACKT v1 signature is displayed as **Обнаружен тестовый движок v1**. A Script v1 file can be opened in the experimental binary scenario player; IF PACKT-only folders remain inspection-only. This is not support for a proprietary engine or arbitrary legacy SPT dialect. GTB labels are best-effort Shift-JIS metadata; opaque labels fall back to stable identifiers while image payload ranges remain independently validated.
+A recognized Script magic or IF PACKT marker is displayed as **Обнаружен кастомный движок v1**, even when its body does not match Ramen's synthetic test format. Only a Script v1 file that fully validates against Ramen's own format is eligible for the experimental binary scenario player; marker-only or proprietary layouts remain Detected and inspection-only. This is not support for an arbitrary legacy SPT dialect. GTB labels are best-effort Shift-JIS metadata; opaque labels fall back to stable identifiers while image payload ranges remain independently validated.
 
 ## Product idea
 
@@ -19,7 +19,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - Version-pinned Gradle Wrapper with distribution checksum verification.
 - GitHub Actions workflow for debug build, unit tests, lint, and APK artifact upload.
 - User-selected ZIP and folder imports stream into app-private storage with path-traversal checks and live free-space protection; there is no fixed per-file size ceiling. Standalone HTML file import also supports extraction of recognized embedded media.
-- Import-time bounded binary probing for the documented Script v1 and IF PACKT v1 fixtures, shown in the library as detected-but-not-launchable; resource inspection remains available.
+- Import-time bounded probing for Script and IF PACKT signatures. A recognized marker is shown as Detected even if the synthetic Ramen body parser cannot validate it; only a fully validated Ramen Script v1 file is offered to the experimental test player. Resource inspection remains available.
 - A restricted HTML5 WebView runtime using app-controlled local resource loading, per-game browser profiles, and an offline-only policy.
 - A read-only binary inspector for PE/ELF and common file signatures, including standard PE32/PE32+ imported DLL names.
 - A bounded deterministic directory inventory with per-file size, SHA-256 fingerprint, binary metadata, and explicit scan/hash limits.
