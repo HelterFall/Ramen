@@ -365,7 +365,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                     ResourcePairKind.IMAGES -> {
                         val parsed = FileRandomAccessSource(firstFile).use { archive ->
                             FileRandomAccessSource(secondFile).use { index ->
-                                GpkGtbArchiveParser(archiveXorKey = OBSERVED_GPK_XOR_KEY).parse(index, archive)
+                                GpkGtbArchiveParser().parse(index, archive)
                             }
                         }
                         if (parsed.entries.isEmpty()) {
