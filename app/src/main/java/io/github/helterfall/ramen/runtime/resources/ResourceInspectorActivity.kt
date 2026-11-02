@@ -66,8 +66,6 @@ import java.util.Locale
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
 
-private const val OBSERVED_GPK_XOR_KEY = 0x10
-
 private const val MAX_VISIBLE_PAIR_CHOICES = 6
 
 private val InspectorBackground = Color(0xFF101216)
@@ -258,7 +256,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                     ResourcePairKind.IMAGES -> {
                         val parsed = FileRandomAccessSource(pair.archiveFile).use { archive ->
                             FileRandomAccessSource(pair.indexFile).use { index ->
-                                GpkGtbArchiveParser(archiveXorKey = OBSERVED_GPK_XOR_KEY).parse(index, archive)
+                                GpkGtbArchiveParser().parse(index, archive)
                             }
                         }
                         if (parsed.entries.isEmpty()) {
