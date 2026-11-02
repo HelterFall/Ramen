@@ -18,7 +18,7 @@ Evidence must only move forward when new bytes, documentation, or repeatable tes
 
 | ID | Signature / marker | Current inspector result | Notes |
 |---|---|---|---|
-| PE image | `MZ` followed by PE signature at the DOS header offset | Machine, PE32/PE32+, section count, DLL flag | Header inspection only; import-table parsing is not implemented yet. |
+| PE image | `MZ` followed by PE signature at the DOS header offset | Machine, PE32/PE32+, section count, DLL flag, standard imported DLL names | Bounded PE32/PE32+ import-directory parsing is implemented; delay-load imports and transitive resolution are not. |
 | ELF image | `7F 45 4C 46` | ELF signature | ELF header fields are not parsed yet. |
 | ZIP | `PK 03 04`, `PK 05 06`, or `PK 07 08` | ZIP container | This signature probe does not replace the bounded ZIP extractor. |
 | RIFF | `RIFF` | RIFF container | RIFF subtype is not yet inspected. |
@@ -66,4 +66,4 @@ Future probes should return an explicit result rather than a boolean:
 - `NO_MATCH`: the bytes do not match this format.
 - `MALFORMED`: the signature matches or partially matches, but a structural invariant is invalid.
 
-A probe must not allocate based only on an untrusted declared length. All offset arithmetic must be overflow-safe and checked against the available source length. Unknown formats must remain inspectable without being executed.
+A probe must not allocate based only on an untrusted declared length. All offset arithmetic must be overflow-safe and checked against the available source length. Unknown formats must remain inspectable without being executed. The current `FixedSignatureProbe` validates only a magic value; it does not claim that the complete container structure is valid.
