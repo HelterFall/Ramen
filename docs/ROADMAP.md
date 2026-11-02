@@ -2,6 +2,23 @@
 
 The roadmap is milestone-based. Dates are intentionally omitted until the first prototype reveals the actual scope.
 
+## Current research track — Native and proprietary engines
+
+The current direction is to build reusable inspection infrastructure before selecting or promising another native runtime. See [Engine Research](ENGINE_RESEARCH.md), [Format Registry](FORMAT_REGISTRY.md), and the chronological [Development Log](DEVELOPMENT_LOG.md).
+
+### M1.5 — Binary inspection foundation
+- [x] Add bounded, read-only PE header inspection.
+- [x] Recognize initial common signatures (PE, ELF, ZIP, RIFF, Ogg, PNG, JPEG).
+- [x] Separate verified format signatures from extension-only observations.
+- [x] Add tests and a durable evidence / handoff log.
+- [ ] Parse PE import tables and report dependencies.
+- [ ] Add incremental SHA-256 file inventory.
+- [ ] Add a generic read-only random-access source abstraction.
+- [ ] Add container-probe contracts with `MATCH`, `NO_MATCH`, and `MALFORMED` outcomes.
+- [ ] Create small synthetic fixtures for parser bounds and malformed headers.
+
+**Exit condition:** Ramen can produce a reproducible, read-only inventory of executable metadata and known file signatures, while unknown proprietary formats remain explicitly unknown.
+
 ## M0 — Project foundation
 - [ ] Agree on product scope and Android-first target.
 - [ ] Choose a project licence after considering intended distribution and future runtime licences.
@@ -43,7 +60,8 @@ The roadmap is milestone-based. Dates are intentionally omitted until the first 
 - [ ] Evaluate TyranoScript projects.
 - [ ] Produce a Ren'Py integration feasibility report.
 - [ ] Produce a KiriKiri integration feasibility and licence report.
-- [ ] Select the next engine based on demand, feasibility, maintenance, and licence fit.
+- [ ] Research native/proprietary engine families using the binary inspection foundation.
+- [ ] Select each runtime target based on format evidence, technical feasibility, maintenance, and licence fit.
 
 **Exit condition:** the next engine has a documented technical plan before implementation begins.
 
