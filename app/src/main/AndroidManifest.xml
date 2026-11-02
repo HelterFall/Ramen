@@ -13,6 +13,10 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
 
         <activity
+            android:name=".runtime.scenario.ScenarioDemoActivity"
+            android:exported="false" />
+
+        <activity
             android:name=".runtime.resources.ResourceInspectorActivity"
             android:exported="false" />
 

@@ -54,6 +54,7 @@ import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
+import io.github.helterfall.ramen.runtime.scenario.ScenarioDemoActivity
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
 import io.github.helterfall.ramen.inspection.DirectoryInventoryJsonWriter
@@ -340,6 +341,13 @@ fun RamenApp() {
                         )
                     }
                 }
+                item {
+                    ScenarioRuntimeShortcut {
+                        context.startActivity(
+                            Intent(context, ScenarioDemoActivity::class.java)
+                        )
+                    }
+                }
 
                 if (games.isEmpty()) {
                     item {
@@ -434,6 +442,47 @@ private fun ResourceInspectorShortcut(onClick: () -> Unit) {
             }
             Text(
                 text = "ОТКРЫТЬ  ›",
+                color = RamenAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun ScenarioRuntimeShortcut(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp)),
+        color = RamenSurface,
+        shape = RoundedCornerShape(17.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onClick)
+                .padding(horizontal = 15.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "СЦЕНАРНЫЙ RUNTIME — ПРОТОТИП",
+                    color = RamenAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.7.sp
+                )
+                Text(
+                    text = "Сцены, реплики, ветвления и сохранение на собственной демо-истории",
+                    color = RamenText,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+            }
+            Text(
+                text = "ИГРАТЬ  ›",
                 color = RamenAccent,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold
