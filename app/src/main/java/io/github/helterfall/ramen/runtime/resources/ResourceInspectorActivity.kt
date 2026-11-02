@@ -63,6 +63,8 @@ import java.util.Locale
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
 
+private const val MAX_VISIBLE_PAIR_CHOICES = 6
+
 private val InspectorBackground = Color(0xFF101216)
 private val InspectorSurface = Color(0xFF1A1E25)
 private val InspectorRaised = Color(0xFF222832)
@@ -699,7 +701,6 @@ class ResourceInspectorActivity : ComponentActivity() {
 
         private const val COPY_BUFFER_BYTES = 64 * 1024
         private const val MAX_ARCHIVE_COPY_BYTES = 512L * 1024L * 1024L
-        private const val MAX_VISIBLE_PAIR_CHOICES = 6
     }
 }
 
