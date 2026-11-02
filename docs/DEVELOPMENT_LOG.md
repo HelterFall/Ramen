@@ -227,3 +227,25 @@ Use the supplied paired archive samples to move two extension families from file
 - Removed the 512 MiB standalone HTML copy limit and the fixed 512 MiB per-resource, 512 MiB total-resource, and encoded-data-URI limits. HTML copying, rewritten HTML, and extracted base64 assets now use the same streaming storage guard.
 - Added unit coverage showing that writes above the former 512 MiB threshold are accepted when storage is available, and rejected when they would consume the protected reserve.
 - This changes import/storage capacity, not runtime compatibility: a successfully imported game still needs a compatible engine/runtime before it can launch.
+
+
+## 2026-11-02 — Storage-aware imports, build fix, and file-format catalogue
+
+### Validation
+- GitHub Actions run [41412579423](https://github.com/HelterFall/Ramen/actions/runs/41412579423) completed successfully on commit `a57565c64c8fe02bbabf98f4d92c3398a49c21e4`.
+- The successful run covers the Android CI workflow after fixing the VTB parser's local byte constant and importing `StorageGuardedOutputStream` into the resource inspector.
+
+### Documentation refresh
+- Updated the README with the six supplied sample files and a concise distinction between detected signatures, parsed archive pairs, and the one sample-only XTX observation.
+- Updated the format registry to describe the VPK cache's storage-aware streaming accurately; it no longer claims a fixed 256 MiB resource cap.
+- Added an explicit list of still-unclassified file roles. No extension or file layout is claimed without a representative byte sample.
+- Updated the roadmap to prioritize a full, read-only directory inventory before expanding the parser catalogue.
+
+### Current limits
+- The six inspected samples are not a full game-directory inventory.
+- The JSON inventory writer exists, but the app does not yet provide a user-facing save/share flow.
+- Physical-device image and audio validation remains outstanding.
+- The GPK/GTB and VPK/VTB tools preview individual resources; they do not implement the original engine or run a complete game.
+
+### Next step
+Create and review a complete read-only inventory report from a representative game folder. Use that report to decide which unknown file roles are important enough to investigate, and keep unverified formats explicitly unknown.

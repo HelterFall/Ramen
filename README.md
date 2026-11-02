@@ -16,7 +16,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - Dark first-run library screen.
 - Version-pinned Gradle Wrapper with distribution checksum verification.
 - GitHub Actions workflow for debug build, unit tests, lint, and APK artifact upload.
-- User-selected ZIP and folder import into app-private storage, with bounded copying and path-traversal checks; standalone HTML file import, including extraction of supported embedded media.
+- User-selected ZIP and folder imports stream into app-private storage with path-traversal checks and live free-space protection; there is no fixed per-file size ceiling. Standalone HTML file import also supports extraction of recognized embedded media.
 - Initial engine-marker detection that clearly distinguishes detection from playability.
 - A restricted HTML5 WebView runtime using app-controlled local resource loading, per-game browser profiles, and an offline-only policy.
 - A read-only binary inspector for PE/ELF and common file signatures, including standard PE32/PE32+ imported DLL names.
@@ -25,6 +25,22 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - Bounded, read-only parsers for the observed paired GPK/GTB image and VPK/VTB audio resource archives, plus fixed-buffer streaming of individual payload ranges.
 - A resource inspector screen can open matching archive pairs, browse image/audio metadata, preview GPK images through a bounded Android BitmapFactory decoder, and play selected Ogg resources through Android MediaPlayer with basic play/pause/stop controls. Selected archives are copied to app-private cache with storage-aware streaming and no fixed per-file size cap.
 - No broad storage permissions. Native/proprietary engine runtime integrations are not available yet.
+
+## File types and current evidence
+
+The current research is based on six supplied sample files. The table below separates what has actually been inspected from what Ramen can do with it.
+
+| File family | What the samples show | Ramen status |
+|---|---|---|
+| `.exe` / PE | `gss.exe` is a 32-bit x86 PE executable. Its import table names Ogg/Vorbis and Windows multimedia/DirectDraw libraries. | Read-only PE metadata and standard imported-library names; the executable is never launched. |
+| `.dll` dependencies | DLL names appear in the executable's import table; the individual library files were not part of the inspected sample set. | Dependency names only. No DLL loading or compatibility claim. |
+| `.gtb` + `.gpk` | A paired index and image archive containing JPEG and BMP payloads. | Bounded parser, resource list, and image preview are implemented. |
+| `.vtb` + `.vpk` | A paired index and audio archive whose observed payloads are Ogg streams. | Bounded parser, resource list, and foreground audio preview are implemented. |
+| `.xtx` | One `codecerror.xtx` sample is CRLF-delimited key/value text for an error-window configuration. | Sample-level observation only; other files with this extension are not assumed to share the same layout. |
+
+The generic inspector also recognizes PE, ELF, ZIP, RIFF, Ogg, PNG, and JPEG signatures. A signature match is not the same as a full parser.
+
+**Still to inventory:** the complete game folder may contain scenario/control data, save data, fonts, video, tables, and additional media. These categories have not been established from the supplied byte samples, so the project does not yet claim specific extensions or support for them. See the [format registry](docs/FORMAT_REGISTRY.md) for evidence and limitations.
 
 ## Initial MVP
 
@@ -79,7 +95,9 @@ Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](doc
 
 ## Current next step
 
-Validate the resource inspector on physical Android devices, including image rendering and Ogg playback across supported Android versions. Add a polished resource-browser experience and improve playback controls after device testing. The inventory save/share flow and positional access for user-selected sources remain pending. This inspector previews individual assets; it is not a game runtime and does not execute the original Windows engine. Do not claim compatibility from filenames alone and do not add third-party game assets to the repository.
+Build a complete, read-only inventory of a representative game folder and use it to classify the files that are not covered by the six inspected samples. Prioritize understanding the data needed for game control and lifecycle before adding more asset previews. In parallel, validate the existing image/audio inspector on physical Android devices. The inventory save/share UI and positional access for user-selected SAF documents remain pending.
+
+The current archive tools preview individual assets; they do not run the original engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
 
 ## Naming
 

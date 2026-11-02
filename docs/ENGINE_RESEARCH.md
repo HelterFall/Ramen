@@ -56,7 +56,13 @@ The supplied 535-byte `codecerror.xtx` is CRLF-delimited key/value text describi
 
 ### Executable
 
-The supplied `gss.exe` is a 626,688-byte PE32 x86 image. Its standard import table names `ogg.dll`, `vorbis.dll`, `DDRAW.dll`, `DSOUND.dll`, and `WINMM.dll`. These are declared dependencies, not proof that the executable is compatible with Android or that a complete engine has been identified.
+The supplied `gss.exe` is a 626,688-byte PE32 x86 image. Its standard import table names `ogg.dll`, `vorbis.dll`, `DDRAW.dll`, `DSOUND.dll`, and `WINMM.dll`. These are declared dependencies, not proof that the executable is compatible with Android or that a complete engine has been identified. The imported DLL files themselves were not supplied as part of the six inspected samples.
+
+### What is still unknown
+
+The sample set is not a complete game-directory inventory. It establishes the image pair, the audio pair, one configuration-text example, and one executable. It does **not** establish the filenames or byte layouts used for scenario/control data, save state, fonts, video, lookup tables, or any additional resource banks.
+
+The next step is a read-only directory census, not guesswork: record every relative path, extension hint, file size, SHA-256 where within the scan budget, and recognized byte signature. Group the results by likely role, but keep unknown files unknown until representative bytes have been inspected. The existing inventory scanner and JSON writer provide the core APIs; a user-facing export/share flow is still pending.
 
 ## Current boundaries
 
@@ -71,9 +77,10 @@ The supplied `gss.exe` is a 626,688-byte PE32 x86 image. Its standard import tab
 
 ## Next technical steps
 
-1. Exercise the resource inspector on physical Android devices; check image rendering, Ogg codec support, pause/resume, and cleanup.
-2. Add more complete playback controls only after device testing confirms the current MediaPlayer path.
-3. Determine whether the game scripts, executable behavior, and engine lifecycle can be supported without running the original Windows executable on Android.
+1. Produce a complete read-only inventory of a representative game folder and preserve the resulting report.
+2. Classify additional files by evidence and role; do not infer a parser specification from an extension or filename.
+3. Determine which non-asset data and lifecycle behavior a compatible runtime would need, and assess technical and licensing feasibility before selecting an adapter.
+4. Validate the existing image/audio preview on physical Android devices; add playback controls only after that validation.
 
 ## Decision log
 
@@ -81,3 +88,4 @@ The supplied `gss.exe` is a 626,688-byte PE32 x86 image. Its standard import tab
 - 2026-11-02: Start with executable and container inspection, not execution or emulation.
 - 2026-11-02: Record the visible extension families as unverified until sample bytes are available.
 - 2026-11-02: Promote the observed GPK/GTB and VPK/VTB pairs to implemented parser entries only after paired-index structure and payload boundaries were validated against the supplied samples.
+- 2026-11-02: Keep the README format summary limited to the six examined samples; classify other roles only after a complete directory inventory and representative byte-level evidence.

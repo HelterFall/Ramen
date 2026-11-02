@@ -62,7 +62,7 @@ The observed VTB index is a sequence of 12-byte records:
 
 Each observed VPK block consists of a 64-byte text preamble, a 44-byte RIFF/WAVE PCM-style descriptor, and an Ogg stream beginning at byte 108. The preamble itself includes the text `CUT THIS 108BYTE THEN REMAKE OGG`. The descriptor contains PCM parameters and a `data` size; that size is not used as the physical compressed Ogg block length. Physical block boundaries come from the VTB offsets.
 
-The parser checks the preamble, RIFF/WAVE fields, PCM parameters, Ogg page capture/version/lacing, serial number, sequence continuity, and BOS/EOS flags. `VpkOggCacheMaterializer` copies a selected Ogg range to a uniquely named app-cache file with a 256 MiB default resource cap. `ResourceInspectorActivity` hands that file to Android `MediaPlayer` and exposes basic play/pause/stop controls. This is asset preview only; Android codec support can vary by device and the UI has no seek bar or background playback service. The parser does not currently calculate Ogg page CRCs or decode audio itself.
+The parser checks the preamble, RIFF/WAVE fields, PCM parameters, Ogg page capture/version/lacing, serial number, sequence continuity, and BOS/EOS flags. `VpkOggCacheMaterializer` copies a selected Ogg range to a uniquely named app-cache file using storage-aware streaming; it has no fixed per-resource size ceiling and preserves a free-space reserve. `ResourceInspectorActivity` hands that file to Android `MediaPlayer` and exposes basic play/pause/stop controls. This is asset preview only; Android codec support can vary by device and the UI has no seek bar or background playback service. The parser does not currently calculate Ogg page CRCs or decode audio itself.
 
 A separate inspection of the supplied sample found 23,592 Ogg pages with valid page boundaries and matching CRCs. This sample-level check is not yet part of the app parser.
 
@@ -71,6 +71,23 @@ Implementation: `VpkVtbArchiveParser` in `ResourceArchiveParsers.kt`.
 ### XTX sample
 
 The supplied `codecerror.xtx` file (535 bytes) is readable CRLF-delimited key/value text describing one error-window configuration, including resource names, button sizes, and coordinates. This proves only that this particular sample is text configuration. Other `.xtx` files may use a different syntax or be binary, so the extension remains an observation rather than a generally parsed format.
+
+## File roles that still need inspection
+
+The six supplied samples do not provide a complete inventory of the game directory. We therefore cannot yet state which additional extensions are present or what their exact byte layouts mean.
+
+The next inventory should look for these broad roles without assuming an extension is authoritative:
+
+| Role | Why it matters | Current evidence |
+|---|---|---|
+| Scenario / control data | Determines story flow, events, choices, and engine commands; likely essential to a playable runtime. | Not established by the supplied byte samples. |
+| Configuration and metadata | May describe resolution, language, resource lists, input, or engine settings. | One XTX configuration sample only. |
+| Save / persistent state | Needed to preserve progress and restore a session. | Not inspected. |
+| Fonts and text rendering resources | Needed to reproduce the original text layout and glyph coverage. | Not inspected. |
+| Video and standalone media | May be used for openings, cut-scenes, music, or effects. | Not inspected outside the Ogg payloads inside VPK. |
+| Lookup tables and auxiliary binaries | May map IDs, flags, names, or resource references. | Not inspected. |
+
+Do not add parsers for these roles based only on filenames. First collect paths, sizes, hashes, and byte signatures from the complete directory; then inspect representative samples and record what is confirmed, unknown, or malformed.
 
 ## Other executable evidence
 
@@ -86,6 +103,8 @@ Future and existing probes use explicit outcomes where applicable:
 
 A parser must not allocate based only on an untrusted declared length. Offset arithmetic must be overflow-safe and checked against the available source length. Unknown formats remain inspectable without being executed.
 
-The GPK/GTB and VPK/VTB parsers operate on `ReadOnlyRandomAccessSource`, do not load full payloads, and return resource ranges. `ReadOnlyRangeStreamer` can copy any such range to a caller-owned output stream using a fixed-size buffer without closing or flushing it. A basic resource browser, image preview, and foreground audio-preview lifecycle now exist. No game runtime or physical-device validation has been added. No supplied proprietary game files are committed to the repository.
+The GPK/GTB and VPK/VTB parsers operate on `ReadOnlyRandomAccessSource`, do not load full payloads, and return resource ranges. `ReadOnlyRangeStreamer` can copy any such range to a caller-owned output stream using a fixed-size buffer without closing or flushing it. A basic resource browser, image preview, and foreground audio-preview lifecycle now exist. A full game runtime and physical-device validation are still pending. No supplied proprietary game files are committed to the repository.
 
-The generic directory inventory and versioned JSON export are separate APIs; see [Inventory Report JSON Schema](INVENTORY_REPORT_SCHEMA.md).
+Imports and archive staging use storage-aware streaming with a protected free-space reserve rather than arbitrary fixed per-file size ceilings. This does not make storage unlimited: operations can still stop when the destination device lacks sufficient free space.
+
+The generic directory inventory and versioned JSON export are separate APIs; the user-facing save/share flow is still pending. See [Inventory Report JSON Schema](INVENTORY_REPORT_SCHEMA.md).

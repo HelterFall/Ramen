@@ -4,7 +4,7 @@ The roadmap is milestone-based. Dates are intentionally omitted until the first 
 
 ## Current research track — Native and proprietary engines
 
-The current direction is to build reusable inspection infrastructure before selecting or promising another native runtime. See [Engine Research](ENGINE_RESEARCH.md), [Format Registry](FORMAT_REGISTRY.md), and the chronological [Development Log](DEVELOPMENT_LOG.md).
+The current direction is to build reusable inspection infrastructure before selecting or promising another native runtime. The immediate research task is to inventory the complete game folder and classify unknown file roles, not to add parsers based on extensions alone. See [Engine Research](ENGINE_RESEARCH.md), [Format Registry](FORMAT_REGISTRY.md), and the chronological [Development Log](DEVELOPMENT_LOG.md).
 
 ### M1.5 — Binary inspection foundation
 - [x] Add bounded, read-only PE header inspection.
@@ -25,8 +25,9 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Connect the random-access source to the PE binary inspector.
 - [x] Add streaming, versioned JSON serialization for inventory reports.
 - [ ] Add a user-facing save/share flow for inspection results.
+- [ ] Produce a complete read-only inventory of a representative game folder and document all observed extension/signature families, leaving unknown formats explicitly unclassified.
 - [x] Add bounded fixed-buffer streaming for individual resource payload ranges returned by the proprietary archive parsers.
-- [x] Add a bounded BitmapFactory adapter for GPK images and size-limited Ogg cache materialization for a future Android media player.
+- [x] Add a bounded BitmapFactory adapter for GPK images and storage-aware Ogg cache materialization without a fixed per-resource size cap.
 - [x] Add a resource inspector screen for browsing GPK/GTB assets and previewing images.
 - [x] Add a basic foreground MediaPlayer flow for selected Ogg resources with play/pause/stop controls.
 - [ ] Validate image rendering and Ogg playback on physical Android devices and supported OS versions.
