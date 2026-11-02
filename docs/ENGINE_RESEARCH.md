@@ -20,6 +20,7 @@ The work must remain engine-agnostic until the evidence supports a specific adap
 - Added incremental SHA-256 fingerprinting with a fixed-size buffer.
 - Added a container-probe contract with explicit `MATCH`, `NO_MATCH`, and `MALFORMED` results and a fixed-signature probe.
 - Added `DirectoryInventoryScanner`, which traverses files deterministically under file-count/depth limits and reports relative paths, sizes, SHA-256, binary metadata, and warnings.
+- Added `DirectoryInventoryJsonWriter`, a streaming UTF-8 JSON exporter with schema version 1; it preserves PE metadata, warnings, null/unavailable values, and caller ownership of the output stream.
 
 ## Evidence from the initial directory listing
 

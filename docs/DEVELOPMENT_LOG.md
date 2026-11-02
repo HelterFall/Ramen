@@ -126,3 +126,31 @@ Connect the previously separate binary inspector, random-access source, and stre
 
 ### Handoff note
 The inventory and PE parser now share the same positional read abstraction. Continue from the latest `main` and read this log before extending the parser or adding proprietary format hypotheses.
+
+
+## 2026-11-02 — Versioned JSON inventory export
+
+### Goal
+Make the binary inventory portable and comparable without requiring the original game files to be copied into the repository or attached to a chat.
+
+### Changed in this PR
+- Added `DirectoryInventoryJsonWriter` with schema version 1.
+- The writer streams UTF-8 JSON to a caller-provided `OutputStream` or `Writer`; it does not build one large intermediate JSON string.
+- Included root metadata, scan limits/truncation, per-file paths and sizes, SHA-256, signature classification, PE metadata/imported DLLs, and warnings.
+- Added JSON escaping for quotes, backslashes, line breaks, tabs, and other control characters.
+- The writer flushes but does not close the caller-owned output stream.
+- Added tests for PE metadata serialization, null/unavailable values, escaping, and output-stream ownership.
+- Added a separate schema document and updated README, roadmap, engine research, and format registry.
+
+### CI follow-up
+- The first CI run compiled the app but failed three JSON writer tests because the quote-emission helper did not write the quote character correctly. The implementation now writes the `"` code point explicitly; the tests remain strict about complete JSON keys and escaping. A follow-up run is required.
+
+### Limits
+- The writer is a serialization component only; the app does not yet expose a save/share UI.
+- Schema version is currently 1. Breaking field or semantic changes require an explicit versioning decision.
+- Reports contain local relative paths and binary metadata; callers should review them before sharing.
+
+### Next steps
+1. Add a user-facing save/share flow using the Storage Access Framework.
+2. Add a positional source implementation for SAF-selected documents where supported, or bounded staging when seeking is unavailable.
+3. Continue PE metadata coverage and container probes only where evidence supports them.

@@ -22,7 +22,8 @@ The current direction is to build reusable inspection infrastructure before sele
 ### Remaining M1.5 integration work
 - [x] Add a bounded directory inventory combining relative paths, file sizes, SHA-256 fingerprints, and binary inspection reports.
 - [x] Connect the random-access source to the PE binary inspector.
-- [ ] Add user-facing export/reporting for inspection results.
+- [x] Add streaming, versioned JSON serialization for inventory reports.
+- [ ] Add a user-facing save/share flow for inspection results.
 - [ ] Add a positional source implementation for Android Storage Access Framework documents where supported.
 
 ## M0 — Project foundation
