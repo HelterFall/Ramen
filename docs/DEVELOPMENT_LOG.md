@@ -115,11 +115,11 @@ Connect the previously separate binary inspector, random-access source, and stre
 ### Limits
 - The scanner currently operates on imported app-private `File` directories.
 - SAF/content-URI random access is not implemented; providers that cannot seek will need bounded staging to private storage.
-- There is no user-facing inventory screen or export format yet.
+- A versioned JSON exporter is now available (see [Inventory Report JSON Schema](INVENTORY_REPORT_SCHEMA.md)); there is not yet a user-facing inventory screen or save/share flow.
 - The inventory identifies common signatures and PE dependencies; it does not decode proprietary game archives.
 
 ### Next steps
-1. Add a safe read-only inventory report/export view.
+1. Add a user-facing save/share flow for the versioned JSON inventory report.
 2. Add a SAF-backed positional source where supported, with bounded private staging as a fallback.
 3. Consider PE version resources and delay-load import metadata.
 4. Add container-specific probes only when byte-level evidence supports repeatable tests.
