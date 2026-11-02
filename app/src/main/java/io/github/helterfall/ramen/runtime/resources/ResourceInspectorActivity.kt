@@ -106,6 +106,7 @@ private data class AudioInspectorState(
     val selected: VpkAudioResource? = null,
     val isBusy: Boolean = false,
     val isPlaying: Boolean = false,
+    val isReady: Boolean = false,
     val message: String = "Выбери пару VPK + VTB, чтобы прослушать ресурсы.",
     val archiveName: String? = null
 )
@@ -210,8 +211,8 @@ class ResourceInspectorActivity : ComponentActivity() {
 
                 when (kind) {
                     ResourcePairKind.IMAGES -> {
-                        val parsed = FileRandomAccessSource(secondFile).use { archive ->
-                            FileRandomAccessSource(firstFile).use { index ->
+                        val parsed = FileRandomAccessSource(firstFile).use { archive ->
+                            FileRandomAccessSource(secondFile).use { index ->
                                 GpkGtbArchiveParser().parse(index, archive)
                             }
                         }
@@ -245,8 +246,8 @@ class ResourceInspectorActivity : ComponentActivity() {
                         }
                     }
                     ResourcePairKind.AUDIO -> {
-                        val parsed = FileRandomAccessSource(secondFile).use { archive ->
-                            FileRandomAccessSource(firstFile).use { index ->
+                        val parsed = FileRandomAccessSource(firstFile).use { archive ->
+                            FileRandomAccessSource(secondFile).use { index ->
                                 VpkVtbArchiveParser().parse(index, archive)
                             }
                         }
@@ -426,6 +427,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                     selected = resource,
                     isBusy = false,
                     isPlaying = true,
+                    isReady = true,
                     message = "Воспроизводится ${resource.name}."
                 )
             }
@@ -445,6 +447,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                 audioState.value = audioState.value.copy(
                     isBusy = false,
                     isPlaying = false,
+                    isReady = false,
                     message = "Android не смог воспроизвести этот Ogg-поток (ошибка $what/$extra)."
                 )
             }
@@ -492,7 +495,8 @@ class ResourceInspectorActivity : ComponentActivity() {
         releasePlayer(deleteCache = true)
         audioState.value = audioState.value.copy(
             isBusy = false,
-            isPlaying = false
+            isPlaying = false,
+            isReady = false
         )
     }
 
@@ -824,7 +828,7 @@ private fun AudioControlPanel(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(
                     onClick = onTogglePlayback,
-                    enabled = state.selected != null && !state.isBusy,
+                    enabled = state.isReady && !state.isBusy,
                     colors = ButtonDefaults.buttonColors(containerColor = InspectorAccent)
                 ) {
                     Text(
@@ -834,7 +838,7 @@ private fun AudioControlPanel(
                 }
                 OutlinedButton(
                     onClick = onStopPlayback,
-                    enabled = state.selected != null
+                    enabled = state.isReady
                 ) {
                     Text("Стоп")
                 }
