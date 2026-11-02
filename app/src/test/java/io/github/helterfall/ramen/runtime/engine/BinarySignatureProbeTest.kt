@@ -30,6 +30,10 @@ class BinarySignatureProbeTest {
                 match.evidence.filter { it.resourceType != null }.map { it.resourceType }
             )
             assertTrue(match.evidence.all { it.relativePath != null })
+            assertFalse(
+                match.evidence.single { it.resourceType == "script" }
+                    .description.contains("did not validate")
+            )
         } finally {
             root.deleteRecursively()
         }
@@ -129,8 +133,6 @@ class BinarySignatureProbeTest {
         byteArrayOf(
             0xEB.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
             0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte(),
-            0x01, // Script version 1
-            0x01, // UTF-8 text
             0x01, // Display dialogue
             0x05, 0x00
         ) + "Hello".toByteArray(Charsets.UTF_8)
