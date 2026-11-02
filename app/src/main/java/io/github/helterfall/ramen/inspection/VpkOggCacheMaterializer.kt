@@ -2,6 +2,8 @@ package io.github.helterfall.ramen.inspection
 
 import java.io.File
 import java.io.IOException
+import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
+import io.github.helterfall.ramen.storage.StorageSpaceGuard
 
 /**
  * Copies one parsed Ogg resource into a uniquely named cache file for a media API
@@ -12,7 +14,7 @@ import java.io.IOException
  */
 class VpkOggCacheMaterializer(
     private val rangeStreamer: ReadOnlyRangeStreamer = ReadOnlyRangeStreamer(),
-    private val maxResourceBytes: Long = DEFAULT_MAX_RESOURCE_BYTES
+    private val maxResourceBytes: Long = Long.MAX_VALUE
 ) {
     init {
         require(maxResourceBytes > 0L)
@@ -41,16 +43,19 @@ class VpkOggCacheMaterializer(
 
         val cacheFile = File.createTempFile(CACHE_PREFIX, OGG_SUFFIX, cacheDirectory)
         try {
-            cacheFile.outputStream().use { output ->
-                val copied = rangeStreamer.copy(
+            val copied = StorageGuardedOutputStream(
+                delegate = cacheFile.outputStream(),
+                guard = StorageSpaceGuard(cacheDirectory)
+            ).use { output ->
+                rangeStreamer.copy(
                     source = source,
                     offset = offset,
                     length = length,
                     destination = output
                 )
-                if (copied != length || cacheFile.length() != length) {
-                    throw IOException("The cached Ogg resource is incomplete.")
-                }
+            }
+            if (copied != length || cacheFile.length() != length) {
+                throw IOException("The cached Ogg resource is incomplete.")
             }
             return cacheFile
         } catch (error: Throwable) {
@@ -60,7 +65,6 @@ class VpkOggCacheMaterializer(
     }
 
     companion object {
-        private const val DEFAULT_MAX_RESOURCE_BYTES = 256L * 1024L * 1024L
         private const val CACHE_PREFIX = "ramen-audio-"
         private const val OGG_SUFFIX = ".ogg"
     }
