@@ -11,7 +11,8 @@ import java.nio.charset.CodingErrorAction
 
 enum class GpkImageFormat {
     JPEG,
-    BMP
+    BMP,
+    PNG
 }
 
 data class GpkImageResource(
@@ -33,7 +34,15 @@ data class GpkImageResource(
     val bmpPaletteColorCount: Int? = null,
     /** True when BMP rows are stored top-to-bottom rather than bottom-to-top. */
     val bmpTopDown: Boolean? = null,
-)
+    /** Black Cyc PACKTYPE=1/3 uses zero-run decoding and previous-row XOR. */
+    val dwqPackedBmp: Boolean = false,
+    /** True when the DWQ header declares an alpha mask. */
+    val hasAlpha: Boolean = false,
+    /** Set when this individual block failed validation; other index rows remain usable. */
+    val validationError: String? = null,
+) {
+    val isValid: Boolean get() = validationError == null
+}
 
 data class GpkGtbArchive(
     val entries: List<GpkImageResource>
@@ -93,112 +102,372 @@ class GpkGtbArchiveParser {
         if (entryCount <= 0) {
             malformed("GTB signed Int32 entry count is non-positive.")
         }
-        val entryCountLong = entryCount.toLong()
-        val stringPoolOffset = UINT32_BYTES + entryCountLong * TABLES_PER_ENTRY * UINT32_BYTES
-        if (stringPoolOffset > indexSource.sizeBytes) {
-            malformed("GTB offset tables extend beyond the index file.")
+
+        val countLong = entryCount.toLong()
+        val nameTableOffset = UINT32_BYTES
+        val archiveTableOffset = UINT32_BYTES + countLong * UINT32_BYTES
+        val stringPoolOffset = archiveTableOffset + countLong * UINT32_BYTES
+
+        // This is a physical index-file bound, not an arbitrary record-count cap.
+        if (stringPoolOffset >= indexSource.sizeBytes) {
+            malformed("GTB name/offset tables extend beyond the index file.")
         }
         val stringPoolSize = indexSource.sizeBytes - stringPoolOffset
-        if (stringPoolSize <= 0L) {
-            malformed("GTB string pool is empty.")
-        }
 
-        val nameOffsets = LongArray(entryCount)
-        val archiveOffsets = LongArray(entryCount)
-        val nameTableOffset = UINT32_BYTES
-        val archiveTableOffset = UINT32_BYTES + entryCountLong * UINT32_BYTES
+        val names = HashSet<String>()
+        val entries = ArrayList<GpkImageResource>()
+        var previousArchiveOffset: Long? = null
 
         for (index in 0 until entryCount) {
-            val nameOffset = readI32(indexSource, nameTableOffset + index * UINT32_BYTES)
-            if (nameOffset < 0) {
-                malformed("GTB name offset is negative.")
-            }
-            nameOffsets[index] = nameOffset.toLong()
-            archiveOffsets[index] = readU32(indexSource, archiveTableOffset + index * UINT32_BYTES)
-        }
+            val nameOffset = readI32(
+                indexSource,
+                nameTableOffset + index.toLong() * UINT32_BYTES
+            ).toLong()
 
-        if (archiveOffsets[0] != 0L) {
-            malformed("The first GPK resource does not begin at archive offset zero.")
-        }
-
-        val names = HashSet<String>(entryCount)
-        val entries = ArrayList<GpkImageResource>(entryCount)
-        for (index in 0 until entryCount) {
-            var name = decodeName(
-                source = indexSource,
-                poolOffset = stringPoolOffset,
-                poolSize = stringPoolSize,
-                nameOffset = nameOffsets[index],
-                resourceIndex = index
+            val archiveOffset = readU32(
+                indexSource,
+                archiveTableOffset + index.toLong() * UINT32_BYTES
             )
+            val nextArchiveOffset = if (index + 1 < entryCount) {
+                readU32(
+                    indexSource,
+                    archiveTableOffset + (index + 1L) * UINT32_BYTES
+                )
+            } else {
+                archiveSource.sizeBytes
+            }
+
+            var name = try {
+                decodeName(
+                    source = indexSource,
+                    poolOffset = stringPoolOffset,
+                    poolSize = stringPoolSize,
+                    nameOffset = nameOffset,
+                    resourceIndex = index
+                )
+            } catch (_: Exception) {
+                fallbackName(index)
+            }
+
             if (!names.add(name)) {
-                // Display labels must not hide otherwise valid physical GPK blocks.
                 name = uniqueFallbackName(index, names)
                 names.add(name)
             }
 
-            val blockOffset = archiveOffsets[index]
-            val blockEnd = if (index + 1 < entryCount) {
-                archiveOffsets[index + 1]
+            val blockSize = if (nextArchiveOffset > archiveOffset) {
+                nextArchiveOffset - archiveOffset
             } else {
-                archiveSource.sizeBytes
-            }
-            if (blockOffset >= archiveSource.sizeBytes ||
-                blockEnd <= blockOffset ||
-                blockEnd > archiveSource.sizeBytes
-            ) {
-                malformed("GTB contains an invalid GPK resource range.")
-            }
-            if (index > 0 && blockOffset <= archiveOffsets[index - 1]) {
-                malformed("GPK resource offsets are not strictly increasing.")
+                0L
             }
 
-            val blockSize = blockEnd - blockOffset
-            if (blockSize < GPK_BLOCK_HEADER_BYTES) {
-                malformed("A GPK resource block is shorter than its 64-byte header.")
-            }
-            val header = ByteArray(GPK_BLOCK_HEADER_BYTES)
-            archiveSource.readFullyAt(blockOffset, header)
-            // The first 64 bytes are a fixed-size service preamble. Some game
-            // samples use the documented JPEG/BMP text header, while others use
-            // opaque engine metadata. Identify the image from the bytes after the
-            // preamble and never interpret the preamble as image payload.
-            val headerFormat = parseGpkBlockFormat(header)
-            val payloadOffset = blockOffset + GPK_BLOCK_HEADER_BYTES
-            val payloadSize = blockSize - GPK_BLOCK_HEADER_BYTES
-            val format = detectGpkPayloadFormat(
-                source = archiveSource,
-                payloadOffset = payloadOffset,
-                payloadSize = payloadSize
-            )
-            if (headerFormat != null && headerFormat != format) {
-                malformed("GPK preamble format does not match its image payload.")
+            val rangeError = when {
+                previousArchiveOffset != null && archiveOffset <= previousArchiveOffset ->
+                    "GPK offsets are not strictly increasing at index entry $index."
+                archiveOffset >= archiveSource.sizeBytes ->
+                    "GPK offset points outside the archive."
+                nextArchiveOffset <= archiveOffset ->
+                    "The next GPK offset is not greater than the current offset."
+                nextArchiveOffset > archiveSource.sizeBytes ->
+                    "The next GPK offset exceeds the archive length."
+                blockSize < GPK_BLOCK_HEADER_BYTES.toLong() ->
+                    "GPK resource block is shorter than its 64-byte DWQ header."
+                else -> null
             }
 
-            val resource = when (format) {
-                GpkImageFormat.JPEG -> parseJpegResource(
-                    source = archiveSource,
+            if (rangeError != null) {
+                entries += invalidResource(
                     name = name,
-                    header = header,
-                    headerFormat = headerFormat,
-                    blockOffset = blockOffset,
+                    blockOffset = archiveOffset,
                     blockSize = blockSize,
-                    payloadOffset = payloadOffset,
-                    payloadSize = payloadSize,
+                    archiveSize = archiveSource.sizeBytes,
+                    message = rangeError
                 )
-                GpkImageFormat.BMP -> parseBmpResource(
+                previousArchiveOffset = archiveOffset
+                continue
+            }
+
+            val parsed = try {
+                parseGpkResource(
                     source = archiveSource,
                     name = name,
-                    blockOffset = blockOffset,
+                    blockOffset = archiveOffset,
+                    blockSize = blockSize
+                )
+            } catch (error: Exception) {
+                invalidResource(
+                    name = name,
+                    blockOffset = archiveOffset,
                     blockSize = blockSize,
-                    payloadOffset = payloadOffset,
-                    payloadSize = payloadSize,
+                    archiveSize = archiveSource.sizeBytes,
+                    message = error.message ?: "The resource block is malformed."
                 )
             }
-            entries += resource
+
+            entries += parsed
+            previousArchiveOffset = archiveOffset
         }
 
         return GpkGtbArchive(entries)
+    }
+
+    private fun invalidResource(
+        name: String,
+        blockOffset: Long,
+        blockSize: Long,
+        archiveSize: Long,
+        message: String
+    ): GpkImageResource {
+        val safeBlockOffset = blockOffset.coerceIn(0L, archiveSize)
+        val safeBlockSize = minOf(
+            blockSize.coerceAtLeast(0L),
+            (archiveSize - safeBlockOffset).coerceAtLeast(0L)
+        )
+        val payloadOffset = safeBlockOffset +
+            minOf(GPK_BLOCK_HEADER_BYTES.toLong(), safeBlockSize)
+        val payloadSize = (safeBlockSize - GPK_BLOCK_HEADER_BYTES).coerceAtLeast(0L)
+
+        return GpkImageResource(
+            name = name,
+            format = GpkImageFormat.BMP,
+            blockOffset = safeBlockOffset,
+            blockSizeBytes = safeBlockSize,
+            payloadOffset = payloadOffset,
+            payloadSizeBytes = payloadSize,
+            widthPixels = 0,
+            heightPixels = 0,
+            packType = -1,
+            validationError = message
+        )
+    }
+
+    private fun parseGpkResource(
+        source: ReadOnlyRandomAccessSource,
+        name: String,
+        blockOffset: Long,
+        blockSize: Long
+    ): GpkImageResource {
+        if (blockSize < GPK_BLOCK_HEADER_BYTES.toLong()) {
+            malformed("GPK resource block is shorter than its 64-byte DWQ header.")
+        }
+
+        val header = ByteArray(GPK_BLOCK_HEADER_BYTES)
+        source.readFullyAt(blockOffset, header)
+        val payloadOffset = blockOffset + GPK_BLOCK_HEADER_BYTES
+        val availablePayloadSize = blockSize - GPK_BLOCK_HEADER_BYTES
+        val dwqHeader = parseDwqHeader(header)
+
+        if (dwqHeader != null) {
+            val declaredWidth = readU32(header, 0x24)
+            val declaredHeight = readU32(header, 0x28)
+
+            return when (dwqHeader.packType) {
+                0 -> {
+                    val bmp = parseBmpResource(
+                        source = source,
+                        name = name,
+                        blockOffset = blockOffset,
+                        blockSize = blockSize,
+                        payloadOffset = payloadOffset,
+                        payloadSize = availablePayloadSize,
+                        packType = 0,
+                        useDwqSequentialPixelOffset = true,
+                        hasAlpha = dwqHeader.hasAlpha
+                    )
+                    bmp
+                }
+
+                1 -> parsePackedBmpResource(
+                    source = source,
+                    name = name,
+                    blockOffset = blockOffset,
+                    blockSize = blockSize,
+                    payloadOffset = payloadOffset,
+                    payloadSize = availablePayloadSize,
+                    packType = 1,
+                    expectedWidth = null,
+                    expectedHeight = null,
+                    hasAlpha = dwqHeader.hasAlpha
+                )
+
+                2 -> {
+                    val packedSize = readDwqPackedSize(header, availablePayloadSize)
+                    parseBmpResource(
+                        source = source,
+                        name = name,
+                        blockOffset = blockOffset,
+                        blockSize = blockSize,
+                        payloadOffset = payloadOffset,
+                        payloadSize = packedSize,
+                        packType = 2,
+                        useDwqSequentialPixelOffset = true,
+                        expectedWidth = declaredWidth,
+                        expectedHeight = declaredHeight,
+                        hasAlpha = dwqHeader.hasAlpha
+                    )
+                }
+
+                3 -> {
+                    val packedSize = readDwqPackedSize(header, availablePayloadSize)
+                    parsePackedBmpResource(
+                        source = source,
+                        name = name,
+                        blockOffset = blockOffset,
+                        blockSize = blockSize,
+                        payloadOffset = payloadOffset,
+                        payloadSize = packedSize,
+                        packType = 3,
+                        expectedWidth = declaredWidth,
+                        expectedHeight = declaredHeight,
+                        hasAlpha = true
+                    )
+                }
+
+                5 -> parseJpegResource(
+                    source = source,
+                    name = name,
+                    header = header,
+                    headerFormat = GpkImageFormat.JPEG,
+                    blockOffset = blockOffset,
+                    blockSize = blockSize,
+                    payloadOffset = payloadOffset,
+                    payloadSize = availablePayloadSize,
+                    packType = 5,
+                    expectedWidth = declaredWidth,
+                    expectedHeight = declaredHeight,
+                    hasAlpha = dwqHeader.hasAlpha
+                )
+
+                7 -> {
+                    val packedSize = readDwqPackedSize(header, availablePayloadSize)
+                    parseJpegResource(
+                        source = source,
+                        name = name,
+                        header = header,
+                        headerFormat = GpkImageFormat.JPEG,
+                        blockOffset = blockOffset,
+                        blockSize = blockSize,
+                        payloadOffset = payloadOffset,
+                        payloadSize = packedSize,
+                        packType = 7,
+                        expectedWidth = declaredWidth,
+                        expectedHeight = declaredHeight,
+                        hasAlpha = true
+                    )
+                }
+
+                8 -> parsePngResource(
+                    source = source,
+                    name = name,
+                    blockOffset = blockOffset,
+                    blockSize = blockSize,
+                    payloadOffset = payloadOffset,
+                    payloadSize = availablePayloadSize,
+                    width = declaredWidth,
+                    height = declaredHeight,
+                    hasAlpha = dwqHeader.hasAlpha
+                )
+
+                else -> malformed("Unsupported Black Cyc DWQ PACKTYPE=${dwqHeader.packType}.")
+            }
+        }
+
+        // Retain the earlier fallback for observed opaque service preambles.
+        val headerFormat = parseGpkBlockFormat(header)
+        val format = detectGpkPayloadFormat(
+            source = source,
+            payloadOffset = payloadOffset,
+            payloadSize = availablePayloadSize
+        )
+        if (headerFormat != null && headerFormat != format) {
+            malformed("GPK preamble format does not match its image payload.")
+        }
+
+        return when (format) {
+            GpkImageFormat.JPEG -> parseJpegResource(
+                source = source,
+                name = name,
+                header = header,
+                headerFormat = headerFormat,
+                blockOffset = blockOffset,
+                blockSize = blockSize,
+                payloadOffset = payloadOffset,
+                payloadSize = availablePayloadSize,
+                packType = JPEG_PACK_TYPE_NUMBER
+            )
+            GpkImageFormat.BMP -> parseBmpResource(
+                source = source,
+                name = name,
+                blockOffset = blockOffset,
+                blockSize = blockSize,
+                payloadOffset = payloadOffset,
+                payloadSize = availablePayloadSize,
+                packType = BMP_PACK_TYPE_NUMBER
+            )
+            GpkImageFormat.PNG -> parsePngResource(
+                source = source,
+                name = name,
+                blockOffset = blockOffset,
+                blockSize = blockSize,
+                payloadOffset = payloadOffset,
+                payloadSize = availablePayloadSize,
+                width = 0L,
+                height = 0L,
+                hasAlpha = false
+            )
+        }
+    }
+
+    private data class DwqHeaderMetadata(
+        val packType: Int,
+        val hasAlpha: Boolean,
+        val specialIfHeader: Boolean
+    )
+
+    private fun parseDwqHeader(header: ByteArray): DwqHeaderMetadata? {
+        val typeText = String(header, 0x30, 0x10, ASCII).trimEnd(' ')
+        val match = PACKTYPE_PATTERN.matchEntire(typeText) ?: return null
+        val packType = match.groupValues[1].toIntOrNull()
+            ?: malformed("DWQ PACKTYPE value is outside the supported integer range.")
+        val specialIfHeader = asciiAt(header, 0, "IF PACKTYPE==")
+
+        if (specialIfHeader) {
+            if (!asciiAt(header, 0x0D, "0 ") ||
+                !asciiAt(header, 0x2C, "BMP ") ||
+                packType !in 0..1
+            ) {
+                malformed("Invalid special Black Cyc IF PACKTYPE header.")
+            }
+        } else if (packType == 1) {
+            malformed("PACKTYPE=1 requires the special IF PACKTYPE DWQ header.")
+        }
+
+        if (packType !in setOf(0, 1, 2, 3, 5, 7, 8)) {
+            malformed("Unsupported Black Cyc DWQ PACKTYPE=$packType.")
+        }
+
+        return DwqHeaderMetadata(
+            packType = packType,
+            hasAlpha = match.groupValues[2].isNotEmpty() || packType == 3 || packType == 7,
+            specialIfHeader = specialIfHeader
+        )
+    }
+
+    private fun readDwqPackedSize(header: ByteArray, availablePayloadSize: Long): Long {
+        val declaredSize = readI32(header, 0x20)
+        if (declaredSize < 0) {
+            malformed("DWQ packed image size is negative.")
+        }
+        val size = declaredSize.toLong()
+        if (size <= 0L || size > availablePayloadSize) {
+            malformed("DWQ packed image size exceeds its indexed GPK block.")
+        }
+        return size
+    }
+
+    private fun asciiAt(source: ByteArray, offset: Int, expected: String): Boolean {
+        val bytes = expected.toByteArray(ASCII)
+        if (offset < 0 || offset > source.size - bytes.size) return false
+        return bytes.indices.all { source[offset + it] == bytes[it] }
     }
 
     /**
@@ -357,9 +626,13 @@ class GpkGtbArchiveParser {
         blockOffset: Long,
         blockSize: Long,
         payloadOffset: Long,
-        payloadSize: Long
+        payloadSize: Long,
+        packType: Int,
+        expectedWidth: Long? = null,
+        expectedHeight: Long? = null,
+        hasAlpha: Boolean = false
     ): GpkImageResource {
-        if (payloadSize < JPEG_SIGNATURE.size) {
+        if (payloadSize < JPEG_SIGNATURE.size.toLong()) {
             malformed("JPEG GPK payload is too short.")
         }
         val signature = ByteArray(JPEG_SIGNATURE.size)
@@ -368,20 +641,18 @@ class GpkGtbArchiveParser {
             malformed("JPEG GPK payload does not start with the JPEG marker.")
         }
 
-        val dimensions = if (headerFormat == GpkImageFormat.JPEG) {
-            // Preserve strict validation for the known legacy preamble.
-            val declaredPayloadSize = readU32(header, 32)
-            val width = readU32(header, 36)
-            val height = readU32(header, 40)
-            if (declaredPayloadSize != payloadSize) {
-                malformed("JPEG GPK payload length does not match its block header.")
+        val dimensions = when {
+            expectedWidth != null && expectedHeight != null -> {
+                validateDimensions(expectedWidth, expectedHeight)
+                expectedWidth.toInt() to expectedHeight.toInt()
             }
-            validateDimensions(width, height)
-            width.toInt() to height.toInt()
-        } else {
-            // Opaque preambles do not expose trusted dimensions. Read the JPEG SOF
-            // marker from the image itself using a small, fixed-size prefix buffer.
-            parseJpegDimensions(source, payloadOffset, payloadSize)
+            headerFormat == GpkImageFormat.JPEG -> {
+                val width = readU32(header, 0x24)
+                val height = readU32(header, 0x28)
+                validateDimensions(width, height)
+                width.toInt() to height.toInt()
+            }
+            else -> parseJpegDimensions(source, payloadOffset, payloadSize)
         }
 
         return GpkImageResource(
@@ -393,7 +664,8 @@ class GpkGtbArchiveParser {
             payloadSizeBytes = payloadSize,
             widthPixels = dimensions.first,
             heightPixels = dimensions.second,
-            packType = JPEG_PACK_TYPE_NUMBER,
+            packType = packType,
+            hasAlpha = hasAlpha
         )
     }
 
@@ -446,7 +718,12 @@ class GpkGtbArchiveParser {
         blockOffset: Long,
         blockSize: Long,
         payloadOffset: Long,
-        payloadSize: Long
+        payloadSize: Long,
+        packType: Int,
+        useDwqSequentialPixelOffset: Boolean = false,
+        expectedWidth: Long? = null,
+        expectedHeight: Long? = null,
+        hasAlpha: Boolean = false
     ): GpkImageResource {
         if (payloadSize < BMP_INFO_HEADER_BYTES) {
             malformed("BMP GPK payload is shorter than a BITMAPINFOHEADER.")
@@ -473,17 +750,21 @@ class GpkGtbArchiveParser {
         val width = readI32(infoHeader, 4)
         val signedHeight = readI32(infoHeader, 8)
         val absoluteHeight = kotlin.math.abs(signedHeight.toLong())
-        if (width <= 0 || width > Int.MAX_VALUE ||
-            absoluteHeight <= 0L || absoluteHeight > Int.MAX_VALUE.toLong()
+        if (width <= 0 ||
+            absoluteHeight <= 0L ||
+            (expectedWidth != null && width.toLong() != expectedWidth) ||
+            (expectedHeight != null && absoluteHeight != expectedHeight)
         ) {
-            malformed("BMP dimensions are outside the accepted range.")
+            malformed("BMP dimensions are invalid or disagree with the DWQ header.")
         }
 
         val planes = readU16(infoHeader, 12)
         val bitsPerPixel = readU16(infoHeader, 14)
         val compression = readU32(infoHeader, 16)
-        if (planes != 1 || bitsPerPixel !in BMP_BITS_PER_PIXEL) {
-            malformed("BMP planes or bit depth are not recognized.")
+        if (planes != 1 || bitsPerPixel !in BMP_BITS_PER_PIXEL ||
+            (useDwqSequentialPixelOffset && bitsPerPixel !in setOf(8, 16, 24, 32))
+        ) {
+            malformed("BMP planes or bit depth are not recognized for this DWQ PACKTYPE.")
         }
 
         when (compression) {
@@ -494,7 +775,7 @@ class GpkGtbArchiveParser {
             BMP_BI_RLE4 -> if (bitsPerPixel != 4 || signedHeight < 0) {
                 malformed("BI_RLE4 requires a 4-bit bottom-up BMP.")
             }
-            else -> Unit // BitmapFactory may support other BMP compression modes.
+            else -> Unit
         }
 
         val clrUsed = readU32(infoHeader, 32)
@@ -517,10 +798,11 @@ class GpkGtbArchiveParser {
         } else {
             paletteEnd
         }
-        // The pixel array follows the DIB and, for indexed BMPs, its color table.
-        // A stale/zero BITMAPFILEHEADER offset is recoverable when this layout is
-        // otherwise unambiguous and remains within the indexed resource block.
+        // Black Cyc's ordinary DWQ BMP reader ignores bi.offBits and reads rows
+        // immediately after the 0x36-byte header and any palette. Match that
+        // behavior for PACKTYPE=0/2; keep the normal BMP offset for opaque blocks.
         val pixelDataOffset = when {
+            useDwqSequentialPixelOffset -> paletteEnd
             declaredPixelOffset >= paletteEnd &&
                 declaredPixelOffset < payloadSize -> declaredPixelOffset
             compression == BMP_BI_RGB || compression in BMP_SUPPORTED_RLE_COMPRESSION ->
@@ -529,8 +811,15 @@ class GpkGtbArchiveParser {
         }
 
         if (compression == BMP_BI_RGB) {
-            val rowBits = width.toLong() * bitsPerPixel.toLong()
-            val rowStride = ((rowBits + 31L) / 32L) * 4L
+            val pixelSize = (bitsPerPixel + 7L) / 8L
+            val rowStride = if (useDwqSequentialPixelOffset) {
+                ((width.toLong() * pixelSize + 3L) / 4L) * 4L
+            } else {
+                ((width.toLong() * bitsPerPixel.toLong() + 31L) / 32L) * 4L
+            }
+            if (rowStride <= 0L || absoluteHeight > Long.MAX_VALUE / rowStride) {
+                malformed("BMP pixel row byte count overflows the supported range.")
+            }
             val requiredPixelBytes = rowStride * absoluteHeight
             if (requiredPixelBytes > payloadSize - pixelDataOffset) {
                 malformed("BMP pixel rows extend beyond the indexed GPK payload.")
@@ -540,7 +829,7 @@ class GpkGtbArchiveParser {
                 malformed("BMP RLE image has no palette or compressed pixel data.")
             }
         } else if (pixelDataOffset >= payloadSize) {
-            malformed("BMP compressed pixel data begins outside the indexed GPK payload.")
+            malformed("BMP pixel data begins outside the indexed GPK payload.")
         }
 
         return GpkImageResource(
@@ -552,13 +841,127 @@ class GpkGtbArchiveParser {
             payloadSizeBytes = payloadSize,
             widthPixels = width,
             heightPixels = absoluteHeight.toInt(),
-            packType = BMP_PACK_TYPE_NUMBER,
+            packType = packType,
             bmpPixelDataOffsetBytes = pixelDataOffset,
             bmpBitsPerPixel = bitsPerPixel,
             bmpCompression = compression,
             bmpPaletteOffsetBytes = paletteOffset.takeIf { paletteEntries > 0 },
             bmpPaletteColorCount = paletteEntries.takeIf { paletteEntries > 0 },
             bmpTopDown = signedHeight < 0,
+            hasAlpha = hasAlpha
+        )
+    }
+
+    private fun parsePackedBmpResource(
+        source: ReadOnlyRandomAccessSource,
+        name: String,
+        blockOffset: Long,
+        blockSize: Long,
+        payloadOffset: Long,
+        payloadSize: Long,
+        packType: Int,
+        expectedWidth: Long?,
+        expectedHeight: Long?,
+        hasAlpha: Boolean
+    ): GpkImageResource {
+        if (payloadSize < BMP_HEADER_SIZE_BYTES.toLong()) {
+            malformed("Packed DWQ BMP header is truncated.")
+        }
+
+        val bmpHeader = ByteArray(BMP_HEADER_SIZE_BYTES)
+        source.readFullyAt(payloadOffset, bmpHeader)
+        val width = readI32(bmpHeader, 0x12)
+        val signedHeight = readI32(bmpHeader, 0x16)
+        val height = kotlin.math.abs(signedHeight.toLong())
+        val bitsPerPixel = readU16(bmpHeader, 0x1C)
+        if (width <= 0 || height <= 0L ||
+            (expectedWidth != null && width.toLong() != expectedWidth) ||
+            (expectedHeight != null && height != expectedHeight)
+        ) {
+            malformed("Packed DWQ BMP dimensions are invalid or disagree with its DWQ header.")
+        }
+        if (bitsPerPixel !in setOf(8, 16, 24, 32)) {
+            malformed("Packed DWQ BMP bit depth is not supported.")
+        }
+
+        val dataOffset = readU32(bmpHeader, 0x0A)
+        if (dataOffset < BMP_HEADER_SIZE_BYTES.toLong() || dataOffset > payloadSize) {
+            malformed("Packed DWQ BMP pixel offset is outside the indexed resource.")
+        }
+
+        val paletteEntries = if (bitsPerPixel == 8) {
+            val declared = readI32(bmpHeader, 0x2E)
+            val count = if (declared == 0) 256 else declared
+            if (count !in 1..256) malformed("Packed DWQ BMP palette size is invalid.")
+            val paletteEnd = BMP_HEADER_SIZE_BYTES.toLong() + count.toLong() * 4L
+            if (paletteEnd > dataOffset || paletteEnd > payloadSize) {
+                malformed("Packed DWQ BMP palette extends beyond its pixel offset.")
+            }
+            count
+        } else {
+            0
+        }
+
+        val pixelCount = width.toLong() * height
+        if (pixelCount > Int.MAX_VALUE.toLong()) {
+            malformed("Packed DWQ BMP pixel plane exceeds the JVM array range.")
+        }
+
+        return GpkImageResource(
+            name = name,
+            format = GpkImageFormat.BMP,
+            blockOffset = blockOffset,
+            blockSizeBytes = blockSize,
+            payloadOffset = payloadOffset,
+            payloadSizeBytes = payloadSize,
+            widthPixels = width,
+            heightPixels = height.toInt(),
+            packType = packType,
+            bmpPixelDataOffsetBytes = dataOffset,
+            bmpBitsPerPixel = bitsPerPixel,
+            bmpCompression = -1L,
+            bmpPaletteOffsetBytes = if (paletteEntries > 0) BMP_HEADER_SIZE_BYTES.toLong() else null,
+            bmpPaletteColorCount = paletteEntries.takeIf { it > 0 },
+            bmpTopDown = signedHeight < 0,
+            dwqPackedBmp = true,
+            hasAlpha = hasAlpha
+        )
+    }
+
+    private fun parsePngResource(
+        source: ReadOnlyRandomAccessSource,
+        name: String,
+        blockOffset: Long,
+        blockSize: Long,
+        payloadOffset: Long,
+        payloadSize: Long,
+        width: Long,
+        height: Long,
+        hasAlpha: Boolean
+    ): GpkImageResource {
+        if (payloadSize < PNG_SIGNATURE.size.toLong()) {
+            malformed("PNG GPK payload is too short.")
+        }
+        val signature = ByteArray(PNG_SIGNATURE.size)
+        source.readFullyAt(payloadOffset, signature)
+        if (!signature.contentEquals(PNG_SIGNATURE)) {
+            malformed("PNG GPK payload does not start with its PNG signature.")
+        }
+        val actualWidth = if (width == 0L) readU32(source, payloadOffset + 16L) else width
+        val actualHeight = if (height == 0L) readU32(source, payloadOffset + 20L) else height
+        validateDimensions(actualWidth, actualHeight)
+
+        return GpkImageResource(
+            name = name,
+            format = GpkImageFormat.PNG,
+            blockOffset = blockOffset,
+            blockSizeBytes = blockSize,
+            payloadOffset = payloadOffset,
+            payloadSizeBytes = payloadSize,
+            widthPixels = actualWidth.toInt(),
+            heightPixels = actualHeight.toInt(),
+            packType = 8,
+            hasAlpha = hasAlpha
         )
     }
 
@@ -585,6 +988,11 @@ class GpkGtbArchiveParser {
         private const val TABLES_PER_ENTRY = 2L
         private const val GPK_BLOCK_HEADER_BYTES = 64
         private const val GPK_TAG_BYTES = 32
+        private const val BMP_HEADER_SIZE_BYTES = 0x36
+        private val PACKTYPE_PATTERN = Regex("^PACKTYPE=([0-9]+)(A?)$")
+        private val PNG_SIGNATURE = byteArrayOf(
+            0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
+        )
         private val JPEG_START_OF_FRAME_MARKERS = setOf(
             0xC0, 0xC1, 0xC2, 0xC3,
             0xC5, 0xC6, 0xC7,

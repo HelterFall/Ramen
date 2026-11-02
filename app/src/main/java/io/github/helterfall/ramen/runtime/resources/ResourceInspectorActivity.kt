@@ -102,6 +102,12 @@ private data class ResourceArchivePair(
     val displayName: String
 )
 
+private data class InitialImagePreview(
+    val entries: List<GpkImageResource>,
+    val selected: GpkImageResource?,
+    val bitmap: Bitmap?
+)
+
 private data class ImageInspectorState(
     val entries: List<GpkImageResource> = emptyList(),
     val selected: GpkImageResource? = null,
@@ -178,6 +184,31 @@ class ResourceInspectorActivity : ComponentActivity() {
         sessionFiles.clear()
         imageState.value.bitmap?.let { bitmap -> runCatching { bitmap.recycle() } }
         super.onDestroy()
+    }
+
+    private fun decodeFirstAvailableImage(
+        archiveFile: File,
+        resources: List<GpkImageResource>
+    ): InitialImagePreview {
+        val updatedEntries = resources.toMutableList()
+
+        for (index in updatedEntries.indices) {
+            val resource = updatedEntries[index]
+            if (!resource.isValid) continue
+
+            try {
+                val bitmap = FileRandomAccessSource(archiveFile).use { source ->
+                    AndroidGpkImageDecoder().decode(source, resource)
+                }
+                return InitialImagePreview(updatedEntries, resource, bitmap)
+            } catch (error: Exception) {
+                updatedEntries[index] = resource.copy(
+                    validationError = error.message ?: "Не удалось декодировать этот ресурс."
+                )
+            }
+        }
+
+        return InitialImagePreview(updatedEntries, null, null)
     }
 
     private fun loadImagePair(uris: List<Uri>) {
@@ -259,25 +290,22 @@ class ResourceInspectorActivity : ComponentActivity() {
                             }
                         }
                         if (parsed.entries.isEmpty()) {
-                            throw IOException("В GPK/GTB не найдено изображений.")
+                            throw IOException("В GPK/GTB не найдено записей.")
                         }
-                        val initial = parsed.entries.first()
-                        val bitmap = FileRandomAccessSource(pair.archiveFile).use { source ->
-                            AndroidGpkImageDecoder().decode(source, initial)
-                        }
+                        val preview = decodeFirstAvailableImage(pair.archiveFile, parsed.entries)
 
                         runOnUiThread {
                             releaseSessionPair(imageFiles)
                             imageFiles = pair.archiveFile to pair.indexFile
                             val oldBitmap = imageState.value.bitmap
                             imageState.value = ImageInspectorState(
-                                entries = parsed.entries,
-                                selected = initial,
-                                bitmap = bitmap,
-                                message = "Найдено изображений: ${parsed.entries.size}.",
+                                entries = preview.entries,
+                                selected = preview.selected,
+                                bitmap = preview.bitmap,
+                                message = imageSummary(preview.entries),
                                 archiveName = pair.displayName
                             )
-                            if (oldBitmap != null && oldBitmap !== bitmap) {
+                            if (oldBitmap != null && oldBitmap !== preview.bitmap) {
                                 runCatching { oldBitmap.recycle() }
                             }
                         }
@@ -368,25 +396,22 @@ class ResourceInspectorActivity : ComponentActivity() {
                             }
                         }
                         if (parsed.entries.isEmpty()) {
-                            throw IOException("В GPK/GTB не найдено изображений.")
+                            throw IOException("В GPK/GTB не найдено записей.")
                         }
-                        val initial = parsed.entries.first()
-                        val bitmap = FileRandomAccessSource(firstFile).use { source ->
-                            AndroidGpkImageDecoder().decode(source, initial)
-                        }
+                        val preview = decodeFirstAvailableImage(firstFile, parsed.entries)
                         runOnUiThread {
                             releaseSessionPair(imageFiles)
                             imageFiles = firstFile to secondFile
                             copiedFiles.forEach(sessionFiles::add)
                             val oldBitmap = imageState.value.bitmap
                             imageState.value = ImageInspectorState(
-                                entries = parsed.entries,
-                                selected = initial,
-                                bitmap = bitmap,
-                                message = "Найдено изображений: ${parsed.entries.size}.",
+                                entries = preview.entries,
+                                selected = preview.selected,
+                                bitmap = preview.bitmap,
+                                message = imageSummary(preview.entries),
                                 archiveName = first.displayName.removeSuffix(".${kind.firstExtension}")
                             )
-                            if (oldBitmap != null && oldBitmap !== bitmap) {
+                            if (oldBitmap != null && oldBitmap !== preview.bitmap) {
                                 runCatching { oldBitmap.recycle() }
                             }
                         }
@@ -479,8 +504,20 @@ class ResourceInspectorActivity : ComponentActivity() {
         }
     }
 
+    private fun imageSummary(entries: List<GpkImageResource>): String {
+        val invalidCount = entries.count { !it.isValid }
+        return "Записей: ${entries.size}; доступны: ${entries.size - invalidCount}; с ошибками: $invalidCount."
+    }
+
     private fun decodeImage(resource: GpkImageResource) {
         val files = imageFiles ?: return
+        if (!resource.isValid) {
+            imageState.value = imageState.value.copy(
+                selected = resource,
+                message = resource.validationError ?: "Ресурс повреждён."
+            )
+            return
+        }
         imageState.value = imageState.value.copy(
             selected = resource,
             message = "Декодирую ${resource.name}…"
@@ -503,9 +540,20 @@ class ResourceInspectorActivity : ComponentActivity() {
                 }
             } catch (error: Exception) {
                 runOnUiThread {
+                    val failed = resource.copy(
+                        validationError = error.message ?: "Не удалось декодировать изображение."
+                    )
+                    val previous = imageState.value.bitmap
+                    if (previous != null && !previous.isRecycled) {
+                        runCatching { previous.recycle() }
+                    }
                     imageState.value = imageState.value.copy(
-                        selected = resource,
-                        message = error.message ?: "Не удалось декодировать изображение."
+                        entries = imageState.value.entries.map { entry ->
+                            if (entry.blockOffset == resource.blockOffset) failed else entry
+                        },
+                        selected = failed,
+                        bitmap = null,
+                        message = failed.validationError ?: "Не удалось декодировать изображение."
                     )
                 }
             }
@@ -894,7 +942,8 @@ private fun ResourceInspectorScreen(
                         itemsIndexed(imageState.entries, key = { _, item -> item.name }) { _, item ->
                             ResourceRow(
                                 title = item.name,
-                                subtitle = "${item.format} · ${item.widthPixels} × ${item.heightPixels} · ${formatBytes(item.payloadSizeBytes)}",
+                                subtitle = item.validationError?.let { "БИТЫЙ РЕСУРС · $it" }
+                                    ?: "${item.format} · ${item.widthPixels} × ${item.heightPixels} · ${formatBytes(item.payloadSizeBytes)}",
                                 selected = imageState.selected?.name == item.name,
                                 onClick = { onSelectImage(item) }
                             )

@@ -664,4 +664,73 @@ class ResourceArchiveParsersTest {
         destination[offset + 1] = (value ushr 8).toByte()
     }
 
+    @Test
+    fun parsesSpecialDwqPacktypeOneWithoutApplyingBmpDwordRowPadding() {
+        val bmp = ByteArray(0x36 + 3)
+        putU32(bmp, 10, 0x36)
+        putU32(bmp, 18, 1)
+        putU32(bmp, 22, 1)
+        putU16(bmp, 28, 24)
+        bmp[0x36] = 0x11
+        bmp[0x37] = 0x22
+        bmp[0x38] = 0x33
+
+        val header = ByteArray(64) { SPACE }
+        "IF PACKTYPE==".toByteArray(Charsets.US_ASCII).copyInto(header, 0)
+        "0 ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x0D)
+        "BMP ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x2C)
+        "PACKTYPE=1      ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x30)
+        val block = header + bmp
+        val index = createGtbIndex(listOf("packed-bmp"), listOf(block.size))
+
+        withSources(index, block) { idx, arc ->
+            val resource = GpkGtbArchiveParser().parse(idx, arc).entries.single()
+            assertTrue(resource.isValid)
+            assertEquals(1, resource.packType)
+            assertTrue(resource.dwqPackedBmp)
+            assertEquals(1, resource.widthPixels)
+            assertEquals(1, resource.heightPixels)
+        }
+    }
+
+    @Test
+    fun invalidGpkEntryDoesNotHideFollowingValidEntries() {
+        val validFirst = createGpkBlock("JPEG", createJpegWithSof(1, 1))
+        val broken = createGpkBlock("BMP", ByteArray(12))
+        val validLast = createGpkBlock("JPEG", createJpegWithSof(2, 2))
+        val blocks = validFirst + broken + validLast
+        val index = createGtbIndex(
+            listOf("first", "broken", "last"),
+            listOf(validFirst.size, broken.size, validLast.size)
+        )
+
+        withSources(index, blocks) { idx, arc ->
+            val entries = GpkGtbArchiveParser().parse(idx, arc).entries
+            assertEquals(3, entries.size)
+            assertTrue(entries[0].isValid)
+            assertFalse(entries[1].isValid)
+            assertTrue(entries[1].validationError!!.contains("BMP"))
+            assertTrue(entries[2].isValid)
+            assertEquals(2, entries[2].widthPixels)
+        }
+    }
+
+    @Test
+    fun gpkOffsetsAreReadAtTheUnalignedTablePositionWithoutAssumingZeroFirstOffset() {
+        val prefix = byteArrayOf(9, 8, 7)
+        val block = createGpkBlock("JPEG", createJpegWithSof(1, 1))
+        val archive = prefix + block
+        val index = createGtbIndex(listOf("prefixed"), listOf(block.size))
+        // One-entry offset table is at 0x04 + count*4 = 0x08.
+        putU32(index, 8, prefix.size.toLong())
+
+        withSources(index, archive) { idx, arc ->
+            val entry = GpkGtbArchiveParser().parse(idx, arc).entries.single()
+            assertTrue(entry.isValid)
+            assertEquals(prefix.size.toLong(), entry.blockOffset)
+            assertEquals(block.size.toLong(), entry.blockSizeBytes)
+        }
+    }
+
+
 }

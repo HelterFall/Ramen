@@ -7,6 +7,7 @@ import io.github.helterfall.ramen.inspection.GpkImageFormat
 import io.github.helterfall.ramen.inspection.GpkImageResource
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import io.github.helterfall.ramen.inspection.ReadOnlySourceRangeInputStream
+import io.github.helterfall.ramen.inspection.ResourceArchiveParsers
 import java.io.IOException
 
 /**
@@ -29,6 +30,12 @@ class AndroidGpkImageDecoder(
         source: ReadOnlyRandomAccessSource,
         resource: GpkImageResource
     ): Bitmap {
+        resource.validationError?.let { message ->
+            throw IOException("GPK resource is marked invalid: " + message)
+        }
+        if (resource.dwqPackedBmp) {
+            return decodePackedDwqBmp(source, resource)
+        }
         if (resource.payloadSizeBytes <= 0L ||
             resource.payloadOffset < 0L ||
             resource.payloadOffset > source.sizeBytes ||
@@ -36,7 +43,12 @@ class AndroidGpkImageDecoder(
         ) {
             throw IOException("Image resource range is outside the source.")
         }
-        if (resource.format != GpkImageFormat.JPEG && resource.format != GpkImageFormat.BMP) {
+        if (resource.format !in setOf(
+                GpkImageFormat.JPEG,
+                GpkImageFormat.BMP,
+                GpkImageFormat.PNG
+            )
+        ) {
             throw IOException("Unsupported GPK image format.")
         }
 
@@ -62,6 +74,52 @@ class AndroidGpkImageDecoder(
             wrapped.addSuppressed(bitmapFactoryFailure)
             throw wrapped
         }
+    }
+
+    private fun decodePackedDwqBmp(
+        source: ReadOnlyRandomAccessSource,
+        resource: GpkImageResource
+    ): Bitmap {
+        if (resource.blockSizeBytes <= 0L ||
+            resource.blockSizeBytes > Int.MAX_VALUE.toLong() ||
+            resource.blockOffset < 0L ||
+            resource.blockOffset > source.sizeBytes ||
+            resource.blockSizeBytes > source.sizeBytes - resource.blockOffset
+        ) {
+            throw IOException("Packed DWQ resource range exceeds the supported JVM buffer range.")
+        }
+
+        val entryBytes = ByteArray(resource.blockSizeBytes.toInt())
+        source.readFullyAt(resource.blockOffset, entryBytes)
+        val decoded = ResourceArchiveParsers.decodeBlackCycDwqPackedBmp(entryBytes)
+        if (decoded.packType != resource.packType ||
+            decoded.width != resource.widthPixels ||
+            decoded.height != resource.heightPixels
+        ) {
+            throw IOException("Decoded DWQ metadata disagrees with the indexed resource.")
+        }
+
+        val bitmap = try {
+            Bitmap.createBitmap(decoded.width, decoded.height, Bitmap.Config.ARGB_8888)
+        } catch (failure: RuntimeException) {
+            throw IOException("Could not allocate the decoded DWQ bitmap.", failure)
+        }
+        try {
+            bitmap.setPixels(
+                decoded.argbPixels,
+                0,
+                decoded.width,
+                0,
+                0,
+                decoded.width,
+                decoded.height
+            )
+        } catch (failure: Exception) {
+            bitmap.recycle()
+            if (failure is IOException) throw failure
+            throw IOException("Could not copy decoded DWQ pixels into the bitmap.", failure)
+        }
+        return bitmap
     }
 
     private fun decodeWithBitmapFactory(
