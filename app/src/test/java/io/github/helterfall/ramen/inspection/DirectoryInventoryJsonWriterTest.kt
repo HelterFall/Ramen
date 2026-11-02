@@ -1,8 +1,6 @@
 package io.github.helterfall.ramen.inspection
 
 import java.io.ByteArrayOutputStream
-import java.io.IOException
-import java.io.OutputStream
 import java.io.StringWriter
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
