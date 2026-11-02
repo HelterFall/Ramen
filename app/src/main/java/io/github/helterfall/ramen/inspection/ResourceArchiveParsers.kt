@@ -140,15 +140,28 @@ class GpkGtbArchiveParser(
             }
             val header = ByteArray(GPK_BLOCK_HEADER_BYTES)
             archiveSource.readFullyAt(blockOffset, header)
-            val format = parseGpkBlockFormat(header)
+            // The first 64 bytes are a fixed-size service preamble. Some game
+            // samples use the documented JPEG/BMP text header, while others use
+            // opaque engine metadata. Identify the image from the bytes after the
+            // preamble and never interpret the preamble as image payload.
+            val headerFormat = parseGpkBlockFormat(header)
             val payloadOffset = blockOffset + GPK_BLOCK_HEADER_BYTES
             val payloadSize = blockSize - GPK_BLOCK_HEADER_BYTES
+            val format = detectGpkPayloadFormat(
+                source = archiveSource,
+                payloadOffset = payloadOffset,
+                payloadSize = payloadSize
+            )
+            if (headerFormat != null && headerFormat != format) {
+                malformed("GPK preamble format does not match its image payload.")
+            }
 
             val resource = when (format) {
                 GpkImageFormat.JPEG -> parseJpegResource(
                     source = archiveSource,
                     name = name,
                     header = header,
+                    headerFormat = headerFormat,
                     blockOffset = blockOffset,
                     blockSize = blockSize,
                     payloadOffset = payloadOffset,
@@ -224,7 +237,11 @@ class GpkGtbArchiveParser(
     private fun fallbackName(resourceIndex: Int): String =
         "fallback_resource_$resourceIndex"
 
-    private fun parseGpkBlockFormat(header: ByteArray): GpkImageFormat {
+    /**
+     * Returns a format only for the known textual preamble. Unknown preambles are
+     * allowed: the payload signature at byte 64 is the authoritative image type.
+     */
+    private fun parseGpkBlockFormat(header: ByteArray): GpkImageFormat? {
         val jpegTag = "JPEG".toByteArray(ASCII)
         val bmpTag = "BMP".toByteArray(ASCII)
         return when {
@@ -242,7 +259,29 @@ class GpkGtbArchiveParser(
                 }
                 GpkImageFormat.BMP
             }
-            else -> malformed("GPK block has an unknown 64-byte header.")
+            else -> null
+        }
+    }
+
+    private fun detectGpkPayloadFormat(
+        source: ReadOnlyRandomAccessSource,
+        payloadOffset: Long,
+        payloadSize: Long
+    ): GpkImageFormat {
+        if (payloadSize < 2L) {
+            malformed("GPK image payload is too short to contain a JPEG or BMP marker.")
+        }
+        val prefix = ByteArray(minOf(3L, payloadSize).toInt())
+        source.readFullyAt(payloadOffset, prefix)
+        return when {
+            prefix.size >= JPEG_SIGNATURE.size &&
+                prefix.copyOfRange(0, JPEG_SIGNATURE.size).contentEquals(JPEG_SIGNATURE) ->
+                GpkImageFormat.JPEG
+            prefix[0] == 'B'.code.toByte() && prefix[1] == 'M'.code.toByte() ->
+                GpkImageFormat.BMP
+            else -> malformed(
+                "The bytes after the 64-byte GPK preamble are not a JPEG or BMP payload."
+            )
         }
     }
 
@@ -250,18 +289,12 @@ class GpkGtbArchiveParser(
         source: ReadOnlyRandomAccessSource,
         name: String,
         header: ByteArray,
+        headerFormat: GpkImageFormat?,
         blockOffset: Long,
         blockSize: Long,
         payloadOffset: Long,
         payloadSize: Long
     ): GpkImageResource {
-        val declaredPayloadSize = readU32(header, 32)
-        val width = readU32(header, 36)
-        val height = readU32(header, 40)
-        if (declaredPayloadSize != payloadSize) {
-            malformed("JPEG GPK payload length does not match its block header.")
-        }
-        validateDimensions(width, height)
         if (payloadSize < JPEG_SIGNATURE.size) {
             malformed("JPEG GPK payload is too short.")
         }
@@ -271,6 +304,22 @@ class GpkGtbArchiveParser(
             malformed("JPEG GPK payload does not start with the JPEG marker.")
         }
 
+        val dimensions = if (headerFormat == GpkImageFormat.JPEG) {
+            // Preserve strict validation for the known legacy preamble.
+            val declaredPayloadSize = readU32(header, 32)
+            val width = readU32(header, 36)
+            val height = readU32(header, 40)
+            if (declaredPayloadSize != payloadSize) {
+                malformed("JPEG GPK payload length does not match its block header.")
+            }
+            validateDimensions(width, height)
+            width.toInt() to height.toInt()
+        } else {
+            // Opaque preambles do not expose trusted dimensions. Read the JPEG SOF
+            // marker from the image itself using a small, fixed-size prefix buffer.
+            parseJpegDimensions(source, payloadOffset, payloadSize)
+        }
+
         return GpkImageResource(
             name = name,
             format = GpkImageFormat.JPEG,
@@ -278,9 +327,84 @@ class GpkGtbArchiveParser(
             blockSizeBytes = blockSize,
             payloadOffset = payloadOffset,
             payloadSizeBytes = payloadSize,
-            widthPixels = width.toInt(),
-            heightPixels = height.toInt(),
+            widthPixels = dimensions.first,
+            heightPixels = dimensions.second,
             packType = JPEG_PACK_TYPE_NUMBER
+        )
+    }
+
+    private fun parseJpegDimensions(
+        source: ReadOnlyRandomAccessSource,
+        payloadOffset: Long,
+        payloadSize: Long
+    ): Pair<Int, Int> {
+        val scanSize = minOf(payloadSize, MAX_JPEG_HEADER_SCAN_BYTES.toLong()).toInt()
+        if (scanSize < JPEG_SIGNATURE.size) {
+            malformed("JPEG GPK payload is too short to contain an image header.")
+        }
+        val bytes = ByteArray(scanSize)
+        source.readFullyAt(payloadOffset, bytes)
+        if (!bytes.copyOfRange(0, JPEG_SIGNATURE.size).contentEquals(JPEG_SIGNATURE)) {
+            malformed("JPEG GPK payload does not start with the JPEG marker.")
+        }
+
+        var cursor = 2
+        while (cursor < bytes.size) {
+            if (bytes[cursor] != 0xFF.toByte()) {
+                malformed("JPEG marker stream is malformed before its frame header.")
+            }
+            while (cursor < bytes.size && bytes[cursor] == 0xFF.toByte()) {
+                cursor += 1
+            }
+            if (cursor >= bytes.size) break
+
+            val marker = bytes[cursor].toInt() and 0xFF
+            cursor += 1
+            when {
+                marker == 0xD9 || marker == 0xDA -> break // EOI or SOS
+                marker == 0xD8 || marker == 0x01 || marker in 0xD0..0xD7 -> continue
+                marker == 0x00 -> malformed("JPEG contains an invalid stuffed marker before SOS.")
+                else -> {
+                    if (cursor + 2 > bytes.size) break
+                    val segmentLength =
+                        ((bytes[cursor].toInt() and 0xFF) shl 8) or
+                            (bytes[cursor + 1].toInt() and 0xFF)
+                    if (segmentLength < 2) {
+                        malformed("JPEG contains an invalid marker-segment length.")
+                    }
+                    val segmentEnd = cursor.toLong() + segmentLength.toLong()
+                    if (segmentEnd > payloadSize) {
+                        malformed("JPEG marker segment extends beyond its indexed GPK payload.")
+                    }
+
+                    if (marker in JPEG_START_OF_FRAME_MARKERS) {
+                        if (segmentLength < 8 || segmentEnd > bytes.size.toLong()) {
+                            malformed("JPEG frame header is truncated or incomplete.")
+                        }
+                        val dataOffset = cursor + 2
+                        val componentCount = bytes[dataOffset + 5].toInt() and 0xFF
+                        if (componentCount == 0 || segmentLength < 8 + componentCount * 3) {
+                            malformed("JPEG frame header has an invalid component table.")
+                        }
+                        val height =
+                            ((bytes[dataOffset + 1].toInt() and 0xFF) shl 8) or
+                                (bytes[dataOffset + 2].toInt() and 0xFF)
+                        val width =
+                            ((bytes[dataOffset + 3].toInt() and 0xFF) shl 8) or
+                                (bytes[dataOffset + 4].toInt() and 0xFF)
+                        validateDimensions(width.toLong(), height.toLong())
+                        return width to height
+                    }
+
+                    if (segmentEnd > bytes.size.toLong()) break
+                    cursor = segmentEnd.toInt()
+                }
+            }
+        }
+
+        malformed(
+            "JPEG frame dimensions were not found within the first " +
+                "$MAX_JPEG_HEADER_SCAN_BYTES bytes of the payload."
         )
     }
 
@@ -367,6 +491,13 @@ class GpkGtbArchiveParser(
         private const val TABLES_PER_ENTRY = 2L
         private const val GPK_BLOCK_HEADER_BYTES = 64
         private const val GPK_TAG_BYTES = 32
+        private const val MAX_JPEG_HEADER_SCAN_BYTES = 64 * 1024
+        private val JPEG_START_OF_FRAME_MARKERS = setOf(
+            0xC0, 0xC1, 0xC2, 0xC3,
+            0xC5, 0xC6, 0xC7,
+            0xC9, 0xCA, 0xCB,
+            0xCD, 0xCE, 0xCF
+        )
         private const val BMP_FILE_HEADER_BYTES = 14
         private const val BMP_MINIMUM_BYTES = 54L
         private const val BMP_INFO_HEADER_BYTES = 40L
