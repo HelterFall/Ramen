@@ -11,6 +11,8 @@ import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
 import java.util.Base64
+import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
+import io.github.helterfall.ramen.storage.StorageSpaceGuard
 
 /**
  * Moves supported base64 image/audio data URIs out of a standalone HTML document.
@@ -20,8 +22,8 @@ import java.util.Base64
  * inside the imported game's private directory and are served only through WebViewAssetLoader.
  */
 class HtmlInlineResourceExtractor(
-    private val maxResourceBytes: Long = MAX_RESOURCE_BYTES,
-    private val maxTotalBytes: Long = MAX_TOTAL_RESOURCE_BYTES
+    private val maxResourceBytes: Long = Long.MAX_VALUE,
+    private val maxTotalBytes: Long = Long.MAX_VALUE
 ) {
     init {
         require(maxResourceBytes > 0L)
@@ -43,7 +45,13 @@ class HtmlInlineResourceExtractor(
                 InputStreamReader(FileInputStream(htmlFile), StandardCharsets.UTF_8)
             ).use { reader ->
                 BufferedWriter(
-                    OutputStreamWriter(FileOutputStream(rewrittenFile), StandardCharsets.UTF_8)
+                    OutputStreamWriter(
+                        StorageGuardedOutputStream(
+                            delegate = FileOutputStream(rewrittenFile),
+                            guard = StorageSpaceGuard(gameDirectory)
+                        ),
+                        StandardCharsets.UTF_8
+                    )
                 ).use { writer ->
                     var insideString = false
                     var stringQuote = '\u0000'
@@ -169,12 +177,15 @@ class HtmlInlineResourceExtractor(
 
         val fileName = "inline-%04d.%s".format(index, extension)
         val targetFile = File(assetsDirectory, fileName)
-        val encodedInput = QuotedBase64InputStream(reader, quote, MAX_ENCODED_RESOURCE_BYTES)
+        val encodedInput = QuotedBase64InputStream(reader, quote, Long.MAX_VALUE)
         var writtenBytes = 0L
 
         try {
             val decodedInput = Base64.getMimeDecoder().wrap(encodedInput)
-            FileOutputStream(targetFile).use { output ->
+            StorageGuardedOutputStream(
+                delegate = FileOutputStream(targetFile),
+                guard = StorageSpaceGuard(assetsDirectory)
+            ).use { output ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 while (true) {
                     val bytesRead = decodedInput.read(buffer)
@@ -283,9 +294,6 @@ class HtmlInlineResourceExtractor(
 
     companion object {
         private const val MAX_HEADER_LENGTH = 256
-        private const val MAX_ENCODED_RESOURCE_BYTES = 512L * 1024L * 1024L
-        private const val MAX_RESOURCE_BYTES = 512L * 1024L * 1024L
-        private const val MAX_TOTAL_RESOURCE_BYTES = 512L * 1024L * 1024L
 
         private val SUPPORTED_MIME_TYPES = mapOf(
             "image/png" to "png",
