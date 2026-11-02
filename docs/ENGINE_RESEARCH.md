@@ -21,6 +21,9 @@ The work remains engine-agnostic until the evidence supports a specific adapter.
 - `GpkGtbArchiveParser` validates the observed paired image index/archive layout, JPEG and BMP block headers, and bounded resource payload ranges.
 - `VpkVtbArchiveParser` validates the observed fixed-record audio index, 108-byte VPK prefix, PCM-style descriptor, and Ogg page boundaries and sequence metadata.
 - `ReadOnlyRangeStreamer` copies a validated resource range to a caller-owned output stream with a fixed-size buffer (64 KiB by default, capped at 1 MiB). It does not close or flush the destination.
+- `ReadOnlySourceRangeInputStream` exposes one bounded range as an InputStream without owning the underlying source.
+- `AndroidGpkImageDecoder` reads image bounds before decoding and chooses an Android BitmapFactory sample size to stay within an 8-million-pixel default budget.
+- `VpkOggCacheMaterializer` stages one parsed Ogg range into a uniquely named cache file with a 256 MiB default size limit; it does not instantiate or control a media player.
 - Synthetic unit tests cover both proprietary parser families, optional terminal index sentinel handling, and malformed resource boundaries.
 
 ## Evidence from supplied samples
@@ -60,15 +63,16 @@ The supplied `gss.exe` is a 626,688-byte PE32 x86 image. Its standard import tab
 - File extensions are hints, not format detection.
 - The GPK/GTB and VPK/VTB parsers return bounded payload ranges; they do not decode images/audio or run a game.
 - Ogg page CRCs are not checked by the app parser.
+- Android image decoding and Ogg cache staging are library APIs only. No image-rendering screen, media-player lifecycle, or device playback validation has been added.
 - The supplied game samples are not stored in the repository; tests use small synthetic fixtures.
 - SAF/content-URI random access and a user-facing resource browser/export flow are not implemented.
 - A detected file format does not imply that Ramen can run the associated game.
 
 ## Next technical steps
 
-1. Connect extracted image resources to Android image decoding and decide how audio payloads should be handed to Android's media stack.
-2. Determine whether the game scripts, executable behavior, and engine lifecycle can be supported without running the original Windows executable on Android.
-3. Consider a user-facing resource inspection screen after the resource and decoding APIs are stable.
+1. Add an Android media-player lifecycle around cache-staged Ogg resources and exercise playback on physical Android devices.
+2. Add a small UI to display decoded image resources and inspect audio metadata.
+3. Determine whether the game scripts, executable behavior, and engine lifecycle can be supported without running the original Windows executable on Android.
 
 ## Decision log
 
