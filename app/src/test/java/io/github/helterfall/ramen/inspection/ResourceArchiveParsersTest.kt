@@ -3,6 +3,7 @@ package io.github.helterfall.ramen.inspection
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
+import java.nio.charset.Charset
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -48,6 +49,55 @@ class ResourceArchiveParsersTest {
             )
             assertEquals(jpegPayload.size.toLong(), copied)
             assertTrue(extractedJpeg.toByteArray().contentEquals(jpegPayload))
+        }
+    }
+
+    @Test
+    fun keepsGpkEntriesReadableWithShiftJisAndMalformedNameBytes() {
+        val firstPayload = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x01)
+        val secondPayload = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x02)
+        val firstBlock = createGpkBlock("JPEG", firstPayload)
+        val secondBlock = createGpkBlock("JPEG", secondPayload)
+        val index = createGtbIndexWithRawNames(
+            names = listOf(
+                "背景".toByteArray(Charset.forName("Shift_JIS")),
+                byteArrayOf(0x82.toByte(), 0x20, 0x81.toByte())
+            ),
+            blockSizes = listOf(firstBlock.size, secondBlock.size)
+        )
+
+        withSources(index, firstBlock + secondBlock) { indexSource, archiveSource ->
+            val parsed = GpkGtbArchiveParser().parse(indexSource, archiveSource)
+
+            assertEquals(2, parsed.entries.size)
+            assertEquals("背景", parsed.entries[0].name)
+            assertEquals("fallback_resource_1", parsed.entries[1].name)
+            assertEquals(0L, parsed.entries[0].blockOffset)
+            assertEquals(firstBlock.size.toLong(), parsed.entries[1].blockOffset)
+            assertEquals(secondPayload.size.toLong(), parsed.entries[1].payloadSizeBytes)
+
+            val extracted = ByteArray(parsed.entries[1].payloadSizeBytes.toInt())
+            archiveSource.readFullyAt(parsed.entries[1].payloadOffset, extracted)
+            assertTrue(extracted.contentEquals(secondPayload))
+        }
+    }
+
+    @Test
+    fun duplicateGtbDisplayNamesDoNotHideValidResourceBlocks() {
+        val block = createGpkBlock(
+            "JPEG",
+            byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x01)
+        )
+        val index = createGtbIndex(
+            names = listOf("duplicate", "duplicate"),
+            blockSizes = listOf(block.size, block.size)
+        )
+
+        withSources(index, block + block) { indexSource, archiveSource ->
+            val parsed = GpkGtbArchiveParser().parse(indexSource, archiveSource)
+            assertEquals(2, parsed.entries.size)
+            assertEquals("duplicate", parsed.entries[0].name)
+            assertEquals("fallback_resource_1", parsed.entries[1].name)
         }
     }
 
@@ -181,12 +231,21 @@ class ResourceArchiveParsersTest {
         }
     }
 
-    private fun createGtbIndex(names: List<String>, blockSizes: List<Int>): ByteArray {
+    private fun createGtbIndex(names: List<String>, blockSizes: List<Int>): ByteArray =
+        createGtbIndexWithRawNames(
+            names.map { it.toByteArray(Charsets.US_ASCII) },
+            blockSizes
+        )
+
+    private fun createGtbIndexWithRawNames(
+        names: List<ByteArray>,
+        blockSizes: List<Int>
+    ): ByteArray {
         require(names.isNotEmpty() && names.size == blockSizes.size)
         val pool = ByteArrayOutputStream()
         val nameOffsets = names.map { name ->
             val offset = pool.size()
-            pool.write(name.toByteArray(Charsets.US_ASCII))
+            pool.write(name)
             pool.write(0)
             offset
         }

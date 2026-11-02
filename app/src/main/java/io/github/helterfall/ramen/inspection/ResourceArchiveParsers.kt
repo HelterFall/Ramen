@@ -1,7 +1,10 @@
 package io.github.helterfall.ramen.inspection
 
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
 import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 
 enum class GpkImageFormat {
     JPEG,
@@ -108,9 +111,11 @@ class GpkGtbArchiveParser(
         val names = HashSet<String>(entryCount)
         val entries = ArrayList<GpkImageResource>(entryCount)
         for (index in 0 until entryCount) {
-            val name = decodeName(stringPool, nameOffsets[index])
+            var name = decodeName(stringPool, nameOffsets[index], index)
             if (!names.add(name)) {
-                malformed("GTB contains a duplicate resource name.")
+                // Display labels must not hide otherwise valid physical GPK blocks.
+                name = uniqueFallbackName(index, names)
+                names.add(name)
             }
 
             val blockOffset = archiveOffsets[index]
@@ -164,7 +169,12 @@ class GpkGtbArchiveParser(
         return GpkGtbArchive(entries)
     }
 
-    private fun decodeName(pool: ByteArray, offset: Long): String {
+    /**
+     * GTB names are display metadata, not physical resource locators. Decode valid
+     * Shift-JIS where possible, but do not reject a sound index because a label is opaque.
+     * The offset table and NUL/length bounds remain structural invariants.
+     */
+    private fun decodeName(pool: ByteArray, offset: Long, resourceIndex: Int): String {
         if (offset < 0L || offset >= pool.size.toLong()) {
             malformed("GTB name offset points outside the string pool.")
         }
@@ -175,17 +185,44 @@ class GpkGtbArchiveParser(
         val endLimit = minOf(pool.size, start + maxNameBytes + 1)
         var end = start
         while (end < endLimit && pool[end] != 0.toByte()) {
-            val value = pool[end].toInt() and 0xFF
-            if (value !in MIN_PRINTABLE_ASCII..MAX_PRINTABLE_ASCII) {
-                malformed("GTB resource name contains a non-printable or non-ASCII byte.")
-            }
             end += 1
         }
-        if (end == start || end >= endLimit || pool[end] != 0.toByte()) {
-            malformed("GTB resource name is empty or is not terminated within the name limit.")
+        if (end >= endLimit || pool[end] != 0.toByte()) {
+            malformed("GTB resource name is not terminated within the name limit.")
         }
-        return pool.copyOfRange(start, end).toString(ASCII)
+        if (end == start) return fallbackName(resourceIndex)
+
+        val decoded = try {
+            SHIFT_JIS.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(pool, start, end - start))
+                .toString()
+        } catch (_: CharacterCodingException) {
+            return fallbackName(resourceIndex)
+        }
+
+        return if (decoded.isBlank() || decoded.any { it.isISOControl() }) {
+            fallbackName(resourceIndex)
+        } else {
+            decoded
+        }
     }
+
+    private fun uniqueFallbackName(resourceIndex: Int, existingNames: Set<String>): String {
+        val base = fallbackName(resourceIndex)
+        if (base !in existingNames) return base
+        var suffix = 1
+        var candidate = base + "_" + suffix
+        while (candidate in existingNames) {
+            suffix += 1
+            candidate = base + "_" + suffix
+        }
+        return candidate
+    }
+
+    private fun fallbackName(resourceIndex: Int): String =
+        "fallback_resource_$resourceIndex"
 
     private fun parseGpkBlockFormat(header: ByteArray): GpkImageFormat {
         val jpegTag = "JPEG".toByteArray(ASCII)
@@ -335,9 +372,8 @@ class GpkGtbArchiveParser(
         private const val BMP_INFO_HEADER_BYTES = 40L
         private const val JPEG_PACK_TYPE_NUMBER = 5
         private const val BMP_PACK_TYPE_NUMBER = 0
-        private const val MIN_PRINTABLE_ASCII = 0x20
-        private const val MAX_PRINTABLE_ASCII = 0x7E
         private val ASCII: Charset = Charsets.US_ASCII
+        private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
         private val SPACE_BYTE = ' '.code.toByte()
         private val JPEG_SIGNATURE = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte())
         private val JPEG_PACK_TYPE = "    PACKTYPE=5      ".toByteArray(ASCII)

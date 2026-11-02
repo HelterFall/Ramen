@@ -197,3 +197,10 @@ The `BinarySignatureProbe` validates the container index after matching the eigh
 A separate test-only binary fixture is defined in docs/SCRIPT_COMMAND_FORMAT.md. ScriptCommandParser reads a single command from the stream after the Script v1 header; ScriptScenarioLoader validates the header and complete command sequence, checks jump targets against instruction boundaries, and maps the address-based program into the existing ScenarioProject model. The result can be executed by ScenarioSession, without changing the original line-oriented DSL demo.
 
 The parser supports strict UTF-8 and Shift-JIS decoding, bounded length-prefixed strings, and three explicitly synthetic opcodes. Clean EOF between records ends the program; truncated fields, unknown opcodes, invalid encodings/paths, and invalid jump targets are rejected. BinarySignatureProbe validates this structure before reporting a Script match. None of these test opcodes or header fields are a claim about a proprietary engine dialect.
+
+
+### Import-time binary fixture detection
+
+The folder and ZIP importers share `VisualNovelDetector`. It now builds a bounded `DirectoryGameSource` snapshot and invokes `BinarySignatureProbe` through `EngineAdapterRegistry` before filename/HTML heuristics. A structurally validated Script v1 or IF PACKT v1 marker maps to the explicit library state “Обнаружен тестовый движок v1” (`DETECTED_UNSUPPORTED`). The existing resource-inspector action remains available; the UI explicitly says the format is detected but not launchable. Standalone JPEG/BMP block signatures do not promote a directory to an engine match.
+
+GTB resource names are optional display labels. Valid Shift-JIS is decoded, while malformed, empty, control-containing, or duplicate labels are replaced with unique `fallback_resource_N` names. Offset tables, NUL termination limits, block ranges, image headers, and payload boundaries remain validated independently.

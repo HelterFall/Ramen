@@ -439,3 +439,18 @@ Create and review a complete read-only inventory report from a representative ga
 
 ### Validation
 - GitHub Actions validation is required before this change is considered CI-verified.
+
+
+## 2026-11-02 — Tolerant GTB labels and library probe integration
+
+### Changed
+- GTB names now decode as Shift-JIS when valid. Malformed byte sequences, empty/control-containing labels, and duplicate display names receive stable unique `fallback_resource_N` labels.
+- GTB structural checks remain strict: name offsets must stay inside the string pool and point to string starts, names must be NUL-terminated within the configured bound, and GPK block offsets, headers, dimensions, and payload sizes remain validated.
+- `VisualNovelDetector` now invokes `BinarySignatureProbe` via `EngineAdapterRegistry` over a bounded `DirectoryGameSource` during folder and ZIP import.
+- A validated Script v1 or IF PACKT v1 fixture is stored as `ramen-binary-signature` / `DETECTED_UNSUPPORTED`, with the library label “Обнаружен тестовый движок v1”. Resource inspection remains available; launching is not enabled.
+- The library card explicitly shows the Detected state. Tests cover Shift-JIS, invalid name bytes, duplicate names, both binary signatures, and graphic-signature-only non-detection.
+
+### Limits
+- Script and IF PACKT are Ramen-owned synthetic v1 fixtures, not claims of compatibility with proprietary game binaries.
+- The probe validates the supported fixture structure; matching magic with a malformed body remains a malformed candidate, not a successful engine detection.
+- Android CI covers JVM unit tests, Android compilation, and lint. Real sample-folder inspection and physical-device UI validation remain separate checks.

@@ -775,10 +775,12 @@ private fun GameCard(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = when (game.compatibilityStatus) {
-                    "SUPPORTED_LIMITED" ->
+                text = when {
+                    game.engineId == "ramen-binary-signature" ->
+                        "Статус: Detected. Просмотр ресурсов доступен; запуск игры пока не поддерживается."
+                    game.compatibilityStatus == "SUPPORTED_LIMITED" ->
                         "Доступен ограниченный автономный HTML5-запуск."
-                    "UNKNOWN" ->
+                    game.compatibilityStatus == "UNKNOWN" ->
                         "Движок пока не определён. Запуск недоступен."
                     else ->
                         "Движок распознан, но игровой модуль пока не подключён."

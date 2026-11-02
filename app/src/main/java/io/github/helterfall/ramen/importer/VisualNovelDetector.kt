@@ -1,5 +1,8 @@
 package io.github.helterfall.ramen.importer
 
+import io.github.helterfall.ramen.runtime.engine.BinarySignatureProbe
+import io.github.helterfall.ramen.runtime.engine.DirectoryGameSource
+import io.github.helterfall.ramen.runtime.engine.EngineAdapterRegistry
 import java.io.File
 
 data class GameDetection(
@@ -14,6 +17,8 @@ class VisualNovelDetector {
         if (!gameDirectory.isDirectory) {
             return unknown("The imported directory is unavailable.")
         }
+
+        detectRamenBinaryEngine(gameDirectory)?.let { return it }
 
         val files = gameDirectory
             .walkTopDown()
@@ -79,6 +84,38 @@ class VisualNovelDetector {
         return unknown("No known visual-novel engine markers were found.")
     }
 
+    /**
+     * Runs the bounded binary signature probe against an immutable imported-folder
+     * snapshot. JPEG/BMP block signatures alone do not identify an engine.
+     */
+    private fun detectRamenBinaryEngine(gameDirectory: File): GameDetection? = runCatching {
+        val source = DirectoryGameSource(
+            rootDirectory = gameDirectory,
+            sourceId = "library-detection",
+            maxFiles = MAX_SCANNED_FILES,
+            maxDepth = MAX_SCAN_DEPTH
+        )
+        val summary = EngineAdapterRegistry(listOf(BinarySignatureProbe())).probe(source)
+        val evidence = summary.matches
+            .asSequence()
+            .flatMap { it.evidence.asSequence() }
+            .filter { it.resourceType == "script" || it.resourceType == "resource-container" }
+            .toList()
+        if (evidence.isEmpty()) {
+            null
+        } else {
+            val details = evidence.take(MAX_BINARY_EVIDENCE_ITEMS).joinToString("; ") { item ->
+                (item.relativePath ?: "binary resource") + ": " + item.description
+            }
+            GameDetection(
+                engineId = BINARY_ENGINE_ID,
+                engineLabel = "Обнаружен тестовый движок v1",
+                compatibilityStatus = "DETECTED_UNSUPPORTED",
+                evidence = "BinarySignatureProbe: $details"
+            )
+        }
+    }.getOrNull()
+
     private fun unsupported(
         engineId: String,
         engineLabel: String,
@@ -100,5 +137,7 @@ class VisualNovelDetector {
     companion object {
         private const val MAX_SCAN_DEPTH = 4
         private const val MAX_SCANNED_FILES = 10_000
+        private const val MAX_BINARY_EVIDENCE_ITEMS = 8
+        private const val BINARY_ENGINE_ID = "ramen-binary-signature"
     }
 }

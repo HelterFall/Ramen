@@ -4,6 +4,8 @@
 
 > **Project status:** Android library, safe import, a restricted HTML5 runtime, read-only binary inspection, bounded resource previews, and an experimental engine-neutral scenario runtime are implemented as prototypes. A complete metadata-only inventory has been recorded for one representative directory. No proprietary Windows engine runtime is currently supported.
 
+A validated synthetic Script v1 or IF PACKT v1 signature is displayed as **Обнаружен тестовый движок v1**. This is detection only, not support for a proprietary engine or permission to launch the game. GTB labels are best-effort Shift-JIS metadata; opaque labels fall back to stable identifiers while image payload ranges remain independently validated.
+
 ## Product idea
 
 Instead of trying to emulate every kind of desktop software, Ramen focuses on one category: visual novels. The app should provide one library and one consistent mobile experience while delegating game execution to the runtime that understands each game's engine.
@@ -17,7 +19,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - Version-pinned Gradle Wrapper with distribution checksum verification.
 - GitHub Actions workflow for debug build, unit tests, lint, and APK artifact upload.
 - User-selected ZIP and folder imports stream into app-private storage with path-traversal checks and live free-space protection; there is no fixed per-file size ceiling. Standalone HTML file import also supports extraction of recognized embedded media.
-- Initial engine-marker detection that clearly distinguishes detection from playability.
+- Import-time bounded binary probing for the documented Script v1 and IF PACKT v1 fixtures, shown in the library as detected-but-not-launchable; resource inspection remains available.
 - A restricted HTML5 WebView runtime using app-controlled local resource loading, per-game browser profiles, and an offline-only policy.
 - A read-only binary inspector for PE/ELF and common file signatures, including standard PE32/PE32+ imported DLL names.
 - A bounded deterministic directory inventory with per-file size, SHA-256 fingerprint, binary metadata, and explicit scan/hash limits.
