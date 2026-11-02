@@ -4,6 +4,8 @@ import java.util.Locale
 
 enum class FormatEvidenceLevel {
     VERIFIED_SIGNATURE,
+    STRUCTURE_VALIDATED,
+    PARSER_IMPLEMENTED,
     OBSERVED_EXTENSION_ONLY
 }
 
@@ -19,8 +21,8 @@ data class ContainerFormatDefinition(
 /**
  * Central catalogue for container-format knowledge.
  *
- * An extension-only observation is never promoted to a verified format until a byte-level
- * signature or a documented parser establishes what the file actually contains.
+ * Signature recognition, parser availability, and runtime compatibility are separate
+ * evidence levels. A parser entry does not imply that Ramen can play a game using it.
  */
 object ContainerFormatRegistry {
     val verified: List<ContainerFormatDefinition> = listOf(
@@ -50,47 +52,51 @@ object ContainerFormatRegistry {
         )
     )
 
-    /**
-     * These pairs were visible in a user-provided directory listing. Their semantics,
-     * internal layout, compression, and relationship are not yet verified from file bytes.
-     */
-    val observedUnverified: List<ContainerFormatDefinition> = listOf(
+    val parsersImplemented: List<ContainerFormatDefinition> = listOf(
         ContainerFormatDefinition(
-            id = "observed-gpk-gtb",
-            label = "Unverified .gpk / .gtb file family",
+            id = "gpk-gtb",
+            label = "GPK / GTB image resources",
             extensions = setOf("gpk", "gtb"),
             signatureHex = null,
-            evidenceLevel = FormatEvidenceLevel.OBSERVED_EXTENSION_ONLY,
-            notes = "Paired extensions appeared in the same game-data directory listing. " +
-                "No binary samples have been inspected; do not infer that one file indexes the other."
+            evidenceLevel = FormatEvidenceLevel.PARSER_IMPLEMENTED,
+            notes = "Bounded paired-index parser validates the little-endian GTB tables and " +
+                "64-byte GPK block headers for JPEG and BMP payloads. It returns payload ranges; " +
+                "it does not decode images or establish game-runtime compatibility."
         ),
         ContainerFormatDefinition(
-            id = "observed-vpk-vtb",
-            label = "Unverified .vpk / .vtb file family",
+            id = "vpk-vtb",
+            label = "VPK / VTB audio resources",
             extensions = setOf("vpk", "vtb"),
             signatureHex = null,
-            evidenceLevel = FormatEvidenceLevel.OBSERVED_EXTENSION_ONLY,
-            notes = "Paired extensions appeared in the same game-data directory listing. " +
-                "Container semantics and pairing behavior are unknown."
-        ),
-        ContainerFormatDefinition(
-            id = "observed-xtx",
-            label = "Unverified .xtx files",
-            extensions = setOf("xtx"),
-            signatureHex = null,
-            evidenceLevel = FormatEvidenceLevel.OBSERVED_EXTENSION_ONLY,
-            notes = "Several .xtx filenames appeared in an initialization directory. " +
-                "Their role as scripts, configuration, indexes, or another format is unverified."
+            evidenceLevel = FormatEvidenceLevel.PARSER_IMPLEMENTED,
+            notes = "Bounded paired-index parser validates fixed 12-byte VTB records, VPK audio " +
+                "preambles, PCM-style descriptors, and Ogg page boundaries. Ogg page CRCs and " +
+                "audio decoding are not performed."
         )
     )
 
-    fun findVerifiedByExtension(extension: String): List<ContainerFormatDefinition> {
-        val normalized = extension.removePrefix(".").lowercase(Locale.ROOT)
-        return verified.filter { normalized in it.extensions }
-    }
+    /**
+     * A single supplied .xtx sample is a CRLF-delimited text key/value configuration.
+     * This observation is deliberately not generalized to every .xtx file.
+     */
+    val observedUnverified: List<ContainerFormatDefinition> = listOf(
+        ContainerFormatDefinition(
+            id = "observed-xtx",
+            label = "Observed .xtx text configuration sample",
+            extensions = setOf("xtx"),
+            signatureHex = null,
+            evidenceLevel = FormatEvidenceLevel.OBSERVED_EXTENSION_ONLY,
+            notes = "One supplied codecerror.xtx sample is readable CRLF-delimited key/value text. " +
+                "Its semantics and whether other .xtx files share this syntax are unverified."
+        )
+    )
 
-    fun findObservedByExtension(extension: String): List<ContainerFormatDefinition> {
-        val normalized = extension.removePrefix(".").lowercase()
-        return observedUnverified.filter { normalized in it.extensions }
-    }
+    fun findVerifiedByExtension(extension: String): List<ContainerFormatDefinition> =
+        verified.filter { extension.removePrefix(".").lowercase(Locale.ROOT) in it.extensions }
+
+    fun findParsedByExtension(extension: String): List<ContainerFormatDefinition> =
+        parsersImplemented.filter { extension.removePrefix(".").lowercase(Locale.ROOT) in it.extensions }
+
+    fun findObservedByExtension(extension: String): List<ContainerFormatDefinition> =
+        observedUnverified.filter { extension.removePrefix(".").lowercase(Locale.ROOT) in it.extensions }
 }
