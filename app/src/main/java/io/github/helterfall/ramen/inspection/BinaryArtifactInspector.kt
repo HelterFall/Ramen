@@ -2,7 +2,6 @@ package io.github.helterfall.ramen.inspection
 
 import java.io.File
 import java.io.IOException
-import java.io.RandomAccessFile
 import java.util.Locale
 
 enum class ArtifactKind {
@@ -59,50 +58,64 @@ class BinaryArtifactInspector(
         if (!file.isFile) {
             throw IOException("The selected artifact is not a readable file.")
         }
-
-        RandomAccessFile(file, "r").use { input ->
-            val fileSize = input.length()
-            val extension = file.extension
-                .takeIf { it.isNotBlank() }
-                ?.lowercase(Locale.ROOT)
-
-            val prefix = readBytes(input, 0L, minOf(PREFIX_LENGTH.toLong(), fileSize).toInt())
-            val prefixKind = detectPrefixKind(prefix)
-            if (prefixKind != null) {
-                return BinaryArtifactReport(
-                    fileName = file.name,
-                    fileSizeBytes = fileSize,
-                    extensionHint = extension,
-                    kind = prefixKind.first,
-                    signature = prefixKind.second,
-                    evidence = prefixKind.third
-                )
-            }
-
-            if (prefix.startsWith(MZ_SIGNATURE)) {
-                return inspectMzImage(input, file, fileSize, extension)
-            }
-
-            return BinaryArtifactReport(
-                fileName = file.name,
-                fileSizeBytes = fileSize,
-                extensionHint = extension,
-                kind = ArtifactKind.UNKNOWN,
-                signature = prefix.toHexString(),
-                evidence = "No registered binary signature matched. The extension is not used as proof of format."
-            )
+        val extension = file.extension
+            .takeIf { it.isNotBlank() }
+            ?.lowercase(Locale.ROOT)
+        return FileRandomAccessSource(file).use { source ->
+            inspect(source, file.name, extension)
         }
     }
 
+    /**
+     * Inspects an already-open positional source. The caller retains ownership and closes it.
+     */
+    @Throws(IOException::class)
+    fun inspect(
+        source: ReadOnlyRandomAccessSource,
+        fileName: String,
+        extensionHint: String? = null
+    ): BinaryArtifactReport {
+        val fileSize = source.sizeBytes
+        val extension = extensionHint
+            ?.removePrefix(".")
+            ?.takeIf { it.isNotBlank() }
+            ?.lowercase(Locale.ROOT)
+        val prefix = readBytes(source, 0L, minOf(PREFIX_LENGTH.toLong(), fileSize).toInt())
+        val prefixKind = detectPrefixKind(prefix)
+        if (prefixKind != null) {
+            return BinaryArtifactReport(
+                fileName = fileName,
+                fileSizeBytes = fileSize,
+                extensionHint = extension,
+                kind = prefixKind.first,
+                signature = prefixKind.second,
+                evidence = prefixKind.third
+            )
+        }
+
+        if (prefix.startsWith(MZ_SIGNATURE)) {
+            return inspectMzImage(source, fileName, fileSize, extension)
+        }
+
+        return BinaryArtifactReport(
+            fileName = fileName,
+            fileSizeBytes = fileSize,
+            extensionHint = extension,
+            kind = ArtifactKind.UNKNOWN,
+            signature = prefix.toHexString(),
+            evidence = "No registered binary signature matched. The extension is not used as proof of format."
+        )
+    }
+
     private fun inspectMzImage(
-        input: RandomAccessFile,
-        file: File,
+        input: ReadOnlyRandomAccessSource,
+        fileName: String,
         fileSize: Long,
         extension: String?
     ): BinaryArtifactReport {
         if (fileSize < DOS_HEADER_SIZE) {
             return report(
-                file,
+                fileName,
                 fileSize,
                 extension,
                 ArtifactKind.DOS_MZ_IMAGE,
@@ -115,7 +128,7 @@ class BinaryArtifactInspector(
         val peOffset = readU32(input, PE_OFFSET_FIELD.toLong())
         if (peOffset > maxPeHeaderOffset || peOffset > fileSize - PE_HEADER_MIN_SIZE) {
             return report(
-                file,
+                fileName,
                 fileSize,
                 extension,
                 ArtifactKind.DOS_MZ_IMAGE,
@@ -128,7 +141,7 @@ class BinaryArtifactInspector(
         val peSignature = readBytes(input, peOffset, PE_SIGNATURE.size)
         if (!peSignature.contentEquals(PE_SIGNATURE)) {
             return report(
-                file,
+                fileName,
                 fileSize,
                 extension,
                 ArtifactKind.DOS_MZ_IMAGE,
@@ -185,7 +198,7 @@ class BinaryArtifactInspector(
         val optionalLabel = metadata.optionalHeaderLabel ?: "unknown optional-header format"
 
         return report(
-            file = file,
+            fileName = fileName,
             fileSize = fileSize,
             extension = extension,
             kind = ArtifactKind.PE_IMAGE,
@@ -215,7 +228,7 @@ class BinaryArtifactInspector(
      * All RVAs are mapped through validated section headers and all loops are capped.
      */
     private fun parseImports(
-        input: RandomAccessFile,
+        input: ReadOnlyRandomAccessSource,
         fileSize: Long,
         optionalHeaderOffset: Long,
         optionalHeaderSize: Int,
@@ -385,7 +398,7 @@ class BinaryArtifactInspector(
     )
 
     private fun readAsciiCString(
-        input: RandomAccessFile,
+        input: ReadOnlyRandomAccessSource,
         offset: Long,
         fileSize: Long
     ): String? {
@@ -406,7 +419,7 @@ class BinaryArtifactInspector(
     }
 
     private fun report(
-        file: File,
+        fileName: String,
         fileSize: Long,
         extension: String?,
         kind: ArtifactKind,
@@ -415,7 +428,7 @@ class BinaryArtifactInspector(
         peMetadata: PeImageMetadata? = null,
         warnings: List<String> = emptyList()
     ) = BinaryArtifactReport(
-        fileName = file.name,
+        fileName = fileName,
         fileSizeBytes = fileSize,
         extensionHint = extension,
         kind = kind,
@@ -445,25 +458,30 @@ class BinaryArtifactInspector(
         }
     }
 
-    private fun readBytes(input: RandomAccessFile, offset: Long, count: Int): ByteArray {
-        if (count <= 0 || offset < 0 || offset > input.length() - count) {
+    private fun readBytes(
+        source: ReadOnlyRandomAccessSource,
+        offset: Long,
+        count: Int
+    ): ByteArray {
+        if (count <= 0 || offset < 0) return ByteArray(0)
+        val sourceSize = source.sizeBytes
+        if (offset > sourceSize || count.toLong() > sourceSize - offset) {
             return ByteArray(0)
         }
-        val bytes = ByteArray(count)
-        input.seek(offset)
-        input.readFully(bytes)
-        return bytes
+        return ByteArray(count).also { bytes ->
+            source.readFullyAt(offset, bytes)
+        }
     }
 
-    private fun readU16(input: RandomAccessFile, offset: Long): Int {
-        val bytes = readBytes(input, offset, 2)
+    private fun readU16(source: ReadOnlyRandomAccessSource, offset: Long): Int {
+        val bytes = readBytes(source, offset, 2)
         if (bytes.size != 2) throw IOException("Truncated binary header.")
         return (bytes[0].toInt() and 0xFF) or
             ((bytes[1].toInt() and 0xFF) shl 8)
     }
 
-    private fun readU32(input: RandomAccessFile, offset: Long): Long {
-        val bytes = readBytes(input, offset, 4)
+    private fun readU32(source: ReadOnlyRandomAccessSource, offset: Long): Long {
+        val bytes = readBytes(source, offset, 4)
         if (bytes.size != 4) throw IOException("Truncated binary header.")
         return (bytes[0].toLong() and 0xFF) or
             ((bytes[1].toLong() and 0xFF) shl 8) or
