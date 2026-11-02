@@ -38,6 +38,16 @@ class ResourceArchiveParsersTest {
             assertEquals(1, parsed.entries[1].widthPixels)
             assertEquals(1, parsed.entries[1].heightPixels)
             assertEquals(bmpPayload.size.toLong(), parsed.entries[1].payloadSizeBytes)
+
+            val extractedJpeg = ByteArrayOutputStream()
+            val copied = ReadOnlyRangeStreamer(bufferSizeBytes = 2).copy(
+                source = archive,
+                offset = parsed.entries[0].payloadOffset,
+                length = parsed.entries[0].payloadSizeBytes,
+                destination = extractedJpeg
+            )
+            assertEquals(jpegPayload.size.toLong(), copied)
+            assertTrue(extractedJpeg.toByteArray().contentEquals(jpegPayload))
         }
     }
 
@@ -77,6 +87,19 @@ class ResourceArchiveParsersTest {
             assertEquals(4L, entry.decodedPcmSizeBytes)
             assertEquals(2, entry.oggPageCount)
             assertEquals(108L, entry.oggPayloadOffset)
+
+            val extractedOgg = ByteArrayOutputStream()
+            val copied = ReadOnlyRangeStreamer(bufferSizeBytes = 7).copy(
+                source = archive,
+                offset = entry.oggPayloadOffset,
+                length = entry.oggPayloadSizeBytes,
+                destination = extractedOgg
+            )
+            assertEquals(entry.oggPayloadSizeBytes, copied)
+            assertTrue(extractedOgg.toByteArray().contentEquals(
+                createOggPage(flags = 0x02, sequence = 0) +
+                    createOggPage(flags = 0x04, sequence = 1)
+            ))
         }
     }
 
