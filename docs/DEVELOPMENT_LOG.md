@@ -94,3 +94,35 @@ Provide reusable byte-level infrastructure for future container parsers, without
 
 ### Handoff note
 Read this entry plus the previous entries before continuing. The current branch adds generic infrastructure but does not decode any proprietary archive format.
+
+
+## 2026-11-02 — Deterministic directory inventory and source-backed PE parser
+
+### Goal
+Connect the previously separate binary inspector, random-access source, and streaming hasher into one repeatable report for an imported game directory.
+
+### Changed in this PR
+- Refactored `BinaryArtifactInspector` so its PE and signature parsing uses `ReadOnlyRandomAccessSource`; the `File` entry point is now a convenience wrapper.
+- Added `DirectoryInventoryScanner` with deterministic depth-first traversal and sorted child names.
+- Added file-count (10,000), directory-depth (64), and total SHA-256 byte (8 GiB) defaults.
+- Each inventory entry reports relative path, size, SHA-256 when within budget, binary signature/PE metadata, and per-file warnings.
+- The scanner skips symbolic links, reports truncated scans, and does not execute or modify files.
+- Added tests for deterministic path ordering, PE/PNG/Ogg metadata, hash-budget behavior, file-count truncation, and invalid roots.
+
+### Validation
+- Android CI run [41393805833](https://github.com/HelterFall/Ramen/actions/runs/41393805833) passed `assembleDebug`, `testDebugUnitTest`, `lintDebug`, and debug APK artifact upload.
+
+### Limits
+- The scanner currently operates on imported app-private `File` directories.
+- SAF/content-URI random access is not implemented; providers that cannot seek will need bounded staging to private storage.
+- There is no user-facing inventory screen or export format yet.
+- The inventory identifies common signatures and PE dependencies; it does not decode proprietary game archives.
+
+### Next steps
+1. Add a safe read-only inventory report/export view.
+2. Add a SAF-backed positional source where supported, with bounded private staging as a fallback.
+3. Consider PE version resources and delay-load import metadata.
+4. Add container-specific probes only when byte-level evidence supports repeatable tests.
+
+### Handoff note
+The inventory and PE parser now share the same positional read abstraction. Continue from the latest `main` and read this log before extending the parser or adding proprietary format hypotheses.

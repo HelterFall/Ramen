@@ -26,7 +26,9 @@ Evidence must only move forward when new bytes, documentation, or repeatable tes
 | PNG | `89 50 4E 47 0D 0A 1A 0A` | PNG image | Signature only. |
 | JPEG | `FF D8 FF` | JPEG image | Start marker only. |
 
-Implementation: `app/src/main/java/io/github/helterfall/ramen/inspection/BinaryArtifactInspector.kt`.\n\nThe inspector currently accepts `File`; `ReadOnlyRandomAccessSource` is the common positional byte-source contract intended for the next parser refactor. `Sha256FileHasher` computes per-file fingerprints incrementally without loading a full file into memory.
+Implementation: `app/src/main/java/io/github/helterfall/ramen/inspection/BinaryArtifactInspector.kt`.
+
+The inspector accepts either a `File` convenience wrapper or an open `ReadOnlyRandomAccessSource`; the caller owns the source lifetime. `Sha256FileHasher` computes per-file fingerprints incrementally. `DirectoryInventoryScanner` combines relative paths, sizes, hashes, and artifact reports under bounded file-count, depth, and total-hash budgets.
 
 ## Unverified extension observations
 
