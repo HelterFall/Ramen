@@ -25,6 +25,9 @@ data class GpkImageResource(
     val bmpPixelDataOffsetBytes: Long? = null,
     val bmpBitsPerPixel: Int? = null,
     val bmpCompression: Long? = null,
+    /** Palette start and number of RGBQUAD entries, when the BMP is indexed. */
+    val bmpPaletteOffsetBytes: Long? = null,
+    val bmpPaletteColorCount: Int? = null,
     /** True when BMP rows are stored top-to-bottom rather than bottom-to-top. */
     val bmpTopDown: Boolean? = null
 )
@@ -298,9 +301,9 @@ class GpkGtbArchiveParser(
     }
 
     /**
-     * Some GPK blocks contain a BITMAPINFOHEADER and pixel rows without the
-     * 14-byte BITMAPFILEHEADER. Only recognize the unambiguous uncompressed
-     * 24/32-bit layout; do not guess palettes, masks, compression, or XOR keys.
+     * Some GPK blocks contain a BITMAPINFOHEADER and pixel data without the
+     * 14-byte BITMAPFILEHEADER. Recognize supported BI_RGB 24/32-bit layouts
+     * and standard BI_RLE4/BI_RLE8 indexed layouts; no LZ or XOR guesswork.
      */
     private fun isRawDibPayload(
         source: ReadOnlyRandomAccessSource,
@@ -319,11 +322,16 @@ class GpkGtbArchiveParser(
         val planes = readU16(info, 12)
         val bitsPerPixel = readU16(info, 14)
         val compression = readU32(info, 16)
+        val supportedPixelFormat = when (compression) {
+            BMP_BI_RGB -> bitsPerPixel in BMP_BITS_PER_PIXEL
+            BMP_BI_RLE8 -> bitsPerPixel == 8 && signedHeight > 0
+            BMP_BI_RLE4 -> bitsPerPixel == 4 && signedHeight > 0
+            else -> false
+        }
         return width in 1..maxImageDimension &&
             height in 1L..maxImageDimension.toLong() &&
             planes == 1 &&
-            bitsPerPixel in BMP_RAW_BITS_PER_PIXEL &&
-            compression == BMP_BI_RGB
+            supportedPixelFormat
     }
 
     private fun parseJpegResource(
@@ -495,20 +503,46 @@ class GpkGtbArchiveParser(
             malformed("BMP planes or bit depth are not recognized.")
         }
 
-        val minimumPixelOffset = dibOffset + dibHeaderSize
+        when (compression) {
+            BMP_BI_RGB -> Unit
+            BMP_BI_RLE8 -> if (bitsPerPixel != 8 || signedHeight < 0) {
+                malformed("BI_RLE8 requires an 8-bit bottom-up BMP.")
+            }
+            BMP_BI_RLE4 -> if (bitsPerPixel != 4 || signedHeight < 0) {
+                malformed("BI_RLE4 requires a 4-bit bottom-up BMP.")
+            }
+            else -> Unit // BitmapFactory may support other BMP compression modes.
+        }
+
+        val clrUsed = readU32(infoHeader, 32)
+        val paletteEntries = when {
+            compression == BMP_BI_RLE8 -> paletteEntryCount(clrUsed, 8)
+            compression == BMP_BI_RLE4 -> paletteEntryCount(clrUsed, 4)
+            compression == BMP_BI_RGB && bitsPerPixel in BMP_INDEXED_BITS_PER_PIXEL ->
+                paletteEntryCount(clrUsed, bitsPerPixel)
+            else -> 0
+        }
+        val paletteOffset = dibOffset + dibHeaderSize
+        val paletteBytes = paletteEntries.toLong() * BMP_RGB_QUAD_BYTES
+        val paletteEnd = paletteOffset + paletteBytes
+        if (paletteEnd > payloadSize) {
+            malformed("BMP color table extends beyond the indexed GPK payload.")
+        }
+
         val declaredPixelOffset = if (hasFileHeader) {
             readU32(source, payloadOffset + 10L)
         } else {
-            minimumPixelOffset
+            paletteEnd
         }
-        // Prefer the file-header offset when valid. Some engine-produced BMP
-        // blocks have a stale/zero offset or size, but still contain a complete
-        // uncompressed BITMAPINFOHEADER followed directly by 24/32-bit pixels.
+        // The pixel array follows the DIB and, for indexed BMPs, its color table.
+        // A stale/zero BITMAPFILEHEADER offset is recoverable when this layout is
+        // otherwise unambiguous and remains within the indexed resource block.
         val pixelDataOffset = when {
-            declaredPixelOffset >= minimumPixelOffset &&
+            declaredPixelOffset >= paletteEnd &&
                 declaredPixelOffset < payloadSize -> declaredPixelOffset
-            compression == BMP_BI_RGB && bitsPerPixel in BMP_RAW_BITS_PER_PIXEL ->
-                minimumPixelOffset
+            compression in BMP_SUPPORTED_RLE_COMPRESSION ||
+                (compression == BMP_BI_RGB && bitsPerPixel in BMP_RAW_BITS_PER_PIXEL) ->
+                paletteEnd
             else -> malformed("BMP file header contains an invalid pixel-data offset.")
         }
 
@@ -518,6 +552,10 @@ class GpkGtbArchiveParser(
             val requiredPixelBytes = rowStride * absoluteHeight
             if (requiredPixelBytes > payloadSize - pixelDataOffset) {
                 malformed("BMP pixel rows extend beyond the indexed GPK payload.")
+            }
+        } else if (compression in BMP_SUPPORTED_RLE_COMPRESSION) {
+            if (paletteEntries == 0 || pixelDataOffset >= payloadSize) {
+                malformed("BMP RLE image has no palette or compressed pixel data.")
             }
         } else if (pixelDataOffset >= payloadSize) {
             malformed("BMP compressed pixel data begins outside the indexed GPK payload.")
@@ -536,8 +574,19 @@ class GpkGtbArchiveParser(
             bmpPixelDataOffsetBytes = pixelDataOffset,
             bmpBitsPerPixel = bitsPerPixel,
             bmpCompression = compression,
+            bmpPaletteOffsetBytes = paletteOffset.takeIf { paletteEntries > 0 },
+            bmpPaletteColorCount = paletteEntries.takeIf { paletteEntries > 0 },
             bmpTopDown = signedHeight < 0
         )
+    }
+
+    private fun paletteEntryCount(clrUsed: Long, bitsPerPixel: Int): Int {
+        val maximum = 1 shl bitsPerPixel
+        val entries = if (clrUsed == 0L) maximum.toLong() else clrUsed
+        if (entries !in 1L..maximum.toLong()) {
+            malformed("BMP color table entry count is outside the bit-depth range.")
+        }
+        return entries.toInt()
     }
 
     private fun validateDimensions(width: Long, height: Long) {
@@ -572,6 +621,11 @@ class GpkGtbArchiveParser(
         private const val BMP_FILE_HEADER_BYTES = 14
         private const val BMP_INFO_HEADER_BYTES = 40L
         private const val BMP_BI_RGB = 0L
+        private const val BMP_BI_RLE8 = 1L
+        private const val BMP_BI_RLE4 = 2L
+        private const val BMP_RGB_QUAD_BYTES = 4L
+        private val BMP_SUPPORTED_RLE_COMPRESSION = setOf(BMP_BI_RLE8, BMP_BI_RLE4)
+        private val BMP_INDEXED_BITS_PER_PIXEL = setOf(1, 4, 8)
         private val BMP_DIB_HEADER_SIZES = setOf(40L, 52L, 56L, 108L, 124L)
         private val BMP_RAW_BITS_PER_PIXEL = setOf(24, 32)
         private const val JPEG_PACK_TYPE_NUMBER = 5
