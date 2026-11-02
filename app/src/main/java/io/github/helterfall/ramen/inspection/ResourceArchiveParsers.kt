@@ -73,7 +73,8 @@ class GpkGtbArchiveParser(
     private val maxStringPoolBytes: Int = DEFAULT_MAX_STRING_POOL_BYTES,
     private val maxNameBytes: Int = DEFAULT_MAX_NAME_BYTES,
     private val maxImageDimension: Int = DEFAULT_MAX_IMAGE_DIMENSION,
-    private val archiveXorKey: Int? = DEFAULT_GPK_XOR_FALLBACK_KEY
+    private val archiveXorKey: Int? = DEFAULT_GPK_XOR_FALLBACK_KEY,
+    private val indexXorKey: Int? = DEFAULT_GPK_XOR_FALLBACK_KEY
 ) {
     init {
         require(maxEntries in 1..ABSOLUTE_MAX_ENTRIES)
@@ -83,6 +84,9 @@ class GpkGtbArchiveParser(
         require(archiveXorKey == null || archiveXorKey in 0..0xFF) {
             "Archive XOR key must be an unsigned byte."
         }
+        require(indexXorKey == null || indexXorKey in 0..0xFF) {
+            "Index XOR key must be an unsigned byte."
+        }
     }
 
     @Throws(IOException::class)
@@ -90,20 +94,38 @@ class GpkGtbArchiveParser(
         indexSource: ReadOnlyRandomAccessSource,
         archiveSource: ReadOnlyRandomAccessSource
     ): GpkGtbArchive {
-        val key = archiveXorKey ?: return parseArchive(indexSource, archiveSource, null)
-        return try {
-            // Prefer the already-clear layout. This keeps one parser usable for both
-            // legacy samples and the target build whose GPK blocks use the XOR mask.
-            parseArchive(indexSource, archiveSource, null)
-        } catch (clearFailure: IOException) {
-            val decodedSource = XorMaskingRandomAccessSource(archiveSource, key)
-            try {
-                parseArchive(indexSource, decodedSource, key)
-            } catch (maskedFailure: IOException) {
-                maskedFailure.addSuppressed(clearFailure)
-                throw maskedFailure
+        // Try every supported clear/masked combination. The .gtb table and .gpk
+        // blocks are independent streams and may be protected separately.
+        val indexViews = buildList<Pair<ReadOnlyRandomAccessSource, Int?>> {
+            add(indexSource to null)
+            indexXorKey?.takeIf { it != 0 }?.let { key ->
+                add(XorMaskingRandomAccessSource(indexSource, key) to key)
             }
         }
+        val failures = mutableListOf<IOException>()
+
+        for ((indexView, indexKey) in indexViews) {
+            try {
+                return parseArchive(indexView, archiveSource, payloadXorKey = null)
+            } catch (clearArchiveFailure: IOException) {
+                failures += clearArchiveFailure
+            }
+
+            val archiveKey = archiveXorKey
+            if (archiveKey != null && archiveKey != 0) {
+                try {
+                    val decodedArchive = XorMaskingRandomAccessSource(archiveSource, archiveKey)
+                    return parseArchive(indexView, decodedArchive, payloadXorKey = archiveKey)
+                } catch (maskedArchiveFailure: IOException) {
+                    failures += maskedArchiveFailure
+                }
+            }
+        }
+
+        val finalFailure = failures.lastOrNull()
+            ?: IOException("No supported GTB/GPK decoding configuration is enabled.")
+        failures.filter { it !== finalFailure }.forEach(finalFailure::addSuppressed)
+        throw finalFailure
     }
 
     @Throws(IOException::class)
