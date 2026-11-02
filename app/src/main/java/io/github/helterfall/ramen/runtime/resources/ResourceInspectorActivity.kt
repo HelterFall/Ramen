@@ -184,6 +184,199 @@ class ResourceInspectorActivity : ComponentActivity() {
         loadPair(ResourcePairKind.AUDIO, uris)
     }
 
+    /**
+     * Opens resources directly from a game that has already been imported into
+     * Ramen's private games/ directory. This avoids requiring the document picker
+     * to expose proprietary extensions as standalone import types.
+     */
+    private fun scanImportedGameFolder(relativeDirectory: String) {
+        sourceFolderMessageState.value = "Ищу пары ресурсов в импортированной папке…"
+        worker.execute {
+            try {
+                val segments = relativeDirectory.split('/')
+                if (!relativeDirectory.startsWith("games/") ||
+                    segments.size < 2 ||
+                    segments.any { it.isBlank() || it == "." || it == ".." } ||
+                    File(relativeDirectory).isAbsolute
+                ) {
+                    throw IOException("Некорректный путь к импортированной игре.")
+                }
+
+                val gamesRoot = File(filesDir, "games").canonicalFile
+                val gameRoot = File(filesDir, relativeDirectory).canonicalFile
+                if (!gameRoot.isDirectory ||
+                    !gameRoot.path.startsWith(gamesRoot.path + File.separator)
+                ) {
+                    throw IOException("Папка игры не найдена в приватном хранилище Ramen.")
+                }
+
+                val pairs = discoverResourcePairs(gameRoot)
+                runOnUiThread {
+                    discoveredPairsState.value = pairs
+                    sourceFolderMessageState.value = if (pairs.isEmpty()) {
+                        "В импортированной папке не найдены пары GPK/GTB или VPK/VTB."
+                    } else {
+                        "Найдено пар ресурсов: ${pairs.size}. Выбери нужную пару ниже."
+                    }
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    discoveredPairsState.value = emptyList()
+                    sourceFolderMessageState.value =
+                        error.message ?: "Не удалось просканировать папку игры."
+                }
+            }
+        }
+    }
+
+    private fun discoverResourcePairs(root: File): List<ResourceArchivePair> {
+        val filesByPair = linkedMapOf<String, MutableMap<String, File>>()
+        val pending = ArrayDeque<Pair<File, Int>>()
+        pending.add(root to 0)
+        var visitedEntries = 0
+
+        while (pending.isNotEmpty()) {
+            val (directory, depth) = pending.removeLast()
+            if (depth > MAX_DIRECTORY_DEPTH) continue
+            val children = directory.listFiles()
+                ?.sortedBy { it.name.lowercase(Locale.ROOT) }
+                ?: continue
+
+            for (child in children) {
+                if (java.nio.file.Files.isSymbolicLink(child.toPath())) continue
+                visitedEntries += 1
+                if (visitedEntries > MAX_DISCOVERED_FILES) {
+                    throw IOException("В папке слишком много файлов: лимит ${MAX_DISCOVERED_FILES}.")
+                }
+
+                if (child.isDirectory) {
+                    if (depth < MAX_DIRECTORY_DEPTH) {
+                        pending.add(child to depth + 1)
+                    }
+                    continue
+                }
+                if (!child.isFile) continue
+
+                val extension = extensionOf(child.name)
+                if (extension !in RESOURCE_PAIR_EXTENSIONS) continue
+                val stem = stemOf(child.name).lowercase(Locale.ROOT)
+                if (stem.isBlank()) continue
+                val parentPath = child.parentFile?.canonicalPath
+                    ?: throw IOException("Не удалось определить папку ресурса.")
+                val key = parentPath + File.separator + stem
+                filesByPair.getOrPut(key) { linkedMapOf() }[extension] = child
+            }
+        }
+
+        val result = ArrayList<ResourceArchivePair>()
+        filesByPair.values.forEach { files ->
+            val imageArchive = files["gpk"]
+            val imageIndex = files["gtb"]
+            if (imageArchive != null && imageIndex != null) {
+                result += ResourceArchivePair(
+                    kind = ResourcePairKind.IMAGES,
+                    archiveFile = imageArchive,
+                    indexFile = imageIndex,
+                    displayName = imageArchive.relativeTo(root).invariantSeparatorsPath
+                )
+            }
+
+            val audioArchive = files["vpk"]
+            val audioIndex = files["vtb"]
+            if (audioArchive != null && audioIndex != null) {
+                result += ResourceArchivePair(
+                    kind = ResourcePairKind.AUDIO,
+                    archiveFile = audioArchive,
+                    indexFile = audioIndex,
+                    displayName = audioArchive.relativeTo(root).invariantSeparatorsPath
+                )
+            }
+        }
+        return result.sortedWith(
+            compareBy<ResourceArchivePair> { it.kind.ordinal }
+                .thenBy { it.displayName.lowercase(Locale.ROOT) }
+        )
+    }
+
+    private fun loadImportedPair(pair: ResourceArchivePair) {
+        updatePairBusy(pair.kind, true, "Проверяю ${pair.displayName}…")
+        worker.execute {
+            try {
+                when (pair.kind) {
+                    ResourcePairKind.IMAGES -> {
+                        val parsed = FileRandomAccessSource(pair.archiveFile).use { archive ->
+                            FileRandomAccessSource(pair.indexFile).use { index ->
+                                GpkGtbArchiveParser().parse(index, archive)
+                            }
+                        }
+                        if (parsed.entries.isEmpty()) {
+                            throw IOException("В GPK/GTB не найдено изображений.")
+                        }
+                        val initial = parsed.entries.first()
+                        val bitmap = FileRandomAccessSource(pair.archiveFile).use { source ->
+                            AndroidGpkImageDecoder().decode(source, initial)
+                        }
+
+                        runOnUiThread {
+                            releaseSessionPair(imageFiles)
+                            imageFiles = pair.archiveFile to pair.indexFile
+                            val oldBitmap = imageState.value.bitmap
+                            imageState.value = ImageInspectorState(
+                                entries = parsed.entries,
+                                selected = initial,
+                                bitmap = bitmap,
+                                message = "Найдено изображений: ${parsed.entries.size}.",
+                                archiveName = pair.displayName
+                            )
+                            if (oldBitmap != null && oldBitmap !== bitmap) {
+                                runCatching { oldBitmap.recycle() }
+                            }
+                        }
+                    }
+                    ResourcePairKind.AUDIO -> {
+                        stopPlayback()
+                        val parsed = FileRandomAccessSource(pair.archiveFile).use { archive ->
+                            FileRandomAccessSource(pair.indexFile).use { index ->
+                                VpkVtbArchiveParser().parse(index, archive)
+                            }
+                        }
+                        if (parsed.entries.isEmpty()) {
+                            throw IOException("В VPK/VTB не найдено аудиоресурсов.")
+                        }
+
+                        runOnUiThread {
+                            releaseSessionPair(audioFiles)
+                            audioFiles = pair.archiveFile to pair.indexFile
+                            audioState.value = AudioInspectorState(
+                                entries = parsed.entries,
+                                message = "Найдено аудиоресурсов: ${parsed.entries.size}" +
+                                    if (parsed.hasTerminalIndexSentinel) " (служебный терминатор учтён)." else ".",
+                                archiveName = pair.displayName
+                            )
+                        }
+                    }
+                }
+            } catch (error: Exception) {
+                updatePairMessage(
+                    pair.kind,
+                    error.message ?: "Не удалось прочитать пару ресурсов."
+                )
+            } finally {
+                updatePairBusy(pair.kind, false, null)
+            }
+        }
+    }
+
+    private fun releaseSessionPair(files: Pair<File, File>?) {
+        files?.let { pair ->
+            listOf(pair.first, pair.second).forEach { file ->
+                if (sessionFiles.remove(file)) {
+                    runCatching { file.delete() }
+                }
+            }
+        }
+    }
+
     private fun loadPair(kind: ResourcePairKind, uris: List<Uri>) {
         if (uris.size != 2) {
             updatePairMessage(kind, "Нужно выбрать ровно два файла одной пары.")
@@ -567,8 +760,14 @@ class ResourceInspectorActivity : ComponentActivity() {
         name.substringBeforeLast('.', name).trim()
 
     companion object {
+        const val EXTRA_GAME_RELATIVE_DIRECTORY =
+            "io.github.helterfall.ramen.extra.GAME_RELATIVE_DIRECTORY"
+
         private const val COPY_BUFFER_BYTES = 64 * 1024
         private const val MAX_ARCHIVE_COPY_BYTES = 512L * 1024L * 1024L
+        private const val MAX_DISCOVERED_FILES = 10_000
+        private const val MAX_DIRECTORY_DEPTH = 64
+        private val RESOURCE_PAIR_EXTENSIONS = setOf("gpk", "gtb", "vpk", "vtb")
     }
 }
 
