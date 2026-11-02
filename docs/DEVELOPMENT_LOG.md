@@ -202,3 +202,12 @@ Use the supplied paired archive samples to move two extension families from file
 - Added `VpkOggCacheMaterializer`, which stages an individual parsed Ogg payload into a unique app-cache file, with a 256 MiB default per-resource limit and cleanup of partial files on failure.
 - Added JVM tests for range InputStream boundaries, source ownership, cache staging, and cache size rejection.
 - No player lifecycle or UI was added. Android device image/audio behavior remains unverified.
+
+
+### Follow-up — resource inspector UI and Android preview
+- Added `ResourceInspectorActivity` and a library-screen entry point.
+- The inspector opens exactly two documents, validates the expected extension pair and matching base filename, then copies each selected document to private cache before positional parsing. Each selected source file is limited to 512 MiB; no broad storage permission is requested.
+- Added a GPK/GTB image list and image preview. The first image is decoded after parsing; selecting another row decodes it on the worker thread.
+- Added a VPK/VTB audio list and a foreground `MediaPlayer` flow with basic play/pause/stop controls. The selected Ogg range is staged to cache first.
+- The player and temporary cache files are released when the inspector leaves the foreground or is destroyed. This is an asset preview tool, not a game runtime.
+- The device picker, image rendering, and Ogg decoder behavior have not yet been verified on a physical Android device. Android codec support can vary.
