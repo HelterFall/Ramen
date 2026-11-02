@@ -66,10 +66,9 @@ The supplied `gss.exe` is a 626,688-byte PE32 x86 image. Its standard import tab
 
 ## Next technical steps
 
-1. Add an end-to-end streaming test that connects parsed resource ranges to the bounded copy API using synthetic image/audio payloads.
-2. Connect extracted image resources to Android image decoding and decide how audio payloads should be handed to Android's media stack.
-3. Determine whether the game scripts, executable behavior, and engine lifecycle can be supported without running the original Windows executable on Android.
-4. Consider a user-facing resource inspection screen after the resource and decoding APIs are stable.
+1. Connect extracted image resources to Android image decoding and decide how audio payloads should be handed to Android's media stack.
+2. Determine whether the game scripts, executable behavior, and engine lifecycle can be supported without running the original Windows executable on Android.
+3. Consider a user-facing resource inspection screen after the resource and decoding APIs are stable.
 
 ## Decision log
 
