@@ -89,7 +89,7 @@ class VisualNovelDetectorTest {
             val result = VisualNovelDetector().detect(root)
 
             assertEquals("ramen-binary-signature", result.engineId)
-            assertEquals("Обнаружен тестовый движок v1", result.engineLabel)
+            assertEquals("Обнаружен кастомный движок v1", result.engineLabel)
             assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
             assertTrue(result.evidence.contains("assets.pack"))
         } finally {
@@ -106,9 +106,67 @@ class VisualNovelDetectorTest {
             val result = VisualNovelDetector().detect(root)
 
             assertEquals("ramen-script-v1", result.engineId)
-            assertEquals("Обнаружен тестовый движок v1", result.engineLabel)
+            assertEquals("Обнаружен кастомный движок v1", result.engineLabel)
             assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
             assertTrue(result.evidence.contains("story.bin"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun detectsScriptAndContainerMarkersInFolderWithOriginalWindowsBinaries() {
+        val root = Files.createTempDirectory("ramen-mixed-legacy-game").toFile()
+        try {
+            File(root, "story.spt").writeBytes(scriptMagic())
+            File(root, "resource.pack").writeBytes("IF PACKT".toByteArray(Charsets.US_ASCII))
+            File(root, "gss.exe").writeBytes("MZ".toByteArray(Charsets.US_ASCII) + ByteArray(126))
+            File(root, "ddraw.dll").writeBytes("MZ".toByteArray(Charsets.US_ASCII) + ByteArray(126))
+            File(root, "ogg.dll").writeBytes("MZ".toByteArray(Charsets.US_ASCII) + ByteArray(126))
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("ramen-binary-signature", result.engineId)
+            assertEquals("Обнаружен кастомный движок v1", result.engineLabel)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+            assertTrue(result.evidence.contains("story.spt"))
+            assertTrue(result.evidence.contains("resource.pack"))
+            // The original Windows executable and libraries are diagnostic noise,
+            // not a reason to discard positive script/container evidence.
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun scriptMagicAloneIsDetectedButDoesNotEnableTheSyntheticScriptLauncher() {
+        val root = Files.createTempDirectory("ramen-script-marker-only").toFile()
+        try {
+            File(root, "main.spt").writeBytes(scriptMagic())
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("ramen-binary-signature", result.engineId)
+            assertEquals("Обнаружен кастомный движок v1", result.engineLabel)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+            assertTrue(result.evidence.contains("did not validate"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun unrelatedWindowsBinariesDoNotBecomeAFalsePositiveEngine() {
+        val root = Files.createTempDirectory("ramen-windows-only").toFile()
+        try {
+            File(root, "gss.exe").writeBytes("MZ".toByteArray(Charsets.US_ASCII) + ByteArray(126))
+            File(root, "ddraw.dll").writeBytes("MZ".toByteArray(Charsets.US_ASCII) + ByteArray(126))
+            File(root, "ogg.dll").writeBytes("MZ".toByteArray(Charsets.US_ASCII) + ByteArray(126))
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("unknown", result.engineId)
+            assertEquals("UNKNOWN", result.compatibilityStatus)
         } finally {
             root.deleteRecursively()
         }
@@ -144,6 +202,11 @@ class VisualNovelDetectorTest {
             root.deleteRecursively()
         }
     }
+    private fun scriptMagic(): ByteArray = byteArrayOf(
+        0xEB.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
+        0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte()
+    )
+
     private fun validScriptFixture(): ByteArray =
         byteArrayOf(
             0xEB.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
