@@ -36,6 +36,29 @@ class BinarySignatureProbeTest {
     }
 
     @Test
+    fun recognizedScriptMagicIsAMatchEvenWhenTheSyntheticBodyParserRejectsIt() {
+        val root = Files.createTempDirectory("ramen-binary-script-marker").toFile()
+        try {
+            val magic = byteArrayOf(
+                0xEB.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
+                0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte()
+            )
+            File(root, "legacy.spt").writeBytes(magic)
+            val source = DirectoryGameSource(root, sourceId = "script-marker-test")
+
+            val result = BinarySignatureProbe().probeFile(source, "legacy.spt")
+
+            assertTrue(result is EngineProbeResult.Match)
+            val evidence = (result as EngineProbeResult.Match).evidence.single()
+            assertEquals("script", evidence.resourceType)
+            assertEquals("legacy.spt", evidence.relativePath)
+            assertTrue(evidence.description.contains("did not validate"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun unknownEightByteHeaderIsMalformedForAnIndividualFile() {
         val root = Files.createTempDirectory("ramen-binary-unknown").toFile()
         try {
