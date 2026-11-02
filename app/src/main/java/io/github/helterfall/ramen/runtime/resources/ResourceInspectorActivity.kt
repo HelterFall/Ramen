@@ -91,6 +91,13 @@ private data class SelectedDocument(
     val stem: String
 )
 
+private data class ResourceArchivePair(
+    val kind: ResourcePairKind,
+    val archiveFile: File,
+    val indexFile: File,
+    val displayName: String
+)
+
 private data class ImageInspectorState(
     val entries: List<GpkImageResource> = emptyList(),
     val selected: GpkImageResource? = null,
@@ -126,6 +133,8 @@ class ResourceInspectorActivity : ComponentActivity() {
 
     private val imageState = mutableStateOf(ImageInspectorState())
     private val audioState = mutableStateOf(AudioInspectorState())
+    private val discoveredPairsState = mutableStateOf<List<ResourceArchivePair>>(emptyList())
+    private val sourceFolderMessageState = mutableStateOf<String?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -134,15 +143,20 @@ class ResourceInspectorActivity : ComponentActivity() {
             ResourceInspectorScreen(
                 imageState = imageState.value,
                 audioState = audioState.value,
+                discoveredPairs = discoveredPairsState.value,
+                sourceFolderMessage = sourceFolderMessageState.value,
                 onBack = { finish() },
                 onSelectImagePair = { uris -> loadImagePair(uris) },
                 onSelectAudioPair = { uris -> loadAudioPair(uris) },
+                onSelectArchivePair = { pair -> loadImportedPair(pair) },
                 onSelectImage = { resource -> decodeImage(resource) },
                 onPlayAudio = { resource -> playAudio(resource) },
                 onTogglePlayback = { togglePlayback() },
                 onStopPlayback = { stopPlayback() }
             )
         }
+
+        intent.getStringExtra(EXTRA_GAME_RELATIVE_DIRECTORY)?.let(::scanImportedGameFolder)
     }
 
     override fun onStop() {
