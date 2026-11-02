@@ -123,16 +123,36 @@ class ScriptCommandParserTest {
     }
 
     @Test
-    fun firstByteAfterMagicIsParsedAsAnOpcodeNotAHeaderVersion() {
-        val exception = assertThrows(ScriptParseException::class.java) {
-            ScriptScenarioLoader.load(
-                ByteArrayInputStream(script(byteArrayOf(0xFE.toByte())))
-            )
-        }
+    fun nitroStartSceneMarkerIsRecognizedAndFollowingCommandsAreParsed() {
+        val parser = ScriptCommandParser(initialOffset = 8L)
+        val stream = ByteArrayInputStream(
+            byteArrayOf(ScriptCommandParser.OPCODE_NITRO_START_SCENE.toByte()) +
+                dialogue("Opening scene")
+        )
 
-        assertEquals(8L, exception.byteOffset)
-        assertTrue(exception.message.orEmpty().contains("Unknown command opcode 0xFE"))
-        assertTrue(!exception.message.orEmpty().contains("Unsupported Script version"))
+        assertEquals(NitroStartSceneCommand, parser.parseNextCommand(stream))
+        assertEquals(9L, parser.nextCommandOffset)
+        assertEquals(
+            DisplayDialogueCommand("Opening scene"),
+            parser.parseNextCommand(stream)
+        )
+        assertNull(parser.parseNextCommand(stream))
+    }
+
+    @Test
+    fun loaderTreatsNitroStartSceneMarkerAsANoOpAndContinuesToDialogue() {
+        val project = ScriptScenarioLoader.load(
+            ByteArrayInputStream(
+                script(
+                    byteArrayOf(ScriptCommandParser.OPCODE_NITRO_START_SCENE.toByte()) +
+                        dialogue("Opening scene")
+                )
+            )
+        )
+        val session = ScenarioSession.start(project)
+
+        assertEquals("Opening scene", session.frame().dialogue?.text)
+        assertEquals("addr_9", session.frame().sceneId)
     }
 
     @Test
