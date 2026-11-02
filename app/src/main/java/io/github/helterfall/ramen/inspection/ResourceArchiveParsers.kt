@@ -57,8 +57,11 @@ data class VpkVtbArchive(
 /**
  * Read-only parser for the observed paired .gtb/.gpk image-resource format.
  *
- * The index contains a little-endian count, a table of name offsets, a table of
- * archive offsets, and a NUL-terminated ASCII string pool. Archive blocks have
+ * The Black Cyc GTB layout used by GARbro stores a signed little-endian Int32
+ * entry count at offset 0, followed by count signed Int32 name offsets, count
+ * unsigned 32-bit GPK offsets, and a NUL-terminated string pool. Name offsets
+ * are relative to the start of that pool. No GTB XOR transform is applied.
+ * Archive blocks have
  * a fixed 64-byte service preamble followed by JPEG, BMP, or a supported raw DIB
  * payload. Known text preambles are validated when recognized; opaque preambles
  * are skipped and the payload signature/header is used to determine the format.

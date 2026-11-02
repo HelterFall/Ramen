@@ -502,3 +502,21 @@ Create and review a complete read-only inventory report from a representative ga
 
 ### Validation
 - GitHub Actions validation for the latest PR head is pending; do not treat the change as CI-verified until `assembleDebug`, `testDebugUnitTest`, and `lintDebug` pass.
+
+
+## 2026-11-03 — Revert unverified Black Cyc SPT and XOR assumptions
+
+### Verified against GARbro
+- GARbro ArcFormats/BlackCyc/ArcGPK.cs reads the GTB entry count as a signed Int32 at offset 0x00, then name offsets at 0x04, GPK offsets at 0x04 + count * 4, and the string pool at 0x04 + count * 8.
+- GARbro's Black Cyc GTB handler does not check a leading signature and does not XOR-decode the count, tables, or filenames. The parser now follows that exact index layout and treats negative counts/negative name offsets as malformed.
+- GARbro's ArcFormats/BlackCyc/ImageDWQ.cs reads a 64-byte DWQ resource header and uses its PACKTYPE metadata; the current Ramen image parser remains a narrower validated JPEG/BMP implementation.
+
+### Removed speculative behavior
+- Removed the default 0x10 GPK/GTB XOR fallback and the payload XOR propagation into Android bitmap decoding.
+- Removed the guessed one-byte XOR script-signature detector and XOR wrapper from the synthetic Ramen Script v1 parser.
+- Removed the unverified 0xFE/0xFF Nitro system-opcode interpretations. They now remain unknown to the synthetic fixture parser.
+- The startup resolver no longer sends every .spt file to the command parser. Only the exact Ramen fixture magic is eligible for the experimental player.
+
+### Compatibility boundary
+- GARbro's current Black Cyc directory contains GPK/GTB, VPK/VTB, and DWQ handlers but no Black Cyc SPT parser. It therefore does not specify the SPT fixed-header fields, offset-table count/location, or the first command offset.
+- No proprietary SPT command parser is claimed. The synthetic Ramen Script v1 reader remains an isolated test format until a sample or authoritative SPT layout is available.
