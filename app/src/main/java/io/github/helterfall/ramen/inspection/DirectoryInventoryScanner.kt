@@ -18,7 +18,9 @@ data class DirectoryInventoryReport(
     val entries: List<DirectoryInventoryEntry>,
     /** Number of file entries observed, capped at maxFiles + 1 to detect truncation. */
     val discoveredEntries: Int,
+    /** Sum of sizes for the selected entries in this bounded report. */
     val totalBytesObserved: Long,
+    /** Sum of sizes actually hashed, bounded by maxTotalBytesToHash. */
     val totalBytesHashed: Long,
     val truncated: Boolean,
     val warnings: List<String> = emptyList()
@@ -41,7 +43,7 @@ class DirectoryInventoryScanner(
 ) {
     init {
         require(maxDepth >= 1)
-        require(maxFiles >= 1)
+        require(maxFiles in 1 until Int.MAX_VALUE)
         require(maxTotalBytesToHash >= 0)
     }
 
@@ -70,11 +72,12 @@ class DirectoryInventoryScanner(
                 }
 
                 val orderedChildren = children.sortedBy { it.name }
+                if (node.depth >= maxDepth) {
+                    if (orderedChildren.isNotEmpty()) depthLimitReached = true
+                    continue
+                }
                 for (child in orderedChildren.asReversed()) {
-                    if (Files.isSymbolicLink(child.toPath())) continue
-                    if (child.isDirectory && node.depth >= maxDepth) {
-                        depthLimitReached = true
-                    } else {
+                    if (!Files.isSymbolicLink(child.toPath())) {
                         pending.addLast(PendingNode(child, node.depth + 1))
                     }
                 }
