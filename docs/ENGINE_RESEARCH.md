@@ -20,6 +20,7 @@ The work remains engine-agnostic until the evidence supports a specific adapter.
 - `DirectoryInventoryJsonWriter` streams versioned JSON reports to a caller-owned output.
 - `GpkGtbArchiveParser` validates the observed paired image index/archive layout, JPEG and BMP block headers, and bounded resource payload ranges.
 - `VpkVtbArchiveParser` validates the observed fixed-record audio index, 108-byte VPK prefix, PCM-style descriptor, and Ogg page boundaries and sequence metadata.
+- `ReadOnlyRangeStreamer` copies a validated resource range to a caller-owned output stream with a fixed-size buffer (64 KiB by default, capped at 1 MiB). It does not close or flush the destination.
 - Synthetic unit tests cover both proprietary parser families, optional terminal index sentinel handling, and malformed resource boundaries.
 
 ## Evidence from supplied samples
@@ -65,11 +66,10 @@ The supplied `gss.exe` is a 626,688-byte PE32 x86 image. Its standard import tab
 
 ## Next technical steps
 
-1. Add a bounded streaming API to copy one parser-returned resource range without loading the whole archive or payload into memory.
-2. Add a small original fixture for end-to-end resource extraction tests (synthetic images and Ogg pages only).
-3. Connect extracted image resources to Android image decoding and decide how audio payloads should be handed to Android's media stack.
-4. Determine whether the game scripts, executable behavior, and engine lifecycle can be supported without running the original Windows executable on Android.
-5. Consider a user-facing resource inspection screen only after the resource-stream API is stable.
+1. Add an end-to-end streaming test that connects parsed resource ranges to the bounded copy API using synthetic image/audio payloads.
+2. Connect extracted image resources to Android image decoding and decide how audio payloads should be handed to Android's media stack.
+3. Determine whether the game scripts, executable behavior, and engine lifecycle can be supported without running the original Windows executable on Android.
+4. Consider a user-facing resource inspection screen after the resource and decoding APIs are stable.
 
 ## Decision log
 
