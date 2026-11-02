@@ -47,7 +47,7 @@ Each observed GPK block begins with a 64-byte header. The first 32 bytes identif
 - JPEG uses `PACKTYPE=5`. The header stores the payload length, width, and height. The parser checks that the declared payload length equals the indexed block payload length and that the payload starts with the JPEG marker.
 - BMP uses `PACKTYPE=0`. Its payload begins with a standard `BM` file header. The parser checks the BMP file length, DIB header bounds, pixel offset, dimensions, planes, and bit depth.
 
-The parser returns bounded payload offsets and sizes. It does not decode or render images, and synthetic test data—not the supplied game files—is used in CI.
+The parser returns bounded payload offsets and sizes. `AndroidGpkImageDecoder` now decodes a selected payload with Android `BitmapFactory`, checks dimensions against parsed metadata, and chooses `inSampleSize` to keep the decoded bitmap at or below a configurable pixel budget (8 million by default). It does not render the bitmap in the app UI. Synthetic test data—not the supplied game files—is used in CI.
 
 Implementation: `GpkGtbArchiveParser` in `ResourceArchiveParsers.kt`.
 
@@ -62,7 +62,7 @@ The observed VTB index is a sequence of 12-byte records:
 
 Each observed VPK block consists of a 64-byte text preamble, a 44-byte RIFF/WAVE PCM-style descriptor, and an Ogg stream beginning at byte 108. The preamble itself includes the text `CUT THIS 108BYTE THEN REMAKE OGG`. The descriptor contains PCM parameters and a `data` size; that size is not used as the physical compressed Ogg block length. Physical block boundaries come from the VTB offsets.
 
-The parser checks the preamble, RIFF/WAVE fields, PCM parameters, Ogg page capture/version/lacing, serial number, sequence continuity, and BOS/EOS flags. It does not currently calculate Ogg page CRCs or decode audio.
+The parser checks the preamble, RIFF/WAVE fields, PCM parameters, Ogg page capture/version/lacing, serial number, sequence continuity, and BOS/EOS flags. `VpkOggCacheMaterializer` can copy a selected Ogg range to a uniquely named app-cache file with a 256 MiB default resource cap, suitable for handoff to a seekable media API. It does not create or control a media player. The parser does not currently calculate Ogg page CRCs or decode audio.
 
 A separate inspection of the supplied sample found 23,592 Ogg pages with valid page boundaries and matching CRCs. This sample-level check is not yet part of the app parser.
 
@@ -86,6 +86,6 @@ Future and existing probes use explicit outcomes where applicable:
 
 A parser must not allocate based only on an untrusted declared length. Offset arithmetic must be overflow-safe and checked against the available source length. Unknown formats remain inspectable without being executed.
 
-The GPK/GTB and VPK/VTB parsers operate on `ReadOnlyRandomAccessSource`, do not load full payloads, and return resource ranges. `ReadOnlyRangeStreamer` can copy any such range to a caller-owned output stream using a fixed-size buffer without closing or flushing it. They do not yet expose a user-facing browser/export UI, an image decoder, an audio decoder, or a game runtime. No supplied proprietary game files are committed to the repository.
+The GPK/GTB and VPK/VTB parsers operate on `ReadOnlyRandomAccessSource`, do not load full payloads, and return resource ranges. `ReadOnlyRangeStreamer` can copy any such range to a caller-owned output stream using a fixed-size buffer without closing or flushing it. Android image decoding and Ogg cache staging APIs now exist, but there is no user-facing resource browser, playback lifecycle, or game runtime. No supplied proprietary game files are committed to the repository.
 
 The generic directory inventory and versioned JSON export are separate APIs; see [Inventory Report JSON Schema](INVENTORY_REPORT_SCHEMA.md).
