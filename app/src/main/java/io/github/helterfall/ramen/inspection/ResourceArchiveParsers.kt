@@ -606,7 +606,7 @@ class VpkVtbArchiveParser(
         val nulIndex = bytes.indexOf(0)
         if (nulIndex >= 0) {
             val paddingIsValid = (nulIndex until bytes.size).all { index ->
-                bytes[index].toInt() and 0xFF == 0 || bytes[index] == SPACE_BYTE
+                (bytes[index].toInt() and 0xFF) == 0 || bytes[index] == SPACE_BYTE
             }
             if (paddingIsValid) {
                 contentLength = nulIndex
