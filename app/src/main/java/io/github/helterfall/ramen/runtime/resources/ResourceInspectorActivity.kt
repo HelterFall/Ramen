@@ -119,8 +119,8 @@ private data class AudioInspectorState(
 class ResourceInspectorActivity : ComponentActivity() {
     private val worker = Executors.newSingleThreadExecutor()
     private val sessionFiles = CopyOnWriteArraySet<File>()
-    private var imageFiles: Pair<File, File>? = null // GTB index, GPK archive
-    private var audioFiles: Pair<File, File>? = null // VTB index, VPK archive
+    private var imageFiles: Pair<File, File>? = null // GPK archive, GTB index
+    private var audioFiles: Pair<File, File>? = null // VPK archive, VTB index
     private var mediaPlayer: MediaPlayer? = null
     private var currentOggCache: File? = null
 
@@ -147,14 +147,10 @@ class ResourceInspectorActivity : ComponentActivity() {
 
     override fun onStop() {
         super.onStop()
-        val player = mediaPlayer
-        if (player != null && runCatching { player.isPlaying }.getOrDefault(false)) {
-            runCatching { player.pause() }
-            audioState.value = audioState.value.copy(
-                isPlaying = false,
-                message = "Воспроизведение приостановлено."
-            )
-        }
+        // This screen is a foreground inspector, not a background audio service.
+        // Releasing also prevents an asynchronous prepare callback from starting playback
+        // after the Activity has moved behind another screen.
+        stopPlayback()
     }
 
     override fun onDestroy() {
@@ -347,7 +343,7 @@ class ResourceInspectorActivity : ComponentActivity() {
         )
         worker.execute {
             try {
-                val bitmap = FileRandomAccessSource(files.second).use { source ->
+                val bitmap = FileRandomAccessSource(files.first).use { source ->
                     AndroidGpkImageDecoder().decode(source, resource)
                 }
                 runOnUiThread {
@@ -384,7 +380,7 @@ class ResourceInspectorActivity : ComponentActivity() {
         worker.execute {
             var staged: File? = null
             try {
-                staged = FileRandomAccessSource(files.second).use { source ->
+                staged = FileRandomAccessSource(files.first).use { source ->
                     VpkOggCacheMaterializer().materialize(source, resource, cacheDir)
                 }
                 sessionFiles.add(staged)
