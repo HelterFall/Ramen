@@ -808,7 +808,7 @@ class VpkVtbArchiveParser {
             if (headerType and OGG_RESERVED_HEADER_FLAGS != 0) {
                 malformed("Ogg page uses reserved header flags.")
             }
-            if (pageCount == 0) {
+            if (pageCount == 0L) {
                 if (headerType and OGG_BOS_FLAG == 0) {
                     malformed("The first Ogg page does not set the beginning-of-stream flag.")
                 }
