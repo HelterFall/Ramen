@@ -24,9 +24,12 @@ object ScriptScenarioLoader {
      * encoding selector. The caller supplies the text charset because the stream
      * does not carry an encoding field.
      */
+    fun load(stream: InputStream): ScenarioProject =
+        load(stream, StandardCharsets.UTF_8)
+
     fun load(
         stream: InputStream,
-        textCharset: Charset = StandardCharsets.UTF_8
+        textCharset: Charset
     ): ScenarioProject {
         readAndValidateMagic(stream)
 
