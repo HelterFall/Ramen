@@ -186,11 +186,12 @@ class ResourceInspectorActivity : ComponentActivity() {
             val copiedFiles = mutableListOf<File>()
             try {
                 val documents = uris.map { uri ->
+                    val displayName = queryDisplayName(uri)
                     SelectedDocument(
                         uri = uri,
-                        displayName = queryDisplayName(uri),
-                        extension = extensionOf(queryDisplayName(uri)),
-                        stem = stemOf(queryDisplayName(uri))
+                        displayName = displayName,
+                        extension = extensionOf(displayName),
+                        stem = stemOf(displayName)
                     )
                 }
                 val expected = setOf(kind.firstExtension, kind.secondExtension)
