@@ -483,3 +483,22 @@ Create and review a complete read-only inventory report from a representative ga
 ### Compatibility boundary
 - Script v1 remains the documented Ramen synthetic format only. These changes do not claim to run arbitrary or proprietary SPT files.
 - Compose displays the ScenarioSession dialogue frame; background changes are resolved to GPK/GTB payloads. A missing or ambiguous image is a visual warning and not a script parser failure.
+
+
+## 2026-11-03 — XOR-masked GTB indexes and Nitro engine-init marker
+
+### Changed
+- Added an independent `indexXorKey` fallback to `GpkGtbArchiveParser`, using the same bounded positional XOR view as GPK. The parser attempts the clear/masked GTB and clear/masked GPK combinations and accepts only a fully validated index plus all referenced image blocks.
+- Kept the GTB table and GPK blocks as separate read-only sources. XOR views preserve all byte offsets and source lengths; the GPK key is retained in parsed resource metadata for Android image decoding.
+- Added `NitroInitEngineCommand` for opcode `0xFF`. The current parser treats it as a zero-operand system marker and the Scenario loader advances to the next instruction. The existing `0xFE` start-scene marker is preserved.
+- A stream containing only system markers is still rejected as having no executable story commands.
+- Added synthetic regressions for masked GTB + clear GPK, masked GTB + masked GPK, direct `0xFF` parsing, loader continuation, marker-only rejection, and XOR-masked `0xFF` preceding dialogue.
+- Updated README, Script format notes, and the binary format registry.
+
+### Compatibility boundary
+- The `0x10` GTB/GPK XOR fallback is a fixed one-byte mask, not a general cipher implementation.
+- `0xFF` is recognized as a start-of-engine initialization marker, but no operand layout has yet been established. The zero-operand handling is provisional; any service bytes observed after it need a format-specific parser rather than guessed skipping.
+- These changes do not establish support for the complete proprietary Nitroplus command set or automatically locate a trailing VFS index.
+
+### Validation
+- GitHub Actions validation for the latest PR head is pending; do not treat the change as CI-verified until `assembleDebug`, `testDebugUnitTest`, and `lintDebug` pass.
