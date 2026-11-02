@@ -22,6 +22,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - A read-only binary inspector for PE/ELF and common file signatures, including standard PE32/PE32+ imported DLL names.
 - A bounded deterministic directory inventory with per-file size, SHA-256 fingerprint, binary metadata, and explicit scan/hash limits.
 - A streaming, versioned JSON writer for inventory reports; a user-facing export/share screen is still pending.
+- Bounded, read-only parsers for the observed paired GPK/GTB image and VPK/VTB audio resource archives; decoding and game playback are not implemented.
 - No broad storage permissions. Native/proprietary engine runtime integrations are not available yet.
 
 ## Initial MVP
@@ -76,7 +77,7 @@ These are starting decisions, not a claim that every engine can be embedded thro
 Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](docs/BUILD_SETUP.md) for the pinned toolchain and local build commands.
 
 ## Current next step
-
+Next, add bounded streaming of parser-returned image/audio payload ranges and a small original end-to-end fixture. The inventory save/share flow and positional access for user-selected sources remain pending. The proprietary parsers do not yet decode resources or provide game playback. Do not claim compatibility from filenames alone and do not add third-party game assets to the repository.
 Next, connect the JSON report writer to a user-facing save/share flow and add positional read support for user-selected sources where their access model permits it. Investigate proprietary containers only when byte-level samples and repeatable evidence are available. Do not claim compatibility from filenames alone and do not add third-party game assets to the repository.
 
 ## Naming
