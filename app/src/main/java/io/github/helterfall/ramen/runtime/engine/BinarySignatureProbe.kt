@@ -103,7 +103,9 @@ class BinarySignatureProbe : EngineAdapter {
 
         return EngineProbeResult.Match(
             confidence = EngineMatchConfidence.HIGH,
-            formatVersion = TEST_FORMAT_VERSION,
+            formatVersion = TEST_FORMAT_VERSION.takeIf {
+                isValidatedTestFormat(validationDescription)
+            },
             evidence = listOf(
                 EngineEvidence(
                     description = "Matched ${signature.label} signature.$validationDescription",
@@ -148,7 +150,9 @@ class BinarySignatureProbe : EngineAdapter {
         if (matchedEvidence.isNotEmpty()) {
             return EngineProbeResult.Match(
                 confidence = EngineMatchConfidence.HIGH,
-                formatVersion = TEST_FORMAT_VERSION,
+                formatVersion = TEST_FORMAT_VERSION.takeIf {
+                    matchedEvidence.any { evidence -> isValidatedTestFormat(evidence.description) }
+                },
                 evidence = matchedEvidence + rejectedEvidence
             )
         }
@@ -160,6 +164,11 @@ class BinarySignatureProbe : EngineAdapter {
             evidence = rejectedEvidence
         )
     }
+
+    private fun isValidatedTestFormat(description: String): Boolean =
+        description.startsWith(" Validated Ramen test-container index") ||
+            description.startsWith(" Parsed ") &&
+            description.contains("Ramen Scenario model")
 
     private fun malformed(reason: String, relativePath: String): EngineProbeResult.Malformed =
         EngineProbeResult.Malformed(
