@@ -3,6 +3,7 @@ package io.github.helterfall.ramen.runtime.scenario
 import io.github.helterfall.ramen.runtime.engine.BinarySignatureProbe
 import io.github.helterfall.ramen.runtime.engine.DirectoryGameSource
 import io.github.helterfall.ramen.runtime.engine.EngineProbeResult
+import io.github.helterfall.ramen.runtime.engine.EngineAdapterRegistry
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
