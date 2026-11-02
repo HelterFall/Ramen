@@ -216,7 +216,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                             throw IOException("В GPK/GTB не найдено изображений.")
                         }
                         val initial = parsed.entries.first()
-                        val bitmap = FileRandomAccessSource(secondFile).use { source ->
+                        val bitmap = FileRandomAccessSource(firstFile).use { source ->
                             AndroidGpkImageDecoder().decode(source, initial)
                         }
                         runOnUiThread {
