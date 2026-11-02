@@ -1,5 +1,7 @@
 package io.github.helterfall.ramen.inspection
 
+import java.util.Locale
+
 enum class FormatEvidenceLevel {
     VERIFIED_SIGNATURE,
     OBSERVED_EXTENSION_ONLY
@@ -83,7 +85,7 @@ object ContainerFormatRegistry {
     )
 
     fun findVerifiedByExtension(extension: String): List<ContainerFormatDefinition> {
-        val normalized = extension.removePrefix(".").lowercase()
+        val normalized = extension.removePrefix(".").lowercase(Locale.ROOT)
         return verified.filter { normalized in it.extensions }
     }
 
