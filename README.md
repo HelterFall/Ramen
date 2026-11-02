@@ -24,7 +24,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - A read-only binary inspector for PE/ELF and common file signatures, including standard PE32/PE32+ imported DLL names.
 - A bounded deterministic directory inventory with per-file size, SHA-256 fingerprint, binary metadata, and explicit scan/hash limits.
 - A streaming, versioned JSON inventory report with a per-game “Save report (JSON)” action in the library; it writes metadata only and never copies file payloads into the report.
-- Bounded, read-only parsers for the observed paired GPK/GTB image and VPK/VTB audio resource archives, plus fixed-buffer streaming of individual payload ranges.
+- Bounded, read-only parsers for the observed paired GPK/GTB image and VPK/VTB audio resource archives, including independent fixed-byte XOR views for GTB indexes and GPK blocks, plus fixed-buffer streaming of individual payload ranges.
 - A resource inspector screen can open matching archive pairs, browse image/audio metadata, preview GPK images through a bounded Android BitmapFactory decoder, and play selected Ogg resources through Android MediaPlayer with basic play/pause/stop controls. Selected archives are copied to app-private cache with storage-aware streaming and no fixed per-file size cap.
 - A read-only `EngineSource` API exposes a bounded snapshot of imported files as streams or positional sources; the engine adapter registry preserves no-match, malformed, unique-match, and ambiguous outcomes, runs probes in stable order, and isolates expected I/O failures.
 - `BinarySignatureProbe` recognizes the four exact 8-byte signatures in the Ramen test-fixture specification and reports typed resource evidence (`script`, `resource-container`, `graphic-archive`) without consulting file extensions.
@@ -134,6 +134,6 @@ The synthetic Ramen test format has a byte-signature probe that first matches th
 
 ### Synthetic binary Script test fixture
 
-Ramen defines a separate, documented Script v1 fixture beginning with the byte signature EB FF FF FF FE FF 99 99. Its command set covers dialogue, background changes, address-based jumps, and a zero-operand Nitro start-scene marker. The parser supports UTF-8 and Shift-JIS text, bounded string reads, safe relative background keys, and strict malformed-input handling. The byte layout is documented in docs/SCRIPT_COMMAND_FORMAT.md.
+Ramen defines a separate, documented Script v1 fixture beginning with the byte signature EB FF FF FF FE FF 99 99. Its command set covers dialogue, background changes, address-based jumps, and zero-operand Nitro start-scene / engine-initialization markers (0xFE / 0xFF). The 0xFF operand-free interpretation is provisional until the target sample's initialization operands, if any, are established. The parser supports UTF-8 and Shift-JIS text, bounded string reads, safe relative background keys, and strict malformed-input handling. The byte layout is documented in docs/SCRIPT_COMMAND_FORMAT.md.
 
 This is an original Ramen test format that exercises the parser-to-ScenarioSession bridge. It does not decode the proprietary sample's SPT/XTX/FXF data and does not establish target-engine compatibility.
