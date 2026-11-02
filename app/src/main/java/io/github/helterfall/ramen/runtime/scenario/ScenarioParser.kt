@@ -40,6 +40,7 @@ object ScenarioParser {
                 fail(lineNumber, "В одной точке выбора допускается не более $MAX_CHOICES вариантов.")
             }
             val commands = currentCommands ?: fail(lineNumber, "Варианты выбора должны находиться внутри сцены.")
+            if (commands.size >= MAX_COMMANDS_PER_SCENE) fail(lineNumber, "В сцене слишком много команд.")
             commands += ScenarioCommand.Choices(pendingChoices.toList())
             pendingChoices.clear()
         }
@@ -75,7 +76,7 @@ object ScenarioParser {
                     flushChoices(lineNumber)
                     val sceneId = parseIdentifier(arguments, lineNumber)
                     if (!seenSceneIds.add(sceneId)) fail(lineNumber, "Повторная сцена '$sceneId'.")
-                    if (scenes.size >= MAX_SCENES) fail(lineNumber, "Слишком много сцен.")
+                    if (seenSceneIds.size >= MAX_SCENES) fail(lineNumber, "Слишком много сцен.")
                     currentSceneId?.let { oldId ->
                         scenes[oldId] = ScenarioScene(oldId, currentCommands.orEmpty().toList())
                     }

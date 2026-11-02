@@ -88,7 +88,7 @@ object ScenarioSaveCodec {
             repeat(characterCount) {
                 val id = input.readUTF().checkedLength()
                 val positionIndex = input.readInt()
-                val position = CharacterPosition.entries.getOrNull(positionIndex)
+                val position = CharacterPosition.values().getOrNull(positionIndex)
                     ?: throw IllegalArgumentException("Некорректное положение персонажа.")
                 characters += VisibleCharacter(id, position)
             }
