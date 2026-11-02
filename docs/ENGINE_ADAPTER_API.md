@@ -85,7 +85,7 @@ The type is exposed on `EngineEvidence.resourceType` and is carried through the 
 
 Calling `probeFile(source, path)` is strict: a file shorter than eight bytes, an unrecognized 8-byte header, a missing entry, or an I/O read failure returns `Malformed`. A directory-level `probe(source)` scans the whole bounded source snapshot. It aggregates all recognized resources into one `Match`; any other candidate files are retained as diagnostic evidence so they cannot hide valid resources. If the non-empty source contains no recognized headers, the aggregate result is `Malformed`. An empty source is an ordinary `NoMatch`.
 
-These four signatures are the custom Ramen test-fixture specification only. In particular, the script prefix is not a decoded SPT format and does not prove compatibility with the inventoried game's script engine. The detector recognizes a header; it does not parse or execute a script or decode a resource container.
+These four signatures are the custom Ramen test-fixture specification only. In particular, the script prefix is not a decoded SPT format and does not prove compatibility with the inventoried game's script engine. After signature matching, Script v1 and ResourceContainer v1 receive separate structural validation as documented below; this does not decode the proprietary formats or execute content.
 
 
 ## PackArchiveReader — Ramen test ResourceContainer v1
@@ -100,3 +100,18 @@ These four signatures are the custom Ramen test-fixture specification only. In p
 - The reader is read-only and never extracts a whole archive to disk. No compression codec is specified by v1, so payload bytes are returned unchanged.
 
 The complete byte layout is documented in [PACK_ARCHIVE_FORMAT.md](PACK_ARCHIVE_FORMAT.md). This format is a Ramen synthetic test fixture and is separate from the observed GPK/GTB and VPK/VTB archive parsers.
+
+
+## ScriptCommandParser — Ramen synthetic Script v1
+
+The eight-byte Script magic is only the first field of the synthetic test format. ScriptScenarioLoader validates the remaining version/encoding header, then uses ScriptCommandParser.parseNextCommand(stream) to decode one command at a time:
+
+- 0x01: DisplayDialogueCommand(text);
+- 0x02: ChangeBackgroundCommand(imagePath);
+- 0x03: JumpToSceneCommand(targetAddress).
+
+String operands are length-prefixed and decoded strictly using the header-selected UTF-8 or Shift-JIS charset. Jump addresses are absolute byte offsets from the start of the Script file and must point to a decoded command boundary. The loader maps instruction addresses to stable addr_<offset> scene IDs and translates the commands into the existing ScenarioProject model, which is executable by ScenarioSession.
+
+EOF between commands is a normal end of stream. EOF inside an opcode operand or string payload, an unknown opcode, invalid text, an unsafe background path, or an unresolved jump address is malformed. BinarySignatureProbe now runs this structural loader after matching the magic and reports invalid scripts as EngineProbeResult.Malformed.
+
+The exact synthetic v1 layout, limits, and opcode numbers are in docs/SCRIPT_COMMAND_FORMAT.md. These values are Ramen-owned test-fixture decisions; they are not inferred from the inventoried proprietary script files.

@@ -415,3 +415,27 @@ Create and review a complete read-only inventory report from a representative ga
 - The first CI run for the reader passed compilation and APK assembly but exposed one assertion failure in the registry integration test: the adapter correctly returned a malformed result, but the aggregate reason string was too generic.
 - Updated `BinarySignatureProbe.probe()` to surface the first concrete per-file rejection reason when no resource matches, while keeping every rejection in the evidence list.
 - Tightened the test to assert that an invalid ResourceContainer index is reported by the registry with its structural cause.
+
+
+## 2026-11-02 — Synthetic binary Script parser and Scenario bridge
+
+### Format decision
+- The previously recorded eight-byte Script magic identifies only a Ramen test-fixture resource type; no proprietary opcode values or operand layout had been established.
+- Defined an explicit Ramen-owned Script v1 fixture with a version byte, text-encoding selector, three opcodes, little-endian length/address fields, and a documented command-boundary address model. See docs/SCRIPT_COMMAND_FORMAT.md.
+
+### Added
+- Added TextScriptCommand and a stateful ScriptCommandParser.parseNextCommand(InputStream) that reads one command at a time.
+- Added dialogue, background, and jump commands with strict UTF-8 / Shift-JIS decoding, bounded payload lengths, and safe relative resource-path validation.
+- Added ScriptScenarioLoader to validate the complete header/stream, resolve jump addresses only to command boundaries, and map the instruction sequence into the existing ScenarioProject / ScenarioSession model.
+- Updated BinarySignatureProbe so an eight-byte Script magic alone is no longer a valid Script match. Unknown opcodes, malformed text, truncated operands, unsupported versions/encodings, and invalid jump targets return Malformed.
+- Updated scenario save-state path validation to preserve Unicode resource path segments decoded from Shift-JIS/UTF-8.
+- Added tests for all three opcodes, clean EOF versus truncated input, unknown opcodes, UTF-8 and Shift-JIS, Unicode resource paths, address resolution, ScenarioSession execution/save restoration, and malformed probe integration.
+- Synchronized README, architecture, adapter API, and roadmap.
+
+### Boundaries
+- The opcodes 0x01, 0x02, and 0x03, header layout, and operand widths are only the synthetic Ramen Script v1 test specification.
+- This parser does not interpret the inventoried proprietary SPT/XTX/FXF formats and does not claim compatibility with their engine.
+- The parser/loader are read-only and do not execute native code or interpret arbitrary embedded expressions.
+
+### Validation
+- GitHub Actions validation is required before this change is considered CI-verified.

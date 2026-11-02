@@ -182,7 +182,7 @@ This is the discovery/inspection part of the adapter boundary, not a game launch
 
 ### First binary resource probe
 
-`BinarySignatureProbe` is the first concrete adapter in `runtime/engine`. It uses positional reads to inspect exactly eight bytes and returns one of the synthetic fixture resource types through `EngineEvidence.resourceType`. Individual files with short or unknown headers return `Malformed`; whole-directory inspection collects recognized resources and keeps other entries as diagnostics. It does not use extensions, decode payloads, or interpret proprietary game scripts.
+`BinarySignatureProbe` is the first concrete adapter in `runtime/engine`. It uses positional reads to inspect the eight-byte marker and returns one of the synthetic fixture resource types through `EngineEvidence.resourceType`. It then validates the Script v1 command stream or ResourceContainer v1 index as appropriate; individual malformed candidates return `Malformed`, while whole-directory inspection preserves other entries as diagnostics. It does not use extensions or interpret proprietary game scripts.
 
 
 ### Lazy test ResourceContainer reader
@@ -190,3 +190,10 @@ This is the discovery/inspection part of the adapter boundary, not a game launch
 `runtime/resources/PackArchiveReader` is a bounded read-only reader for the synthetic Ramen `IF PACKT` v1 container. It parses only the fixed header and bounded index at open time. Resource payloads remain in the original `ReadOnlyRandomAccessSource`; `openFile()` exposes a bounded positional InputStream and `extractFile()` provides a size-limited ByteArray convenience path. The reader does not own or close the source.
 
 The `BinarySignatureProbe` validates the container index after matching the eight-byte magic. A correct magic followed by an unsupported version, malformed index, unsafe path, out-of-range offset, or overlapping payload range is reported as `Malformed`. The v1 test format and its limitations are specified in [PACK_ARCHIVE_FORMAT.md](PACK_ARCHIVE_FORMAT.md); it is not a parser for proprietary sample archives.
+
+
+### Synthetic binary Script bridge
+
+A separate test-only binary fixture is defined in docs/SCRIPT_COMMAND_FORMAT.md. ScriptCommandParser reads a single command from the stream after the Script v1 header; ScriptScenarioLoader validates the header and complete command sequence, checks jump targets against instruction boundaries, and maps the address-based program into the existing ScenarioProject model. The result can be executed by ScenarioSession, without changing the original line-oriented DSL demo.
+
+The parser supports strict UTF-8 and Shift-JIS decoding, bounded length-prefixed strings, and three explicitly synthetic opcodes. Clean EOF between records ends the program; truncated fields, unknown opcodes, invalid encodings/paths, and invalid jump targets are rejected. BinarySignatureProbe validates this structure before reporting a Script match. None of these test opcodes or header fields are a claim about a proprietary engine dialect.

@@ -14,12 +14,7 @@ class BinarySignatureProbeTest {
     fun detectsAllFourMagicHeadersByTheirBytesAndPreservesResourceTypesThroughRegistry() {
         val root = Files.createTempDirectory("ramen-binary-signatures").toFile()
         try {
-            File(root, "a-script.data").writeBytes(
-                byteArrayOf(
-                    0xEB.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
-                    0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte()
-                ) + byteArrayOf(1, 2)
-            )
+            File(root, "a-script.data").writeBytes(validScriptFixture())
             File(root, "b-container.any").writeBytes(emptyPackArchive())
             File(root, "c-jpeg.bin").writeBytes("JPEG    ".toByteArray(Charsets.US_ASCII))
             File(root, "d-bmp.bin").writeBytes("BMP     ".toByteArray(Charsets.US_ASCII))
@@ -106,6 +101,16 @@ class BinarySignatureProbeTest {
             root.deleteRecursively()
         }
     }
+
+    private fun validScriptFixture(): ByteArray =
+        byteArrayOf(
+            0xEB.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
+            0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte(),
+            0x01, // Script version 1
+            0x01, // UTF-8 text
+            0x01, // Display dialogue
+            0x05, 0x00
+        ) + "Hello".toByteArray(Charsets.UTF_8)
 
     private fun emptyPackArchive(): ByteArray =
         ByteBuffer.allocate(20)

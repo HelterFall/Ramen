@@ -1,6 +1,7 @@
 package io.github.helterfall.ramen.runtime.engine
 
 import io.github.helterfall.ramen.runtime.resources.PackArchiveReader
+import io.github.helterfall.ramen.runtime.scenario.ScriptScenarioLoader
 import java.io.IOException
 
 enum class BinaryResourceType(val id: String) {
@@ -60,20 +61,30 @@ class BinarySignatureProbe : EngineAdapter {
                         relativePath
                     )
 
-                val validation = if (
-                    matchedSignature.resourceType == BinaryResourceType.RESOURCE_CONTAINER
-                ) {
-                    try {
-                        val index = PackArchiveReader(randomAccess).openArchive()
-                        " Validated index with ${index.entries.size} entries."
-                    } catch (exception: IOException) {
-                        return malformed(
-                            "Invalid ResourceContainer structure: ${exception.message ?: "malformed index"}.",
-                            relativePath
-                        )
+                val validation = when (matchedSignature.resourceType) {
+                    BinaryResourceType.RESOURCE_CONTAINER -> {
+                        try {
+                            val index = PackArchiveReader(randomAccess).openArchive()
+                            " Validated index with ${index.entries.size} entries."
+                        } catch (exception: IOException) {
+                            return malformed(
+                                "Invalid ResourceContainer structure: ${exception.message ?: "malformed index"}.",
+                                relativePath
+                            )
+                        }
                     }
-                } else {
-                    ""
+                    BinaryResourceType.SCRIPT -> {
+                        try {
+                            val project = source.openRead(relativePath).use { ScriptScenarioLoader.load(it) }
+                            " Parsed ${project.scenes.size} command records into the Ramen Scenario model."
+                        } catch (exception: IOException) {
+                            return malformed(
+                                "Invalid Script structure: ${exception.message ?: "malformed command stream"}.",
+                                relativePath
+                            )
+                        }
+                    }
+                    BinaryResourceType.GRAPHIC_ARCHIVE -> ""
                 }
 
                 matchedSignature to validation

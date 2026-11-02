@@ -161,7 +161,7 @@ class ScenarioSession private constructor(
         private const val MAX_CHARACTERS = 128
         private const val MAX_CHOICES = 12
         private val IDENTIFIER_REGEX = Regex("^[A-Za-z][A-Za-z0-9_-]{0,63}$")
-        private val RESOURCE_KEY_REGEX = Regex("^[A-Za-z0-9_.-]{1,64}(/[A-Za-z0-9_.-]{1,64})*$")
+        private val RESOURCE_KEY_REGEX = Regex("^[\\p{L}\\p{N}_.-]{1,64}(/[\\p{L}\\p{N}_.-]{1,64})*$")
 
         fun start(project: ScenarioProject): ScenarioSession = ScenarioSession(project, null)
 

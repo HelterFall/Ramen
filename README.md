@@ -80,6 +80,7 @@ These are starting decisions, not a claim that every engine can be embedded thro
 - [Project scope](docs/PROJECT_SCOPE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Engine adapter API](docs/ENGINE_ADAPTER_API.md)
+- [Ramen Script v1 test format](docs/SCRIPT_COMMAND_FORMAT.md)
 - [Engine compatibility](docs/ENGINE_COMPATIBILITY.md)
 - [Engine research track](docs/ENGINE_RESEARCH.md)
 - [Binary/container format registry](docs/FORMAT_REGISTRY.md)
@@ -104,7 +105,7 @@ The demo currently draws labelled placeholder backgrounds and character tags. It
 
 ## Current next step
 
-The synthetic ResourceContainer now has a bounded index reader and lazy per-resource access. The next resource-layer task is a shared ResourceManager/provider that can resolve resource IDs across this test container and the existing GPK/GTB image and VPK/VTB audio readers without copying whole archives. The proprietary target-engine track remains separate: its family/version and actual script format still require corroborating byte-level evidence before a runtime adapter can be claimed.
+The synthetic ResourceContainer has a bounded index reader and lazy per-resource access. The Ramen Script v1 test format now has a bounded command parser and a loader into the engine-neutral ScenarioProject model. The next resource-layer task is a shared ResourceManager/provider that can resolve resource IDs across the test container and existing GPK/GTB image and VPK/VTB audio readers without copying whole archives. The proprietary target-engine track remains separate: its family/version and command format still require corroborating byte-level evidence before compatibility can be claimed.
 
 The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-256 input by default); the report marks truncated scans and records files whose hashes were skipped. The archive tools preview individual resources; they do not run a legacy engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
 
@@ -125,4 +126,11 @@ The new `runtime/engine` package defines a bounded, read-only source contract an
 
 ### Test-fixture binary signatures
 
-The synthetic Ramen test format has a dedicated byte-only detector. It reads exactly the first eight bytes and classifies the four documented headers as Script, ResourceContainer, or GraphicArchive. Per-file unknown or truncated headers return `Malformed`; directory scans continue so one unrelated file does not hide valid resources. This signature table is specific to synthetic test fixtures and is not a claim about the proprietary target engine.
+The synthetic Ramen test format has a byte-signature probe that first matches the eight-byte marker, then validates the complete Script v1 command stream or ResourceContainer v1 index where applicable. Unknown headers and structurally invalid Script/ResourceContainer files return `Malformed`; directory scans continue so one unrelated file does not hide valid resources. The signatures and parsers are specific to Ramen test fixtures and are not a claim about the proprietary target engine.
+
+
+### Synthetic binary Script test fixture
+
+Ramen defines a separate, documented Script v1 fixture beginning with the byte signature EB FF FF FF FE FF 99 99. Its three test opcodes cover dialogue, background changes, and address-based jumps. The parser supports UTF-8 and Shift-JIS text, bounded string reads, safe relative background keys, and strict malformed-input handling. The byte layout is documented in docs/SCRIPT_COMMAND_FORMAT.md.
+
+This is an original Ramen test format that exercises the parser-to-ScenarioSession bridge. It does not decode the proprietary sample's SPT/XTX/FXF data and does not establish target-engine compatibility.

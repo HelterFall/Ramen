@@ -4,7 +4,7 @@ The roadmap is milestone-based. Dates are intentionally omitted until the first 
 
 ## Current research track — Native and proprietary engines
 
-The current direction is to build reusable runtime foundations from confirmed evidence, without guessing proprietary formats from extensions. A complete metadata-only inventory has been captured for one representative directory; the next step is an original, age-appropriate scenario fixture and a small engine-neutral interpreter. See [Engine Research](ENGINE_RESEARCH.md), [Format Registry](FORMAT_REGISTRY.md), and the chronological [Development Log](DEVELOPMENT_LOG.md).
+The current direction is to build reusable runtime foundations from confirmed evidence, without guessing proprietary formats from extensions. A complete metadata-only inventory has been captured for one representative directory, and the original Scenario demo now has a separate synthetic binary Script v1 parser bridge. The next runtime-layer step is a ResourceManager/provider that connects the test container and existing image/audio archive readers. See [Engine Research](ENGINE_RESEARCH.md), [Format Registry](FORMAT_REGISTRY.md), and the chronological [Development Log](DEVELOPMENT_LOG.md).
 
 ### M1.5 — Binary inspection foundation
 - [x] Add bounded, read-only PE header inspection.
@@ -42,18 +42,22 @@ The current direction is to build reusable runtime foundations from confirmed ev
 - [x] Make the playable demo accessible from the main library screen.
 - [x] Define the Ramen test ResourceContainer v1 layout and add a bounded read-only PackArchiveReader with lazy positional payload reads.
 - [x] Validate ResourceContainer indexes from BinarySignatureProbe and report malformed structures through the adapter probe result.
+- [x] Specify the synthetic Ramen Script v1 header, text encodings, opcodes, and address model.
+- [x] Add a streaming ScriptCommandParser for dialogue, background, and jump commands, with strict malformed-input handling.
+- [x] Translate Script v1 command addresses into the existing ScenarioProject model and validate jump boundaries.
+- [x] Validate Script structures from BinarySignatureProbe and preserve malformed script outcomes.
 - [ ] Add a unified ResourceManager/provider that can resolve resources across the test pack and the existing GPK/GTB and VPK/VTB readers.
 - [ ] Replace placeholder scene panels with a resource provider for local images and character art.
 - [ ] Add audio cue commands and a resource-backed audio adapter.
 - [ ] Validate Android lifecycle, layout, and save/restore on physical devices.
 
-**Exit condition:** an original fixture can be launched, completed through multiple branches, saved, and resumed with real local image/audio resources on Android. The current milestone is an executable prototype with placeholder visuals.
+**Exit condition:** an original fixture can be launched, completed through multiple branches, saved, and resumed with real local image/audio resources on Android. The current milestone is an executable prototype with placeholder visuals. The binary Script v1 fixture exercises parsing and scenario-model adaptation only; it is not a target-engine format.
 
 ## M1.7 — Target-engine adapter research
 - [x] Define a bounded, read-only EngineSource contract for imported files, with stream and positional access.
 - [x] Add a directory-backed source with deterministic snapshots, traversal/symlink rejection, and file/depth/node bounds.
 - [x] Add an EngineAdapter probe contract and registry that preserves malformed and ambiguous outcomes without arbitrary priority.
-- [x] Add a byte-only BinarySignatureProbe for the exact Ramen test-fixture headers, with typed resource evidence and malformed-header tests.
+- [x] Add a BinarySignatureProbe for the exact Ramen test-fixture headers, with typed resource evidence and structural Script/ResourceContainer validation.
 - [ ] Confirm the likely engine family/version from corroborating executable and file-format evidence.
 - [ ] Implement a target-family probe only after its markers and version discriminators are validated.
 - [ ] Specify runtime session, command, rendering/audio, save-state, and lifecycle contracts from the confirmed engine semantics.
