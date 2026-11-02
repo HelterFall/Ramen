@@ -50,6 +50,7 @@ The current direction is to build reusable runtime foundations from confirmed ev
 - [x] Define a bounded, read-only EngineSource contract for imported files, with stream and positional access.
 - [x] Add a directory-backed source with deterministic snapshots, traversal/symlink rejection, and file/depth/node bounds.
 - [x] Add an EngineAdapter probe contract and registry that preserves malformed and ambiguous outcomes without arbitrary priority.
+- [x] Add a byte-only BinarySignatureProbe for the exact Ramen test-fixture headers, with typed resource evidence and malformed-header tests.
 - [ ] Confirm the likely engine family/version from corroborating executable and file-format evidence.
 - [ ] Implement a target-family probe only after its markers and version discriminators are validated.
 - [ ] Specify runtime session, command, rendering/audio, save-state, and lifecycle contracts from the confirmed engine semantics.

@@ -57,11 +57,19 @@ enum class EngineMatchConfidence {
 
 data class EngineEvidence(
     val description: String,
-    val relativePath: String? = null
+    val relativePath: String? = null,
+    val resourceType: String? = null
 ) {
     init {
         require(description.isNotBlank()) { "Evidence description must not be blank." }
         relativePath?.let(::validateEngineRelativePath)
+        require(resourceType == null || RESOURCE_TYPE_PATTERN.matches(resourceType)) {
+            "Resource type must be a stable identifier."
+        }
+    }
+
+    private companion object {
+        val RESOURCE_TYPE_PATTERN = Regex("^[a-z][a-z0-9._-]{0,63}$")
     }
 }
 

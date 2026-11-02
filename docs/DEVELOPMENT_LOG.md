@@ -366,3 +366,21 @@ Create and review a complete read-only inventory report from a representative ga
 - An expected `IOException` from one adapter is recorded as that adapter's malformed candidate; remaining adapters still run.
 - Failure text is bounded before it is surfaced in diagnostics. Unexpected runtime/programming exceptions are not swallowed.
 - Added regression tests for stable ordering and continued probing after an I/O failure.
+
+
+## 2026-11-02 — First byte-only resource signature adapter
+
+### Added
+- Added `BinaryResourceType` with `script`, `resource-container`, and `graphic-archive` identifiers.
+- Added `BinarySignatureProbe`, registered through the existing `EngineAdapterRegistry` contract.
+- The probe reads exactly eight bytes from a read-only positional source. It recognizes the four exact Ramen test-fixture headers: `EB FF FF FF FE FF 99 99`, `IF PACKT`, `JPEG    `, and `BMP     `.
+- Added optional typed `EngineEvidence.resourceType`; the registry preserves the type in its match evidence.
+- Per-file short headers, unrecognized headers, missing entries, and read errors produce `Malformed`. Directory probing continues across entries, aggregates recognized resources, and retains malformed candidates as diagnostic evidence.
+- Added tests for every specified signature, extension-independent detection, truncated/unknown headers, mixed valid/invalid directories, empty sources, and registry integration.
+
+### Boundaries
+- These signatures are the custom synthetic Ramen test-fixture specification only. They do not establish the byte layout of the inventoried proprietary engine's SPT/XTX/FXF files or prove target compatibility.
+- This detector recognizes an eight-byte header only; it does not parse script commands, decompress archives, decode graphics, or execute content.
+
+### Validation
+- CI for the new detector commit is the source of truth for compilation, unit tests, lint, and APK artifact upload. Do not claim success before GitHub reports a completed successful run.

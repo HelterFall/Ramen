@@ -28,7 +28,7 @@ The result is one of:
 - `Match`: a candidate family/format matched, with confidence, optional version, and explicit evidence.
 - `Malformed`: a relevant candidate was found but its structure is incomplete or invalid. This must not be silently converted into `NoMatch`.
 
-Evidence may name a source-relative file. Extension-only evidence should be described as such and must not be reported as a high-confidence format match.
+Evidence may name a source-relative file. Extension-only evidence should be described as such and must not be reported as a high-confidence format match. `EngineEvidence.resourceType` can carry a stable typed resource identifier through the registry.
 
 ## Registry behavior
 
@@ -68,3 +68,21 @@ The synthetic tests cover:
 - adapter ID uniqueness;
 - no-match, unique-match, malformed, and ambiguous registry outcomes;
 - isolated I/O failure and stable adapter ordering.
+
+
+## BinarySignatureProbe — synthetic fixture adapter
+
+The first concrete adapter is `BinarySignatureProbe`. It reads exactly eight bytes from each candidate entry using `EngineSource.openRandomAccess`; it does not consult the extension or filename.
+
+| Exact first 8 bytes | Resource type |
+|---|---|
+| `EB FF FF FF FE FF 99 99` | `script` |
+| ASCII `IF PACKT` | `resource-container` |
+| ASCII `JPEG    ` | `graphic-archive` |
+| ASCII `BMP     ` | `graphic-archive` |
+
+The type is exposed on `EngineEvidence.resourceType` and is carried through the registry to `EngineProbeMatch.evidence`.
+
+Calling `probeFile(source, path)` is strict: a file shorter than eight bytes, an unrecognized 8-byte header, a missing entry, or an I/O read failure returns `Malformed`. A directory-level `probe(source)` scans the whole bounded source snapshot. It aggregates all recognized resources into one `Match`; any other candidate files are retained as diagnostic evidence so they cannot hide valid resources. If the non-empty source contains no recognized headers, the aggregate result is `Malformed`. An empty source is an ordinary `NoMatch`.
+
+These four signatures are the custom Ramen test-fixture specification only. In particular, the script prefix is not a decoded SPT format and does not prove compatibility with the inventoried game's script engine. The detector recognizes a header; it does not parse or execute a script or decode a resource container.

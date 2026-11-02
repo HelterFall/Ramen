@@ -25,6 +25,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - Bounded, read-only parsers for the observed paired GPK/GTB image and VPK/VTB audio resource archives, plus fixed-buffer streaming of individual payload ranges.
 - A resource inspector screen can open matching archive pairs, browse image/audio metadata, preview GPK images through a bounded Android BitmapFactory decoder, and play selected Ogg resources through Android MediaPlayer with basic play/pause/stop controls. Selected archives are copied to app-private cache with storage-aware streaming and no fixed per-file size cap.
 - A read-only `EngineSource` API exposes a bounded snapshot of imported files as streams or positional sources; the engine adapter registry preserves no-match, malformed, unique-match, and ambiguous outcomes, runs probes in stable order, and isolates expected I/O failures.
+- `BinarySignatureProbe` recognizes the four exact 8-byte signatures in the Ramen test-fixture specification and reports typed resource evidence (`script`, `resource-container`, `graphic-archive`) without consulting file extensions.
 - No broad storage permissions. Native/proprietary engine runtime integrations are not available yet.
 
 ## File types and current evidence
@@ -120,3 +121,8 @@ The target directory contains separate resource families already partly inspecte
 ## Engine adapter API status
 
 The new `runtime/engine` package defines a bounded, read-only source contract and a registry for independent engine probes. It does not launch games. Multiple matches remain ambiguous rather than being ranked by guesswork, and malformed candidates are surfaced separately from ordinary non-matches. No target-specific adapter is registered yet; see [Engine Adapter API](docs/ENGINE_ADAPTER_API.md) for the current contract and constraints.
+
+
+### Test-fixture binary signatures
+
+The synthetic Ramen test format has a dedicated byte-only detector. It reads exactly the first eight bytes and classifies the four documented headers as Script, ResourceContainer, or GraphicArchive. Per-file unknown or truncated headers return `Malformed`; directory scans continue so one unrelated file does not hide valid resources. This signature table is specific to synthetic test fixtures and is not a claim about the proprietary target engine.

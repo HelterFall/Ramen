@@ -178,3 +178,8 @@ The prototype API currently lives in `runtime/engine`:
 - `EngineAdapterRegistry` aggregates independent probes. It selects a result only when exactly one adapter matches; multiple matches remain ambiguous even when their confidence differs.
 
 This is the discovery/inspection part of the adapter boundary, not a game launcher. No adapter for the inventoried proprietary sample is registered. The API deliberately does not define a universal runtime frame, command vocabulary, renderer, or save format yet: those contracts must follow evidence about the actual engine rather than being copied from the Ramen demo DSL. See [Engine Adapter API](ENGINE_ADAPTER_API.md).
+
+
+### First binary resource probe
+
+`BinarySignatureProbe` is the first concrete adapter in `runtime/engine`. It uses positional reads to inspect exactly eight bytes and returns one of the synthetic fixture resource types through `EngineEvidence.resourceType`. Individual files with short or unknown headers return `Malformed`; whole-directory inspection collects recognized resources and keeps other entries as diagnostics. It does not use extensions, decode payloads, or interpret proprietary game scripts.
