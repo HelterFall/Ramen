@@ -137,11 +137,6 @@ class AndroidGpkImageDecoder(
         val topDown = resource.bmpTopDown
             ?: throw IOException("BMP has no validated row-order metadata.")
 
-        if (compression != BI_RGB || bitsPerPixel !in RAW_BITS_PER_PIXEL) {
-            throw IOException(
-                "Raw BMP fallback supports only uncompressed 24-bit BGR and 32-bit BGRX data."
-            )
-        }
         if (pixelDataOffset < 0L || pixelDataOffset > resource.payloadSizeBytes) {
             throw IOException("BMP pixel-data offset is outside the indexed payload.")
         }
@@ -151,6 +146,15 @@ class AndroidGpkImageDecoder(
         val pixelCount = width.toLong() * height.toLong()
         if (width <= 0 || height <= 0 || pixelCount > maxDecodedPixels) {
             throw IOException("Raw BMP dimensions exceed the configured pixel limit.")
+        }
+
+        if (compression == BI_RLE8 || compression == BI_RLE4) {
+            return decodeRleBmpPixels(source, resource, pixelDataOffset, bitsPerPixel)
+        }
+        if (compression != BI_RGB || bitsPerPixel !in RAW_BITS_PER_PIXEL) {
+            throw IOException(
+                "Raw BMP fallback supports BI_RGB 24/32-bit or BI_RLE4/BI_RLE8 indexed data."
+            )
         }
 
         val rowBits = width.toLong() * bitsPerPixel.toLong()
@@ -197,6 +201,98 @@ class AndroidGpkImageDecoder(
         return bitmap
     }
 
+    private fun decodeRleBmpPixels(
+        source: ReadOnlyRandomAccessSource,
+        resource: GpkImageResource,
+        pixelDataOffset: Long,
+        bitsPerPixel: Int
+    ): Bitmap {
+        val expectedBitsPerPixel = when (resource.bmpCompression) {
+            BI_RLE8 -> 8
+            BI_RLE4 -> 4
+            else -> throw IOException("Unsupported BMP RLE compression mode.")
+        }
+        if (bitsPerPixel != expectedBitsPerPixel) {
+            throw IOException("BMP RLE compression does not match its bit depth.")
+        }
+
+        val paletteOffset = resource.bmpPaletteOffsetBytes
+            ?: throw IOException("BMP RLE image has no validated palette offset.")
+        val paletteEntries = resource.bmpPaletteColorCount
+            ?: throw IOException("BMP RLE image has no validated palette size.")
+        if (paletteEntries !in 1..(1 shl bitsPerPixel)) {
+            throw IOException("BMP RLE palette size is outside the bit-depth range.")
+        }
+        val paletteByteCount = paletteEntries.toLong() * BMP_RGB_QUAD_BYTES
+        if (paletteOffset < 0L || paletteOffset > resource.payloadSizeBytes ||
+            paletteByteCount > resource.payloadSizeBytes - paletteOffset
+        ) {
+            throw IOException("BMP RLE color table extends beyond the indexed payload.")
+        }
+
+        val paletteBytes = ByteArray(paletteByteCount.toInt())
+        source.readFullyAt(resource.payloadOffset + paletteOffset, paletteBytes)
+        val palette = IntArray(paletteEntries) { index ->
+            val base = index * BMP_RGB_QUAD_BYTES_INT
+            val blue = paletteBytes[base].toInt() and 0xFF
+            val green = paletteBytes[base + 1].toInt() and 0xFF
+            val red = paletteBytes[base + 2].toInt() and 0xFF
+            (0xFF shl 24) or (red shl 16) or (green shl 8) or blue
+        }
+
+        val compressedLength = resource.payloadSizeBytes - pixelDataOffset
+        val indices = ReadOnlySourceRangeInputStream(
+            source,
+            resource.payloadOffset + pixelDataOffset,
+            compressedLength
+        ).use { input ->
+            BmpRleDecoder.decode(
+                input = input,
+                encodedLengthBytes = compressedLength,
+                width = resource.widthPixels,
+                height = resource.heightPixels,
+                bitsPerPixel = bitsPerPixel,
+                paletteEntries = paletteEntries
+            )
+        }
+
+        val bitmap = try {
+            Bitmap.createBitmap(
+                resource.widthPixels,
+                resource.heightPixels,
+                Bitmap.Config.ARGB_8888
+            )
+        } catch (failure: RuntimeException) {
+            throw IOException("Could not allocate the bounded BMP RLE bitmap.", failure)
+        }
+        val argbRow = IntArray(resource.widthPixels)
+        try {
+            for (y in 0 until resource.heightPixels) {
+                val rowOffset = y * resource.widthPixels
+                for (x in 0 until resource.widthPixels) {
+                    val paletteIndex = indices[rowOffset + x].toInt() and 0xFF
+                    argbRow[x] = palette.getOrElse(paletteIndex) {
+                        throw IOException("BMP RLE pixel refers to an absent palette entry.")
+                    }
+                }
+                bitmap.setPixels(
+                    argbRow,
+                    0,
+                    resource.widthPixels,
+                    0,
+                    y,
+                    resource.widthPixels,
+                    1
+                )
+            }
+        } catch (failure: Exception) {
+            bitmap.recycle()
+            if (failure is IOException) throw failure
+            throw IOException("Could not materialize BMP RLE pixel rows.", failure)
+        }
+        return bitmap
+    }
+
     private fun pixelCountAtSample(width: Int, height: Int, sampleSize: Int): Long {
         val sampledWidth = (width.toLong() + sampleSize - 1L) / sampleSize
         val sampledHeight = (height.toLong() + sampleSize - 1L) / sampleSize
@@ -206,6 +302,10 @@ class AndroidGpkImageDecoder(
     companion object {
         private const val DEFAULT_MAX_DECODED_PIXELS = 8_000_000L
         private const val BI_RGB = 0L
+        private const val BI_RLE8 = 1L
+        private const val BI_RLE4 = 2L
+        private const val BMP_RGB_QUAD_BYTES = 4L
+        private const val BMP_RGB_QUAD_BYTES_INT = 4
         private val RAW_BITS_PER_PIXEL = setOf(24, 32)
     }
 }
