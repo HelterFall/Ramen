@@ -112,3 +112,24 @@ The branch now contains an engine-neutral runtime prototype under the scenario r
 - ScenarioDemoContent.kt and ScenarioDemoActivity.kt: original bundled demo and UI.
 
 This prototype proves the control-flow path for dialogue and branching. It does not decode proprietary script files and does not yet resolve image/audio resource keys; its stage uses labelled visual placeholders. The next work item is a real resource-provider contract and device validation.
+
+## Cross-check of observed extension families — 2026-11-02
+
+A public community reverse-engineering project, VNTools, documents several related Japanese visual-novel engine families (System-NNN, DDSystem, and BlackCyc) and reports overlapping format families:
+- GTB + GPK as paired image archives (called DWQ by that project);
+- VTB + VPK as voice/sound archives;
+- WGQ as BGM resources;
+- XTX / FXF as script-related variants;
+- SPT as a script format used by some newer BlackCyc titles.
+
+Reference: https://github.com/abunomaru/VNTools
+
+This is an independent community reference, not an official specification and not proof of the exact engine/version in the inventoried directory. The combination is a useful research lead only. The individual VAW files in the inventory must not be conflated with the community project's use of VAW as a label for the VTB/VPK archive family. Keep extension-only evidence separate from byte-validated structures.
+
+## Explicit status of the bundled scenario demo
+
+The ScenarioDemoContent DSL and ScenarioParser are Ramen's own test language. They do not parse SPT, XTX, FXF, or a GSS command stream. ScenarioSession demonstrates generic control flow; the demo's background/character UI uses placeholders. Existing GPK/GTB and VPK/VTB readers are independent resource-preview tools and are not yet connected to a target-engine runtime.
+
+The target executable is a PE32 x86 image whose declared imports include Windows multimedia/DirectDraw and Ogg/Vorbis libraries. This supports the conclusion that the original program expects a native Windows environment, but it does not identify every engine semantic or prove a specific adapter architecture.
+
+Next research gate: establish the engine family/version from multiple independent sources, define the adapter boundary for script commands/resources/rendering/audio/save state/lifecycle, and do not claim target compatibility until an appropriate end-to-end fixture validates it.

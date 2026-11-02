@@ -46,6 +46,15 @@ The current direction is to build reusable runtime foundations from confirmed ev
 
 **Exit condition:** an original fixture can be launched, completed through multiple branches, saved, and resumed with real local image/audio resources on Android. The current milestone is an executable prototype with placeholder visuals.
 
+## M1.7 — Target-engine adapter research
+- [ ] Confirm the likely engine family/version from corroborating executable and file-format evidence.
+- [ ] Record every observed file family with an evidence level; keep unresolved files explicitly unknown.
+- [ ] Specify the adapter boundary for script loading, command semantics, resource lookup, graphics/audio, save state, and Android lifecycle.
+- [ ] Assess technical and distribution/licensing feasibility before target-specific implementation.
+- [ ] Keep the engine-neutral demo DSL explicitly separate from the sample engine's source formats.
+
+**Exit condition:** a versioned adapter specification and end-to-end test plan exist before target-specific compatibility is claimed.
+
 ## M0 — Project foundation
 - [ ] Agree on product scope and Android-first target.
 - [ ] Choose a project licence after considering intended distribution and future runtime licences.

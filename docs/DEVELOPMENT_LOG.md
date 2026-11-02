@@ -317,3 +317,27 @@ Create and review a complete read-only inventory report from a representative ga
 2. Add an audio cue command and lifecycle-aware audio adapter.
 3. Add tests for UI-facing save/restore and process/activity recreation.
 4. Document the DSL grammar and runtime contract in a dedicated runtime document.
+
+## 2026-11-02 — Clarify prototype versus target-engine compatibility
+
+### Correction
+- The built-in scenario demo is an original Ramen DSL used to test generic parsing, interpreter control flow, UI updates, and save/restore.
+- It does not parse the sample's SPT, XTX, or FXF source files and does not reproduce the sample engine's command set.
+- Background and character visuals are placeholders. GPK/GTB and VPK/VTB inspectors remain separate asset-preview tools, not a target-engine renderer/audio bridge.
+
+### Independent format-family lead
+- Reviewed the public VNTools catalogue: https://github.com/abunomaru/VNTools
+- It documents overlapping families for System-NNN, DDSystem, and BlackCyc, including GTB/GPK image archives, VTB/VPK sound archives, WGQ BGM, XTX/FXF script-related files, and SPT scripts in a BlackCyc variant.
+- This community reference is a research lead only, not an authoritative specification or definitive identification of the sample's exact engine/version.
+- The inventory's standalone VAW files are not automatically the same thing as the external catalogue's VAW label for the VTB/VPK archive family.
+
+### Decision
+- Keep the neutral demo as a reusable regression fixture and architecture prototype.
+- Do not extend its DSL and imply it is the actual sample engine.
+- Establish a versioned engine-adapter boundary and maintain evidence levels for each observed source format before making compatibility claims.
+- The metadata inventory does not establish a content rating; filenames alone are not a basis for assigning one.
+
+### Next
+1. Confirm the target family/version from independent evidence.
+2. Define the adapter boundary for scenario loading/commands, resource lookup, rendering/audio, save semantics, and lifecycle.
+3. Keep target-specific compatibility claims separate from the neutral demo until a suitable fixture validates the complete path.

@@ -153,3 +153,17 @@ The experimental engine-neutral scenario runtime is deliberately split into four
 4. Persistence — ScenarioSaveCodec encodes a versioned snapshot; the bundled demo writes a local save file. A future production runtime should add save slots, atomic replacement, migration policy, and lifecycle tests.
 
 The DSL is Ramen's own test format. It is not evidence of compatibility with any external engine. A future adapter must translate an independently understood source format into the common runtime model or implement its own interpreter behind the runtime boundary. Resource resolution and audio are separate interfaces and are not implemented by this first demo.
+
+## Target-engine adapter boundary
+
+The current Scenario DSL is an engine-neutral test fixture only. It must not become the assumed source format for unrelated games. A future adapter for a particular engine family needs independently validated implementations or mappings for:
+- source-file identification and loading;
+- script records, command decoding, and control-flow semantics;
+- resource identifiers and archive lookup;
+- text encoding, layout, and font behavior;
+- graphics composition and transitions;
+- music, voice, and sound-effect playback;
+- game variables, save/load state, and version compatibility;
+- pause/resume, orientation, input, and Android lifecycle.
+
+The shared runtime model may be reused where semantics genuinely match, but a target adapter must preserve engine-specific behavior rather than silently translating unknown commands into the demo DSL. Compatibility is established only by reproducible end-to-end tests against an appropriate original or licensed fixture.

@@ -108,3 +108,9 @@ The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-25
 ## Naming
 
 Ramen is the project name. The app's final icon, visual identity, and release branding can evolve as the prototype develops.
+
+## Important distinction: demo runtime vs. target engine
+
+The bundled Scenario Runtime demo is an engine-neutral prototype using Ramen's own test DSL. It proves only the general parser -> interpreter -> UI -> save/restore path. It does not read the inventoried sample's SPT, XTX, or FXF files, and it does not implement that engine's command set, resource lookup, rendering, audio, or save format.
+
+The target directory contains separate resource families already partly inspected by Ramen (GPK/GTB images and VPK/VTB audio) and several unclassified or candidate script/config families. A working demo is not evidence that the target engine can launch. Target compatibility requires a separate, evidence-backed engine adapter and end-to-end tests.
