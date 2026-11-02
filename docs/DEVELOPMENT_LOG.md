@@ -211,3 +211,9 @@ Use the supplied paired archive samples to move two extension families from file
 - Added a VPK/VTB audio list and a foreground `MediaPlayer` flow with basic play/pause/stop controls. The selected Ogg range is staged to cache first.
 - The player and temporary cache files are released when the inspector leaves the foreground or is destroyed. This is an asset preview tool, not a game runtime.
 - The device picker, image rendering, and Ogg decoder behavior have not yet been verified on a physical Android device. Android codec support can vary.
+
+
+### Validation — Resource Inspector integration
+- The first CI attempt found an unresolved import for `AndroidGpkImageDecoder`; the class lives in `io.github.helterfall.ramen.runtime.nativeaudio`. The import was corrected.
+- Follow-up GitHub Actions run [41405096328](https://github.com/HelterFall/Ramen/actions/runs/41405096328) passed `assembleDebug`, `testDebugUnitTest`, `lintDebug`, and debug APK artifact upload.
+- CI validates compilation and synthetic unit tests. It does not validate SAF picker behavior, image rendering, or Ogg codec support on a physical Android device.
