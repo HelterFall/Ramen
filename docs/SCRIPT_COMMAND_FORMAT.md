@@ -49,6 +49,8 @@ ScriptCommandParser is stateful over one caller-owned InputStream. It exposes pa
 
 ScriptScenarioLoader validates the header and reads until clean EOF. It maps each command's absolute byte offset to a stable scenario ID addr_<offset>, validates jump targets against those IDs, and translates dialogue/background/jump operations into ScenarioCommand.Dialogue, ScenarioCommand.SetBackground, and ScenarioCommand.Jump. Sequential instructions link to the next address. The resulting ScenarioProject is executable by the existing ScenarioSession and uses its automatic-transition guard.
 
+The experimental Android player selects 01.spt first, then conventional initializer names (init.spt, startup.spt, main.spt); if no .spt is present it looks for the exact Script v1 magic in the bounded source snapshot. It starts a ScenarioSession from the loaded project and displays the current dialogue directly in a Compose text panel. Background resource keys are resolved across discovered GPK/GTB image pairs: exact key, basename, then basename without extension. The chosen GPK entry is decoded from its indexed byte range with the existing bounded Android image decoder. Missing or ambiguous backgrounds produce a status message but do not stop dialogue playback. Unknown opcodes and other ScriptParseException failures are shown as a controlled load error and do not escape the player Activity.
+
 BinarySignatureProbe validates the full Script v1 structure after matching the magic. A valid header alone is not considered a valid script.
 
 ## Non-goals

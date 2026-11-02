@@ -454,3 +454,18 @@ Create and review a complete read-only inventory report from a representative ga
 - Script and IF PACKT are Ramen-owned synthetic v1 fixtures, not claims of compatibility with proprietary game binaries.
 - The probe validates the supported fixture structure; matching magic with a malformed body remains a malformed candidate, not a successful engine detection.
 - Android CI covers JVM unit tests, Android compilation, and lint. Real sample-folder inspection and physical-device UI validation remain separate checks.
+
+
+## 2026-11-02 — Binary Script v1 player integration
+
+### Added
+- Added bounded entry-point selection: prefer 01.spt, then conventional initializer names; without an .spt, select a file only when its first eight bytes match the exact Ramen Script v1 signature.
+- Added ScriptScenarioPlayerActivity: it loads through ScriptScenarioLoader, creates a ScenarioSession, renders dialogue frames in Compose, and advances the story.
+- Added ScenarioResourceManager for indexed GPK/GTB lookup and bounded on-demand image decoding. It prefers exact resource keys, then filename and filename-without-extension matches; ambiguous and missing resources are reported without terminating dialogue playback.
+- Added a dedicated library action for validated Script v1 records, kept separate from HTML5 launch. Existing ResourceContainer-only detections remain inspection-only.
+- Added unit tests for entry-point ordering, magic fallback, parser-to-session dialogue/background transitions, malformed unknown opcodes, and GPK resource-name matching.
+
+### Limits
+- The player runs only the documented synthetic Ramen Script v1 byte format. A proprietary SPT file with a different header/opcode layout remains Malformed and unsupported.
+- GPK/GTB images are resolved; VPK/VTB audio cues, animation, speaker metadata, variables, and commands not defined in Script v1 are not implemented.
+- Missing or ambiguous background keys do not stop the story. Android image rendering still requires physical-device validation.

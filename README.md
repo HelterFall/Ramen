@@ -4,7 +4,7 @@
 
 > **Project status:** Android library, safe import, a restricted HTML5 runtime, read-only binary inspection, bounded resource previews, and an experimental engine-neutral scenario runtime are implemented as prototypes. A complete metadata-only inventory has been recorded for one representative directory. No proprietary Windows engine runtime is currently supported.
 
-A validated synthetic Script v1 or IF PACKT v1 signature is displayed as **Обнаружен тестовый движок v1**. This is detection only, not support for a proprietary engine or permission to launch the game. GTB labels are best-effort Shift-JIS metadata; opaque labels fall back to stable identifiers while image payload ranges remain independently validated.
+A validated synthetic Script v1 or IF PACKT v1 signature is displayed as **Обнаружен тестовый движок v1**. A Script v1 file can be opened in the experimental binary scenario player; IF PACKT-only folders remain inspection-only. This is not support for a proprietary engine or arbitrary legacy SPT dialect. GTB labels are best-effort Shift-JIS metadata; opaque labels fall back to stable identifiers while image payload ranges remain independently validated.
 
 ## Product idea
 
@@ -28,7 +28,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - A resource inspector screen can open matching archive pairs, browse image/audio metadata, preview GPK images through a bounded Android BitmapFactory decoder, and play selected Ogg resources through Android MediaPlayer with basic play/pause/stop controls. Selected archives are copied to app-private cache with storage-aware streaming and no fixed per-file size cap.
 - A read-only `EngineSource` API exposes a bounded snapshot of imported files as streams or positional sources; the engine adapter registry preserves no-match, malformed, unique-match, and ambiguous outcomes, runs probes in stable order, and isolates expected I/O failures.
 - `BinarySignatureProbe` recognizes the four exact 8-byte signatures in the Ramen test-fixture specification and reports typed resource evidence (`script`, `resource-container`, `graphic-archive`) without consulting file extensions.
-- No broad storage permissions. Native/proprietary engine runtime integrations are not available yet.
+- No broad storage permissions. The experimental Ramen Script v1 player loads the preferred 01.spt / initializer file into ScenarioSession, displays dialogue in Compose, and resolves background keys through indexed GPK/GTB payloads. Proprietary SPT dialects remain unsupported.
 
 ## File types and current evidence
 
@@ -101,13 +101,13 @@ Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](doc
 
 ## Experimental scenario runtime
 
-Ramen now includes a small original scenario format and a playable built-in demo, reachable from the library screen. The first interpreter supports scene changes, background resource keys, character visibility/position, dialogue, grouped choices, Boolean flags, conditional jumps, unconditional jumps, and an end command. Save state has a versioned binary codec and the demo stores one local save file.
+Ramen includes both an engine-neutral line-oriented demo and an experimental binary Script v1 player. The binary player selects a conventional 01.spt / initializer file (or a file with the exact Ramen Script v1 magic), loads it through ScriptScenarioLoader, and starts the existing ScenarioSession. Dialogue commands are displayed in a Compose text window; background keys are resolved by ScenarioResourceManager against bounded GPK/GTB indexes and decoded from their indexed image payload ranges.
 
-The demo currently draws labelled placeholder backgrounds and character tags. It proves the parser → interpreter → UI → save/restore path; it is **not** an adapter for any legacy engine and does not parse proprietary formats. The scenario DSL is intentionally documented and testable on its own.
+The player isolates parse failures, including unknown opcodes, on an error screen. It does not crash the library or silently treat an arbitrary .spt as supported. This path supports only the documented synthetic Ramen Script v1 format; it is not an interpreter for the inventoried proprietary sample's SPT/XTX/FXF files. The original DSL demo remains a separate fixture.
 
 ## Current next step
 
-The synthetic ResourceContainer has a bounded index reader and lazy per-resource access. The Ramen Script v1 test format now has a bounded command parser and a loader into the engine-neutral ScenarioProject model. The next resource-layer task is a shared ResourceManager/provider that can resolve resource IDs across the test container and existing GPK/GTB image and VPK/VTB audio readers without copying whole archives. The proprietary target-engine track remains separate: its family/version and command format still require corroborating byte-level evidence before compatibility can be claimed.
+The synthetic ResourceContainer has a bounded index reader and lazy per-resource access. The Ramen Script v1 player now bridges binary commands through ScriptScenarioLoader and ScenarioSession; GPK/GTB background images are resolved on demand through a read-only ScenarioResourceManager. VPK/VTB audio cues and broader resource semantics remain future work. The proprietary target-engine track remains separate: its family/version and command format still require corroborating byte-level evidence before compatibility can be claimed.
 
 The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-256 input by default); the report marks truncated scans and records files whose hashes were skipped. The archive tools preview individual resources; they do not run a legacy engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
 

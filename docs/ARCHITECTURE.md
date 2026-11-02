@@ -204,3 +204,10 @@ The parser supports strict UTF-8 and Shift-JIS decoding, bounded length-prefixed
 The folder and ZIP importers share `VisualNovelDetector`. It now builds a bounded `DirectoryGameSource` snapshot and invokes `BinarySignatureProbe` through `EngineAdapterRegistry` before filename/HTML heuristics. A structurally validated Script v1 or IF PACKT v1 marker maps to the explicit library state “Обнаружен тестовый движок v1” (`DETECTED_UNSUPPORTED`). The existing resource-inspector action remains available; the UI explicitly says the format is detected but not launchable. Standalone JPEG/BMP block signatures do not promote a directory to an engine match.
 
 GTB resource names are optional display labels. Valid Shift-JIS is decoded, while malformed, empty, control-containing, or duplicate labels are replaced with unique `fallback_resource_N` names. Offset tables, NUL termination limits, block ranges, image headers, and payload boundaries remain validated independently.
+
+
+## Binary Script v1 player boundary
+
+The experimental ScriptScenarioPlayerActivity is selected only for a validated Ramen Script v1 match. It uses ScriptEntryPointResolver over a bounded DirectoryGameSource, loads the selected entry with ScriptScenarioLoader, and executes it through ScenarioSession. Compose renders the current dialogue frame. ScenarioResourceManager indexes GPK/GTB pairs and decodes a selected image payload on demand; a missing background does not abort the story. Unknown opcodes remain ScriptParseException / Malformed and are surfaced as a player error state.
+
+This is a complete parser-to-session-to-Compose path for Ramen's synthetic Script v1 fixture, not a claim that an arbitrary or proprietary .spt is supported.
