@@ -386,10 +386,10 @@ class ResourceArchiveParsersTest {
         putU16(bytes, 14, 24)
         putU32(bytes, 16, 0)
         putU32(bytes, 20, 4)
-        bytes[40] = 0x20
-        bytes[41] = 0x40
-        bytes[42] = 0x60
-        bytes[43] = 0
+        bytes[40] = 0x20.toByte()
+        bytes[41] = 0x40.toByte()
+        bytes[42] = 0x60.toByte()
+        bytes[43] = 0.toByte()
         return bytes
     }
 
