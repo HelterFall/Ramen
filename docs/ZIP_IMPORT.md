@@ -16,8 +16,12 @@ The ZIP extractor rejects:
 - duplicate paths (case-insensitive);
 - paths nested beyond the configured depth;
 - archives with more than 10,000 entries;
-- individual files larger than 512 MiB;
-- expanded archives larger than 1 GiB;
+- writes that would consume the app's protected free-space reserve.
+
+There is no fixed 512 MiB per-file or 1 GiB total expanded-size ceiling. The extractor checks
+available space before every streamed chunk and preserves free space for the operating system
+and other app work (at least 16 MiB, up to 256 MiB or 5% of currently available space).
+The entry-count, path-depth, and path-safety checks remain in force.
 - archives that contain no files.
 
 Extraction happens in a temporary app-private directory. The directory is renamed into the library only after extraction and inspection both succeed. Failed imports clean up the temporary directory.
@@ -37,4 +41,4 @@ An unrecognized archive remains importable and appears as `UNKNOWN`; it is not d
 
 ## Test coverage
 
-Unit tests cover normal extraction, path traversal rejection, expanded-size limits, case-insensitive duplicate paths, and representative engine markers.
+Unit tests cover normal extraction, path traversal rejection, explicitly configured size limits, storage-reserve checks, case-insensitive duplicate paths, and representative engine markers.
