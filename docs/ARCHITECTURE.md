@@ -208,6 +208,6 @@ GTB resource names are optional display labels. Valid Shift-JIS is decoded, whil
 
 ## Binary Script v1 player boundary
 
-The experimental ScriptScenarioPlayerActivity is selected only for a validated Ramen Script v1 match. It uses ScriptEntryPointResolver over a bounded DirectoryGameSource, loads the selected entry with ScriptScenarioLoader, and executes it through ScenarioSession. Compose renders the current dialogue frame. ScenarioResourceManager indexes GPK/GTB pairs and decodes a selected image payload on demand; a missing background does not abort the story. Unknown opcodes remain ScriptParseException / Malformed and are surfaced as a player error state.
+The experimental ScriptScenarioPlayerActivity is selected only for a validated Ramen Script v1 match. It uses ScriptEntryPointResolver over a bounded DirectoryGameSource, loads the selected entry with ScriptScenarioLoader, and executes it through ScenarioSession. Compose renders the current dialogue frame. ScenarioResourceManager indexes GPK/GTB pairs and decodes a selected image payload on demand. A malformed GPK/GTB pair is isolated while other valid pairs are indexed; unsafe or ambiguous resource keys are rejected. A missing background does not abort the story. Unknown opcodes remain ScriptParseException / Malformed and are surfaced as a player error state.
 
 This is a complete parser-to-session-to-Compose path for Ramen's synthetic Script v1 fixture, not a claim that an arbitrary or proprietary .spt is supported.

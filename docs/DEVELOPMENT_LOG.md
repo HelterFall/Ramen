@@ -469,3 +469,17 @@ Create and review a complete read-only inventory report from a representative ga
 - The player runs only the documented synthetic Ramen Script v1 byte format. A proprietary SPT file with a different header/opcode layout remains Malformed and unsupported.
 - GPK/GTB images are resolved; VPK/VTB audio cues, animation, speaker metadata, variables, and commands not defined in Script v1 are not implemented.
 - Missing or ambiguous background keys do not stop the story. Android image rendering still requires physical-device validation.
+
+
+## 2026-11-02 — Script startup fallback and resource lookup hardening
+
+### Changed
+- Extended ScriptEntryPointResolver with explicit Ready, Malformed, and NotFound outcomes. It now fully parses each candidate in priority order and continues after unknown opcodes, truncated records, invalid encodings, or invalid jump targets.
+- Updated ScriptScenarioPlayerActivity to instantiate ScenarioSession only for a fully validated Ready project. Malformed candidate diagnostics are shown on the controlled load-error screen.
+- Added GpkImageLocation and resolveBackground so the physical archive path and validated payload range can be inspected independently of Android bitmap decoding.
+- ScenarioResourceManager now skips a malformed GPK/GTB pair when other valid image pairs remain available, verifies canonical containment, and rejects unsafe resource keys.
+- Added regressions for malformed-first/valid-second Script startup, all-malformed candidates, magic-only initializer selection, GPK payload offsets, malformed-pair isolation, and unsafe background paths.
+
+### Compatibility boundary
+- Script v1 remains the documented Ramen synthetic format only. These changes do not claim to run arbitrary or proprietary SPT files.
+- Compose displays the ScenarioSession dialogue frame; background changes are resolved to GPK/GTB payloads. A missing or ambiguous image is a visual warning and not a script parser failure.

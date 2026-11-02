@@ -138,11 +138,11 @@ class ScriptScenarioPlayerActivity : ComponentActivity() {
                 is ScriptEntryPointLoadResult.Malformed -> {
                     val details = result.failures
                         .take(MAX_VISIBLE_CANDIDATE_FAILURES)
-                        .joinToString("\\n") { it.relativePath + ": " + it.reason }
+                        .joinToString("\n") { it.relativePath + ": " + it.reason }
                     throw IOException(
                         "Не найден корректный стартовый Script v1. Проверено файлов: " +
                             result.candidatesInspected + "." +
-                            if (details.isBlank()) "" else "\\n" + details
+                            if (details.isBlank()) "" else "\n" + details
                     )
                 }
                 ScriptEntryPointLoadResult.NotFound -> throw IOException(

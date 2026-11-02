@@ -1,11 +1,12 @@
 package io.github.helterfall.ramen.runtime.resources
 
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.file.Files
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ScenarioResourceManagerTest {

@@ -101,14 +101,15 @@ Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](doc
 
 ## Experimental scenario runtime
 
-Ramen includes both an engine-neutral line-oriented demo and an experimental binary Script v1 player. The binary player selects a conventional 01.spt / initializer file (or a file with the exact Ramen Script v1 magic), loads it through ScriptScenarioLoader, and starts the existing ScenarioSession. Dialogue commands are displayed in a Compose text window; background keys are resolved by ScenarioResourceManager against bounded GPK/GTB indexes and decoded from their indexed image payload ranges.
+Ramen includes both an engine-neutral line-oriented demo and an experimental binary Script v1 player. The binary player searches preferred .spt names (01.spt, 00.spt, init.spt, start.spt, main.spt) and also checks other files for the exact Script v1 magic. Each candidate is fully validated through ScriptScenarioLoader before ScenarioSession is created. Unknown opcodes, incomplete operands, invalid encodings, and invalid jump targets are collected as Malformed diagnostics; the next candidate is tried, and no partial project is executed. When none validate, the player shows an error screen instead of crashing the library.
 
-The player isolates parse failures, including unknown opcodes, on an error screen. It does not crash the library or silently treat an arbitrary .spt as supported. This path supports only the documented synthetic Ramen Script v1 format; it is not an interpreter for the inventoried proprietary sample's SPT/XTX/FXF files. The original DSL demo remains a separate fixture.
+ScenarioSession publishes dialogue frames to the Compose text window. Background keys are resolved by ScenarioResourceManager against validated GPK/GTB entries; AndroidGpkImageDecoder reads only the selected payload range. Corrupt GPK/GTB pairs are isolated when other valid pairs exist, and missing or ambiguous background keys are presented as visual warnings rather than story failures.
+
+This is an end-to-end path for the documented synthetic Ramen Script v1 fixture only. It is not a parser for the inventoried proprietary SPT/XTX/FXF formats, and a file extension alone never establishes compatibility.
 
 ## Current next step
 
-The synthetic ResourceContainer has a bounded index reader and lazy per-resource access. The Ramen Script v1 player now bridges binary commands through ScriptScenarioLoader and ScenarioSession; GPK/GTB background images are resolved on demand through a read-only ScenarioResourceManager. VPK/VTB audio cues and broader resource semantics remain future work. The proprietary target-engine track remains separate: its family/version and command format still require corroborating byte-level evidence before compatibility can be claimed.
-
+The Ramen Script v1 test format now runs end to end through validated startup selection, ScriptScenarioLoader, ScenarioSession, Compose dialogue, and GPK/GTB-backed backgrounds. Remaining resource work is to resolve image and audio assets inside the synthetic IF PACKT container and add VPK/VTB audio cues. Character sprites, player save slots, and physical-device lifecycle/rendering validation also remain. The proprietary target-engine track is separate: its SPT header, command set, and control-flow semantics still need independent byte-level evidence before compatibility can be claimed.
 The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-256 input by default); the report marks truncated scans and records files whose hashes were skipped. The archive tools preview individual resources; they do not run a legacy engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
 
 ## Naming
