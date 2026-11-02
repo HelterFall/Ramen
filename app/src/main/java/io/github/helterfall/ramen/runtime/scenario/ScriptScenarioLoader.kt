@@ -1,5 +1,6 @@
 package io.github.helterfall.ramen.runtime.scenario
 
+import io.github.helterfall.ramen.inspection.XorMaskingInputStream
 import java.io.InputStream
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
@@ -25,15 +26,28 @@ object ScriptScenarioLoader {
      * does not carry an encoding field.
      */
     fun load(stream: InputStream): ScenarioProject =
-        load(stream, StandardCharsets.UTF_8)
+        load(stream, StandardCharsets.UTF_8, xorKey = 0)
 
     fun load(
         stream: InputStream,
         textCharset: Charset
-    ): ScenarioProject {
-        readAndValidateMagic(stream)
+    ): ScenarioProject = load(stream, textCharset, xorKey = 0)
 
-        val parser = ScriptCommandParser(textCharset, initialOffset = HEADER_SIZE)
+    /** Loads a script whose fixed-width header and command stream use the same XOR byte. */
+    fun load(
+        stream: InputStream,
+        textCharset: Charset,
+        xorKey: Int
+    ): ScenarioProject {
+        require(xorKey in 0..0xFF) { "XOR key must be an unsigned byte." }
+        val headerStream = if (xorKey == 0) stream else XorMaskingInputStream(stream, xorKey)
+        readAndValidateMagic(headerStream)
+
+        val parser = ScriptCommandParser(
+            textCharset,
+            initialOffset = HEADER_SIZE,
+            xorKey = xorKey
+        )
         val instructions = mutableListOf<Instruction>()
 
         while (true) {
