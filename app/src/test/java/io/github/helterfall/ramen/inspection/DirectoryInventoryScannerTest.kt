@@ -79,6 +79,28 @@ class DirectoryInventoryScannerTest {
     }
 
     @Test
+    fun enforcesDepthLimitAndReportsSkippedDescendants() {
+        val root = Files.createTempDirectory("ramen-inventory-depth").toFile()
+        try {
+            File(root, "root.txt").writeText("root")
+            val firstLevel = File(root, "level1")
+            firstLevel.mkdirs()
+            File(firstLevel, "inside-level1.txt").writeText("not included at maxDepth=1")
+            val secondLevel = File(firstLevel, "level2")
+            secondLevel.mkdirs()
+            File(secondLevel, "deep.txt").writeText("deep")
+
+            val result = DirectoryInventoryScanner(maxDepth = 1).scan(root)
+
+            assertEquals(listOf("root.txt"), result.entries.map { it.relativePath })
+            assertTrue(result.truncated)
+            assertTrue(result.warnings.any { it.contains("depth limit") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun rejectsNonDirectoryRoot() {
         val directory = Files.createTempDirectory("ramen-inventory-invalid").toFile()
         try {
