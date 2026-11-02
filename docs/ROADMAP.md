@@ -24,7 +24,8 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Connect the random-access source to the PE binary inspector.
 - [ ] Add user-facing export/reporting for inspection results.
 - [ ] Add a positional source implementation for Android Storage Access Framework documents where supported.
-\n## M0 — Project foundation
+
+## M0 — Project foundation
 - [ ] Agree on product scope and Android-first target.
 - [ ] Choose a project licence after considering intended distribution and future runtime licences.
 - [ ] Create the Android Studio / Gradle project.
