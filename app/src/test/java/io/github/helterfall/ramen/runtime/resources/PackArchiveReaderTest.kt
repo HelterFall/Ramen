@@ -203,7 +203,7 @@ class PackArchiveReaderTest {
             val summary = EngineAdapterRegistry(listOf(adapter)).probe(source)
             assertTrue(summary.matches.isEmpty())
             assertEquals(1, summary.malformed.size)
-            assertTrue(summary.malformed.single().reason.contains("ResourceContainer"))
+            assertTrue(summary.malformed.single().reason.contains("Invalid ResourceContainer structure"))
         } finally {
             root.deleteRecursively()
         }

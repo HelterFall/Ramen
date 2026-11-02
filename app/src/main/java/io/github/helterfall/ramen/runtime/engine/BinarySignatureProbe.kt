@@ -138,8 +138,10 @@ class BinarySignatureProbe : EngineAdapter {
             )
         }
 
+        val primaryReason = rejectedEvidence.firstOrNull()?.description
+            ?: "No file matched the Ramen test binary signatures."
         return EngineProbeResult.Malformed(
-            reason = "No file matched the Ramen test binary signatures.",
+            reason = primaryReason.take(MAX_FAILURE_REASON_LENGTH),
             evidence = rejectedEvidence
         )
     }

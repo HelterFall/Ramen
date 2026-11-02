@@ -409,3 +409,9 @@ Create and review a complete read-only inventory report from a representative ga
 
 ### Validation
 - Await the GitHub Actions run for this commit before marking the reader CI-verified.
+
+
+### CI correction — preserve the primary malformed reason
+- The first CI run for the reader passed compilation and APK assembly but exposed one assertion failure in the registry integration test: the adapter correctly returned a malformed result, but the aggregate reason string was too generic.
+- Updated `BinarySignatureProbe.probe()` to surface the first concrete per-file rejection reason when no resource matches, while keeping every rejection in the evidence list.
+- Tightened the test to assert that an invalid ResourceContainer index is reported by the registry with its structural cause.
