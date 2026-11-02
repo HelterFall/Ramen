@@ -63,7 +63,7 @@ class BinarySignatureProbeTest {
     }
 
     @Test
-    fun recognizesAndValidatesAnXorMaskedScriptInTheEngineAdapterProbe() {
+    fun rejectsMaskedFixtureMagicInsteadOfGuessingAnXorKey() {
         val root = Files.createTempDirectory("ramen-binary-masked-script").toFile()
         try {
             val clearScript = validScriptFixture()
@@ -75,11 +75,8 @@ class BinarySignatureProbeTest {
 
             val result = BinarySignatureProbe().probeFile(source, "masked.spt")
 
-            assertTrue(result is EngineProbeResult.Match)
-            val match = result as EngineProbeResult.Match
-            assertEquals("ramen-test-v1", match.formatVersion)
-            assertEquals("script", match.evidence.single().resourceType)
-            assertFalse(match.evidence.single().description.contains("did not validate"))
+            assertTrue(result is EngineProbeResult.Malformed)
+            assertTrue((result as EngineProbeResult.Malformed).reason.contains("Unrecognized"))
         } finally {
             root.deleteRecursively()
         }

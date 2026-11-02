@@ -136,22 +136,14 @@ class ScriptEntryPointResolverTest {
     }
 
     @Test
-    fun loadDerivesXorKeyFromMaskedMagicAndDecodesTheCommandBody() {
+    fun doesNotParseOpaqueSptFileFromExtensionAlone() {
         withGameDirectory { root ->
-            val plaintext = validScript(dialogue("Masked startup"))
-            File(root, "bootstrap.bin").writeBytes(xorMask(plaintext, 0x10))
+            File(root, "01.spt").writeBytes(ByteArray(64) { 0xAA.toByte() })
+            val source = DirectoryGameSource(root, "opaque-spt-not-a-fixture")
+            val resolver = ScriptEntryPointResolver()
 
-            val result = ScriptEntryPointResolver().load(
-                DirectoryGameSource(root, "script-xor-entry")
-            )
-
-            assertTrue(result is ScriptEntryPointLoadResult.Ready)
-            val ready = result as ScriptEntryPointLoadResult.Ready
-            assertEquals("bootstrap.bin", ready.entry.relativePath)
-            assertEquals(
-                "Masked startup",
-                ScenarioSession.start(ready.project).frame().dialogue?.text
-            )
+            assertEquals(null, resolver.select(source))
+            assertEquals(ScriptEntryPointLoadResult.NotFound, resolver.load(source))
         }
     }
 
@@ -179,9 +171,6 @@ class ScriptEntryPointResolverTest {
         val bytes = path.toByteArray(Charsets.UTF_8)
         return byteArrayOf(0x02, bytes.size.toByte(), 0x00) + bytes
     }
-
-    private fun xorMask(bytes: ByteArray, key: Int): ByteArray =
-        ByteArray(bytes.size) { index -> (bytes[index].toInt() xor key).toByte() }
 
     private fun withGameDirectory(block: (File) -> Unit) {
         val root = Files.createTempDirectory("ramen-script-player-test").toFile()

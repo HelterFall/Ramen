@@ -31,20 +31,6 @@ class ScriptCommandParserTest {
     }
 
     @Test
-    fun decodesXorMaskedOpcodesAndOperandsFromOneContinuousStream() {
-        val plaintext = commandStream(dialogue("Masked dialogue"), background("bg/masked.png"))
-        val masked = ByteArray(plaintext.size) { index ->
-            (plaintext[index].toInt() xor 0x10).toByte()
-        }
-        val parser = ScriptCommandParser(xorKey = 0x10)
-        val stream = ByteArrayInputStream(masked)
-
-        assertEquals(DisplayDialogueCommand("Masked dialogue"), parser.parseNextCommand(stream))
-        assertEquals(ChangeBackgroundCommand("bg/masked.png"), parser.parseNextCommand(stream))
-        assertNull(parser.parseNextCommand(stream))
-    }
-
-    @Test
     fun decodesShiftJisDialogueAndUnicodeBackgroundNames() {
         val charset = Charset.forName("Shift_JIS")
         val parser = ScriptCommandParser(charset)
@@ -69,8 +55,12 @@ class ScriptCommandParserTest {
 
     @Test
     fun unknownOpcodeAndTruncatedOperandsAreMalformed() {
-        assertThrows(ScriptParseException::class.java) {
-            ScriptCommandParser().parseNextCommand(ByteArrayInputStream(byteArrayOf(0x7F)))
+        listOf(0x7F, 0xFE, 0xFF).forEach { opcode ->
+            assertThrows(ScriptParseException::class.java) {
+                ScriptCommandParser().parseNextCommand(
+                    ByteArrayInputStream(byteArrayOf(opcode.toByte()))
+                )
+            }
         }
         assertThrows(ScriptParseException::class.java) {
             ScriptCommandParser().parseNextCommand(ByteArrayInputStream(byteArrayOf(0x01, 0x02)))
@@ -100,16 +90,14 @@ class ScriptCommandParserTest {
     }
 
     @Test
-    fun xorLoaderStopsAtTheCommandBoundaryAndLeavesClearVfsTrailerUnread() {
+    fun loaderStopsAtSuppliedFixtureCommandBoundaryAndLeavesTrailerUnread() {
         val commands = dialogue("Before VFS")
         val trailer = "sys0.gpk\u0000ta0.gpk\u0000".toByteArray(StandardCharsets.US_ASCII)
-        val encryptedScript = xorMask(script(commands), 0x10) + trailer
-        val input = ByteArrayInputStream(encryptedScript)
+        val input = ByteArrayInputStream(script(commands) + trailer)
 
         val project = ScriptScenarioLoader.load(
             stream = input,
             textCharset = StandardCharsets.UTF_8,
-            xorKey = 0x10,
             commandStreamLengthBytes = commands.size.toLong()
         )
 
@@ -161,125 +149,6 @@ class ScriptCommandParserTest {
     }
 
     @Test
-    fun nitroStartSceneMarkerIsRecognizedAndFollowingCommandsAreParsed() {
-        val parser = ScriptCommandParser(initialOffset = 8L)
-        val stream = ByteArrayInputStream(
-            byteArrayOf(ScriptCommandParser.OPCODE_NITRO_START_SCENE.toByte()) +
-                dialogue("Opening scene")
-        )
-
-        assertEquals(NitroStartSceneCommand, parser.parseNextCommand(stream))
-        assertEquals(9L, parser.nextCommandOffset)
-        assertEquals(
-            DisplayDialogueCommand("Opening scene"),
-            parser.parseNextCommand(stream)
-        )
-        assertNull(parser.parseNextCommand(stream))
-    }
-
-    @Test
-    fun loaderTreatsNitroStartSceneMarkerAsANoOpAndContinuesToDialogue() {
-        val project = ScriptScenarioLoader.load(
-            ByteArrayInputStream(
-                script(
-                    byteArrayOf(ScriptCommandParser.OPCODE_NITRO_START_SCENE.toByte()) +
-                        dialogue("Opening scene")
-                )
-            )
-        )
-        val session = ScenarioSession.start(project)
-
-        assertEquals("Opening scene", session.frame().dialogue?.text)
-        assertEquals("addr_9", session.frame().sceneId)
-    }
-
-    @Test
-    fun nitroInitEngineOpcodeFFIsRecognizedAndFollowingCommandsAreParsed() {
-        val parser = ScriptCommandParser(initialOffset = 8L)
-        val stream = ByteArrayInputStream(
-            byteArrayOf(ScriptCommandParser.OPCODE_NITRO_INIT_ENGINE.toByte()) +
-                dialogue("After engine init")
-        )
-
-        assertEquals(NitroInitEngineCommand, parser.parseNextCommand(stream))
-        assertEquals(9L, parser.nextCommandOffset)
-        assertEquals(
-            DisplayDialogueCommand("After engine init"),
-            parser.parseNextCommand(stream)
-        )
-        assertNull(parser.parseNextCommand(stream))
-    }
-
-    @Test
-    fun loaderTreatsNitroInitEngineAsANoOpAndContinuesToDialogue() {
-        val project = ScriptScenarioLoader.load(
-            ByteArrayInputStream(
-                script(
-                    byteArrayOf(ScriptCommandParser.OPCODE_NITRO_INIT_ENGINE.toByte()) +
-                        dialogue("After engine init")
-                )
-            )
-        )
-        val session = ScenarioSession.start(project)
-
-        assertEquals("After engine init", session.frame().dialogue?.text)
-        assertEquals("addr_9", session.frame().sceneId)
-    }
-
-    @Test
-    fun loaderAllowsEngineInitThenStartSceneMarkersBeforeFirstDialogue() {
-        val project = ScriptScenarioLoader.load(
-            ByteArrayInputStream(
-                script(
-                    byteArrayOf(
-                        ScriptCommandParser.OPCODE_NITRO_INIT_ENGINE.toByte(),
-                        ScriptCommandParser.OPCODE_NITRO_START_SCENE.toByte()
-                    ) + dialogue("First visible line")
-                )
-            )
-        )
-        val session = ScenarioSession.start(project)
-
-        assertEquals("First visible line", session.frame().dialogue?.text)
-        assertEquals("addr_10", session.frame().sceneId)
-    }
-
-    @Test
-    fun decodesXorMaskedNitroInitMarkerBeforeTheFirstDialogue() {
-        val commands = byteArrayOf(
-            ScriptCommandParser.OPCODE_NITRO_START_SCENE.toByte(),
-            ScriptCommandParser.OPCODE_NITRO_INIT_ENGINE.toByte()
-        ) + dialogue("Decrypted init")
-        val maskedScript = xorMask(script(commands), 0x10)
-
-        val project = ScriptScenarioLoader.load(
-            ByteArrayInputStream(maskedScript),
-            StandardCharsets.UTF_8,
-            0x10
-        )
-        val session = ScenarioSession.start(project)
-
-        assertEquals("Decrypted init", session.frame().dialogue?.text)
-        assertEquals("addr_10", session.frame().sceneId)
-    }
-
-    @Test
-    fun loaderRejectsAStreamContainingOnlySystemMarkers() {
-        assertThrows(ScriptParseException::class.java) {
-            ScriptScenarioLoader.load(
-                ByteArrayInputStream(
-                    script(
-                        byteArrayOf(
-                            ScriptCommandParser.OPCODE_NITRO_INIT_ENGINE.toByte(),
-                            ScriptCommandParser.OPCODE_NITRO_START_SCENE.toByte()
-                        )
-                    )
-                )
-            )
-        }
-    }
-
-    @Test
     fun loaderRejectsUnknownOpcodeTruncatedEndAndInvalidJumpTarget() {
         assertThrows(ScriptParseException::class.java) {
             ScriptScenarioLoader.load(ByteArrayInputStream(script(byteArrayOf(0x7F))))
@@ -318,9 +187,6 @@ class ScriptCommandParserTest {
             root.deleteRecursively()
         }
     }
-
-    private fun xorMask(bytes: ByteArray, key: Int): ByteArray =
-        ByteArray(bytes.size) { index -> (bytes[index].toInt() xor key).toByte() }
 
     private fun script(commands: ByteArray): ByteArray =
         byteArrayOf(

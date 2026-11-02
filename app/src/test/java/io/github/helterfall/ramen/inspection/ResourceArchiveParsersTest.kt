@@ -53,75 +53,23 @@ class ResourceArchiveParsersTest {
     }
 
     @Test
-    fun parsesXorMaskedGpkBlocksWhileKeepingTheGtbIndexUnmasked() {
-        val bmpPayload = createBmp1x1()
-        val block = createGpkBlock("BMP", bmpPayload)
-        val maskedArchive = ByteArray(block.size) { index ->
-            (block[index].toInt() xor 0x10).toByte()
-        }
-        val indexBytes = createGtbIndex(
-            names = listOf("masked-bmp"),
+    fun rejectsNegativeSignedInt32EntryCountAtGtbOffsetZero() {
+        val block = createGpkBlock("BMP", createBmp1x1())
+        val invalidIndex = createGtbIndex(
+            names = listOf("invalid-count"),
             blockSizes = listOf(block.size)
-        )
-
-        withSources(indexBytes, maskedArchive) { index, archive ->
-            val parsed = GpkGtbArchiveParser().parse(index, archive)
-            val image = parsed.entries.single()
-
-            assertEquals(GpkImageFormat.BMP, image.format)
-            assertEquals(1, image.widthPixels)
-            assertEquals(1, image.heightPixels)
-            assertEquals(0x10, image.payloadXorKey)
-
-            val clearPayload = ByteArray(image.payloadSizeBytes.toInt())
-            XorMaskingRandomAccessSource(archive, image.payloadXorKey!!).readFullyAt(
-                image.payloadOffset,
-                clearPayload
-            )
-            assertTrue(clearPayload.contentEquals(bmpPayload))
+        ).also { bytes ->
+            bytes[0] = 0xFF.toByte()
+            bytes[1] = 0xFF.toByte()
+            bytes[2] = 0xFF.toByte()
+            bytes[3] = 0xFF.toByte()
         }
-    }
 
-    @Test
-    fun parsesXorMaskedGtbIndexWithClearGpkArchive() {
-        val bmpPayload = createBmp1x1()
-        val block = createGpkBlock("BMP", bmpPayload)
-        val clearIndex = createGtbIndex(
-            names = listOf("masked-index-bmp"),
-            blockSizes = listOf(block.size)
-        )
-        val maskedIndex = xorMask(clearIndex, 0x10)
-
-        withSources(maskedIndex, block) { index, archive ->
-            val parsed = GpkGtbArchiveParser().parse(index, archive)
-            val image = parsed.entries.single()
-
-            assertEquals("masked-index-bmp", image.name)
-            assertEquals(GpkImageFormat.BMP, image.format)
-            assertEquals(1, image.widthPixels)
-            assertEquals(null, image.payloadXorKey)
-        }
-    }
-
-    @Test
-    fun parsesXorMaskedGtbIndexAndGpkArchiveTogether() {
-        val bmpPayload = createBmp1x1()
-        val block = createGpkBlock("BMP", bmpPayload)
-        val clearIndex = createGtbIndex(
-            names = listOf("masked-pair-bmp"),
-            blockSizes = listOf(block.size)
-        )
-        val maskedIndex = xorMask(clearIndex, 0x10)
-        val maskedArchive = xorMask(block, 0x10)
-
-        withSources(maskedIndex, maskedArchive) { index, archive ->
-            val parsed = GpkGtbArchiveParser().parse(index, archive)
-            val image = parsed.entries.single()
-
-            assertEquals("masked-pair-bmp", image.name)
-            assertEquals(GpkImageFormat.BMP, image.format)
-            assertEquals(1, image.widthPixels)
-            assertEquals(0x10, image.payloadXorKey)
+        withSources(invalidIndex, block) { index, archive ->
+            val failure = runCatching { GpkGtbArchiveParser().parse(index, archive) }
+                .exceptionOrNull()
+            assertTrue(failure is IOException)
+            assertTrue(failure?.message.orEmpty().contains("Int32 entry count"))
         }
     }
 
@@ -424,9 +372,6 @@ class ResourceArchiveParsersTest {
             assertTrue(result.exceptionOrNull() is IOException)
         }
     }
-
-    private fun xorMask(bytes: ByteArray, key: Int): ByteArray =
-        ByteArray(bytes.size) { index -> (bytes[index].toInt() xor key).toByte() }
 
     private fun withSources(
         indexBytes: ByteArray,
