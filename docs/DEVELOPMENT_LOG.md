@@ -155,3 +155,36 @@ Make the binary inventory portable and comparable without requiring the original
 1. Add a user-facing save/share flow using the Storage Access Framework.
 2. Add a positional source implementation for SAF-selected documents where supported, or bounded staging when seeking is unavailable.
 3. Continue PE metadata coverage and container probes only where evidence supports them.
+
+
+## 2026-11-02 — GPK/GTB and VPK/VTB resource parser research
+
+### Goal
+Use the supplied paired archive samples to move two extension families from filename-level observations to bounded, byte-validated read-only parsers.
+
+### Evidence established
+- The supplied `bg0.gtb` index has a little-endian 32-bit count followed by name-offset and archive-offset tables, then a NUL-terminated ASCII name pool. It maps 163 unique resources in `bg0.gpk`.
+- The GPK sample has 153 JPEG payloads with `PACKTYPE=5` and 10 BMP payloads with `PACKTYPE=0`. Each block starts with a 64-byte header. JPEG header lengths match the indexed payload size; BMP internal file lengths match the indexed BMP payload size.
+- The supplied `aa.vtb` consists of 1,810 12-byte records. Each record contains an 8-byte ASCII name and a little-endian 32-bit VPK offset. The final record points to EOF and is treated as a terminal sentinel; 1,809 resource blocks remain.
+- Each observed VPK block has a 64-byte text preamble, a 44-byte RIFF/WAVE PCM-style descriptor, then Ogg data at offset +108. VTB offsets, not the descriptor's PCM data length, bound the compressed Ogg payload.
+- The supplied audio pair contains 23,592 Ogg pages. A separate sample analysis verified page boundaries, serial and sequence continuity, BOS/EOS flags, and page CRCs. The app parser currently checks page structure/sequence but does not compute CRCs.
+- The supplied `codecerror.xtx` is a 535-byte CRLF-delimited key/value configuration sample. No general claim is made about every .xtx file.
+- `gss.exe` was inspected as a 626,688-byte PE32 x86 image; its import table declares Ogg/Vorbis and DirectDraw/DirectSound/WinMM libraries. It was not executed.
+
+### Changed in this PR
+- Added `GpkGtbArchiveParser` and resource metadata models. It validates index tables, names, offsets, 64-byte block headers, JPEG size/signature fields, and BMP file/DIB bounds.
+- Added `VpkVtbArchiveParser` and audio metadata models. It validates 12-byte index rows, an optional EOF sentinel, the 108-byte block prefix, PCM-style descriptor consistency, and bounded Ogg page sequence structure.
+- Added synthetic tests for JPEG/BMP blocks, optional VTB terminal sentinel handling, and malformed payload/sequence bounds.
+- Updated the format registry and research documentation to distinguish implemented parsers from runtime support.
+- No supplied game files or copyrighted assets were committed.
+
+### Limits
+- Parsers return payload offsets and lengths; they do not decode images/audio, extract complete games, or launch the engine.
+- Ogg page CRC validation is not part of the production parser yet.
+- No user-facing archive browser or streaming export flow exists.
+- The .xtx conclusion applies only to the supplied codecerror.xtx sample.
+
+### Next steps
+1. Add a bounded streaming copy API for individual parser-returned resource ranges.
+2. Add end-to-end extraction tests using original synthetic fixtures.
+3. Explore Android-side image/audio consumption and then evaluate the engine's script/runtime requirements.
