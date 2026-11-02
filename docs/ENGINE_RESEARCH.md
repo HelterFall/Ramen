@@ -23,8 +23,8 @@ The work remains engine-agnostic until the evidence supports a specific adapter.
 - `ReadOnlyRangeStreamer` copies a validated resource range to a caller-owned output stream with a fixed-size buffer (64 KiB by default, capped at 1 MiB). It does not close or flush the destination.
 - `ReadOnlySourceRangeInputStream` exposes one bounded range as an InputStream without owning the underlying source.
 - `AndroidGpkImageDecoder` reads image bounds before decoding and chooses an Android BitmapFactory sample size to stay within an 8-million-pixel default budget.
-- `VpkOggCacheMaterializer` stages one parsed Ogg range into a uniquely named cache file with a 256 MiB default size limit; it does not instantiate or control a media player.
-- `ResourceInspectorActivity` provides a user-facing file-pair picker, GPK/GTB image list and preview, VPK/VTB audio list, and a foreground Android `MediaPlayer` with basic play/pause/stop controls. Selected source documents are copied to private cache under a 512 MiB per-file limit.
+- `VpkOggCacheMaterializer` stages one parsed Ogg range into a uniquely named cache file. It has no fixed per-resource size ceiling and checks available storage while streaming; it does not instantiate or control a media player.
+- `ResourceInspectorActivity` provides a user-facing file-pair picker, GPK/GTB image list and preview, VPK/VTB audio list, and a foreground Android `MediaPlayer` with basic play/pause/stop controls. Selected source documents are copied to private cache with per-chunk available-storage checks and a protected free-space reserve; there is no fixed 512 MiB per-file cap.
 - Synthetic unit tests cover both proprietary parser families, optional terminal index sentinel handling, and malformed resource boundaries.
 
 ## Evidence from supplied samples
