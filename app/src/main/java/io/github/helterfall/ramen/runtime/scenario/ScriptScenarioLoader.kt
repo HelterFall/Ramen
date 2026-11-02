@@ -45,8 +45,8 @@ object ScriptScenarioLoader {
             instructions += Instruction(address, command)
         }
 
-        if (instructions.isEmpty()) {
-            throw ScriptParseException(HEADER_SIZE, "Script contains no commands.")
+        if (instructions.none { it.command != NitroStartSceneCommand }) {
+            throw ScriptParseException(HEADER_SIZE, "Script contains no executable commands.")
         }
 
         val knownAddresses = instructions.mapTo(mutableSetOf()) { it.address }
@@ -78,6 +78,10 @@ object ScriptScenarioLoader {
                 is JumpToSceneCommand -> listOf(
                     ScenarioCommand.Jump(sceneId(command.targetAddress))
                 )
+
+                NitroStartSceneCommand -> nextSceneId?.let {
+                    listOf(ScenarioCommand.Jump(it))
+                } ?: emptyList()
             }
             scenes[sceneId] = ScenarioScene(sceneId, commands)
         }
