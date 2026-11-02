@@ -7,6 +7,7 @@ import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,6 +53,7 @@ import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
+import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
 import java.io.File
@@ -252,6 +254,13 @@ fun RamenApp() {
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 item { BrandHeader() }
+                item {
+                    ResourceInspectorShortcut {
+                        context.startActivity(
+                            Intent(context, ResourceInspectorActivity::class.java)
+                        )
+                    }
+                }
 
                 if (games.isEmpty()) {
                     item {
@@ -291,6 +300,45 @@ fun RamenApp() {
                 item { ComingNextSection() }
                 item { BuildFooter() }
             }
+        }
+    }
+}
+
+@Composable
+private fun ResourceInspectorShortcut(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp)),
+        color = RamenSurfaceRaised,
+        shape = RoundedCornerShape(17.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onClick)
+                .padding(horizontal = 15.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "ИНСПЕКТОР РЕСУРСОВ",
+                    color = RamenAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = "Просмотр GPK/GTB и проверка VPK/VTB",
+                    color = RamenText,
+                    fontSize = 12.sp
+                )
+            }
+            Text(
+                text = "ОТКРЫТЬ  ›",
+                color = RamenAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
