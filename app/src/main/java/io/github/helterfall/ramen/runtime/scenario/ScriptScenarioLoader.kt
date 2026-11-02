@@ -63,9 +63,10 @@ object ScriptScenarioLoader {
         val headerStream = if (xorKey == 0) stream else XorMaskingInputStream(stream, xorKey)
         readAndValidateMagic(headerStream)
 
-        val commandInput = commandStreamLengthBytes?.let {
+        val boundedCommandInput = commandStreamLengthBytes?.let {
             BoundedCommandInputStream(stream, it)
-        } ?: stream
+        }
+        val commandInput = boundedCommandInput ?: stream
         val parser = ScriptCommandParser(
             textCharset,
             initialOffset = HEADER_SIZE,
@@ -83,6 +84,12 @@ object ScriptScenarioLoader {
                 throw ScriptParseException(address, "Command address exceeds the 32-bit address space.")
             }
             instructions += Instruction(address, command)
+        }
+        if (boundedCommandInput != null && boundedCommandInput.remainingBytes != 0L) {
+            throw ScriptParseException(
+                parser.nextCommandOffset,
+                "Command section ended before its declared byte length."
+            )
         }
 
         if (instructions.none { it.command != NitroStartSceneCommand }) {
@@ -143,7 +150,8 @@ object ScriptScenarioLoader {
         private val source: InputStream,
         byteLimit: Long
     ) : InputStream() {
-        private var remainingBytes = byteLimit
+        var remainingBytes: Long = byteLimit
+            private set
 
         override fun read(): Int {
             if (remainingBytes == 0L) return -1
