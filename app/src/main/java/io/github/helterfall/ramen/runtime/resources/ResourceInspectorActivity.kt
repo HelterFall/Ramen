@@ -1,6 +1,5 @@
 package io.github.helterfall.ramen.runtime.resources
 
-import android.content.Context
 import android.database.Cursor
 import android.graphics.Bitmap
 import android.media.MediaPlayer
