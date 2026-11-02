@@ -135,20 +135,27 @@ class ScriptCommandParserTest {
     }
 
     @Test
-    fun binaryProbeReportsMalformedScriptAsMalformedInsteadOfMatch() {
+    fun binaryProbePreservesScriptMagicWhenTheBodyIsNotRamenScriptV1() {
         val root = Files.createTempDirectory("ramen-script-malformed").toFile()
         try {
             File(root, "broken.script").writeBytes(script(byteArrayOf(0x7F)))
             File(root, "truncated.script").writeBytes(script(byteArrayOf(0x03, 0x01, 0x00)))
             val source = DirectoryGameSource(root, sourceId = "script-malformed-test")
             val probe = BinarySignatureProbe()
-            val unknownOpcode = probe.probeFile(source, "broken.script")
-            val truncatedOperand = probe.probeFile(source, "truncated.script")
 
-            assertTrue(unknownOpcode is EngineProbeResult.Malformed)
-            assertTrue((unknownOpcode as EngineProbeResult.Malformed).reason.contains("Invalid Script"))
-            assertTrue(truncatedOperand is EngineProbeResult.Malformed)
-            assertTrue((truncatedOperand as EngineProbeResult.Malformed).reason.contains("Invalid Script"))
+            listOf("broken.script", "truncated.script").forEach { path ->
+                val result = probe.probeFile(source, path)
+                assertTrue(result is EngineProbeResult.Match)
+                val match = result as EngineProbeResult.Match
+                assertEquals("script", match.evidence.single().resourceType)
+                assertTrue(match.evidence.single().description.contains("did not validate"))
+                assertEquals(null, match.formatVersion)
+            }
+
+            val summary = EngineAdapterRegistry(listOf(probe)).probe(source)
+            assertEquals(1, summary.matches.size)
+            assertTrue(summary.malformed.isEmpty())
+            assertEquals(2, summary.matches.single().evidence.count { it.resourceType == "script" })
         } finally {
             root.deleteRecursively()
         }
