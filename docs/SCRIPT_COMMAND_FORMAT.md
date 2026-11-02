@@ -51,7 +51,7 @@ ScriptScenarioLoader validates the eight-byte magic and reads opcodes immediatel
 
 The experimental Android player selects 01.spt first, then conventional initializer names (init.spt, startup.spt, main.spt); if no .spt is present it looks for the exact eight-byte magic in the bounded source snapshot. It starts a ScenarioSession from the loaded project and displays the current dialogue directly in a Compose text panel. Background resource keys are resolved across discovered GPK/GTB image pairs: exact key, basename, then basename without extension. The chosen GPK entry is decoded from its indexed byte range with the bounded Android image decoder. Missing or ambiguous backgrounds produce a status message but do not stop dialogue playback. Unknown opcodes and other ScriptParseException failures are shown as a controlled load error and do not escape the player Activity.
 
-BinarySignatureProbe validates the full Ramen test command structure after matching the magic. A valid magic alone is not considered a valid script. The byte immediately following the magic is passed to the opcode parser without being interpreted as a version; unknown target-engine system opcodes are reported rather than skipped or guessed.
+BinarySignatureProbe validates the full Ramen test command structure after matching either the plain magic or its supported single-byte XOR-masked form. A valid magic alone is not considered a valid script. The byte immediately following the magic is passed to the opcode parser without being interpreted as a version; unknown target-engine system opcodes are reported rather than skipped or guessed.
 
 ## Optional single-byte XOR transport
 
