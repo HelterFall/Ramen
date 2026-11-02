@@ -104,6 +104,30 @@ class ResourceArchiveParsersTest {
     }
 
     @Test
+    fun acceptsNullPaddedNamesAndOpaqueIdsAndIgnoresSentinelName() {
+        val block = createVpkAudioBlock()
+        val archiveBytes = block + block
+        val indexBytes = createVtbIndexWithRawNames(
+            names = listOf(
+                byteArrayOf('t'.code.toByte(), 'r'.code.toByte(), 'a'.code.toByte(),
+                    'c'.code.toByte(), 'k'.code.toByte(), 0, 0, 0),
+                byteArrayOf(0xFF.toByte(), 0x80.toByte(), 0, 0x20, 1, 2, 3, 4),
+                byteArrayOf(0, 0xFF.toByte(), 0xFE.toByte(), 0, 0, 0, 0, 0)
+            ),
+            offsets = listOf(0, block.size, archiveBytes.size)
+        )
+
+        withSources(indexBytes, archiveBytes) { index, archive ->
+            val parsed = VpkVtbArchiveParser().parse(index, archive)
+
+            assertEquals(2, parsed.entries.size)
+            assertEquals("track", parsed.entries[0].name)
+            assertEquals("resource-FF80002001020304", parsed.entries[1].name)
+            assertTrue(parsed.hasTerminalIndexSentinel)
+        }
+    }
+
+    @Test
     fun parsesVtbWithoutTerminalSentinel() {
         val archiveBytes = createVpkAudioBlock()
         val indexBytes = createVtbIndex(
@@ -226,6 +250,20 @@ class ResourceArchiveParsersTest {
             val nameBytes = names[index].toByteArray(Charsets.US_ASCII)
             require(nameBytes.size == 8)
             nameBytes.copyInto(result, index * 12)
+            putU32(result, index * 12 + 8, offsets[index].toLong())
+        }
+        return result
+    }
+
+    private fun createVtbIndexWithRawNames(
+        names: List<ByteArray>,
+        offsets: List<Int>
+    ): ByteArray {
+        require(names.isNotEmpty() && names.size == offsets.size)
+        require(names.all { it.size == 8 })
+        val result = ByteArray(names.size * 12)
+        for (index in names.indices) {
+            names[index].copyInto(result, index * 12)
             putU32(result, index * 12 + 8, offsets[index].toLong())
         }
         return result
