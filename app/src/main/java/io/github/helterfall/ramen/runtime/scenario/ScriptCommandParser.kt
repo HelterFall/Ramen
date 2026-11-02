@@ -14,6 +14,9 @@ data class DisplayDialogueCommand(val text: String) : TextScriptCommand
 data class ChangeBackgroundCommand(val imagePath: String) : TextScriptCommand
 data class JumpToSceneCommand(val targetAddress: Long) : TextScriptCommand
 
+/** Zero-operand start-of-scene marker observed in the target SPT stream. */
+data object NitroStartSceneCommand : TextScriptCommand
+
 class ScriptParseException(
     val byteOffset: Long,
     message: String
@@ -68,6 +71,8 @@ class ScriptCommandParser(
                 val target = readUnsignedInt32(stream, "jump target", commandOffset)
                 JumpToSceneCommand(target)
             }
+
+            OPCODE_NITRO_START_SCENE -> NitroStartSceneCommand
 
             else -> throw ScriptParseException(
                 commandOffset,
@@ -181,6 +186,7 @@ class ScriptCommandParser(
         const val OPCODE_DISPLAY_DIALOGUE = 0x01
         const val OPCODE_CHANGE_BACKGROUND = 0x02
         const val OPCODE_JUMP_TO_SCENE = 0x03
+        const val OPCODE_NITRO_START_SCENE = 0xFE
 
         const val MAX_STRING_BYTES = 4_096
         const val MAX_DIALOGUE_CHARS = 4_096
