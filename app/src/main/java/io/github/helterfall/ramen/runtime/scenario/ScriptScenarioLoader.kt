@@ -14,29 +14,23 @@ object ScriptScenarioLoader {
         0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte()
     )
 
-    private const val HEADER_SIZE = 10L
-    private const val FORMAT_VERSION = 1
-    private const val ENCODING_UTF8 = 1
-    private const val ENCODING_SHIFT_JIS = 2
+    private const val HEADER_SIZE = 8L
     private const val MAX_COMMANDS = 10_000
     private const val MAX_ADDRESS = 0xFFFF_FFFFL
 
-    fun load(stream: InputStream): ScenarioProject {
+    /**
+     * The eight-byte magic is the complete file header. Command decoding starts
+     * immediately after it; the following byte is an opcode, not a version or
+     * encoding selector. The caller supplies the text charset because the stream
+     * does not carry an encoding field.
+     */
+    fun load(
+        stream: InputStream,
+        textCharset: Charset = StandardCharsets.UTF_8
+    ): ScenarioProject {
         readAndValidateMagic(stream)
 
-        val version = readHeaderByte(stream, "version", 8L)
-        if (version != FORMAT_VERSION) {
-            throw ScriptParseException(8L, "Unsupported Script version $version.")
-        }
-
-        val encodingId = readHeaderByte(stream, "text encoding", 9L)
-        val charset = when (encodingId) {
-            ENCODING_UTF8 -> StandardCharsets.UTF_8
-            ENCODING_SHIFT_JIS -> Charset.forName("Shift_JIS")
-            else -> throw ScriptParseException(9L, "Unknown text encoding identifier $encodingId.")
-        }
-
-        val parser = ScriptCommandParser(charset, initialOffset = HEADER_SIZE)
+        val parser = ScriptCommandParser(textCharset, initialOffset = HEADER_SIZE)
         val instructions = mutableListOf<Instruction>()
 
         while (true) {
@@ -89,7 +83,7 @@ object ScriptScenarioLoader {
         }
 
         return ScenarioProject(
-            title = "Ramen binary Script v1",
+            title = "Ramen binary Script",
             startSceneId = sceneId(instructions.first().address),
             scenes = scenes
         )
@@ -107,14 +101,6 @@ object ScriptScenarioLoader {
                 throw ScriptParseException(index.toLong(), "Script magic does not match.")
             }
         }
-    }
-
-    private fun readHeaderByte(stream: InputStream, field: String, offset: Long): Int {
-        val value = stream.read()
-        if (value < 0) {
-            throw ScriptParseException(offset, "Unexpected EOF while reading Script $field.")
-        }
-        return value
     }
 
     private data class Instruction(
