@@ -134,6 +134,6 @@ The synthetic Ramen test format has a byte-signature probe that first matches th
 
 ### Synthetic binary Script test fixture
 
-Ramen defines a separate, documented Script v1 fixture beginning with the byte signature EB FF FF FF FE FF 99 99. Its three test opcodes cover dialogue, background changes, and address-based jumps. The parser supports UTF-8 and Shift-JIS text, bounded string reads, safe relative background keys, and strict malformed-input handling. The byte layout is documented in docs/SCRIPT_COMMAND_FORMAT.md.
+Ramen defines a separate, documented Script v1 fixture beginning with the byte signature EB FF FF FF FE FF 99 99. Its command set covers dialogue, background changes, address-based jumps, and a zero-operand Nitro start-scene marker. The parser supports UTF-8 and Shift-JIS text, bounded string reads, safe relative background keys, and strict malformed-input handling. The byte layout is documented in docs/SCRIPT_COMMAND_FORMAT.md.
 
 This is an original Ramen test format that exercises the parser-to-ScenarioSession bridge. It does not decode the proprietary sample's SPT/XTX/FXF data and does not establish target-engine compatibility.
