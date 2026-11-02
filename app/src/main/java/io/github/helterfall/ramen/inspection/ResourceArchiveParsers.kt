@@ -540,8 +540,7 @@ class GpkGtbArchiveParser(
         val pixelDataOffset = when {
             declaredPixelOffset >= paletteEnd &&
                 declaredPixelOffset < payloadSize -> declaredPixelOffset
-            compression in BMP_SUPPORTED_RLE_COMPRESSION ||
-                (compression == BMP_BI_RGB && bitsPerPixel in BMP_RAW_BITS_PER_PIXEL) ->
+            compression == BMP_BI_RGB || compression in BMP_SUPPORTED_RLE_COMPRESSION ->
                 paletteEnd
             else -> malformed("BMP file header contains an invalid pixel-data offset.")
         }
