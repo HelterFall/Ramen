@@ -53,6 +53,36 @@ class ResourceArchiveParsersTest {
     }
 
     @Test
+    fun parsesXorMaskedGpkBlocksWhileKeepingTheGtbIndexUnmasked() {
+        val bmpPayload = createBmp1x1()
+        val block = createGpkBlock("BMP", bmpPayload)
+        val maskedArchive = ByteArray(block.size) { index ->
+            (block[index].toInt() xor 0x10).toByte()
+        }
+        val indexBytes = createGtbIndex(
+            names = listOf("masked-bmp"),
+            blockSizes = listOf(block.size)
+        )
+
+        withSources(indexBytes, maskedArchive) { index, archive ->
+            val parsed = GpkGtbArchiveParser(archiveXorKey = 0x10).parse(index, archive)
+            val image = parsed.entries.single()
+
+            assertEquals(GpkImageFormat.BMP, image.format)
+            assertEquals(1, image.widthPixels)
+            assertEquals(1, image.heightPixels)
+            assertEquals(0x10, image.payloadXorKey)
+
+            val clearPayload = ByteArray(image.payloadSizeBytes.toInt())
+            XorMaskingRandomAccessSource(archive, image.payloadXorKey!!).readFullyAt(
+                image.payloadOffset,
+                clearPayload
+            )
+            assertTrue(clearPayload.contentEquals(bmpPayload))
+        }
+    }
+
+    @Test
     fun skipsOpaque64BytePreamblesAndDetectsJpegAndBmpFromPayloads() {
         val jpegPayload = createJpegWithSof(width = 640, height = 480)
         val bmpPayload = createBmp1x1()
