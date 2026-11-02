@@ -194,3 +194,11 @@ Use the supplied paired archive samples to move two extension families from file
 - Added `ReadOnlyRangeStreamer`, which copies a validated source range to a caller-owned `OutputStream` using a fixed 64 KiB buffer by default (maximum 1 MiB).
 - Invalid/overflowing/out-of-bounds ranges are rejected before copying. The API does not close or flush the source or destination.
 - Added tests for subrange copying, empty ranges at EOF, destination ownership, and invalid ranges.
+
+
+### Follow-up — Android resource bridge APIs
+- Added `ReadOnlySourceRangeInputStream`, a bounded InputStream view that does not close its caller-owned random-access source.
+- Added `AndroidGpkImageDecoder`, which performs a bounds-only decode pass, compares actual dimensions with parsed metadata, then applies `inSampleSize` to cap decoded output at 8 million pixels by default.
+- Added `VpkOggCacheMaterializer`, which stages an individual parsed Ogg payload into a unique app-cache file, with a 256 MiB default per-resource limit and cleanup of partial files on failure.
+- Added JVM tests for range InputStream boundaries, source ownership, cache staging, and cache size rejection.
+- No player lifecycle or UI was added. Android device image/audio behavior remains unverified.
