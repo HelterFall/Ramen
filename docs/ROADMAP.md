@@ -11,7 +11,7 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Recognize initial common signatures (PE, ELF, ZIP, RIFF, Ogg, PNG, JPEG).
 - [x] Separate verified format signatures from extension-only observations.
 - [x] Add tests and a durable evidence / handoff log.
-- [ ] Parse PE import tables and report dependencies.
+- [x] Parse standard PE32/PE32+ import tables and report imported DLL names.
 - [ ] Add incremental SHA-256 file inventory.
 - [ ] Add a generic read-only random-access source abstraction.
 - [ ] Add container-probe contracts with `MATCH`, `NO_MATCH`, and `MALFORMED` outcomes.
