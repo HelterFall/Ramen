@@ -152,7 +152,6 @@ class GpkGtbArchiveParser(
                 GpkImageFormat.BMP -> parseBmpResource(
                     source = archiveSource,
                     name = name,
-                    header = header,
                     blockOffset = blockOffset,
                     blockSize = blockSize,
                     payloadOffset = payloadOffset,
@@ -170,6 +169,9 @@ class GpkGtbArchiveParser(
             malformed("GTB name offset points outside the string pool.")
         }
         val start = offset.toInt()
+        if (start > 0 && pool[start - 1] != 0.toByte()) {
+            malformed("GTB name offset does not point to the start of a string.")
+        }
         val endLimit = minOf(pool.size, start + maxNameBytes + 1)
         var end = start
         while (end < endLimit && pool[end] != 0.toByte()) {
@@ -248,7 +250,6 @@ class GpkGtbArchiveParser(
     private fun parseBmpResource(
         source: ReadOnlyRandomAccessSource,
         name: String,
-        header: ByteArray,
         blockOffset: Long,
         blockSize: Long,
         payloadOffset: Long,
@@ -607,7 +608,6 @@ class VpkVtbArchiveParser(
         private const val VTB_RECORD_BYTES = 12L
         private const val VTB_NAME_BYTES = 8
         private const val VPK_MINIMUM_BLOCK_BYTES = 109L
-        private const val VPK_TEXT_PREAMBLE_BYTES = 64
         private const val VPK_WAVE_DESCRIPTOR_BYTES = 44
         private const val PCM_FORMAT = 1
         private const val MIN_CHANNELS = 1
@@ -632,12 +632,6 @@ class VpkVtbArchiveParser(
         private val OGG_CAPTURE_PATTERN = "OggS".toByteArray(ASCII)
         private val PCM_BITS_PER_SAMPLE = setOf(8, 16, 24, 32)
     }
-}
-
-private fun readU16(source: ReadOnlyRandomAccessSource, offset: Long): Int {
-    val bytes = ByteArray(2)
-    source.readFullyAt(offset, bytes)
-    return readU16(bytes, 0)
 }
 
 private fun readU32(source: ReadOnlyRandomAccessSource, offset: Long): Long {
