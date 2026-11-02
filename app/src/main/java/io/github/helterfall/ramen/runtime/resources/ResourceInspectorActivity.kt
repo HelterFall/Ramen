@@ -725,8 +725,14 @@ private fun ResourceInspectorScreen(
         contract = ActivityResultContracts.OpenMultipleDocuments()
     ) { uris ->
         when (pendingPair) {
-            ResourcePairKind.IMAGES -> onSelectImagePair(uris)
-            ResourcePairKind.AUDIO -> onSelectAudioPair(uris)
+            ResourcePairKind.IMAGES -> {
+                selectedTab = ResourceTab.IMAGES
+                onSelectImagePair(uris)
+            }
+            ResourcePairKind.AUDIO -> {
+                selectedTab = ResourceTab.AUDIO
+                onSelectAudioPair(uris)
+            }
         }
     }
 
@@ -798,7 +804,13 @@ private fun ResourceInspectorScreen(
                                 ResourcePairKind.IMAGES -> imageState.archiveName == pair.displayName
                                 ResourcePairKind.AUDIO -> audioState.archiveName == pair.displayName
                             },
-                            onClick = { onSelectArchivePair(pair) }
+                            onClick = {
+                                selectedTab = when (pair.kind) {
+                                    ResourcePairKind.IMAGES -> ResourceTab.IMAGES
+                                    ResourcePairKind.AUDIO -> ResourceTab.AUDIO
+                                }
+                                onSelectArchivePair(pair)
+                            }
                         )
                     }
                     if (discoveredPairs.size > MAX_VISIBLE_PAIR_CHOICES) {
