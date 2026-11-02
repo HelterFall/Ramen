@@ -69,6 +69,7 @@ class DirectoryInventoryScannerTest {
             val result = DirectoryInventoryScanner(maxFiles = 1).scan(root)
 
             assertEquals(1, result.entries.size)
+            assertEquals("a.txt", result.entries.single().relativePath)
             assertEquals(2, result.discoveredEntries)
             assertTrue(result.truncated)
             assertTrue(result.warnings.isNotEmpty())
