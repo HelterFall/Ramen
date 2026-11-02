@@ -194,6 +194,73 @@ class ScriptCommandParserTest {
     }
 
     @Test
+    fun nitroInitEngineOpcodeFFIsRecognizedAndFollowingCommandsAreParsed() {
+        val parser = ScriptCommandParser(initialOffset = 8L)
+        val stream = ByteArrayInputStream(
+            byteArrayOf(ScriptCommandParser.OPCODE_NITRO_INIT_ENGINE.toByte()) +
+                dialogue("After engine init")
+        )
+
+        assertEquals(NitroInitEngineCommand, parser.parseNextCommand(stream))
+        assertEquals(9L, parser.nextCommandOffset)
+        assertEquals(
+            DisplayDialogueCommand("After engine init"),
+            parser.parseNextCommand(stream)
+        )
+        assertNull(parser.parseNextCommand(stream))
+    }
+
+    @Test
+    fun loaderTreatsNitroInitEngineAsANoOpAndContinuesToDialogue() {
+        val project = ScriptScenarioLoader.load(
+            ByteArrayInputStream(
+                script(
+                    byteArrayOf(ScriptCommandParser.OPCODE_NITRO_INIT_ENGINE.toByte()) +
+                        dialogue("After engine init")
+                )
+            )
+        )
+        val session = ScenarioSession.start(project)
+
+        assertEquals("After engine init", session.frame().dialogue?.text)
+        assertEquals("addr_9", session.frame().sceneId)
+    }
+
+    @Test
+    fun loaderAllowsEngineInitThenStartSceneMarkersBeforeFirstDialogue() {
+        val project = ScriptScenarioLoader.load(
+            ByteArrayInputStream(
+                script(
+                    byteArrayOf(
+                        ScriptCommandParser.OPCODE_NITRO_INIT_ENGINE.toByte(),
+                        ScriptCommandParser.OPCODE_NITRO_START_SCENE.toByte()
+                    ) + dialogue("First visible line")
+                )
+            )
+        )
+        val session = ScenarioSession.start(project)
+
+        assertEquals("First visible line", session.frame().dialogue?.text)
+        assertEquals("addr_10", session.frame().sceneId)
+    }
+
+    @Test
+    fun loaderRejectsAStreamContainingOnlySystemMarkers() {
+        assertThrows(ScriptParseException::class.java) {
+            ScriptScenarioLoader.load(
+                ByteArrayInputStream(
+                    script(
+                        byteArrayOf(
+                            ScriptCommandParser.OPCODE_NITRO_INIT_ENGINE.toByte(),
+                            ScriptCommandParser.OPCODE_NITRO_START_SCENE.toByte()
+                        )
+                    )
+                )
+            )
+        }
+    }
+
+    @Test
     fun loaderRejectsUnknownOpcodeTruncatedEndAndInvalidJumpTarget() {
         assertThrows(ScriptParseException::class.java) {
             ScriptScenarioLoader.load(ByteArrayInputStream(script(byteArrayOf(0x7F))))
