@@ -92,7 +92,9 @@ object ScriptScenarioLoader {
             )
         }
 
-        if (instructions.none { it.command != NitroStartSceneCommand }) {
+        if (instructions.none {
+                it.command != NitroStartSceneCommand && it.command != NitroInitEngineCommand
+            }) {
             throw ScriptParseException(HEADER_SIZE, "Script contains no executable commands.")
         }
 
@@ -126,7 +128,8 @@ object ScriptScenarioLoader {
                     ScenarioCommand.Jump(sceneId(command.targetAddress))
                 )
 
-                NitroStartSceneCommand -> nextSceneId?.let {
+                NitroStartSceneCommand,
+                NitroInitEngineCommand -> nextSceneId?.let {
                     listOf(ScenarioCommand.Jump(it))
                 } ?: emptyList()
             }
