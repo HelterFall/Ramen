@@ -455,11 +455,13 @@ class ResourceInspectorActivity : ComponentActivity() {
             input.use { source ->
                 target.outputStream().buffered(COPY_BUFFER_BYTES).use { output ->
                     val buffer = ByteArray(COPY_BUFFER_BYTES)
+                    var total = 0L
                     while (true) {
                         val count = source.read(buffer)
                         if (count < 0) break
                         if (count == 0) continue
                         storageGuard.requireCapacity(count.toLong())
+                        total += count
                         output.write(buffer, 0, count)
                     }
                     if (total == 0L) {
