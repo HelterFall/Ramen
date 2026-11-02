@@ -91,10 +91,10 @@ class ScriptCommandParserTest {
         val project = ScriptScenarioLoader.load(
             ByteArrayInputStream(
                 script(
-                    commandStream(background("背景/海.png", charset), dialogue("灯台が見えます。", charset)),
-                    encoding = 2
+                    commandStream(background("背景/海.png", charset), dialogue("灯台が見えます。", charset))
                 )
-            )
+            ),
+            textCharset = charset
         )
         val session = ScenarioSession.start(project)
 
@@ -112,7 +112,7 @@ class ScriptCommandParserTest {
 
     @Test
     fun loaderResolvesJumpAddressesToCommandBoundaries() {
-        val targetAddress = 10L + 5L
+        val targetAddress = 8L + 5L
         val project = ScriptScenarioLoader.load(
             ByteArrayInputStream(script(commandStream(jump(targetAddress), dialogue("Reached target"))))
         )
@@ -120,6 +120,19 @@ class ScriptCommandParserTest {
 
         assertEquals("Reached target", session.frame().dialogue?.text)
         assertEquals("addr_$targetAddress", session.frame().sceneId)
+    }
+
+    @Test
+    fun firstByteAfterMagicIsParsedAsAnOpcodeNotAHeaderVersion() {
+        val exception = assertThrows(ScriptParseException::class.java) {
+            ScriptScenarioLoader.load(
+                ByteArrayInputStream(script(byteArrayOf(0xFE.toByte())))
+            )
+        }
+
+        assertEquals(8L, exception.byteOffset)
+        assertTrue(exception.message.orEmpty().contains("Unknown command opcode 0xFE"))
+        assertTrue(!exception.message.orEmpty().contains("Unsupported Script version"))
     }
 
     @Test
@@ -162,12 +175,10 @@ class ScriptCommandParserTest {
         }
     }
 
-    private fun script(commands: ByteArray, encoding: Int = 1): ByteArray =
+    private fun script(commands: ByteArray): ByteArray =
         byteArrayOf(
             0xEB.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
-            0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte(),
-            0x01,
-            encoding.toByte()
+            0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte()
         ) + commands
 
     private fun commandStream(vararg commands: ByteArray): ByteArray =
