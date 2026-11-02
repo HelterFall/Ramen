@@ -23,7 +23,10 @@ data class PeImageMetadata(
     val optionalHeaderMagic: Int?,
     val optionalHeaderLabel: String?,
     val sectionCount: Int,
-    val isDll: Boolean
+    val isDll: Boolean,
+    val importedLibraries: List<String> = emptyList(),
+    val importDirectoryRva: Long? = null,
+    val importDirectorySize: Long? = null
 )
 
 data class BinaryArtifactReport(
@@ -156,13 +159,26 @@ class BinaryArtifactInspector(
             warnings += "The PE section count is unusual; the header may be malformed."
         }
 
+        val importResult = parseImports(
+            input = input,
+            fileSize = fileSize,
+            optionalHeaderOffset = optionalHeaderOffset,
+            optionalHeaderSize = optionalHeaderSize,
+            optionalHeaderMagic = optionalHeaderMagic,
+            sectionCount = sectionCount
+        )
+        warnings += importResult.warnings
+
         val metadata = PeImageMetadata(
             machineCode = machineCode,
             machineLabel = machineLabel(machineCode),
             optionalHeaderMagic = optionalHeaderMagic,
             optionalHeaderLabel = optionalHeaderLabel(optionalHeaderMagic),
             sectionCount = sectionCount,
-            isDll = characteristics and IMAGE_FILE_DLL != 0
+            isDll = characteristics and IMAGE_FILE_DLL != 0,
+            importedLibraries = importResult.libraryNames,
+            importDirectoryRva = importResult.directoryRva,
+            importDirectorySize = importResult.directorySize
         )
 
         val imageType = if (metadata.isDll) "DLL" else "executable image"
@@ -179,6 +195,214 @@ class BinaryArtifactInspector(
             peMetadata = metadata,
             warnings = warnings
         )
+    }
+
+    private data class SectionMapping(
+        val virtualAddress: Long,
+        val rawSize: Long,
+        val rawPointer: Long
+    )
+
+    private data class ImportParseResult(
+        val libraryNames: List<String> = emptyList(),
+        val directoryRva: Long? = null,
+        val directorySize: Long? = null,
+        val warnings: List<String> = emptyList()
+    )
+
+    /**
+     * Reads the PE import directory without loading or executing the image.
+     * All RVAs are mapped through validated section headers and all loops are capped.
+     */
+    private fun parseImports(
+        input: RandomAccessFile,
+        fileSize: Long,
+        optionalHeaderOffset: Long,
+        optionalHeaderSize: Int,
+        optionalHeaderMagic: Int?,
+        sectionCount: Int
+    ): ImportParseResult {
+        val warnings = mutableListOf<String>()
+        val directoryLayout = when (optionalHeaderMagic) {
+            PE32_MAGIC -> ImportDirectoryLayout(
+                numberOfDirectoriesOffset = 92L,
+                directoriesOffset = 96L
+            )
+            PE32_PLUS_MAGIC -> ImportDirectoryLayout(
+                numberOfDirectoriesOffset = 108L,
+                directoriesOffset = 112L
+            )
+            else -> return ImportParseResult(
+                warnings = listOf("Import directory was not inspected: optional-header kind is unknown.")
+            )
+        }
+
+        val requiredOptionalBytes = directoryLayout.directoriesOffset + (IMPORT_DIRECTORY_INDEX + 1L) * 8L
+        if (optionalHeaderSize.toLong() < requiredOptionalBytes ||
+            optionalHeaderOffset < 0 ||
+            optionalHeaderOffset > fileSize - optionalHeaderSize
+        ) {
+            return ImportParseResult(
+                warnings = listOf("Import directory was not inspected: optional header is too short or truncated.")
+            )
+        }
+
+        val numberOfDirectories = readU32(
+            input,
+            optionalHeaderOffset + directoryLayout.numberOfDirectoriesOffset
+        )
+        if (numberOfDirectories <= IMPORT_DIRECTORY_INDEX) {
+            return ImportParseResult()
+        }
+
+        val importEntryOffset = optionalHeaderOffset +
+            directoryLayout.directoriesOffset + IMPORT_DIRECTORY_INDEX * 8L
+        val directoryRva = readU32(input, importEntryOffset)
+        val directorySize = readU32(input, importEntryOffset + 4L)
+        if (directoryRva == 0L && directorySize == 0L) return ImportParseResult()
+        if (directoryRva == 0L || directorySize < IMPORT_DESCRIPTOR_SIZE) {
+            return ImportParseResult(
+                directoryRva = directoryRva,
+                directorySize = directorySize,
+                warnings = listOf("Import directory has an invalid RVA or size.")
+            )
+        }
+
+        val sizeOfHeaders = readU32(input, optionalHeaderOffset + SIZE_OF_HEADERS_OFFSET)
+        val sectionTableOffset = optionalHeaderOffset + optionalHeaderSize
+        if (sectionCount <= 0 || sectionCount > MAX_REASONABLE_SECTION_COUNT) {
+            return ImportParseResult(
+                directoryRva = directoryRva,
+                directorySize = directorySize,
+                warnings = listOf("Import directory was not inspected: section count is invalid.")
+            )
+        }
+
+        val sectionTableBytes = sectionCount.toLong() * SECTION_HEADER_SIZE
+        if (sectionTableOffset > fileSize - sectionTableBytes) {
+            return ImportParseResult(
+                directoryRva = directoryRva,
+                directorySize = directorySize,
+                warnings = listOf("Import directory was not inspected: section table is truncated.")
+            )
+        }
+
+        val sections = ArrayList<SectionMapping>(sectionCount)
+        repeat(sectionCount) { index ->
+            val offset = sectionTableOffset + index.toLong() * SECTION_HEADER_SIZE
+            val virtualAddress = readU32(input, offset + SECTION_VIRTUAL_ADDRESS_OFFSET)
+            val rawSize = readU32(input, offset + SECTION_RAW_SIZE_OFFSET)
+            val rawPointer = readU32(input, offset + SECTION_RAW_POINTER_OFFSET)
+            if (rawSize > 0 && rawPointer <= fileSize && rawSize <= fileSize - rawPointer) {
+                sections += SectionMapping(virtualAddress, rawSize, rawPointer)
+            } else if (rawSize > 0) {
+                warnings += "Section $index has raw data outside the file bounds."
+            }
+        }
+
+        fun mapRva(rva: Long): Long? {
+            if (rva < sizeOfHeaders && rva < fileSize) return rva
+            for (section in sections) {
+                if (rva >= section.virtualAddress) {
+                    val delta = rva - section.virtualAddress
+                    if (delta < section.rawSize) {
+                        val mapped = section.rawPointer + delta
+                        if (mapped >= 0 && mapped < fileSize) return mapped
+                    }
+                }
+            }
+            return null
+        }
+
+        val maxDescriptorsFromSize = (directorySize / IMPORT_DESCRIPTOR_SIZE)
+            .coerceAtMost(MAX_IMPORT_DESCRIPTORS.toLong())
+            .toInt()
+        if (maxDescriptorsFromSize == 0) {
+            return ImportParseResult(
+                directoryRva = directoryRva,
+                directorySize = directorySize,
+                warnings = warnings + "Import directory contains no complete descriptors."
+            )
+        }
+        if (directorySize / IMPORT_DESCRIPTOR_SIZE > MAX_IMPORT_DESCRIPTORS) {
+            warnings += "Import directory descriptor scan was capped at $MAX_IMPORT_DESCRIPTORS entries."
+        }
+
+        val libraries = linkedSetOf<String>()
+        var terminated = false
+        for (index in 0 until maxDescriptorsFromSize) {
+            val descriptorRva = directoryRva + index.toLong() * IMPORT_DESCRIPTOR_SIZE
+            val descriptorOffset = mapRva(descriptorRva)
+            if (descriptorOffset == null || descriptorOffset > fileSize - IMPORT_DESCRIPTOR_SIZE) {
+                warnings += "Import descriptor $index points outside mapped file data."
+                break
+            }
+
+            val descriptor = readBytes(input, descriptorOffset, IMPORT_DESCRIPTOR_SIZE.toInt())
+            if (descriptor.size != IMPORT_DESCRIPTOR_SIZE.toInt()) {
+                warnings += "Import descriptor $index is truncated."
+                break
+            }
+            if (descriptor.all { it == 0.toByte() }) {
+                terminated = true
+                break
+            }
+
+            val nameRva = readU32(input, descriptorOffset + IMPORT_NAME_RVA_OFFSET)
+            if (nameRva == 0L) {
+                warnings += "Import descriptor $index has no DLL name RVA."
+                continue
+            }
+            val nameOffset = mapRva(nameRva)
+            if (nameOffset == null) {
+                warnings += "Import descriptor $index DLL name points outside mapped file data."
+                continue
+            }
+
+            val dllName = readAsciiCString(input, nameOffset, fileSize)
+            if (dllName == null) {
+                warnings += "Import descriptor $index DLL name is unterminated or invalid."
+            } else {
+                libraries += dllName
+            }
+        }
+
+        if (!terminated && maxDescriptorsFromSize < MAX_IMPORT_DESCRIPTORS) {
+            warnings += "Import directory has no terminating empty descriptor within its declared size."
+        }
+
+        return ImportParseResult(
+            libraryNames = libraries.toList(),
+            directoryRva = directoryRva,
+            directorySize = directorySize,
+            warnings = warnings
+        )
+    }
+
+    private data class ImportDirectoryLayout(
+        val numberOfDirectoriesOffset: Long,
+        val directoriesOffset: Long
+    )
+
+    private fun readAsciiCString(
+        input: RandomAccessFile,
+        offset: Long,
+        fileSize: Long
+    ): String? {
+        if (offset < 0 || offset >= fileSize) return null
+        val bytes = ArrayList<Byte>(32)
+        for (index in 0 until MAX_DLL_NAME_BYTES) {
+            val position = offset + index
+            if (position >= fileSize) return null
+            val value = readBytes(input, position, 1).firstOrNull() ?: return null
+            if (value == 0.toByte()) {
+                if (bytes.isEmpty()) return null
+                if (bytes.any { (it.toInt() and 0xFF) !in 0x20..0x7E }) return null
+                return bytes.toByteArray().toString(Charsets.US_ASCII)
+            }
+            bytes += value
+        }
+        return null
     }
 
     private fun report(
@@ -284,6 +508,18 @@ class BinaryArtifactInspector(
         private const val DEFAULT_MAX_PE_HEADER_OFFSET = 16L * 1024L * 1024L
         private const val MAX_REASONABLE_SECTION_COUNT = 96
         private const val IMAGE_FILE_DLL = 0x2000
+        private const val PE32_MAGIC = 0x010B
+        private const val PE32_PLUS_MAGIC = 0x020B
+        private const val IMPORT_DIRECTORY_INDEX = 1L
+        private const val IMPORT_DESCRIPTOR_SIZE = 20L
+        private const val IMPORT_NAME_RVA_OFFSET = 12L
+        private const val SIZE_OF_HEADERS_OFFSET = 60L
+        private const val SECTION_HEADER_SIZE = 40L
+        private const val SECTION_VIRTUAL_ADDRESS_OFFSET = 12L
+        private const val SECTION_RAW_SIZE_OFFSET = 16L
+        private const val SECTION_RAW_POINTER_OFFSET = 20L
+        private const val MAX_IMPORT_DESCRIPTORS = 512
+        private const val MAX_DLL_NAME_BYTES = 260
 
         private val MZ_SIGNATURE = byteArrayOf(0x4D, 0x5A)
         private val PE_SIGNATURE = byteArrayOf(0x50, 0x45, 0x00, 0x00)
