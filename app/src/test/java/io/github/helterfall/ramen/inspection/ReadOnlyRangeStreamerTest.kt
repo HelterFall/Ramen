@@ -70,17 +70,17 @@ class ReadOnlyRangeStreamerTest {
                 val destination = RecordingOutputStream()
                 assertTrue(
                     runCatching {
-                        ReadOnlyRangeStreamer().copy(source, offset = 2, length = 2, destination)
+                        ReadOnlyRangeStreamer().copy(source, offset = 2, length = 2, destination = destination)
                     }.exceptionOrNull() is IOException
                 )
                 assertTrue(
                     runCatching {
-                        ReadOnlyRangeStreamer().copy(source, offset = -1, length = 1, destination)
+                        ReadOnlyRangeStreamer().copy(source, offset = -1, length = 1, destination = destination)
                     }.exceptionOrNull() is IOException
                 )
                 assertTrue(
                     runCatching {
-                        ReadOnlyRangeStreamer().copy(source, offset = 0, length = -1, destination)
+                        ReadOnlyRangeStreamer().copy(source, offset = 0, length = -1, destination = destination)
                     }.exceptionOrNull() is IOException
                 )
                 assertEquals(0, destination.bytes.size())
