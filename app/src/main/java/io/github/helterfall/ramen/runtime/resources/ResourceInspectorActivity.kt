@@ -757,6 +757,7 @@ class ResourceInspectorActivity : ComponentActivity() {
         private const val MAX_ARCHIVE_COPY_BYTES = 512L * 1024L * 1024L
         private const val MAX_DISCOVERED_FILES = 10_000
         private const val MAX_DIRECTORY_DEPTH = 64
+        private const val MAX_VISIBLE_PAIR_CHOICES = 6
         private val RESOURCE_PAIR_EXTENSIONS = setOf("gpk", "gtb", "vpk", "vtb")
     }
 }
@@ -765,9 +766,12 @@ class ResourceInspectorActivity : ComponentActivity() {
 private fun ResourceInspectorScreen(
     imageState: ImageInspectorState,
     audioState: AudioInspectorState,
+    discoveredPairs: List<ResourceArchivePair>,
+    sourceFolderMessage: String?,
     onBack: () -> Unit,
     onSelectImagePair: (List<Uri>) -> Unit,
     onSelectAudioPair: (List<Uri>) -> Unit,
+    onSelectArchivePair: (ResourceArchivePair) -> Unit,
     onSelectImage: (GpkImageResource) -> Unit,
     onPlayAudio: (VpkAudioResource) -> Unit,
     onTogglePlayback: () -> Unit,
@@ -828,39 +832,77 @@ private fun ResourceInspectorScreen(
             }
 
             Spacer(Modifier.height(14.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(9.dp)
-            ) {
-                Button(
-                    onClick = {
-                        pendingPair = ResourcePairKind.IMAGES
-                        pairPicker.launch(arrayOf("*/*"))
-                    },
-                    enabled = !imageState.isBusy,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = InspectorAccent)
-                ) {
-                    Text(
-                        if (imageState.isBusy) "Загрузка…" else "Выбрать GPK + GTB",
-                        color = Color(0xFF24190B),
-                        fontSize = 11.sp
-                    )
+            if (sourceFolderMessage != null) {
+                Text(
+                    sourceFolderMessage,
+                    color = InspectorMuted,
+                    fontSize = 11.sp,
+                    lineHeight = 15.sp
+                )
+            }
+            if (discoveredPairs.isNotEmpty()) {
+                Text(
+                    "ПАРЫ ИЗ ИМПОРТИРОВАННОЙ ИГРЫ",
+                    color = InspectorAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    discoveredPairs.take(MAX_VISIBLE_PAIR_CHOICES).forEach { pair ->
+                        ResourceRow(
+                            title = "${pair.kind.title} · ${File(pair.displayName).name}",
+                            subtitle = pair.displayName,
+                            selected = when (pair.kind) {
+                                ResourcePairKind.IMAGES -> imageState.archiveName == pair.displayName
+                                ResourcePairKind.AUDIO -> audioState.archiveName == pair.displayName
+                            },
+                            onClick = { onSelectArchivePair(pair) }
+                        )
+                    }
+                    if (discoveredPairs.size > MAX_VISIBLE_PAIR_CHOICES) {
+                        Text(
+                            "Показаны первые $MAX_VISIBLE_PAIR_CHOICES из ${discoveredPairs.size} пар.",
+                            color = InspectorMuted,
+                            fontSize = 10.sp
+                        )
+                    }
                 }
-                Button(
-                    onClick = {
-                        pendingPair = ResourcePairKind.AUDIO
-                        pairPicker.launch(arrayOf("*/*"))
-                    },
-                    enabled = !audioState.isBusy,
-                    modifier = Modifier.weight(1f),
-                    colors = ButtonDefaults.buttonColors(containerColor = InspectorAccent)
+            } else {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    Text(
-                        if (audioState.isBusy) "Загрузка…" else "Выбрать VPK + VTB",
-                        color = Color(0xFF24190B),
-                        fontSize = 11.sp
-                    )
+                    Button(
+                        onClick = {
+                            pendingPair = ResourcePairKind.IMAGES
+                            pairPicker.launch(arrayOf("*/*"))
+                        },
+                        enabled = !imageState.isBusy,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = InspectorAccent)
+                    ) {
+                        Text(
+                            if (imageState.isBusy) "Загрузка…" else "Открыть GPK + GTB",
+                            color = Color(0xFF24190B),
+                            fontSize = 11.sp
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            pendingPair = ResourcePairKind.AUDIO
+                            pairPicker.launch(arrayOf("*/*"))
+                        },
+                        enabled = !audioState.isBusy,
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = InspectorAccent)
+                    ) {
+                        Text(
+                            if (audioState.isBusy) "Загрузка…" else "Открыть VPK + VTB",
+                            color = Color(0xFF24190B),
+                            fontSize = 11.sp
+                        )
+                    }
                 }
             }
 
