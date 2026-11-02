@@ -283,11 +283,22 @@ fun RamenApp() {
                     }
                     item { SectionHeading("ТВОЯ БИБЛИОТЕКА") }
                     items(games, key = { it.id }) { game ->
-                        GameCard(game) {
-                            val intent = Intent(context, Html5PlayerActivity::class.java)
-                                .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
-                            context.startActivity(intent)
-                        }
+                        GameCard(
+                            game = game,
+                            onInspectResources = {
+                                val intent = Intent(context, ResourceInspectorActivity::class.java)
+                                    .putExtra(
+                                        ResourceInspectorActivity.EXTRA_GAME_RELATIVE_DIRECTORY,
+                                        game.relativeDirectory
+                                    )
+                                context.startActivity(intent)
+                            },
+                            onLaunch = {
+                                val intent = Intent(context, Html5PlayerActivity::class.java)
+                                    .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
+                                context.startActivity(intent)
+                            }
+                        )
                     }
                 }
 
@@ -599,6 +610,7 @@ private fun SectionHeading(text: String) {
 @Composable
 private fun GameCard(
     game: GameRecord,
+    onInspectResources: () -> Unit,
     onLaunch: () -> Unit
 ) {
     Card(
@@ -642,6 +654,13 @@ private fun GameCard(
                 fontSize = 10.sp,
                 lineHeight = 14.sp
             )
+            OutlinedButton(
+                onClick = onInspectResources,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(13.dp)
+            ) {
+                Text("Просмотреть ресурсы")
+            }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED") {
                 Button(
                     onClick = onLaunch,
