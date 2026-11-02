@@ -19,7 +19,12 @@ The current direction is to build reusable inspection infrastructure before sele
 
 **Exit condition:** Ramen can produce reproducible, read-only executable metadata, streaming file fingerprints, and explicit format-probe evidence, while unknown proprietary formats remain explicitly unknown.
 
-### Remaining M1.5 integration work\n- [ ] Add a bounded directory inventory combining relative paths, file sizes, SHA-256 fingerprints, and binary inspection reports.\n- [ ] Connect the random-access source to the binary inspector and future archive parsers.\n- [ ] Add user-facing export/reporting for inspection results.\n\n## M0 — Project foundation
+### Remaining M1.5 integration work
+- [x] Add a bounded directory inventory combining relative paths, file sizes, SHA-256 fingerprints, and binary inspection reports.
+- [x] Connect the random-access source to the PE binary inspector.
+- [ ] Add user-facing export/reporting for inspection results.
+- [ ] Add a positional source implementation for Android Storage Access Framework documents where supported.
+\n## M0 — Project foundation
 - [ ] Agree on product scope and Android-first target.
 - [ ] Choose a project licence after considering intended distribution and future runtime licences.
 - [ ] Create the Android Studio / Gradle project.
