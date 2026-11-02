@@ -1,5 +1,6 @@
 package io.github.helterfall.ramen.runtime.scenario
 
+import io.github.helterfall.ramen.inspection.XorMaskingInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -29,13 +30,15 @@ class ScriptParseException(
  */
 class ScriptCommandParser(
     private val textCharset: Charset = StandardCharsets.UTF_8,
-    initialOffset: Long = 0L
+    initialOffset: Long = 0L,
+    private val xorKey: Int = 0
 ) {
     var nextCommandOffset: Long = initialOffset
         private set
 
     init {
         require(initialOffset >= 0L) { "Initial byte offset must not be negative." }
+        require(xorKey in 0..0xFF) { "XOR key must be an unsigned byte." }
     }
 
     /**
@@ -45,13 +48,15 @@ class ScriptCommandParser(
     @Throws(IOException::class)
     fun parseNextCommand(stream: InputStream): TextScriptCommand? {
         val commandOffset = nextCommandOffset
-        val opcode = stream.read()
+        // XOR is stateless, so a fresh view per command preserves the caller-owned stream cursor.
+        val commandStream = if (xorKey == 0) stream else XorMaskingInputStream(stream, xorKey)
+        val opcode = commandStream.read()
         if (opcode < 0) return null
         nextCommandOffset++
 
         return when (opcode) {
             OPCODE_DISPLAY_DIALOGUE -> {
-                val text = readText(stream, "dialogue", commandOffset)
+                val text = readText(commandStream, "dialogue", commandOffset)
                 if (text.isBlank()) {
                     throw ScriptParseException(commandOffset, "Dialogue text must not be blank.")
                 }
@@ -62,13 +67,13 @@ class ScriptCommandParser(
             }
 
             OPCODE_CHANGE_BACKGROUND -> {
-                val imagePath = readText(stream, "background path", commandOffset)
+                val imagePath = readText(commandStream, "background path", commandOffset)
                 validateImagePath(imagePath, commandOffset)
                 ChangeBackgroundCommand(imagePath)
             }
 
             OPCODE_JUMP_TO_SCENE -> {
-                val target = readUnsignedInt32(stream, "jump target", commandOffset)
+                val target = readUnsignedInt32(commandStream, "jump target", commandOffset)
                 JumpToSceneCommand(target)
             }
 
