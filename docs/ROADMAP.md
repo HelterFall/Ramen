@@ -26,6 +26,8 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Add streaming, versioned JSON serialization for inventory reports.
 - [ ] Add a user-facing save/share flow for inspection results.
 - [x] Add bounded fixed-buffer streaming for individual resource payload ranges returned by the proprietary archive parsers.
+- [x] Add a bounded BitmapFactory adapter for GPK images and size-limited Ogg cache materialization for a future Android media player.
+- [ ] Add and device-test an Ogg playback lifecycle and an image-rendering UI.
 - [ ] Add a positional source implementation for Android Storage Access Framework documents where supported.
 
 ## M0 — Project foundation
