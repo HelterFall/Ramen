@@ -33,7 +33,7 @@ data class ScriptEntryPointFailure(
  * .spt is an ordering hint, not proof of format. Candidate scripts are passed through
  * ScriptScenarioLoader in priority order; malformed candidates (including unknown
  * opcodes) are recorded and skipped. Non-.spt files are considered only when their
- * bytes match the exact Ramen Script v1 signature.
+ * bytes match the exact Ramen Script v1 signature or its supported single-byte XOR form.
  */
 class ScriptEntryPointResolver {
     fun select(source: EngineSource): EngineSourceEntry? =
