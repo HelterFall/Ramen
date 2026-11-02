@@ -11,15 +11,15 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Recognize initial common signatures (PE, ELF, ZIP, RIFF, Ogg, PNG, JPEG).
 - [x] Separate verified format signatures from extension-only observations.
 - [x] Add tests and a durable evidence / handoff log.
-- [ ] Parse PE import tables and report dependencies.
-- [ ] Add incremental SHA-256 file inventory.
-- [ ] Add a generic read-only random-access source abstraction.
-- [ ] Add container-probe contracts with `MATCH`, `NO_MATCH`, and `MALFORMED` outcomes.
-- [ ] Create small synthetic fixtures for parser bounds and malformed headers.
+- [x] Parse standard PE32/PE32+ import tables and report imported DLL names.
+- [x] Add streaming SHA-256 file fingerprints.
+- [x] Add a generic read-only positional source abstraction with a FileChannel implementation.
+- [x] Add container-probe contracts with `MATCH`, `NO_MATCH`, and `MALFORMED` outcomes.
+- [x] Create synthetic fixtures for PE import headers, random-access boundaries, hashes, and signature probes.
 
-**Exit condition:** Ramen can produce a reproducible, read-only inventory of executable metadata and known file signatures, while unknown proprietary formats remain explicitly unknown.
+**Exit condition:** Ramen can produce reproducible, read-only executable metadata, streaming file fingerprints, and explicit format-probe evidence, while unknown proprietary formats remain explicitly unknown.
 
-## M0 — Project foundation
+### Remaining M1.5 integration work\n- [ ] Add a bounded directory inventory that combines relative paths, file sizes, SHA-256 fingerprints, and binary inspection reports.\n- [ ] Connect the random-access source to the binary inspector and future archive parsers.\n- [ ] Add user-facing export/reporting for inspection results.\n\n## M0 — Project foundation
 - [ ] Agree on product scope and Android-first target.
 - [ ] Choose a project licence after considering intended distribution and future runtime licences.
 - [ ] Create the Android Studio / Gradle project.
