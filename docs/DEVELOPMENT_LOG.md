@@ -188,3 +188,9 @@ Use the supplied paired archive samples to move two extension families from file
 1. Add a bounded streaming copy API for individual parser-returned resource ranges.
 2. Add end-to-end extraction tests using original synthetic fixtures.
 3. Explore Android-side image/audio consumption and then evaluate the engine's script/runtime requirements.
+
+
+### Follow-up — bounded payload range streaming
+- Added `ReadOnlyRangeStreamer`, which copies a validated source range to a caller-owned `OutputStream` using a fixed 64 KiB buffer by default (maximum 1 MiB).
+- Invalid/overflowing/out-of-bounds ranges are rejected before copying. The API does not close or flush the source or destination.
+- Added tests for subrange copying, empty ranges at EOF, destination ownership, and invalid ranges.
