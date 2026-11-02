@@ -62,11 +62,11 @@ The supplied `gss.exe` is a 626,688-byte PE32 x86 image. Its standard import tab
 
 - Inspection is read-only and never executes a selected binary.
 - File extensions are hints, not format detection.
-- The GPK/GTB and VPK/VTB parsers return bounded payload ranges; they do not decode images/audio or run a game.
+- The GPK/GTB and VPK/VTB parsers themselves return bounded payload ranges. Separate adapters decode selected images and hand selected Ogg payloads to Android `MediaPlayer`; none of these components launches the original engine or a complete game.
 - Ogg page CRCs are not checked by the app parser.
-- The resource inspector and foreground media-player preview exist, but physical-device image/audio validation has not been performed. Android codec support may vary.
+- The resource inspector and foreground media-player preview exist, but physical-device image/audio validation has not been performed. Android codec support may vary. The inspector stops/releases its preview player when it leaves the foreground and does not provide a background audio service or seek bar.
 - The supplied game samples are not stored in the repository; tests use small synthetic fixtures.
-- SAF/content-URI random access and a user-facing resource browser/export flow are not implemented.
+- SAF/content-URI positional random access and the inventory-report save/share flow are not implemented. The separate resource inspector UI works by copying selected files into private cache.
 - A detected file format does not imply that Ramen can run the associated game.
 
 ## Next technical steps
