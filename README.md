@@ -2,7 +2,7 @@
 
 **Ramen** is an Android-first player and library for visual novels. The goal is to make one focused app that can identify, organize, and run visual novels through engine-specific runtime adapters.
 
-> **Project status:** Android scaffold, bounded ZIP import, folder import, and the first restricted HTML5 runtime are being developed in small CI-verified steps. The HTML5 player supports only self-contained projects with a root `index.html`; it is not a general engine emulator.
+> **Project status:** Android library, safe import, and a restricted HTML5 runtime are implemented as early prototypes. A new native/proprietary engine research track has started with read-only PE and binary-signature inspection. No proprietary Windows engine is currently supported.
 
 ## Product idea
 
@@ -18,8 +18,9 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - GitHub Actions workflow for debug build, unit tests, lint, and APK artifact upload.
 - User-selected ZIP and folder import into app-private storage, with bounded copying and path-traversal checks; bounded standalone HTML file import is under review.
 - Initial engine-marker detection that clearly distinguishes detection from playability.
-- A restricted HTML5 WebView runtime using app-controlled local resource loading, per-game browser profiles, and an offline-only policy; physical-device validation remains pending.
-- No broad storage permissions. Other engine-specific runtime integrations are not available yet.
+- A restricted HTML5 WebView runtime using app-controlled local resource loading, per-game browser profiles, and an offline-only policy.
+- A read-only binary inspector for PE/ELF and common file signatures, plus an evidence-aware container-format registry.
+- No broad storage permissions. Native/proprietary engine runtime integrations are not available yet.
 
 ## Initial MVP
 
@@ -38,8 +39,8 @@ The first milestone is a reliable end-to-end path for a few test projects, not a
 - **UI:** Jetpack Compose
 - **Persistence:** Room (planned; not integrated yet)
 - **Android file access:** Storage Access Framework (planned; not integrated yet)
-- **First runtime candidate:** self-contained HTML5 projects with a root-level `index.html`; engine-specific exports such as TyranoScript remain unsupported.
-- **Native engine integrations:** evaluated separately; C/C++ and Android NDK may be appropriate for some engines
+- **HTML5 runtime:** constrained WebView support for local projects.
+- **Native engine research:** begin with executable metadata, file signatures, and container-format evidence; C/C++ and Android NDK may be appropriate for some future adapters.
 
 These are starting decisions, not a claim that every engine can be embedded through the same interface.
 
@@ -57,6 +58,9 @@ These are starting decisions, not a claim that every engine can be embedded thro
 - [Project scope](docs/PROJECT_SCOPE.md)
 - [Architecture](docs/ARCHITECTURE.md)
 - [Engine compatibility](docs/ENGINE_COMPATIBILITY.md)
+- [Engine research track](docs/ENGINE_RESEARCH.md)
+- [Binary/container format registry](docs/FORMAT_REGISTRY.md)
+- [Development log / session handoff](docs/DEVELOPMENT_LOG.md)
 - [Roadmap](docs/ROADMAP.md)
 - [Android build setup](docs/BUILD_SETUP.md)
 - [ZIP import security and behavior](docs/ZIP_IMPORT.md)
@@ -70,7 +74,7 @@ Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](doc
 
 ## Current next step
 
-Run the original HTML5 fixture on a physical Android device, verify WebView storage isolation and lifecycle behavior, then expand the runtime only against reproducible test projects. Do not add third-party game assets to the repository.
+Build out the native/proprietary engine research foundation: add bounded PE import-table inspection, an incremental SHA-256 inventory, and a generic read-only random-access source for container probes. Record every confirmed format in the registry and every unresolved observation in the development log. Do not claim compatibility from filenames alone and do not add third-party game assets to the repository.
 
 ## Naming
 
