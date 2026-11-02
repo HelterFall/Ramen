@@ -56,6 +56,7 @@ import io.github.helterfall.ramen.inspection.GpkGtbArchiveParser
 import io.github.helterfall.ramen.inspection.GpkImageResource
 import io.github.helterfall.ramen.inspection.VpkAudioResource
 import io.github.helterfall.ramen.inspection.VpkOggCacheMaterializer
+import io.github.helterfall.ramen.storage.StorageSpaceGuard
 import io.github.helterfall.ramen.inspection.VpkVtbArchiveParser
 import java.io.File
 import java.io.IOException
@@ -450,20 +451,15 @@ class ResourceInspectorActivity : ComponentActivity() {
         try {
             val input = contentResolver.openInputStream(document.uri)
                 ?: throw IOException("Не удалось открыть ${document.displayName}.")
+            val storageGuard = StorageSpaceGuard(cacheDir)
             input.use { source ->
                 target.outputStream().buffered(COPY_BUFFER_BYTES).use { output ->
                     val buffer = ByteArray(COPY_BUFFER_BYTES)
-                    var total = 0L
                     while (true) {
                         val count = source.read(buffer)
                         if (count < 0) break
                         if (count == 0) continue
-                        total += count
-                        if (total > MAX_ARCHIVE_COPY_BYTES) {
-                            throw IOException(
-                                "Файл ${document.displayName} превышает лимит 512 МБ."
-                            )
-                        }
+                        storageGuard.requireCapacity(count.toLong())
                         output.write(buffer, 0, count)
                     }
                     if (total == 0L) {
@@ -700,7 +696,6 @@ class ResourceInspectorActivity : ComponentActivity() {
             "io.github.helterfall.ramen.extra.GAME_RELATIVE_DIRECTORY"
 
         private const val COPY_BUFFER_BYTES = 64 * 1024
-        private const val MAX_ARCHIVE_COPY_BYTES = 512L * 1024L * 1024L
     }
 }
 
