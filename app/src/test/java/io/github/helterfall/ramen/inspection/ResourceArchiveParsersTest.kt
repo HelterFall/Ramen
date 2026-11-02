@@ -65,7 +65,7 @@ class ResourceArchiveParsersTest {
         )
 
         withSources(indexBytes, maskedArchive) { index, archive ->
-            val parsed = GpkGtbArchiveParser(archiveXorKey = 0x10).parse(index, archive)
+            val parsed = GpkGtbArchiveParser().parse(index, archive)
             val image = parsed.entries.single()
 
             assertEquals(GpkImageFormat.BMP, image.format)
