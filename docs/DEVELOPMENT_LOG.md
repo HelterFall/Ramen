@@ -38,3 +38,28 @@ Screenshots supplied in chat showed repeated `.gpk/.gtb` and `.vpk/.vtb` filenam
 
 ### Handoff note
 Start from the latest `main` and read this log before making the next change. The detailed evidence and unknowns are in [Engine Research](ENGINE_RESEARCH.md) and [Format Registry](FORMAT_REGISTRY.md).
+
+
+## 2026-11-02 — Bounded PE import-directory inspection
+
+### Goal
+Extend the read-only PE inspector to identify linked DLL names without executing a Windows binary. This helps later runtime feasibility research by showing the native dependency surface.
+
+### Changed in this PR
+- Added PE32 and PE32+ import data-directory location handling.
+- Added bounded section-header parsing and RVA-to-file-offset mapping.
+- Added import-descriptor traversal with a hard cap of 512 descriptors.
+- Added bounded ASCII DLL-name reading (maximum 260 bytes).
+- Reported imported library names and import-directory RVA/size as PE metadata.
+- Added tests for PE32, PE32+, an unmapped DLL-name RVA, and malformed data handling.
+
+### Limits
+- This reads only the standard PE import directory. It does not parse delay-load imports, bound imports, forwarded exports, ordinals, or recursively resolve DLL dependencies.
+- A DLL name in the import table is a declared dependency, not proof the DLL exists or that the program can run on Android.
+- The inspector remains read-only and never loads or executes the inspected file.
+
+### Next steps
+1. Add incremental SHA-256 file inventory.
+2. Introduce a generic read-only random-access source abstraction.
+3. Add container-probe outcomes: `MATCH`, `NO_MATCH`, and `MALFORMED`.
+4. Add a user-visible inventory report after the core APIs stabilize.
