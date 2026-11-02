@@ -48,7 +48,9 @@ class DirectoryInventoryScanner(
             throw IOException("The inventory root is not an accessible directory.")
         }
 
-        val discovered = root.walkTopDown()
+        val discovered = root.walkTopDown(
+            onEnter = { directory -> !Files.isSymbolicLink(directory.toPath()) }
+        )
             .maxDepth(maxDepth)
             .filter { file ->
                 file.isFile && !Files.isSymbolicLink(file.toPath())
