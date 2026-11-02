@@ -8,6 +8,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
 import java.util.zip.ZipInputStream
+import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
 import io.github.helterfall.ramen.storage.StorageSpaceGuard
 
 data class ExtractionSummary(
@@ -87,7 +88,10 @@ class SafeZipExtractor(
                 }
 
                 var entryBytes = 0L
-                BufferedOutputStream(FileOutputStream(outputFile, false)).use { output ->
+                StorageGuardedOutputStream(
+                    delegate = BufferedOutputStream(FileOutputStream(outputFile, false)),
+                    guard = storageGuard
+                ).use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
 
                     while (true) {
@@ -103,7 +107,6 @@ class SafeZipExtractor(
                             throw IOException("The archive expands beyond the total size limit.")
                         }
 
-                        storageGuard.requireCapacity(bytesRead)
                         entryBytes += bytesRead
                         totalBytes += bytesRead
                         output.write(buffer, 0, read)
