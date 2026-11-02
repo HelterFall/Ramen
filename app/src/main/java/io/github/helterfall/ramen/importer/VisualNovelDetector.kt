@@ -86,7 +86,8 @@ class VisualNovelDetector {
 
     /**
      * Runs the bounded binary signature probe against an immutable imported-folder
-     * snapshot. JPEG/BMP block signatures alone do not identify an engine.
+     * snapshot. Original EXE/DLL files and other unrelated binaries remain per-file
+     * diagnostics; they do not cancel a positive script/container marker elsewhere.
      */
     private fun detectRamenBinaryEngine(gameDirectory: File): GameDetection? = runCatching {
         val source = DirectoryGameSource(
@@ -107,10 +108,17 @@ class VisualNovelDetector {
             val details = evidence.take(MAX_BINARY_EVIDENCE_ITEMS).joinToString("; ") { item ->
                 (item.relativePath ?: "binary resource") + ": " + item.description
             }
-            val hasScript = evidence.any { it.resourceType == "script" }
+            val hasValidatedScript = evidence.any { item ->
+                item.resourceType == "script" &&
+                    item.description.contains("Parsed") &&
+                    item.description.contains("Ramen Scenario model")
+            }
             GameDetection(
-                engineId = if (hasScript) BINARY_SCRIPT_ENGINE_ID else BINARY_ENGINE_ID,
-                engineLabel = "Обнаружен тестовый движок v1",
+                // Keep the experimental test player gated behind full Script v1
+                // validation. A shared/recognized magic prefix alone is Detected,
+                // not proof that the proprietary scenario dialect is executable.
+                engineId = if (hasValidatedScript) BINARY_SCRIPT_ENGINE_ID else BINARY_ENGINE_ID,
+                engineLabel = "Обнаружен кастомный движок v1",
                 compatibilityStatus = "DETECTED_UNSUPPORTED",
                 evidence = "BinarySignatureProbe: $details"
             )
