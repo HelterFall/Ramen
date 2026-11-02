@@ -20,9 +20,9 @@ class ScriptParseException(
 ) : IOException("Script byte $byteOffset: $message")
 
 /**
- * Decodes one command at a time from the command stream following the Ramen Script v1
- * header. The caller owns the InputStream and must keep using the same parser instance
- * for consecutive calls so byte offsets remain stable.
+ * Decodes one command at a time from the stream immediately following the eight-byte
+ * script magic. The caller owns the InputStream and must keep using the same parser
+ * instance for consecutive calls so byte offsets remain stable.
  */
 class ScriptCommandParser(
     private val textCharset: Charset = StandardCharsets.UTF_8,
