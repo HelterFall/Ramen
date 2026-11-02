@@ -96,15 +96,15 @@ class GpkGtbArchiveParser(
     ): GpkGtbArchive {
         // Try every supported clear/masked combination. The .gtb table and .gpk
         // blocks are independent streams and may be protected separately.
-        val indexViews = buildList<Pair<ReadOnlyRandomAccessSource, Int?>> {
-            add(indexSource to null)
+        val indexViews = buildList<ReadOnlyRandomAccessSource> {
+            add(indexSource)
             indexXorKey?.takeIf { it != 0 }?.let { key ->
-                add(XorMaskingRandomAccessSource(indexSource, key) to key)
+                add(XorMaskingRandomAccessSource(indexSource, key))
             }
         }
         val failures = mutableListOf<IOException>()
 
-        for ((indexView, indexKey) in indexViews) {
+        for (indexView in indexViews) {
             try {
                 return parseArchive(indexView, archiveSource, payloadXorKey = null)
             } catch (clearArchiveFailure: IOException) {
