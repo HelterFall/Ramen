@@ -30,8 +30,6 @@ data class GpkImageResource(
     val bmpPaletteColorCount: Int? = null,
     /** True when BMP rows are stored top-to-bottom rather than bottom-to-top. */
     val bmpTopDown: Boolean? = null,
-    /** XOR key used to expose this payload, or null when the archive was already clear. */
-    val payloadXorKey: Int? = null
 )
 
 data class GpkGtbArchive(
@@ -72,77 +70,35 @@ class GpkGtbArchiveParser(
     private val maxEntries: Int = DEFAULT_MAX_ENTRIES,
     private val maxStringPoolBytes: Int = DEFAULT_MAX_STRING_POOL_BYTES,
     private val maxNameBytes: Int = DEFAULT_MAX_NAME_BYTES,
-    private val maxImageDimension: Int = DEFAULT_MAX_IMAGE_DIMENSION,
-    private val archiveXorKey: Int? = DEFAULT_GPK_XOR_FALLBACK_KEY,
-    private val indexXorKey: Int? = DEFAULT_GPK_XOR_FALLBACK_KEY
+    private val maxImageDimension: Int = DEFAULT_MAX_IMAGE_DIMENSION
 ) {
     init {
         require(maxEntries in 1..ABSOLUTE_MAX_ENTRIES)
         require(maxStringPoolBytes in 1..ABSOLUTE_MAX_STRING_POOL_BYTES)
         require(maxNameBytes in 1..ABSOLUTE_MAX_NAME_BYTES)
         require(maxImageDimension in 1..ABSOLUTE_MAX_IMAGE_DIMENSION)
-        require(archiveXorKey == null || archiveXorKey in 0..0xFF) {
-            "Archive XOR key must be an unsigned byte."
-        }
-        require(indexXorKey == null || indexXorKey in 0..0xFF) {
-            "Index XOR key must be an unsigned byte."
-        }
     }
 
     @Throws(IOException::class)
     fun parse(
         indexSource: ReadOnlyRandomAccessSource,
         archiveSource: ReadOnlyRandomAccessSource
-    ): GpkGtbArchive {
-        // Try every supported clear/masked combination. The .gtb table and .gpk
-        // blocks are independent streams and may be protected separately.
-        val indexViews = buildList<ReadOnlyRandomAccessSource> {
-            add(indexSource)
-            indexXorKey?.takeIf { it != 0 }?.let { key ->
-                add(XorMaskingRandomAccessSource(indexSource, key))
-            }
-        }
-        val failures = mutableListOf<IOException>()
-
-        for (indexView in indexViews) {
-            try {
-                return parseArchive(indexView, archiveSource, payloadXorKey = null)
-            } catch (clearArchiveFailure: IOException) {
-                failures += clearArchiveFailure
-            }
-
-            val archiveKey = archiveXorKey
-            if (archiveKey != null && archiveKey != 0) {
-                try {
-                    val decodedArchive = XorMaskingRandomAccessSource(archiveSource, archiveKey)
-                    return parseArchive(indexView, decodedArchive, payloadXorKey = archiveKey)
-                } catch (maskedArchiveFailure: IOException) {
-                    failures += maskedArchiveFailure
-                }
-            }
-        }
-
-        val finalFailure = failures.lastOrNull()
-            ?: IOException("No supported GTB/GPK decoding configuration is enabled.")
-        failures.filter { it !== finalFailure }.forEach(finalFailure::addSuppressed)
-        throw finalFailure
-    }
+    ): GpkGtbArchive = parseArchive(indexSource, archiveSource)
 
     @Throws(IOException::class)
     private fun parseArchive(
         indexSource: ReadOnlyRandomAccessSource,
-        archiveSource: ReadOnlyRandomAccessSource,
-        payloadXorKey: Int?
+        archiveSource: ReadOnlyRandomAccessSource
     ): GpkGtbArchive {
         if (indexSource.sizeBytes < UINT32_BYTES) {
             malformed("GTB index is shorter than its entry-count field.")
         }
 
-        val entryCountLong = readU32(indexSource, 0L)
-        if (entryCountLong == 0L || entryCountLong > maxEntries.toLong()) {
-            malformed("GTB entry count is zero or exceeds the configured limit.")
+        val entryCount = readI32(indexSource, 0L)
+        if (entryCount <= 0 || entryCount > maxEntries) {
+            malformed("GTB signed Int32 entry count is non-positive or exceeds the configured limit.")
         }
-        val entryCount = entryCountLong.toInt()
+        val entryCountLong = entryCount.toLong()
         val stringPoolOffset = UINT32_BYTES + entryCountLong * TABLES_PER_ENTRY * UINT32_BYTES
         if (stringPoolOffset > indexSource.sizeBytes) {
             malformed("GTB offset tables extend beyond the index file.")
@@ -161,7 +117,11 @@ class GpkGtbArchiveParser(
         val archiveTableOffset = UINT32_BYTES + entryCountLong * UINT32_BYTES
 
         for (index in 0 until entryCount) {
-            nameOffsets[index] = readU32(indexSource, nameTableOffset + index * UINT32_BYTES)
+            val nameOffset = readI32(indexSource, nameTableOffset + index * UINT32_BYTES)
+            if (nameOffset < 0) {
+                malformed("GTB name offset is negative.")
+            }
+            nameOffsets[index] = nameOffset.toLong()
             archiveOffsets[index] = readU32(indexSource, archiveTableOffset + index * UINT32_BYTES)
         }
 
@@ -227,7 +187,6 @@ class GpkGtbArchiveParser(
                     blockSize = blockSize,
                     payloadOffset = payloadOffset,
                     payloadSize = payloadSize,
-                    payloadXorKey = payloadXorKey
                 )
                 GpkImageFormat.BMP -> parseBmpResource(
                     source = archiveSource,
@@ -236,7 +195,6 @@ class GpkGtbArchiveParser(
                     blockSize = blockSize,
                     payloadOffset = payloadOffset,
                     payloadSize = payloadSize,
-                    payloadXorKey = payloadXorKey
                 )
             }
             entries += resource
@@ -394,8 +352,7 @@ class GpkGtbArchiveParser(
         blockOffset: Long,
         blockSize: Long,
         payloadOffset: Long,
-        payloadSize: Long,
-        payloadXorKey: Int?
+        payloadSize: Long
     ): GpkImageResource {
         if (payloadSize < JPEG_SIGNATURE.size) {
             malformed("JPEG GPK payload is too short.")
@@ -432,7 +389,6 @@ class GpkGtbArchiveParser(
             widthPixels = dimensions.first,
             heightPixels = dimensions.second,
             packType = JPEG_PACK_TYPE_NUMBER,
-            payloadXorKey = payloadXorKey
         )
     }
 
@@ -517,8 +473,7 @@ class GpkGtbArchiveParser(
         blockOffset: Long,
         blockSize: Long,
         payloadOffset: Long,
-        payloadSize: Long,
-        payloadXorKey: Int?
+        payloadSize: Long
     ): GpkImageResource {
         if (payloadSize < BMP_INFO_HEADER_BYTES) {
             malformed("BMP GPK payload is shorter than a BITMAPINFOHEADER.")
@@ -631,7 +586,6 @@ class GpkGtbArchiveParser(
             bmpPaletteOffsetBytes = paletteOffset.takeIf { paletteEntries > 0 },
             bmpPaletteColorCount = paletteEntries.takeIf { paletteEntries > 0 },
             bmpTopDown = signedHeight < 0,
-            payloadXorKey = payloadXorKey
         )
     }
 
@@ -654,7 +608,6 @@ class GpkGtbArchiveParser(
     }
 
     companion object {
-        private const val DEFAULT_GPK_XOR_FALLBACK_KEY = 0x10
         private const val DEFAULT_MAX_ENTRIES = 100_000
         private const val ABSOLUTE_MAX_ENTRIES = 1_000_000
         private const val DEFAULT_MAX_STRING_POOL_BYTES = 16 * 1024 * 1024
@@ -1021,6 +974,12 @@ private fun ByteArray.toHexString(): String {
             append(digits[value and 0x0F])
         }
     }
+}
+
+private fun readI32(source: ReadOnlyRandomAccessSource, offset: Long): Int {
+    val bytes = ByteArray(4)
+    source.readFullyAt(offset, bytes)
+    return readI32(bytes, 0)
 }
 
 private fun readU32(source: ReadOnlyRandomAccessSource, offset: Long): Long {

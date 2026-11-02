@@ -1,6 +1,5 @@
 package io.github.helterfall.ramen.runtime.scenario
 
-import io.github.helterfall.ramen.inspection.XorMaskingInputStream
 import java.io.IOException
 import java.io.InputStream
 import java.nio.ByteBuffer
@@ -15,12 +14,6 @@ data class DisplayDialogueCommand(val text: String) : TextScriptCommand
 data class ChangeBackgroundCommand(val imagePath: String) : TextScriptCommand
 data class JumpToSceneCommand(val targetAddress: Long) : TextScriptCommand
 
-/** Zero-operand start-of-scene marker observed in the target SPT stream. */
-data object NitroStartSceneCommand : TextScriptCommand
-
-/** Zero-operand engine-initialization marker observed at the start of target SPT scripts. */
-data object NitroInitEngineCommand : TextScriptCommand
-
 class ScriptParseException(
     val byteOffset: Long,
     message: String
@@ -33,15 +26,13 @@ class ScriptParseException(
  */
 class ScriptCommandParser(
     private val textCharset: Charset = StandardCharsets.UTF_8,
-    initialOffset: Long = 0L,
-    private val xorKey: Int = 0
+    initialOffset: Long = 0L
 ) {
     var nextCommandOffset: Long = initialOffset
         private set
 
     init {
         require(initialOffset >= 0L) { "Initial byte offset must not be negative." }
-        require(xorKey in 0..0xFF) { "XOR key must be an unsigned byte." }
     }
 
     /**
@@ -51,15 +42,13 @@ class ScriptCommandParser(
     @Throws(IOException::class)
     fun parseNextCommand(stream: InputStream): TextScriptCommand? {
         val commandOffset = nextCommandOffset
-        // XOR is stateless, so a fresh view per command preserves the caller-owned stream cursor.
-        val commandStream = if (xorKey == 0) stream else XorMaskingInputStream(stream, xorKey)
-        val opcode = commandStream.read()
+        val opcode = stream.read()
         if (opcode < 0) return null
         nextCommandOffset++
 
         return when (opcode) {
             OPCODE_DISPLAY_DIALOGUE -> {
-                val text = readText(commandStream, "dialogue", commandOffset)
+                val text = readText(stream, "dialogue", commandOffset)
                 if (text.isBlank()) {
                     throw ScriptParseException(commandOffset, "Dialogue text must not be blank.")
                 }
@@ -70,19 +59,15 @@ class ScriptCommandParser(
             }
 
             OPCODE_CHANGE_BACKGROUND -> {
-                val imagePath = readText(commandStream, "background path", commandOffset)
+                val imagePath = readText(stream, "background path", commandOffset)
                 validateImagePath(imagePath, commandOffset)
                 ChangeBackgroundCommand(imagePath)
             }
 
             OPCODE_JUMP_TO_SCENE -> {
-                val target = readUnsignedInt32(commandStream, "jump target", commandOffset)
+                val target = readUnsignedInt32(stream, "jump target", commandOffset)
                 JumpToSceneCommand(target)
             }
-
-            OPCODE_NITRO_START_SCENE -> NitroStartSceneCommand
-
-            OPCODE_NITRO_INIT_ENGINE -> NitroInitEngineCommand
 
             else -> throw ScriptParseException(
                 commandOffset,
@@ -196,8 +181,6 @@ class ScriptCommandParser(
         const val OPCODE_DISPLAY_DIALOGUE = 0x01
         const val OPCODE_CHANGE_BACKGROUND = 0x02
         const val OPCODE_JUMP_TO_SCENE = 0x03
-        const val OPCODE_NITRO_START_SCENE = 0xFE
-        const val OPCODE_NITRO_INIT_ENGINE = 0xFF
 
         const val MAX_STRING_BYTES = 4_096
         const val MAX_DIALOGUE_CHARS = 4_096

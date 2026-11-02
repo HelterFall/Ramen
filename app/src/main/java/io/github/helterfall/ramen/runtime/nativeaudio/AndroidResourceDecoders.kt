@@ -7,7 +7,6 @@ import io.github.helterfall.ramen.inspection.GpkImageFormat
 import io.github.helterfall.ramen.inspection.GpkImageResource
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import io.github.helterfall.ramen.inspection.ReadOnlySourceRangeInputStream
-import io.github.helterfall.ramen.inspection.XorMaskingRandomAccessSource
 import java.io.IOException
 
 /**
@@ -30,15 +29,10 @@ class AndroidGpkImageDecoder(
         source: ReadOnlyRandomAccessSource,
         resource: GpkImageResource
     ): Bitmap {
-        // The parser records the key only when the clear GPK layout failed and
-        // the XOR-decoded layout passed all structural checks.
-        val payloadSource = resource.payloadXorKey?.let { key ->
-            XorMaskingRandomAccessSource(source, key)
-        } ?: source
         if (resource.payloadSizeBytes <= 0L ||
             resource.payloadOffset < 0L ||
-            resource.payloadOffset > payloadSource.sizeBytes ||
-            resource.payloadSizeBytes > payloadSource.sizeBytes - resource.payloadOffset
+            resource.payloadOffset > source.sizeBytes ||
+            resource.payloadSizeBytes > source.sizeBytes - resource.payloadOffset
         ) {
             throw IOException("Image resource range is outside the source.")
         }
@@ -47,11 +41,11 @@ class AndroidGpkImageDecoder(
         }
 
         if (resource.format != GpkImageFormat.BMP) {
-            return decodeWithBitmapFactory(payloadSource, resource)
+            return decodeWithBitmapFactory(source, resource)
         }
 
         val bitmapFactoryFailure = try {
-            return decodeWithBitmapFactory(payloadSource, resource)
+            return decodeWithBitmapFactory(source, resource)
         } catch (failure: IOException) {
             failure
         } catch (failure: RuntimeException) {
@@ -59,7 +53,7 @@ class AndroidGpkImageDecoder(
         }
 
         return try {
-            decodeRawBmpPixels(payloadSource, resource)
+            decodeRawBmpPixels(source, resource)
         } catch (failure: IOException) {
             failure.addSuppressed(bitmapFactoryFailure)
             throw failure

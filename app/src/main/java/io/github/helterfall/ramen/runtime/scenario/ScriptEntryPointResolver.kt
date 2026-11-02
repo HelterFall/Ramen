@@ -1,9 +1,6 @@
 package io.github.helterfall.ramen.runtime.scenario
 
 import io.github.helterfall.ramen.runtime.engine.EngineSource
-import java.io.ByteArrayInputStream
-import java.io.InputStream
-import java.io.SequenceInputStream
 import io.github.helterfall.ramen.runtime.engine.EngineSourceEntry
 import java.io.IOException
 import java.util.Locale
@@ -28,12 +25,11 @@ data class ScriptEntryPointFailure(
 )
 
 /**
- * Finds and fully validates a Ramen Script v1 startup file.
+ * Finds and fully validates only the explicitly synthetic Ramen Script v1 fixture.
  *
- * .spt is an ordering hint, not proof of format. Candidate scripts are passed through
- * ScriptScenarioLoader in priority order; malformed candidates (including unknown
- * opcodes) are recorded and skipped. Non-.spt files are considered only when their
- * bytes match the exact Ramen Script v1 signature or its supported single-byte XOR form.
+ * A .spt extension is never sufficient evidence to parse a file. Candidate files
+ * must begin with the exact unmasked Ramen fixture signature. Proprietary Black Cyc
+ * SPT files are not parsed by this class.
  */
 class ScriptEntryPointResolver {
     fun select(source: EngineSource): EngineSourceEntry? =
@@ -48,7 +44,7 @@ class ScriptEntryPointResolver {
 
         for (entry in inspected) {
             try {
-                val project = source.openRead(entry.relativePath).use(::loadWithDetectedXorKey)
+                val project = source.openRead(entry.relativePath).use(ScriptScenarioLoader::load)
                 return ScriptEntryPointLoadResult.Ready(entry, project)
             } catch (exception: IOException) {
                 failures += ScriptEntryPointFailure(
@@ -72,29 +68,18 @@ class ScriptEntryPointResolver {
         )
     }
 
-    private fun orderedCandidates(source: EngineSource): List<EngineSourceEntry> {
-        val sptEntries = source.entries
-            .filter {
-                it.relativePath.substringAfterLast('/')
-                    .endsWith(".spt", ignoreCase = true)
+    private fun orderedCandidates(source: EngineSource): List<EngineSourceEntry> =
+        source.entries.asSequence()
+            .filter { it.sizeBytes >= MAGIC.size }
+            .filter { entry ->
+                runCatching { hasScriptMagic(source, entry) }.getOrDefault(false)
             }
             .sortedWith(
                 compareBy<EngineSourceEntry> { priority(it.relativePath) }
                     .thenBy { it.relativePath.count { char -> char == '/' } }
                     .thenBy { it.relativePath.lowercase(Locale.ROOT) }
             )
-
-        val sptPaths = sptEntries.mapTo(mutableSetOf()) { it.relativePath }
-        val magicEntries = source.entries.asSequence()
-            .filter { it.relativePath !in sptPaths && it.sizeBytes >= MAGIC.size }
-            .sortedBy { it.relativePath.lowercase(Locale.ROOT) }
-            .filter { entry ->
-                runCatching { hasScriptMagic(source, entry) }.getOrDefault(false)
-            }
             .toList()
-
-        return sptEntries + magicEntries
-    }
 
     private fun priority(relativePath: String): Int =
         when (relativePath.substringAfterLast('/').lowercase(Locale.ROOT)) {
@@ -105,22 +90,6 @@ class ScriptEntryPointResolver {
             else -> 4
         }
 
-    private fun loadWithDetectedXorKey(stream: InputStream): ScenarioProject {
-        val firstByte = stream.read()
-        if (firstByte < 0) {
-            throw ScriptParseException(0L, "Script file is empty.")
-        }
-
-        // The known plaintext signature begins with 0xEB. Deriving the mask from
-        // the observed first byte also keeps unmasked legacy scripts compatible.
-        val xorKey = firstByte xor (MAGIC[0].toInt() and 0xFF)
-        val replay = SequenceInputStream(
-            ByteArrayInputStream(byteArrayOf(firstByte.toByte())),
-            stream
-        )
-        return ScriptScenarioLoader.load(replay, java.nio.charset.StandardCharsets.UTF_8, xorKey)
-    }
-
     private fun hasScriptMagic(source: EngineSource, entry: EngineSourceEntry): Boolean =
         source.openRandomAccess(entry.relativePath).use { randomAccess ->
             if (randomAccess.sizeBytes < MAGIC.size) {
@@ -128,11 +97,7 @@ class ScriptEntryPointResolver {
             } else {
                 val header = ByteArray(MAGIC.size)
                 randomAccess.readFullyAt(0L, header)
-                val xorKey = (header[0].toInt() and 0xFF) xor (MAGIC[0].toInt() and 0xFF)
-                header.indices.all { index ->
-                    ((header[index].toInt() and 0xFF) xor xorKey) ==
-                        (MAGIC[index].toInt() and 0xFF)
-                }
+                header.contentEquals(MAGIC)
             }
         }
 

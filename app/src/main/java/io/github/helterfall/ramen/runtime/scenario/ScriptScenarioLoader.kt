@@ -1,6 +1,5 @@
 package io.github.helterfall.ramen.runtime.scenario
 
-import io.github.helterfall.ramen.inspection.XorMaskingInputStream
 import java.io.InputStream
 import java.nio.charset.Charset
 import java.nio.charset.StandardCharsets
@@ -20,48 +19,30 @@ object ScriptScenarioLoader {
     private const val MAX_ADDRESS = 0xFFFF_FFFFL
 
     /**
-     * The eight-byte magic is the complete file header. Command decoding starts
-     * immediately after it; the following byte is an opcode, not a version or
-     * encoding selector. The caller supplies the text charset because the stream
-     * does not carry an encoding field.
+     * Loads only the documented synthetic Ramen Script v1 fixture. This is not
+     * a parser for the proprietary Black Cyc SPT container/header.
      */
     fun load(stream: InputStream): ScenarioProject =
-        load(stream, StandardCharsets.UTF_8, xorKey = 0)
+        load(stream, StandardCharsets.UTF_8, commandStreamLengthBytes = null)
 
     fun load(
         stream: InputStream,
         textCharset: Charset
-    ): ScenarioProject = load(stream, textCharset, xorKey = 0)
-
-    /** Loads a script whose fixed-width header and command stream use the same XOR byte. */
-    fun load(
-        stream: InputStream,
-        textCharset: Charset,
-        xorKey: Int
-    ): ScenarioProject = load(
-        stream = stream,
-        textCharset = textCharset,
-        xorKey = xorKey,
-        commandStreamLengthBytes = null
-    )
+    ): ScenarioProject = load(stream, textCharset, commandStreamLengthBytes = null)
 
     /**
-     * Loads only the bounded command region. When a clear VFS/index trailer follows
-     * encrypted commands, callers that have validated its start offset can pass the
-     * command byte count so those trailer bytes are not decoded as opcodes.
+     * Optionally bounds the synthetic command region when its end is independently
+     * known. This parameter does not infer or parse a proprietary SPT offset table.
      */
     fun load(
         stream: InputStream,
         textCharset: Charset,
-        xorKey: Int,
         commandStreamLengthBytes: Long?
     ): ScenarioProject {
-        require(xorKey in 0..0xFF) { "XOR key must be an unsigned byte." }
         require(commandStreamLengthBytes == null || commandStreamLengthBytes >= 0L) {
             "Command stream length must not be negative."
         }
-        val headerStream = if (xorKey == 0) stream else XorMaskingInputStream(stream, xorKey)
-        readAndValidateMagic(headerStream)
+        readAndValidateMagic(stream)
 
         val boundedCommandInput = commandStreamLengthBytes?.let {
             BoundedCommandInputStream(stream, it)
@@ -69,8 +50,7 @@ object ScriptScenarioLoader {
         val commandInput = boundedCommandInput ?: stream
         val parser = ScriptCommandParser(
             textCharset,
-            initialOffset = HEADER_SIZE,
-            xorKey = xorKey
+            initialOffset = HEADER_SIZE
         )
         val instructions = mutableListOf<Instruction>()
 
@@ -92,10 +72,8 @@ object ScriptScenarioLoader {
             )
         }
 
-        if (instructions.none {
-                it.command != NitroStartSceneCommand && it.command != NitroInitEngineCommand
-            }) {
-            throw ScriptParseException(HEADER_SIZE, "Script contains no executable commands.")
+        if (instructions.isEmpty()) {
+            throw ScriptParseException(HEADER_SIZE, "Script contains no commands.")
         }
 
         val knownAddresses = instructions.mapTo(mutableSetOf()) { it.address }
@@ -128,10 +106,6 @@ object ScriptScenarioLoader {
                     ScenarioCommand.Jump(sceneId(command.targetAddress))
                 )
 
-                NitroStartSceneCommand,
-                NitroInitEngineCommand -> nextSceneId?.let {
-                    listOf(ScenarioCommand.Jump(it))
-                } ?: emptyList()
             }
             scenes[sceneId] = ScenarioScene(sceneId, commands)
         }
