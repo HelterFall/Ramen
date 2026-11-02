@@ -74,7 +74,7 @@ Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](doc
 
 ## Current next step
 
-Build out the native/proprietary engine research foundation: add bounded PE import-table inspection, an incremental SHA-256 inventory, and a generic read-only random-access source for container probes. Record every confirmed format in the registry and every unresolved observation in the development log. Do not claim compatibility from filenames alone and do not add third-party game assets to the repository.
+Continue the native/proprietary engine research foundation by integrating the read-only source, streaming SHA-256 fingerprints, and container-probe API into a deterministic file-inventory workflow. Then investigate candidate containers only when byte-level samples and repeatable evidence are available. Do not claim compatibility from filenames alone and do not add third-party game assets to the repository.
 
 ## Naming
 
