@@ -11,14 +11,13 @@ class BlackCycScriptLoaderTest {
 
     @Test
     fun sptIsOpaqueInsideBlackCycArchiveContext() {
-        val result = loader.inspect(
+        val info = loader.inspect(
             entryName = "scripts/scenario.spt",
             hasMatchingGpkGtbPair = true
-        )
+        ) ?: error("Expected an opaque Black Cyc SPT classification.")
 
-        assertTrue(result != null)
-        assertFalse(result!!.commandParsingSupported)
-        assertTrue(loader.shouldBypassCommandParser(result))
+        assertFalse(info.commandParsingSupported)
+        assertTrue(loader.shouldBypassCommandParser(info))
     }
 
     @Test
