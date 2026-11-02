@@ -63,6 +63,29 @@ class BinarySignatureProbeTest {
     }
 
     @Test
+    fun recognizesAndValidatesAnXorMaskedScriptInTheEngineAdapterProbe() {
+        val root = Files.createTempDirectory("ramen-binary-masked-script").toFile()
+        try {
+            val clearScript = validScriptFixture()
+            val maskedScript = ByteArray(clearScript.size) { index ->
+                (clearScript[index].toInt() xor 0x10).toByte()
+            }
+            File(root, "masked.spt").writeBytes(maskedScript)
+            val source = DirectoryGameSource(root, sourceId = "masked-script-probe")
+
+            val result = BinarySignatureProbe().probeFile(source, "masked.spt")
+
+            assertTrue(result is EngineProbeResult.Match)
+            val match = result as EngineProbeResult.Match
+            assertEquals("ramen-test-v1", match.formatVersion)
+            assertEquals("script", match.evidence.single().resourceType)
+            assertFalse(match.evidence.single().description.contains("did not validate"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun unknownEightByteHeaderIsMalformedForAnIndividualFile() {
         val root = Files.createTempDirectory("ramen-binary-unknown").toFile()
         try {
