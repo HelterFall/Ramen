@@ -195,6 +195,29 @@ class BinaryArtifactInspectorTest {
         return bytes
     }
 
+    @Test
+    fun inspectsPeThroughReadOnlyRandomAccessSource() {
+        val directory = Files.createTempDirectory("ramen-pe-source-api").toFile()
+        try {
+            val file = File(directory, "sample.exe")
+            file.writeBytes(createPeWithImports(is64Bit = false, dllName = "USER32.dll"))
+
+            FileRandomAccessSource(file).use { source ->
+                val result = BinaryArtifactInspector().inspect(
+                    source = source,
+                    fileName = file.name,
+                    extensionHint = ".EXE"
+                )
+
+                assertEquals(ArtifactKind.PE_IMAGE, result.kind)
+                assertEquals("exe", result.extensionHint)
+                assertEquals(listOf("USER32.dll"), result.peMetadata?.importedLibraries)
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private fun createPeWithImports(
         is64Bit: Boolean,
         dllName: String?,
