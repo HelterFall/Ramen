@@ -9,8 +9,15 @@ import java.io.File
 import java.io.IOException
 import java.util.Locale
 
+data class GpkImageLocation(
+    val archiveFile: File,
+    val archiveRelativePath: String,
+    val resource: GpkImageResource
+)
+
 private data class LocatedGpkImage(
     val archiveFile: File,
+    val archiveRelativePath: String,
     val resource: GpkImageResource
 )
 
@@ -29,7 +36,13 @@ class ScenarioResourceManager(
     }
 
     @Throws(IOException::class)
-    fun loadBackground(resourceKey: String): Bitmap {
+    fun resolveBackground(resourceKey: String): GpkImageLocation {
+        if (!SAFE_RESOURCE_KEY.matches(resourceKey) ||
+            resourceKey.split('/').any { it.isBlank() || it == "." || it == ".." }
+        ) {
+            throw IOException("Background resource key is not a safe relative path.")
+        }
+
         val rankedMatches = indexedImages.mapNotNull { candidate ->
             GpkResourceNameMatcher.rank(resourceKey, candidate.resource.name)
                 ?.let { rank -> rank to candidate }
@@ -45,8 +58,18 @@ class ScenarioResourceManager(
         }
 
         val selected = best.single().second
-        return FileRandomAccessSource(selected.archiveFile).use { source ->
-            imageDecoder.decode(source, selected.resource)
+        return GpkImageLocation(
+            archiveFile = selected.archiveFile,
+            archiveRelativePath = selected.archiveRelativePath,
+            resource = selected.resource
+        )
+    }
+
+    @Throws(IOException::class)
+    fun loadBackground(resourceKey: String): Bitmap {
+        val location = resolveBackground(resourceKey)
+        return FileRandomAccessSource(location.archiveFile).use { source ->
+            imageDecoder.decode(source, location.resource)
         }
     }
 
@@ -63,16 +86,43 @@ class ScenarioResourceManager(
         }
 
         val result = ArrayList<LocatedGpkImage>()
+        val failures = mutableListOf<String>()
+        val rootPath = root.toPath()
         for (pair in pairs) {
-            val parsed = FileRandomAccessSource(pair.indexFile).use { index ->
-                FileRandomAccessSource(pair.archiveFile).use { archive ->
-                    archiveParser.parse(index, archive)
-                }
+            val archiveFile = pair.archiveFile.canonicalFile
+            val indexFile = pair.indexFile.canonicalFile
+            if (!archiveFile.toPath().startsWith(rootPath) ||
+                !indexFile.toPath().startsWith(rootPath)
+            ) {
+                failures += "Skipped a GPK/GTB pair outside the imported folder."
+                continue
             }
+
+            val parsed = try {
+                FileRandomAccessSource(indexFile).use { index ->
+                    FileRandomAccessSource(archiveFile).use { archive ->
+                        archiveParser.parse(index, archive)
+                    }
+                }
+            } catch (exception: IOException) {
+                failures += (pair.relativePath + ": " +
+                    (exception.message ?: "invalid GPK/GTB pair")).take(MAX_DIAGNOSTIC_LENGTH)
+                continue
+            }
+
             if (parsed.entries.size > MAX_INDEXED_IMAGES - result.size) {
                 throw IOException("Game has too many indexed GPK images for scenario lookup.")
             }
-            parsed.entries.forEach { resource -> result += LocatedGpkImage(pair.archiveFile, resource) }
+            parsed.entries.forEach { resource ->
+                result += LocatedGpkImage(archiveFile, pair.relativePath, resource)
+            }
+        }
+
+        if (result.isEmpty() && failures.isNotEmpty()) {
+            throw IOException(
+                "No valid GPK/GTB pair was available for background lookup: " +
+                    failures.take(MAX_DIAGNOSTICS).joinToString("; ")
+            )
         }
         return result
     }
@@ -80,6 +130,10 @@ class ScenarioResourceManager(
     private companion object {
         private const val MAX_IMAGE_PAIRS = 128
         private const val MAX_INDEXED_IMAGES = 200_000
+        private const val MAX_DIAGNOSTICS = 6
+        private const val MAX_DIAGNOSTIC_LENGTH = 384
+        private val SAFE_RESOURCE_KEY =
+            Regex("^[\\p{L}\\p{N}_.-]{1,64}(/[\\p{L}\\p{N}_.-]{1,64})*$")
     }
 }
 
