@@ -188,7 +188,7 @@ class PackArchiveReaderTest {
     }
 
     @Test
-    fun byteSignatureProbeReturnsMalformedForAValidMagicWithBrokenIndex() {
+    fun byteSignatureProbeDetectsIfPacktMagicWhenTheIndexIsNotSupported() {
         val root = Files.createTempDirectory("ramen-pack-probe-bad").toFile()
         try {
             val broken = buildArchive(listOf("images/cover.bin" to byteArrayOf(4, 3, 2, 1)))
@@ -198,12 +198,15 @@ class PackArchiveReaderTest {
 
             val adapter = BinarySignatureProbe()
             val result = adapter.probeFile(source, "broken.pack")
-            assertTrue(result is EngineProbeResult.Malformed)
+            assertTrue(result is EngineProbeResult.Match)
+            val match = result as EngineProbeResult.Match
+            assertEquals("resource-container", match.evidence.single().resourceType)
+            assertTrue(match.evidence.single().description.contains("did not validate"))
+            assertEquals(null, match.formatVersion)
 
             val summary = EngineAdapterRegistry(listOf(adapter)).probe(source)
-            assertTrue(summary.matches.isEmpty())
-            assertEquals(1, summary.malformed.size)
-            assertTrue(summary.malformed.single().reason.contains("Invalid ResourceContainer structure"))
+            assertEquals(1, summary.matches.size)
+            assertTrue(summary.malformed.isEmpty())
         } finally {
             root.deleteRecursively()
         }
