@@ -2,6 +2,7 @@ package io.github.helterfall.ramen.runtime.nativeaudio
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import io.github.helterfall.ramen.inspection.BmpRleDecoder
 import io.github.helterfall.ramen.inspection.GpkImageFormat
 import io.github.helterfall.ramen.inspection.GpkImageResource
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
@@ -13,8 +14,8 @@ import java.io.IOException
  *
  * Bounds are checked in a first pass and inSampleSize is selected before allocation,
  * limiting BitmapFactory output to [maxDecodedPixels]. BMP payloads also retain
- * validated BITMAPINFOHEADER metadata; when Android cannot decode the file header,
- * a bounded BI_RGB 24/32-bit raw-pixel fallback reads only the indexed payload range.
+ * validated BITMAPINFOHEADER metadata; when Android cannot decode the file, a
+ * bounded BI_RGB or BI_RLE4/BI_RLE8 pixel fallback reads only the indexed payload range.
  */
 class AndroidGpkImageDecoder(
     private val maxDecodedPixels: Long = DEFAULT_MAX_DECODED_PIXELS
@@ -120,9 +121,8 @@ class AndroidGpkImageDecoder(
     }
 
     /**
-     * Decodes only uncompressed 24-bit BGR and 32-bit BGRX rows whose DIB layout
-     * was validated by GpkGtbArchiveParser. Palette-based and compressed variants
-     * are deliberately not guessed here.
+     * Decodes the supported BMP layouts whose DIB metadata was validated by
+     * GpkGtbArchiveParser: uncompressed 24/32-bit BGR(X), or indexed RLE4/RLE8.
      */
     private fun decodeRawBmpPixels(
         source: ReadOnlyRandomAccessSource,
