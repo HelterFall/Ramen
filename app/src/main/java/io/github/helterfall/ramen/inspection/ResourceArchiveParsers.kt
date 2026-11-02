@@ -50,7 +50,9 @@ data class VpkVtbArchive(
  *
  * The index contains a little-endian count, a table of name offsets, a table of
  * archive offsets, and a NUL-terminated ASCII string pool. Archive blocks have
- * 64-byte headers followed by JPEG or BMP payloads.
+ * a fixed 64-byte service preamble followed by JPEG or BMP payloads. Known text
+ * preambles are validated when recognized; opaque preambles are skipped and the
+ * image payload signature is used to determine the format.
  *
  * Payloads are not decoded or copied into memory. Returned offsets can be used
  * by a caller to stream an individual image to another destination.
@@ -247,17 +249,19 @@ class GpkGtbArchiveParser(
         return when {
             header.copyOfRange(0, jpegTag.size).contentEquals(jpegTag) &&
                 header.copyOfRange(jpegTag.size, GPK_TAG_BYTES).all { it == SPACE_BYTE } -> {
-                if (!header.copyOfRange(44, 64).contentEquals(JPEG_PACK_TYPE)) {
-                    malformed("JPEG GPK block has an unexpected PACKTYPE marker.")
+                if (header.copyOfRange(44, 64).contentEquals(JPEG_PACK_TYPE)) {
+                    GpkImageFormat.JPEG
+                } else {
+                    null
                 }
-                GpkImageFormat.JPEG
             }
             header.copyOfRange(0, bmpTag.size).contentEquals(bmpTag) &&
                 header.copyOfRange(bmpTag.size, GPK_TAG_BYTES).all { it == SPACE_BYTE } -> {
-                if (!header.copyOfRange(44, 64).contentEquals(BMP_PACK_TYPE)) {
-                    malformed("BMP GPK block has an unexpected PACKTYPE marker.")
+                if (header.copyOfRange(44, 64).contentEquals(BMP_PACK_TYPE)) {
+                    GpkImageFormat.BMP
+                } else {
+                    null
                 }
-                GpkImageFormat.BMP
             }
             else -> null
         }
