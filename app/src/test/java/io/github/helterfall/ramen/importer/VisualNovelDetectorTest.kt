@@ -211,9 +211,7 @@ class VisualNovelDetectorTest {
         byteArrayOf(
             0xEB.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
             0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte(),
-            0x01, // Script v1
-            0x01, // UTF-8
-            0x01, // dialogue
+            0x01, // dialogue opcode
             0x05, 0x00
         ) + "Hello".toByteArray(Charsets.UTF_8)
 
