@@ -109,6 +109,9 @@ Connect the previously separate binary inspector, random-access source, and stre
 - The scanner skips symbolic links, reports truncated scans, and does not execute or modify files.
 - Added tests for deterministic path ordering, PE/PNG/Ogg metadata, hash-budget behavior, file-count truncation, and invalid roots.
 
+### Validation
+- Android CI run [41393805833](https://github.com/HelterFall/Ramen/actions/runs/41393805833) passed `assembleDebug`, `testDebugUnitTest`, `lintDebug`, and debug APK artifact upload.
+
 ### Limits
 - The scanner currently operates on imported app-private `File` directories.
 - SAF/content-URI random access is not implemented; providers that cannot seek will need bounded staging to private storage.
