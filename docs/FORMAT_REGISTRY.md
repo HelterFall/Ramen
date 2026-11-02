@@ -68,4 +68,4 @@ Future probes should return an explicit result rather than a boolean:
 - `NO_MATCH`: the bytes do not match this format.
 - `MALFORMED`: the signature matches or partially matches, but a structural invariant is invalid.
 
-A probe must not allocate based only on an untrusted declared length. All offset arithmetic must be overflow-safe and checked against the available source length. Unknown formats must remain inspectable without being executed. The current `FixedSignatureProbe` validates only a magic value; it does not claim that the complete container structure is valid.
+A probe must not allocate based only on an untrusted declared length. All offset arithmetic must be overflow-safe and checked against the available source length. Unknown formats must remain inspectable without being executed. The current `FixedSignatureProbe` validates only a magic value; it does not claim that the complete container structure is valid. Inventory exports use a separate versioned report contract; see [Inventory Report JSON Schema](INVENTORY_REPORT_SCHEMA.md).
