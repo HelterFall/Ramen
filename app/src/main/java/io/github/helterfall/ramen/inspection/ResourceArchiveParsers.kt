@@ -20,7 +20,13 @@ data class GpkImageResource(
     val payloadSizeBytes: Long,
     val widthPixels: Int,
     val heightPixels: Int,
-    val packType: Int
+    val packType: Int,
+    /** Pixel-data offset relative to the image payload; populated for BMP resources. */
+    val bmpPixelDataOffsetBytes: Long? = null,
+    val bmpBitsPerPixel: Int? = null,
+    val bmpCompression: Long? = null,
+    /** True when BMP rows are stored top-to-bottom rather than bottom-to-top. */
+    val bmpTopDown: Boolean? = null
 )
 
 data class GpkGtbArchive(
@@ -283,10 +289,41 @@ class GpkGtbArchiveParser(
                 GpkImageFormat.JPEG
             prefix[0] == 'B'.code.toByte() && prefix[1] == 'M'.code.toByte() ->
                 GpkImageFormat.BMP
+            isRawDibPayload(source, payloadOffset, payloadSize) ->
+                GpkImageFormat.BMP
             else -> malformed(
-                "The bytes after the 64-byte GPK preamble are not a JPEG or BMP payload."
+                "The bytes after the 64-byte GPK preamble are not a recognized JPEG, BMP, or raw DIB payload."
             )
         }
+    }
+
+    /**
+     * Some GPK blocks contain a BITMAPINFOHEADER and pixel rows without the
+     * 14-byte BITMAPFILEHEADER. Only recognize the unambiguous uncompressed
+     * 24/32-bit layout; do not guess palettes, masks, compression, or XOR keys.
+     */
+    private fun isRawDibPayload(
+        source: ReadOnlyRandomAccessSource,
+        payloadOffset: Long,
+        payloadSize: Long
+    ): Boolean {
+        if (payloadSize < BMP_INFO_HEADER_BYTES) return false
+        val info = ByteArray(BMP_INFO_HEADER_BYTES.toInt())
+        source.readFullyAt(payloadOffset, info)
+        val dibHeaderSize = readU32(info, 0)
+        if (dibHeaderSize !in BMP_DIB_HEADER_SIZES || dibHeaderSize > payloadSize) return false
+
+        val width = readI32(info, 4)
+        val signedHeight = readI32(info, 8)
+        val height = kotlin.math.abs(signedHeight.toLong())
+        val planes = readU16(info, 12)
+        val bitsPerPixel = readU16(info, 14)
+        val compression = readU32(info, 16)
+        return width in 1..maxImageDimension &&
+            height in 1L..maxImageDimension.toLong() &&
+            planes == 1 &&
+            bitsPerPixel in BMP_RAW_BITS_PER_PIXEL &&
+            compression == BMP_BI_RGB
     }
 
     private fun parseJpegResource(
@@ -420,31 +457,30 @@ class GpkGtbArchiveParser(
         payloadOffset: Long,
         payloadSize: Long
     ): GpkImageResource {
-        if (payloadSize < BMP_MINIMUM_BYTES) {
-            malformed("BMP GPK payload is shorter than a BITMAPINFOHEADER file.")
-        }
-        val fileHeader = ByteArray(BMP_FILE_HEADER_BYTES)
-        source.readFullyAt(payloadOffset, fileHeader)
-        if (fileHeader[0] != 'B'.code.toByte() || fileHeader[1] != 'M'.code.toByte()) {
-            malformed("BMP GPK payload does not start with the BM marker.")
+        if (payloadSize < BMP_INFO_HEADER_BYTES) {
+            malformed("BMP GPK payload is shorter than a BITMAPINFOHEADER.")
         }
 
-        val declaredFileSize = readU32(fileHeader, 2)
-        val pixelDataOffset = readU32(fileHeader, 10)
-        val dibHeaderSize = readU32(source, payloadOffset + 14L)
-        if (declaredFileSize != payloadSize ||
-            dibHeaderSize < BMP_INFO_HEADER_BYTES ||
-            dibHeaderSize > payloadSize - 14L ||
-            pixelDataOffset < 14L + dibHeaderSize ||
-            pixelDataOffset >= payloadSize
+        val firstTwo = ByteArray(2)
+        source.readFullyAt(payloadOffset, firstTwo)
+        val hasFileHeader = firstTwo[0] == 'B'.code.toByte() &&
+            firstTwo[1] == 'M'.code.toByte()
+        val dibOffset = if (hasFileHeader) BMP_FILE_HEADER_BYTES.toLong() else 0L
+        if (payloadSize - dibOffset < BMP_INFO_HEADER_BYTES) {
+            malformed("BMP GPK payload has no complete BITMAPINFOHEADER.")
+        }
+
+        val infoHeader = ByteArray(BMP_INFO_HEADER_BYTES.toInt())
+        source.readFullyAt(payloadOffset + dibOffset, infoHeader)
+        val dibHeaderSize = readU32(infoHeader, 0)
+        if (dibHeaderSize !in BMP_DIB_HEADER_SIZES ||
+            dibHeaderSize > payloadSize - dibOffset
         ) {
-            malformed("BMP file header contains an invalid size or pixel-data offset.")
+            malformed("BMP BITMAPINFOHEADER size is not recognized or exceeds the payload.")
         }
 
-        val dimensions = ByteArray(8)
-        source.readFullyAt(payloadOffset + 18L, dimensions)
-        val width = readI32(dimensions, 0)
-        val signedHeight = readI32(dimensions, 4)
+        val width = readI32(infoHeader, 4)
+        val signedHeight = readI32(infoHeader, 8)
         val absoluteHeight = kotlin.math.abs(signedHeight.toLong())
         if (width <= 0 || width > maxImageDimension ||
             absoluteHeight <= 0L || absoluteHeight > maxImageDimension.toLong()
@@ -452,12 +488,39 @@ class GpkGtbArchiveParser(
             malformed("BMP dimensions are outside the accepted range.")
         }
 
-        val planesAndDepth = ByteArray(4)
-        source.readFullyAt(payloadOffset + 26L, planesAndDepth)
-        val planes = readU16(planesAndDepth, 0)
-        val bitsPerPixel = readU16(planesAndDepth, 2)
+        val planes = readU16(infoHeader, 12)
+        val bitsPerPixel = readU16(infoHeader, 14)
+        val compression = readU32(infoHeader, 16)
         if (planes != 1 || bitsPerPixel !in BMP_BITS_PER_PIXEL) {
             malformed("BMP planes or bit depth are not recognized.")
+        }
+
+        val minimumPixelOffset = dibOffset + dibHeaderSize
+        val declaredPixelOffset = if (hasFileHeader) {
+            readU32(source, payloadOffset + 10L)
+        } else {
+            minimumPixelOffset
+        }
+        // Prefer the file-header offset when valid. Some engine-produced BMP
+        // blocks have a stale/zero offset or size, but still contain a complete
+        // uncompressed BITMAPINFOHEADER followed directly by 24/32-bit pixels.
+        val pixelDataOffset = when {
+            declaredPixelOffset >= minimumPixelOffset &&
+                declaredPixelOffset < payloadSize -> declaredPixelOffset
+            compression == BMP_BI_RGB && bitsPerPixel in BMP_RAW_BITS_PER_PIXEL ->
+                minimumPixelOffset
+            else -> malformed("BMP file header contains an invalid pixel-data offset.")
+        }
+
+        if (compression == BMP_BI_RGB) {
+            val rowBits = width.toLong() * bitsPerPixel.toLong()
+            val rowStride = ((rowBits + 31L) / 32L) * 4L
+            val requiredPixelBytes = rowStride * absoluteHeight
+            if (requiredPixelBytes > payloadSize - pixelDataOffset) {
+                malformed("BMP pixel rows extend beyond the indexed GPK payload.")
+            }
+        } else if (pixelDataOffset >= payloadSize) {
+            malformed("BMP compressed pixel data begins outside the indexed GPK payload.")
         }
 
         return GpkImageResource(
@@ -469,7 +532,11 @@ class GpkGtbArchiveParser(
             payloadSizeBytes = payloadSize,
             widthPixels = width,
             heightPixels = absoluteHeight.toInt(),
-            packType = BMP_PACK_TYPE_NUMBER
+            packType = BMP_PACK_TYPE_NUMBER,
+            bmpPixelDataOffsetBytes = pixelDataOffset,
+            bmpBitsPerPixel = bitsPerPixel,
+            bmpCompression = compression,
+            bmpTopDown = signedHeight < 0
         )
     }
 
@@ -503,8 +570,10 @@ class GpkGtbArchiveParser(
             0xCD, 0xCE, 0xCF
         )
         private const val BMP_FILE_HEADER_BYTES = 14
-        private const val BMP_MINIMUM_BYTES = 54L
         private const val BMP_INFO_HEADER_BYTES = 40L
+        private const val BMP_BI_RGB = 0L
+        private val BMP_DIB_HEADER_SIZES = setOf(40L, 52L, 56L, 108L, 124L)
+        private val BMP_RAW_BITS_PER_PIXEL = setOf(24, 32)
         private const val JPEG_PACK_TYPE_NUMBER = 5
         private const val BMP_PACK_TYPE_NUMBER = 0
         private val ASCII: Charset = Charsets.US_ASCII
