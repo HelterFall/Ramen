@@ -147,8 +147,7 @@ class ScriptEntryPointResolverTest {
     private fun validScript(commands: ByteArray): ByteArray =
         byteArrayOf(
             0xEB.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
-            0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte(),
-            0x01, 0x01
+            0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte()
         ) + commands
 
     private fun dialogue(text: String): ByteArray {
