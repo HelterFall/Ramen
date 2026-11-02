@@ -86,6 +86,6 @@ Future and existing probes use explicit outcomes where applicable:
 
 A parser must not allocate based only on an untrusted declared length. Offset arithmetic must be overflow-safe and checked against the available source length. Unknown formats remain inspectable without being executed.
 
-The GPK/GTB and VPK/VTB parsers operate on `ReadOnlyRandomAccessSource`, do not load full payloads, and return resource ranges. They do not yet expose a user-facing browser/export UI, an image decoder, an audio decoder, or a game runtime. No supplied proprietary game files are committed to the repository.
+The GPK/GTB and VPK/VTB parsers operate on `ReadOnlyRandomAccessSource`, do not load full payloads, and return resource ranges. `ReadOnlyRangeStreamer` can copy any such range to a caller-owned output stream using a fixed-size buffer without closing or flushing it. They do not yet expose a user-facing browser/export UI, an image decoder, an audio decoder, or a game runtime. No supplied proprietary game files are committed to the repository.
 
 The generic directory inventory and versioned JSON export are separate APIs; see [Inventory Report JSON Schema](INVENTORY_REPORT_SCHEMA.md).
