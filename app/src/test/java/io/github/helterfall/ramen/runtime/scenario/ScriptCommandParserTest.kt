@@ -100,6 +100,30 @@ class ScriptCommandParserTest {
     }
 
     @Test
+    fun xorLoaderStopsAtTheCommandBoundaryAndLeavesClearVfsTrailerUnread() {
+        val commands = dialogue("Before VFS")
+        val trailer = "sys0.gpk\u0000ta0.gpk\u0000".toByteArray(StandardCharsets.US_ASCII)
+        val encryptedScript = xorMask(script(commands), 0x10) + trailer
+        val input = ByteArrayInputStream(encryptedScript)
+
+        val project = ScriptScenarioLoader.load(
+            stream = input,
+            textCharset = StandardCharsets.UTF_8,
+            xorKey = 0x10,
+            commandStreamLengthBytes = commands.size.toLong()
+        )
+
+        assertEquals(
+            "Before VFS",
+            ScenarioSession.start(project).frame().dialogue?.text
+        )
+        assertEquals(trailer.size, input.available())
+        val remaining = ByteArray(trailer.size)
+        assertEquals(trailer.size, input.read(remaining))
+        assertTrue(remaining.contentEquals(trailer))
+    }
+
+    @Test
     fun loaderMapsShiftJisInstructionsIntoScenarioAndSaveState() {
         val charset = Charset.forName("Shift_JIS")
         val project = ScriptScenarioLoader.load(
@@ -208,6 +232,9 @@ class ScriptCommandParserTest {
             root.deleteRecursively()
         }
     }
+
+    private fun xorMask(bytes: ByteArray, key: Int): ByteArray =
+        ByteArray(bytes.size) { index -> (bytes[index].toInt() xor key).toByte() }
 
     private fun script(commands: ByteArray): ByteArray =
         byteArrayOf(
