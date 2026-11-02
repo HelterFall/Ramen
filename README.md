@@ -19,7 +19,8 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - User-selected ZIP and folder import into app-private storage, with bounded copying and path-traversal checks; standalone HTML file import, including extraction of supported embedded media.
 - Initial engine-marker detection that clearly distinguishes detection from playability.
 - A restricted HTML5 WebView runtime using app-controlled local resource loading, per-game browser profiles, and an offline-only policy.
-- A read-only binary inspector for PE/ELF and common file signatures, plus an evidence-aware container-format registry.
+- A read-only binary inspector for PE/ELF and common file signatures, including standard PE32/PE32+ imported DLL names.
+- A bounded deterministic directory inventory with per-file size, SHA-256 fingerprint, binary metadata, and explicit scan/hash limits.
 - No broad storage permissions. Native/proprietary engine runtime integrations are not available yet.
 
 ## Initial MVP
@@ -74,7 +75,7 @@ Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](doc
 
 ## Current next step
 
-Continue the native/proprietary engine research foundation by integrating the read-only source, streaming SHA-256 fingerprints, and container-probe API into a deterministic file-inventory workflow. Then investigate candidate containers only when byte-level samples and repeatable evidence are available. Do not claim compatibility from filenames alone and do not add third-party game assets to the repository.
+Next, add a safe report/export path for directory inventories and connect the inventory to user-selected sources where their access model supports positional reads. Investigate proprietary containers only when byte-level samples and repeatable evidence are available. Do not claim compatibility from filenames alone and do not add third-party game assets to the repository.
 
 ## Naming
 
