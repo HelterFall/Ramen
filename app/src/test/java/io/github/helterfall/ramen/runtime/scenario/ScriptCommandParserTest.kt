@@ -245,6 +245,25 @@ class ScriptCommandParserTest {
     }
 
     @Test
+    fun decodesXorMaskedNitroInitMarkerBeforeTheFirstDialogue() {
+        val commands = byteArrayOf(
+            ScriptCommandParser.OPCODE_NITRO_START_SCENE.toByte(),
+            ScriptCommandParser.OPCODE_NITRO_INIT_ENGINE.toByte()
+        ) + dialogue("Decrypted init")
+        val maskedScript = xorMask(script(commands), 0x10)
+
+        val project = ScriptScenarioLoader.load(
+            ByteArrayInputStream(maskedScript),
+            StandardCharsets.UTF_8,
+            0x10
+        )
+        val session = ScenarioSession.start(project)
+
+        assertEquals("Decrypted init", session.frame().dialogue?.text)
+        assertEquals("addr_10", session.frame().sceneId)
+    }
+
+    @Test
     fun loaderRejectsAStreamContainingOnlySystemMarkers() {
         assertThrows(ScriptParseException::class.java) {
             ScriptScenarioLoader.load(
