@@ -103,7 +103,9 @@ class ContainerProbeRunner(
 
     fun run(source: ReadOnlyRandomAccessSource): List<ContainerProbeResult> =
         probes.map { probe ->
-            runCatching { probe.probe(source) }.getOrElse { error ->
+            try {
+                probe.probe(source)
+            } catch (error: Exception) {
                 ContainerProbeResult(
                     formatId = probe.formatId,
                     status = ContainerProbeStatus.MALFORMED,
