@@ -57,11 +57,12 @@ class BinarySignatureProbe : EngineAdapter {
 
                 val header = ByteArray(MAGIC_BYTE_COUNT)
                 randomAccess.readFullyAt(0L, header)
-                val matchedSignature = SIGNATURES.firstOrNull { it.bytes.contentEquals(header) }
+                val signatureMatch = matchSignature(header)
                     ?: return malformed(
                         "Unrecognized 8-byte magic header: ${header.toHexString()}.",
                         relativePath
                     )
+                val (matchedSignature, xorKey) = signatureMatch
 
                 val validation = when (matchedSignature.resourceType) {
                     BinaryResourceType.RESOURCE_CONTAINER -> {
@@ -78,7 +79,9 @@ class BinarySignatureProbe : EngineAdapter {
                     }
                     BinaryResourceType.SCRIPT -> {
                         try {
-                            val project = source.openRead(relativePath).use { ScriptScenarioLoader.load(it) }
+                            val project = source.openRead(relativePath).use { stream ->
+                                ScriptScenarioLoader.load(stream, Charsets.UTF_8, xorKey)
+                            }
                             " Parsed ${project.scenes.size} command records into the Ramen Scenario model."
                         } catch (exception: IOException) {
                             // A recognized script magic can belong to a different SPT
@@ -163,6 +166,26 @@ class BinarySignatureProbe : EngineAdapter {
             reason = primaryReason.take(MAX_FAILURE_REASON_LENGTH),
             evidence = rejectedEvidence
         )
+    }
+
+    private fun matchSignature(header: ByteArray): Pair<Signature, Int>? {
+        SIGNATURES.firstOrNull { it.bytes.contentEquals(header) }?.let {
+            return it to 0
+        }
+
+        val scriptSignature = SIGNATURES.firstOrNull {
+            it.resourceType == BinaryResourceType.SCRIPT
+        } ?: return null
+        val key = (header[0].toInt() and 0xFF) xor
+            (scriptSignature.bytes[0].toInt() and 0xFF)
+        val decodedHeader = ByteArray(header.size) { index ->
+            ((header[index].toInt() and 0xFF) xor key).toByte()
+        }
+        return if (decodedHeader.contentEquals(scriptSignature.bytes)) {
+            scriptSignature to key
+        } else {
+            null
+        }
     }
 
     private fun isValidatedTestFormat(description: String): Boolean =
