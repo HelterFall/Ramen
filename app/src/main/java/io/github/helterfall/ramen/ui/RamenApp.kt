@@ -34,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
+import io.github.helterfall.ramen.importer.VisualNovelDetector
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.scenario.ScenarioDemoActivity
@@ -93,6 +95,57 @@ fun RamenApp() {
     DisposableEffect(executor) {
         onDispose {
             executor.shutdown()
+        }
+    }
+
+    // Older library records may have been imported before BinarySignatureProbe
+    // was connected. Refresh only UNKNOWN records when the library screen opens.
+    LaunchedEffect(Unit) {
+        val unknownIds = games
+            .filter { it.engineId == "unknown" && it.compatibilityStatus == "UNKNOWN" }
+            .map { it.id }
+            .toSet()
+        if (unknownIds.isNotEmpty()) {
+            executor.execute {
+                val gamesRoot = File(context.filesDir, "games").canonicalFile
+                val gamesRootPath = gamesRoot.toPath()
+                val storedGames = repository.load()
+                val refreshedGames = storedGames.map { game ->
+                    if (game.id !in unknownIds) {
+                        game
+                    } else {
+                        runCatching {
+                            val gameRoot = File(context.filesDir, game.relativeDirectory).canonicalFile
+                            val gamePath = gameRoot.toPath()
+                            if (gamePath == gamesRootPath ||
+                                !gamePath.startsWith(gamesRootPath) ||
+                                !gameRoot.isDirectory
+                            ) {
+                                game
+                            } else {
+                                val detection = VisualNovelDetector().detect(gameRoot)
+                                if (detection.engineId == "unknown") {
+                                    game
+                                } else {
+                                    game.copy(
+                                        engineId = detection.engineId,
+                                        engineLabel = detection.engineLabel,
+                                        compatibilityStatus = detection.compatibilityStatus,
+                                        evidence = detection.evidence
+                                    )
+                                }
+                            }
+                        }.getOrDefault(game)
+                    }
+                }
+                if (refreshedGames != storedGames) {
+                    repository.save(refreshedGames)
+                }
+                mainHandler.post {
+                    games.clear()
+                    games.addAll(refreshedGames)
+                }
+            }
         }
     }
 
