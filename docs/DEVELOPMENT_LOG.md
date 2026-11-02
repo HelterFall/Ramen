@@ -26,6 +26,9 @@ Screenshots supplied in chat showed repeated `.gpk/.gtb` and `.vpk/.vtb` filenam
 - No PE import-table or version-resource parsing yet.
 - No claim of support for the observed extension families.
 
+### CI follow-up
+- First CI compile failed because the unknown-signature report called a ByteArray formatter on the result of `take(8)`, which is a List. The report now formats the bounded ByteArray prefix directly. The corrected commit is being rechecked.
+
 ### Next steps
 1. Implement a bounded PE import-directory reader and list imported DLLs.
 2. Add an incremental SHA-256 inventory.
