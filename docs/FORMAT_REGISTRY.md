@@ -45,7 +45,7 @@ The first GPK block starts at offset zero. Resource offsets are strictly increas
 Each observed GPK block begins with a 64-byte header. The first 32 bytes identify `JPEG` or `BMP`, followed by a `PACKTYPE` marker:
 
 - JPEG uses `PACKTYPE=5`. The header stores the payload length, width, and height. The parser checks that the declared payload length equals the indexed block payload length and that the payload starts with the JPEG marker.
-- BMP uses `PACKTYPE=0`. Its payload begins with a standard `BM` file header. The parser checks the BMP file length, DIB header bounds, pixel offset, dimensions, planes, and bit depth.
+- BMP uses `PACKTYPE=0`. Payloads may include a standard `BM` file header or begin directly with a DIB header. The parser checks DIB header bounds, the palette and pixel offsets, dimensions, planes, bit depth, and supported compression metadata. BI_RLE8 (8-bit) and BI_RLE4 (4-bit) use bounded RLE decoding in the Android preview fallback; encoded/absolute runs, end-of-line, delta, and end-of-bitmap markers are validated. Unsupported LZ/XOR variants are not inferred.
 
 The parser returns bounded payload offsets and sizes. `AndroidGpkImageDecoder` decodes a selected payload with Android `BitmapFactory`, checks dimensions against parsed metadata, and chooses `inSampleSize` to keep the decoded bitmap at or below a configurable pixel budget (8 million by default). `ResourceInspectorActivity` provides a simple preview panel and a scrollable resource list. CI uses synthetic test data—not the supplied game files.
 
