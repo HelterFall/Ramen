@@ -105,7 +105,7 @@ class VisualNovelDetectorTest {
 
             val result = VisualNovelDetector().detect(root)
 
-            assertEquals("ramen-binary-signature", result.engineId)
+            assertEquals("ramen-script-v1", result.engineId)
             assertEquals("Обнаружен тестовый движок v1", result.engineLabel)
             assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
             assertTrue(result.evidence.contains("story.bin"))

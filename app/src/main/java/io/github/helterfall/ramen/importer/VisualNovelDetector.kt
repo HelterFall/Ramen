@@ -107,8 +107,9 @@ class VisualNovelDetector {
             val details = evidence.take(MAX_BINARY_EVIDENCE_ITEMS).joinToString("; ") { item ->
                 (item.relativePath ?: "binary resource") + ": " + item.description
             }
+            val hasScript = evidence.any { it.resourceType == "script" }
             GameDetection(
-                engineId = BINARY_ENGINE_ID,
+                engineId = if (hasScript) BINARY_SCRIPT_ENGINE_ID else BINARY_ENGINE_ID,
                 engineLabel = "Обнаружен тестовый движок v1",
                 compatibilityStatus = "DETECTED_UNSUPPORTED",
                 evidence = "BinarySignatureProbe: $details"
@@ -139,5 +140,6 @@ class VisualNovelDetector {
         private const val MAX_SCANNED_FILES = 10_000
         private const val MAX_BINARY_EVIDENCE_ITEMS = 8
         private const val BINARY_ENGINE_ID = "ramen-binary-signature"
+        private const val BINARY_SCRIPT_ENGINE_ID = "ramen-script-v1"
     }
 }
