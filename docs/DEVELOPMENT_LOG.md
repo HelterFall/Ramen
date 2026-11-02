@@ -359,3 +359,10 @@ Create and review a complete read-only inventory report from a representative ga
 
 ### Validation
 - Synthetic JVM tests were added. The GitHub Actions run for this commit must complete successfully before this entry is treated as CI-verified.
+
+
+### Follow-up — deterministic and failure-isolated adapter probes
+- The adapter registry now evaluates adapters in stable ID order, independent of caller collection order.
+- An expected `IOException` from one adapter is recorded as that adapter's malformed candidate; remaining adapters still run.
+- Failure text is bounded before it is surfaced in diagnostics. Unexpected runtime/programming exceptions are not swallowed.
+- Added regression tests for stable ordering and continued probing after an I/O failure.

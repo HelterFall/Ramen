@@ -1,5 +1,7 @@
 package io.github.helterfall.ramen.runtime.engine
 
+import java.io.IOException
+
 data class EngineProbeMatch(
     val descriptor: EngineAdapterDescriptor,
     val confidence: EngineMatchConfidence,
@@ -34,7 +36,11 @@ data class EngineProbeSummary(
 }
 
 class EngineAdapterRegistry(adapters: Collection<EngineAdapter>) {
-    private val adapters = adapters.toList()
+    /**
+     * Stable ordering makes diagnostics and tests reproducible even when callers pass
+     * an unordered collection.
+     */
+    private val adapters = adapters.sortedBy { it.descriptor.id }
 
     init {
         val ids = this.adapters.map { it.descriptor.id }
@@ -48,7 +54,19 @@ class EngineAdapterRegistry(adapters: Collection<EngineAdapter>) {
         val malformed = mutableListOf<EngineProbeFailure>()
 
         adapters.forEach { adapter ->
-            when (val result = adapter.probe(source)) {
+            val result = try {
+                adapter.probe(source)
+            } catch (exception: IOException) {
+                EngineProbeResult.Malformed(
+                    reason = exception.message
+                        ?.trim()
+                        ?.take(MAX_FAILURE_REASON_LENGTH)
+                        ?.takeIf { it.isNotEmpty() }
+                        ?: DEFAULT_IO_FAILURE_REASON
+                )
+            }
+
+            when (result) {
                 EngineProbeResult.NoMatch -> Unit
                 is EngineProbeResult.Match -> matches += EngineProbeMatch(
                     descriptor = adapter.descriptor,
@@ -68,5 +86,10 @@ class EngineAdapterRegistry(adapters: Collection<EngineAdapter>) {
             matches = matches.toList(),
             malformed = malformed.toList()
         )
+    }
+
+    private companion object {
+        const val MAX_FAILURE_REASON_LENGTH = 512
+        const val DEFAULT_IO_FAILURE_REASON = "I/O error while probing this engine candidate."
     }
 }

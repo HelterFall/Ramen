@@ -1,10 +1,10 @@
 package io.github.helterfall.ramen.runtime.engine
 
 import java.io.ByteArrayInputStream
+import java.io.IOException
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -83,6 +83,58 @@ class EngineAdapterRegistryTest {
         assertEquals("Index table is truncated.", result.malformed.single().reason)
     }
 
+    @Test
+    fun ioFailureFromOneAdapterDoesNotPreventOtherAdaptersFromMatching() {
+        val registry = EngineAdapterRegistry(
+            listOf(
+                ThrowingAdapter("engine-a", "Candidate file ended unexpectedly."),
+                FakeAdapter(
+                    "engine-z",
+                    EngineProbeResult.Match(
+                        confidence = EngineMatchConfidence.MEDIUM,
+                        evidence = listOf(EngineEvidence("Independent marker.", "main.idx"))
+                    )
+                )
+            )
+        )
+
+        val result = registry.probe(FakeEngineSource())
+
+        assertEquals("engine-z", result.uniqueMatch?.descriptor?.id)
+        assertEquals("engine-a", result.malformed.single().descriptor.id)
+        assertEquals(
+            "Candidate file ended unexpectedly.",
+            result.malformed.single().reason
+        )
+    }
+
+    @Test
+    fun adapterResultsAreOrderedByStableIdRatherThanInputCollectionOrder() {
+        val registry = EngineAdapterRegistry(
+            listOf(
+                FakeAdapter(
+                    "engine-z",
+                    EngineProbeResult.Match(
+                        EngineMatchConfidence.LOW,
+                        evidence = listOf(EngineEvidence("Z marker.", "z.idx"))
+                    )
+                ),
+                FakeAdapter(
+                    "engine-a",
+                    EngineProbeResult.Match(
+                        EngineMatchConfidence.LOW,
+                        evidence = listOf(EngineEvidence("A marker.", "a.idx"))
+                    )
+                )
+            )
+        )
+
+        val result = registry.probe(FakeEngineSource())
+
+        assertEquals(listOf("engine-a", "engine-z"), result.matches.map { it.descriptor.id })
+        assertTrue(result.isAmbiguous)
+    }
+
     @Test(expected = IllegalArgumentException::class)
     fun duplicateAdapterIdsAreRejected() {
         EngineAdapterRegistry(
@@ -104,6 +156,21 @@ class EngineAdapterRegistryTest {
         )
 
         override fun probe(source: EngineSource): EngineProbeResult = result
+    }
+
+    private class ThrowingAdapter(
+        id: String,
+        private val message: String
+    ) : EngineAdapter {
+        override val descriptor = EngineAdapterDescriptor(
+            id = id,
+            displayName = id,
+            formatIds = setOf("sample-format")
+        )
+
+        override fun probe(source: EngineSource): EngineProbeResult {
+            throw IOException(message)
+        }
     }
 
     private class FakeEngineSource : EngineSource {

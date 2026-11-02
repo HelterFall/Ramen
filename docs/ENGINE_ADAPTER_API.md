@@ -38,6 +38,8 @@ Evidence may name a source-relative file. Extension-only evidence should be desc
 - Two or more matches are reported as ambiguous.
 - The registry does not choose the highest confidence as an implicit winner. A version-specific discriminator must be implemented and tested inside the relevant adapter before ambiguity can be resolved.
 - Malformed results remain visible even when another adapter matched.
+- Adapters are evaluated in stable ID order, so diagnostics remain deterministic.
+- An `IOException` from one probe is converted to a malformed result for that adapter; other adapters still run. Unexpected programming/runtime exceptions are not swallowed.
 
 Adapter IDs must be unique and stable.
 
@@ -64,4 +66,5 @@ The synthetic tests cover:
 - traversal rejection;
 - source changes and newly added files;
 - adapter ID uniqueness;
-- no-match, unique-match, malformed, and ambiguous registry outcomes.
+- no-match, unique-match, malformed, and ambiguous registry outcomes;
+- isolated I/O failure and stable adapter ordering.
