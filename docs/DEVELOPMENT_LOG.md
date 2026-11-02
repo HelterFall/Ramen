@@ -217,3 +217,12 @@ Use the supplied paired archive samples to move two extension families from file
 - The first CI attempt found an unresolved import for `AndroidGpkImageDecoder`; the class lives in `io.github.helterfall.ramen.runtime.nativeaudio`. The import was corrected.
 - Follow-up GitHub Actions run [41405096328](https://github.com/HelterFall/Ramen/actions/runs/41405096328) passed `assembleDebug`, `testDebugUnitTest`, `lintDebug`, and debug APK artifact upload.
 - CI validates compilation and synthetic unit tests. It does not validate SAF picker behavior, image rendering, or Ogg codec support on a physical Android device.
+
+
+## 2026-11-02 — Remove fixed game-file size ceilings
+
+- Replaced the ZIP extractor's default 512 MiB per-entry and 1 GiB expanded-total ceilings with per-chunk checks against currently available destination storage.
+- Applied the same storage-aware policy to folder imports. Explicit limits remain injectable for tests or deployments that need stricter policies; default production import no longer rejects a game solely because a file crosses 512 MiB.
+- Removed the resource inspector's 512 MiB staging-file cap and the Ogg cache materializer's 256 MiB per-resource cap. Both preserve a dynamic free-space reserve while copying.
+- Added unit coverage showing that writes above the former 512 MiB threshold are accepted when storage is available, and rejected when they would consume the protected reserve.
+- This changes import/storage capacity, not runtime compatibility: a successfully imported game still needs a compatible engine/runtime before it can launch.
