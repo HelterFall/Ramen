@@ -167,3 +167,14 @@ The current Scenario DSL is an engine-neutral test fixture only. It must not bec
 - pause/resume, orientation, input, and Android lifecycle.
 
 The shared runtime model may be reused where semantics genuinely match, but a target adapter must preserve engine-specific behavior rather than silently translating unknown commands into the demo DSL. Compatibility is established only by reproducible end-to-end tests against an appropriate original or licensed fixture.
+
+### Implemented adapter-probe boundary
+
+The prototype API currently lives in `runtime/engine`:
+
+- `EngineSource` exposes a bounded immutable entry snapshot plus caller-owned read streams and positional read-only sources.
+- `DirectoryGameSource` implements that contract for an imported directory. It sorts entries, excludes symbolic links, checks canonical containment, rejects path traversal, enforces file/depth/node limits, and detects files changed after the snapshot.
+- `EngineAdapter` is a format-family probe contract. Results distinguish `NoMatch`, `Match` with evidence/confidence, and `Malformed` with a reason.
+- `EngineAdapterRegistry` aggregates independent probes. It selects a result only when exactly one adapter matches; multiple matches remain ambiguous even when their confidence differs.
+
+This is the discovery/inspection part of the adapter boundary, not a game launcher. No adapter for the inventoried proprietary sample is registered. The API deliberately does not define a universal runtime frame, command vocabulary, renderer, or save format yet: those contracts must follow evidence about the actual engine rather than being copied from the Ramen demo DSL. See [Engine Adapter API](ENGINE_ADAPTER_API.md).

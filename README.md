@@ -24,6 +24,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - A streaming, versioned JSON inventory report with a per-game “Save report (JSON)” action in the library; it writes metadata only and never copies file payloads into the report.
 - Bounded, read-only parsers for the observed paired GPK/GTB image and VPK/VTB audio resource archives, plus fixed-buffer streaming of individual payload ranges.
 - A resource inspector screen can open matching archive pairs, browse image/audio metadata, preview GPK images through a bounded Android BitmapFactory decoder, and play selected Ogg resources through Android MediaPlayer with basic play/pause/stop controls. Selected archives are copied to app-private cache with storage-aware streaming and no fixed per-file size cap.
+- A read-only `EngineSource` API exposes a bounded snapshot of imported files as streams or positional sources; the engine adapter registry preserves no-match, malformed, unique-match, and ambiguous outcomes.
 - No broad storage permissions. Native/proprietary engine runtime integrations are not available yet.
 
 ## File types and current evidence
@@ -77,6 +78,7 @@ These are starting decisions, not a claim that every engine can be embedded thro
 
 - [Project scope](docs/PROJECT_SCOPE.md)
 - [Architecture](docs/ARCHITECTURE.md)
+- [Engine adapter API](docs/ENGINE_ADAPTER_API.md)
 - [Engine compatibility](docs/ENGINE_COMPATIBILITY.md)
 - [Engine research track](docs/ENGINE_RESEARCH.md)
 - [Binary/container format registry](docs/FORMAT_REGISTRY.md)
@@ -101,7 +103,7 @@ The demo currently draws labelled placeholder backgrounds and character tags. It
 
 ## Current next step
 
-Connect the scenario renderer to a real resource-provider abstraction for an original test project: resolve background/character keys to local images, add audio cue commands, and validate layout, lifecycle, save/restore, and performance on an Android device. Keep parser, interpreter, renderer, resource providers, and platform lifecycle separated so a future engine adapter can be evaluated without coupling it to the demo DSL.
+The first read-only engine-source and adapter-probe API is now in place, but no adapter for the inventoried engine family is registered and no proprietary script file is parsed. Next, corroborate the engine family/version from byte-level evidence, then implement a narrowly scoped probe for the confirmed format. Keep a runtime session/renderer contract separate until command semantics and save behavior are understood. The neutral demo's image/audio resource-provider work remains a separate M1.6 task.
 
 The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-256 input by default); the report marks truncated scans and records files whose hashes were skipped. The archive tools preview individual resources; they do not run a legacy engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
 
@@ -114,3 +116,7 @@ Ramen is the project name. The app's final icon, visual identity, and release br
 The bundled Scenario Runtime demo is an engine-neutral prototype using Ramen's own test DSL. It proves only the general parser -> interpreter -> UI -> save/restore path. It does not read the inventoried sample's SPT, XTX, or FXF files, and it does not implement that engine's command set, resource lookup, rendering, audio, or save format.
 
 The target directory contains separate resource families already partly inspected by Ramen (GPK/GTB images and VPK/VTB audio) and several unclassified or candidate script/config families. A working demo is not evidence that the target engine can launch. Target compatibility requires a separate, evidence-backed engine adapter and end-to-end tests.
+
+## Engine adapter API status
+
+The new `runtime/engine` package defines a bounded, read-only source contract and a registry for independent engine probes. It does not launch games. Multiple matches remain ambiguous rather than being ranked by guesswork, and malformed candidates are surfaced separately from ordinary non-matches. No target-specific adapter is registered yet; see [Engine Adapter API](docs/ENGINE_ADAPTER_API.md) for the current contract and constraints.

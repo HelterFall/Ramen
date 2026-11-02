@@ -47,11 +47,14 @@ The current direction is to build reusable runtime foundations from confirmed ev
 **Exit condition:** an original fixture can be launched, completed through multiple branches, saved, and resumed with real local image/audio resources on Android. The current milestone is an executable prototype with placeholder visuals.
 
 ## M1.7 — Target-engine adapter research
+- [x] Define a bounded, read-only EngineSource contract for imported files, with stream and positional access.
+- [x] Add a directory-backed source with deterministic snapshots, traversal/symlink rejection, and file/depth/node bounds.
+- [x] Add an EngineAdapter probe contract and registry that preserves malformed and ambiguous outcomes without arbitrary priority.
 - [ ] Confirm the likely engine family/version from corroborating executable and file-format evidence.
-- [ ] Record every observed file family with an evidence level; keep unresolved files explicitly unknown.
-- [ ] Specify the adapter boundary for script loading, command semantics, resource lookup, graphics/audio, save state, and Android lifecycle.
+- [ ] Implement a target-family probe only after its markers and version discriminators are validated.
+- [ ] Specify runtime session, command, rendering/audio, save-state, and lifecycle contracts from the confirmed engine semantics.
 - [ ] Assess technical and distribution/licensing feasibility before target-specific implementation.
-- [ ] Keep the engine-neutral demo DSL explicitly separate from the sample engine's source formats.
+- [x] Keep the engine-neutral demo DSL explicitly separate from the sample engine's source formats.
 
 **Exit condition:** a versioned adapter specification and end-to-end test plan exist before target-specific compatibility is claimed.
 

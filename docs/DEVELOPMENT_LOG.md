@@ -341,3 +341,21 @@ Create and review a complete read-only inventory report from a representative ga
 1. Confirm the target family/version from independent evidence.
 2. Define the adapter boundary for scenario loading/commands, resource lookup, rendering/audio, save semantics, and lifecycle.
 3. Keep target-specific compatibility claims separate from the neutral demo until a suitable fixture validates the complete path.
+
+## 2026-11-02 — Read-only engine source and adapter probe API
+
+### Added
+- Added `EngineSource` and validated relative-path/file-entry models for read-only engine inspection.
+- Added `DirectoryGameSource` for imported directories. It captures a deterministic sorted snapshot, excludes symbolic links, checks canonical containment, rejects traversal paths, bounds file count/depth/visited nodes, and refuses to open files that changed size after indexing.
+- Added `EngineAdapter` and `EngineAdapterRegistry`. Probe results distinguish ordinary non-matches, evidence-backed matches, and malformed candidates. Multiple adapter matches remain explicitly ambiguous; confidence is not used to guess a winner.
+- Added synthetic tests for registry outcomes, duplicate adapter IDs, sorted snapshots, stream/positional reads, traversal rejection, and post-snapshot additions.
+- Added [Engine Adapter API](ENGINE_ADAPTER_API.md) and synchronized README, architecture, and roadmap.
+
+### Boundaries
+- This is the file-source and engine-discovery portion of the adapter boundary. It is not a runtime launcher and does not parse the sample's SPT, XTX, or FXF files.
+- No adapter for the inventoried proprietary family is registered. The current format-family identification remains a research hypothesis, not a confirmed engine/version.
+- A universal scene/frame model, command interpreter API, renderer/audio host, and target save-state interface are deliberately deferred until the engine's actual semantics are confirmed.
+- The engine-neutral Scenario DSL demo remains independent and unchanged.
+
+### Validation
+- Synthetic JVM tests were added. The GitHub Actions run for this commit must complete successfully before this entry is treated as CI-verified.
