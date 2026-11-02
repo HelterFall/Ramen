@@ -56,6 +56,7 @@ import io.github.helterfall.ramen.inspection.GpkGtbArchiveParser
 import io.github.helterfall.ramen.inspection.GpkImageResource
 import io.github.helterfall.ramen.inspection.VpkAudioResource
 import io.github.helterfall.ramen.inspection.VpkOggCacheMaterializer
+import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
 import io.github.helterfall.ramen.storage.StorageSpaceGuard
 import io.github.helterfall.ramen.inspection.VpkVtbArchiveParser
 import java.io.File
