@@ -224,5 +224,6 @@ Use the supplied paired archive samples to move two extension families from file
 - Replaced the ZIP extractor's default 512 MiB per-entry and 1 GiB expanded-total ceilings with per-chunk checks against currently available destination storage.
 - Applied the same storage-aware policy to folder imports. Explicit limits remain injectable for tests or deployments that need stricter policies; default production import no longer rejects a game solely because a file crosses 512 MiB.
 - Removed the resource inspector's 512 MiB staging-file cap and the Ogg cache materializer's 256 MiB per-resource cap. Both preserve a dynamic free-space reserve while copying.
+- Removed the 512 MiB standalone HTML copy limit and the fixed 512 MiB per-resource, 512 MiB total-resource, and encoded-data-URI limits. HTML copying, rewritten HTML, and extracted base64 assets now use the same streaming storage guard.
 - Added unit coverage showing that writes above the former 512 MiB threshold are accepted when storage is available, and rejected when they would consume the protected reserve.
 - This changes import/storage capacity, not runtime compatibility: a successfully imported game still needs a compatible engine/runtime before it can launch.
