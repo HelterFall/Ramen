@@ -649,6 +649,7 @@ class VpkVtbArchiveParser(
         private const val OGG_RESERVED_HEADER_FLAGS = 0xF8
         private const val MIN_PRINTABLE_ASCII = 0x20
         private const val MAX_PRINTABLE_ASCII = 0x7E
+        private val SPACE_BYTE = ' '.code.toByte()
         private val ASCII: Charset = Charsets.US_ASCII
         private val VPK_TEXT_PREAMBLE =
             "IF PACKTYPE==2  CUT THIS 108BYTETHEN REMAKE OGG PACKTYPE=2      ".toByteArray(ASCII)
