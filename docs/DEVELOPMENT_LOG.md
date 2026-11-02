@@ -27,7 +27,7 @@ Screenshots supplied in chat showed repeated `.gpk/.gtb` and `.vpk/.vtb` filenam
 - No claim of support for the observed extension families.
 
 ### CI follow-up
-- First CI compile failed because the unknown-signature report called a ByteArray formatter on the result of `take(8)`, which is a List. The report now formats the bounded ByteArray prefix directly. The corrected commit is being rechecked.
+- First CI compile failed because the unknown-signature report called a ByteArray formatter on the result of `take(8)`, which is a List. The report now formats the bounded ByteArray prefix directly. The corrected run passed `assembleDebug`, `testDebugUnitTest`, and `lintDebug`; PR #19 was merged.
 
 ### Next steps
 1. Implement a bounded PE import-directory reader and list imported DLLs.
@@ -52,6 +52,7 @@ Extend the read-only PE inspector to identify linked DLL names without executing
 - Added bounded ASCII DLL-name reading (maximum 260 bytes).
 - Reported imported library names and import-directory RVA/size as PE metadata.
 - Added tests for PE32, PE32+, an unmapped DLL-name RVA, and malformed data handling.
+- CI run [41392364823](https://github.com/HelterFall/Ramen/actions/runs/41392364823) passed build, unit tests, lint, and APK artifact upload; PR #20 was merged into `main`.
 
 ### Limits
 - This reads only the standard PE import directory. It does not parse delay-load imports, bound imports, forwarded exports, ordinals, or recursively resolve DLL dependencies.
