@@ -193,7 +193,7 @@ class DirectoryInventoryJsonWriter {
     }
 
     private fun writeQuoted(writer: Writer, value: String) {
-        writer.write('"')
+        writer.write(""")
         value.forEach { character ->
             when (character) {
                 '"' -> writer.write("\\\"")
@@ -214,7 +214,7 @@ class DirectoryInventoryJsonWriter {
                 }
             }
         }
-        writer.write('"')
+        writer.write(""")
     }
 
     companion object {
