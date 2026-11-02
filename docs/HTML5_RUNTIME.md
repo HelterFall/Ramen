@@ -16,7 +16,7 @@ This is not a general browser, a complete HTML5 game-engine implementation, or a
 - `WebViewAssetLoader` serves only the currently selected game's directory through the app-controlled `https://appassets.androidplatform.net/game/` origin. The handler is rooted at that game's directory, not the whole application data directory.
 - Each game is assigned a separate WebView multi-profile session. Its DOM storage (including `localStorage`) is therefore separated from other games. The player fails closed when the installed Android System WebView does not support multi-profile sessions.
 - File and content URL access are disabled. File-to-file and universal file URL access are disabled as well.
-- Supported embedded base64 image and audio data URIs in a standalone HTML document are streamed into the game's private `assets` directory during import; HTML references are rewritten to the local appassets origin. The extraction has per-resource and total size limits.
+- Supported embedded base64 image and audio data URIs in a standalone HTML document are streamed into the game's private `assets` directory during import; HTML references are rewritten to the local appassets origin. The extraction uses streaming writes with checks against currently available storage; there is no fixed 512 MiB per-resource or total-resource ceiling.
 - The player reports JavaScript console errors, local asset loading failures, the installed WebView version, and a post-visual-state DOM summary in its runtime status area. The summary includes viewport dimensions, menu/card/button bounds and CSS visibility, the element hit-tested at the Play button center, stage state, and the native WebView's measured/visible bounds and hardware-acceleration state.
 - The initial HTML navigation starts only after the Compose-hosted WebView has non-zero measured bounds. The diagnostic footer reserves a fixed height from the first composition and scrolls internally, so a long status message cannot shrink the WebView after navigation. If Compose changes the WebView's measured bounds, Ramen requests a relayout/redraw and dispatches a browser resize event; orientation/screen-layout changes receive the same treatment.
 - Main-frame JavaScript errors are shown as an explicit failure instead of leaving an unexplained blank player.
@@ -28,7 +28,7 @@ JavaScript and DOM storage are enabled because the local fixture needs dialogue 
 ## Known limitations
 
 - Only a root-level `index.html` is eligible for this initial runtime.
-- Single-file imports are limited to one HTML document (maximum 512 MiB). Supported embedded base64 images and audio are extracted, but assets beside the original file are not copied; use folder or ZIP import for a multi-file project.
+- Single-file imports accept one HTML document without a fixed file-size ceiling; streaming is stopped only when the destination volume reaches its protected free-space reserve. Supported embedded base64 images and audio are extracted, but assets beside the original file are not copied; use folder or ZIP import for a multi-file project.
 - External fonts, APIs, CDNs, remote assets, and network-dependent features will not work.
 - TyranoScript, Ren'Py, KiriKiri, and other engine-specific formats remain unsupported even when their markers are detected.
 - There is no Android-to-JavaScript bridge, native save integration, download handling, gamepad layer, engine-specific full-screen/orientation policy, or advanced browser extension support.
