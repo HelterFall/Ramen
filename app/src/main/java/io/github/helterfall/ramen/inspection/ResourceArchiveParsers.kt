@@ -495,7 +495,8 @@ class GpkGtbArchiveParser(
         blockOffset: Long,
         blockSize: Long,
         payloadOffset: Long,
-        payloadSize: Long
+        payloadSize: Long,
+        payloadXorKey: Int?
     ): GpkImageResource {
         if (payloadSize < BMP_INFO_HEADER_BYTES) {
             malformed("BMP GPK payload is shorter than a BITMAPINFOHEADER.")
