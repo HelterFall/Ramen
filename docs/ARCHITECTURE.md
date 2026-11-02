@@ -141,3 +141,15 @@ Prefer actionable categories:
 - save data unavailable or incompatible.
 
 Do not hide engine errors behind a generic "unsupported format" message.
+
+
+## Scenario runtime prototype
+
+The experimental engine-neutral scenario runtime is deliberately split into four layers:
+
+1. Parser — converts the documented Ramen DSL into a validated ScenarioProject. It rejects unknown commands, invalid scene references, duplicate IDs, traversal-like resource keys, and inputs beyond configured bounds.
+2. Interpreter — ScenarioSession executes commands and exposes immutable ScenarioFrame snapshots. Dialogue and grouped choices yield control to the UI. Conditional and unconditional jumps stay inside the validated project. A per-yield command budget prevents non-yielding automatic-jump cycles.
+3. Renderer — the current demo Activity renders dialogue and choices with Compose. Background and character identifiers are currently visible placeholders, not resolved images.
+4. Persistence — ScenarioSaveCodec encodes a versioned snapshot; the bundled demo writes a local save file. A future production runtime should add save slots, atomic replacement, migration policy, and lifecycle tests.
+
+The DSL is Ramen's own test format. It is not evidence of compatibility with any external engine. A future adapter must translate an independently understood source format into the common runtime model or implement its own interpreter behind the runtime boundary. Resource resolution and audio are separate interfaces and are not implemented by this first demo.

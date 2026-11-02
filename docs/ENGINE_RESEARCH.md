@@ -78,10 +78,10 @@ The inventory broadens the list of observed file families, but it does **not** e
 ## Next technical steps
 
 1. Keep the completed inventory as a metadata baseline; do not treat it as a script-format specification.
-2. Create a small original, age-appropriate test project with a documented scenario format.
-3. Define an engine-neutral scene/state model and keep parsing, interpretation, rendering, and resource access as separate layers.
-4. Implement a minimal parser/interpreter against synthetic fixtures for dialogue, choices, branches, resource references, and save state.
-5. Validate the existing image/audio preview on physical Android devices and connect it to the runtime only after that validation.
+2. The initial engine-neutral scenario model, parser, interpreter, save codec, and playable text/placeholder demo are now implemented in the Ramen branch.
+3. Add a resource-provider contract and connect the original demo to local image resources; add audio cue commands as a separate adapter.
+4. Test save/restore, lifecycle, and responsive layout on physical Android devices.
+5. Keep any future legacy-engine adapter separate and require suitable byte-level evidence, a safe test fixture, and a documented compatibility boundary before making claims.
 
 ## Decision log
 
@@ -100,3 +100,15 @@ The inventory broadens the list of observed file families, but it does **not** e
 - `truncated` is false; report-level and per-file warnings are empty; every entry has SHA-256 and artifact metadata.
 - The report is metadata-only. It does not contain file payloads and cannot establish scenario syntax or engine behavior.
 - The next runtime prototype will use original, age-appropriate fixtures. Unknown proprietary formats remain unknown until independently suitable evidence exists.
+
+
+## Scenario runtime handoff — 2026-11-02
+
+The branch now contains an engine-neutral runtime prototype under the scenario runtime package:
+- ScenarioModel.kt: scene, command, choice, character, frame, and save-state models.
+- ScenarioParser.kt: bounded parser for Ramen's own line-oriented DSL.
+- ScenarioSession.kt: deterministic command interpreter with a cap on automatic transitions.
+- ScenarioSaveCodec.kt: versioned, bounded save-state encoding/decoding.
+- ScenarioDemoContent.kt and ScenarioDemoActivity.kt: original bundled demo and UI.
+
+This prototype proves the control-flow path for dialogue and branching. It does not decode proprietary script files and does not yet resolve image/audio resource keys; its stage uses labelled visual placeholders. The next work item is a real resource-provider contract and device validation.

@@ -2,7 +2,7 @@
 
 **Ramen** is an Android-first player and library for visual novels. The goal is to make one focused app that can identify, organize, and run visual novels through engine-specific runtime adapters.
 
-> **Project status:** Android library, safe import, a restricted HTML5 runtime, read-only binary inspection, and bounded GPK/GTB + VPK/VTB resource previews are implemented as early prototypes. A complete metadata-only inventory has been recorded for one representative directory. No proprietary Windows engine runtime is currently supported.
+> **Project status:** Android library, safe import, a restricted HTML5 runtime, read-only binary inspection, bounded resource previews, and an experimental engine-neutral scenario runtime are implemented as prototypes. A complete metadata-only inventory has been recorded for one representative directory. No proprietary Windows engine runtime is currently supported.
 
 ## Product idea
 
@@ -93,11 +93,17 @@ These are starting decisions, not a claim that every engine can be embedded thro
 
 Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](docs/BUILD_SETUP.md) for the pinned toolchain and local build commands.
 
+## Experimental scenario runtime
+
+Ramen now includes a small original scenario format and a playable built-in demo, reachable from the library screen. The first interpreter supports scene changes, background resource keys, character visibility/position, dialogue, grouped choices, Boolean flags, conditional jumps, unconditional jumps, and an end command. Save state has a versioned binary codec and the demo stores one local save file.
+
+The demo currently draws labelled placeholder backgrounds and character tags. It proves the parser → interpreter → UI → save/restore path; it is **not** an adapter for any legacy engine and does not parse proprietary formats. The scenario DSL is intentionally documented and testable on its own.
+
 ## Current next step
 
-Move from file census to a small, original, age-appropriate runtime fixture. Define a minimal engine-neutral scenario model for scenes, dialogue, choices, branching, backgrounds, characters, audio cues, and persistent state; then implement and test its parser/interpreter separately from the Android UI. Reuse the existing resource-provider interfaces for original test assets. This is the runtime foundation work—not another inventory feature. Keep proprietary formats unclassified until there is suitable, repeatable evidence and an appropriate test project.
+Connect the scenario renderer to a real resource-provider abstraction for an original test project: resolve background/character keys to local images, add audio cue commands, and validate layout, lifecycle, save/restore, and performance on an Android device. Keep parser, interpreter, renderer, resource providers, and platform lifecycle separated so a future engine adapter can be evaluated without coupling it to the demo DSL.
 
-The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-256 input by default); the report marks truncated scans and records files whose hashes were skipped. The current archive tools preview individual assets; they do not run an engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
+The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-256 input by default); the report marks truncated scans and records files whose hashes were skipped. The archive tools preview individual resources; they do not run a legacy engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
 
 ## Naming
 

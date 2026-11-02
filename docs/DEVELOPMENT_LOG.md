@@ -286,3 +286,34 @@ Create and review a complete read-only inventory report from a representative ga
 2. Add an original fixture and synthetic parser/interpreter tests.
 3. Implement a small bounded interpreter and connect it to existing rendering/resource abstractions.
 4. Validate import-to-play, save/resume, and Android lifecycle behavior.
+
+
+## 2026-11-02 — Engine-neutral scenario runtime prototype
+
+### Added
+- Added a pure Kotlin scenario model and a documented line-oriented DSL for scene IDs, background keys, character visibility/position, dialogue, grouped choices, Boolean flags, conditional jumps, jumps, and end.
+- Added parser bounds for source size, line count, scene count, commands per scene, dialogue length, choice count, identifiers, and resource keys. Unknown commands, duplicate scenes, invalid references, and traversal-like resource keys are rejected.
+- Added a deterministic interpreter with an automatic-command budget to prevent non-yielding jump cycles.
+- Added a versioned save-state codec and a demo-local save/load file.
+- Added an original "Маяк на острове" demo Activity and a launch shortcut on the library screen.
+- Added synthetic unit tests for parser validation, branch paths, save/restore roundtrip, malformed save data, and jump-cycle limits.
+
+### Boundaries
+- This is an engine-neutral Ramen scenario DSL, not a parser for a proprietary legacy script format and not a compatibility claim for a detected game.
+- The demo currently renders symbolic background keys and character labels. Real local image resolution, audio cues, multi-slot saves, and physical-device lifecycle testing remain outstanding.
+- The demo is bundled and does not import third-party game content.
+
+### Commits
+- Scenario model and parser: 165bd9ff
+- Interpreter, save codec, and demo content: 8b6c77ec
+- Playable demo Activity and library shortcut: 3ea8d70e
+- Parser/session tests and validation fixes: 983c2fb8
+
+### Validation status
+- GitHub Actions run 41420729704 was pending when this entry was written. Do not treat the build/test/lint run as passed until GitHub reports a successful conclusion.
+
+### Next
+1. Add a resource-provider contract and resolve safe demo keys to local background/character images.
+2. Add an audio cue command and lifecycle-aware audio adapter.
+3. Add tests for UI-facing save/restore and process/activity recreation.
+4. Document the DSL grammar and runtime contract in a dedicated runtime document.

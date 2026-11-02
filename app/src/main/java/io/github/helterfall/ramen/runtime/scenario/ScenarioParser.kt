@@ -76,7 +76,7 @@ object ScenarioParser {
                     flushChoices(lineNumber)
                     val sceneId = parseIdentifier(arguments, lineNumber)
                     if (!seenSceneIds.add(sceneId)) fail(lineNumber, "Повторная сцена '$sceneId'.")
-                    if (seenSceneIds.size >= MAX_SCENES) fail(lineNumber, "Слишком много сцен.")
+                    if (seenSceneIds.size > MAX_SCENES) fail(lineNumber, "Слишком много сцен.")
                     currentSceneId?.let { oldId ->
                         scenes[oldId] = ScenarioScene(oldId, currentCommands.orEmpty().toList())
                     }

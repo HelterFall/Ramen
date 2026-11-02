@@ -34,14 +34,17 @@ The current direction is to build reusable runtime foundations from confirmed ev
 - [ ] Add a positional source implementation for Android Storage Access Framework documents where supported.
 
 ## M1.6 — Runtime foundation using an original test project
-- [ ] Define a small, documented, engine-neutral scenario model.
-- [ ] Add an original, age-appropriate fixture with scenes, dialogue, choices, branches, and resource references.
-- [ ] Implement a parser and interpreter with explicit, bounded commands.
-- [ ] Add save/restore for scene position and persistent state.
-- [ ] Connect rendering and audio through separate resource-provider interfaces.
-- [ ] Add deterministic regression tests for branching and lifecycle behavior.
+- [x] Define a small, documented, engine-neutral scenario model.
+- [x] Add an original, age-appropriate fixture with scenes, dialogue, choices, branches, and resource keys.
+- [x] Implement a bounded parser and interpreter with explicit commands and automatic-transition limits.
+- [x] Add a versioned save-state codec and local save/load controls in the demo Activity.
+- [x] Add deterministic regression tests for parsing, branching, save/restore, and automatic-transition cycle limits.
+- [x] Make the playable demo accessible from the main library screen.
+- [ ] Replace placeholder scene panels with a resource provider for local images and character art.
+- [ ] Add audio cue commands and a resource-backed audio adapter.
+- [ ] Validate Android lifecycle, layout, and save/restore on physical devices.
 
-**Exit condition:** an original test project can be imported, launched, completed through multiple branches, saved, and resumed on Android.
+**Exit condition:** an original fixture can be launched, completed through multiple branches, saved, and resumed with real local image/audio resources on Android. The current milestone is an executable prototype with placeholder visuals.
 
 ## M0 — Project foundation
 - [ ] Agree on product scope and Android-first target.
