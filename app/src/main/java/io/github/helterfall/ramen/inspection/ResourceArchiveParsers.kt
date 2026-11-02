@@ -381,18 +381,16 @@ class VpkVtbArchiveParser(
         }
         val recordCount = recordCountLong.toInt()
 
-        val names = ArrayList<String>(recordCount)
+        // Read the fixed-width name bytes and offsets independently. Names are
+        // display metadata; they must not prevent us from validating a sound index.
+        // In particular, the terminal EOF row is not a resource and its name field
+        // is not required to contain text.
+        val rawNames = ArrayList<ByteArray>(recordCount)
         val offsets = LongArray(recordCount)
-        val uniqueNames = HashSet<String>(recordCount)
         for (index in 0 until recordCount) {
             val record = ByteArray(VTB_RECORD_BYTES.toInt())
             indexSource.readFullyAt(index * VTB_RECORD_BYTES, record)
-            val nameBytes = record.copyOfRange(0, VTB_NAME_BYTES)
-            val name = decodeFixedName(nameBytes)
-            if (!uniqueNames.add(name)) {
-                malformed("VTB contains a duplicate resource name.")
-            }
-            names += name
+            rawNames += record.copyOfRange(0, VTB_NAME_BYTES)
             offsets[index] = readU32(record, VTB_NAME_BYTES)
         }
 
@@ -400,6 +398,17 @@ class VpkVtbArchiveParser(
         val resourceCount = if (hasTerminalSentinel) recordCount - 1 else recordCount
         if (resourceCount <= 0 || offsets[0] != 0L) {
             malformed("VTB has no resource blocks or its first offset is not zero.")
+        }
+
+        val names = ArrayList<String>(resourceCount)
+        val uniqueNameBytes = HashSet<String>(resourceCount)
+        for (index in 0 until resourceCount) {
+            val rawName = rawNames[index]
+            val rawKey = rawName.toHexString()
+            if (!uniqueNameBytes.add(rawKey)) {
+                malformed("VTB contains a duplicate resource name.")
+            }
+            names += decodeFixedName(rawName)
         }
 
         for (index in 1 until recordCount) {
@@ -590,14 +599,32 @@ class VpkVtbArchiveParser(
     }
 
     private fun decodeFixedName(bytes: ByteArray): String {
-        if (bytes.any { (it.toInt() and 0xFF) !in MIN_PRINTABLE_ASCII..MAX_PRINTABLE_ASCII }) {
-            malformed("VTB resource name is not eight printable ASCII bytes.")
+        // Names are fixed-width fields, but different game builds may NUL-pad
+        // shorter ASCII names or use opaque/non-ASCII identifiers. Preserve a
+        // readable ASCII prefix when possible; otherwise expose a stable hex ID.
+        var contentLength = bytes.size
+        val nulIndex = bytes.indexOf(0)
+        if (nulIndex >= 0) {
+            val paddingIsValid = (nulIndex until bytes.size).all { index ->
+                bytes[index].toInt() and 0xFF == 0 || bytes[index] == SPACE_BYTE
+            }
+            if (paddingIsValid) {
+                contentLength = nulIndex
+            } else {
+                contentLength = 0
+            }
         }
-        val name = bytes.toString(ASCII)
-        if (name.isBlank()) {
-            malformed("VTB contains an empty resource name.")
+        while (contentLength > 0 && bytes[contentLength - 1] == SPACE_BYTE) {
+            contentLength--
         }
-        return name
+        val printable = contentLength > 0 && (0 until contentLength).all { index ->
+            (bytes[index].toInt() and 0xFF) in MIN_PRINTABLE_ASCII..MAX_PRINTABLE_ASCII
+        }
+        return if (printable) {
+            bytes.copyOfRange(0, contentLength).toString(ASCII)
+        } else {
+            "resource-${bytes.toHexString()}"
+        }
     }
 
     companion object {
@@ -631,6 +658,17 @@ class VpkVtbArchiveParser(
         private val DATA_MARKER = "data".toByteArray(ASCII)
         private val OGG_CAPTURE_PATTERN = "OggS".toByteArray(ASCII)
         private val PCM_BITS_PER_SAMPLE = setOf(8, 16, 24, 32)
+    }
+}
+
+private fun ByteArray.toHexString(): String {
+    val digits = "0123456789ABCDEF"
+    return buildString(size * 2) {
+        for (byte in this@toHexString) {
+            val value = byte.toInt() and 0xFF
+            append(digits[value ushr 4])
+            append(digits[value and 0x0F])
+        }
     }
 }
 
