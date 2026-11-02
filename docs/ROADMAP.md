@@ -4,7 +4,7 @@ The roadmap is milestone-based. Dates are intentionally omitted until the first 
 
 ## Current research track — Native and proprietary engines
 
-The current direction is to build reusable inspection infrastructure before selecting or promising another native runtime. See [Engine Research](ENGINE_RESEARCH.md), [Format Registry](FORMAT_REGISTRY.md), and the chronological [Development Log](DEVELOPMENT_LOG.md).
+The current direction is to build reusable runtime foundations from confirmed evidence, without guessing proprietary formats from extensions. A complete metadata-only inventory has been captured for one representative directory, and the original Scenario demo now has a separate synthetic binary Script v1 parser bridge. The next runtime-layer step is a ResourceManager/provider that connects the test container and existing image/audio archive readers. See [Engine Research](ENGINE_RESEARCH.md), [Format Registry](FORMAT_REGISTRY.md), and the chronological [Development Log](DEVELOPMENT_LOG.md).
 
 ### M1.5 — Binary inspection foundation
 - [x] Add bounded, read-only PE header inspection.
@@ -16,6 +16,7 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Add a generic read-only positional source abstraction with a FileChannel implementation.
 - [x] Add container-probe contracts with `MATCH`, `NO_MATCH`, and `MALFORMED` outcomes.
 - [x] Create synthetic fixtures for PE import headers, random-access boundaries, hashes, and signature probes.
+- [x] Add bounded read-only parsers for the observed GPK/GTB image and VPK/VTB audio archive pairs, with synthetic malformed-input tests.
 
 **Exit condition:** Ramen can produce reproducible, read-only executable metadata, streaming file fingerprints, and explicit format-probe evidence, while unknown proprietary formats remain explicitly unknown.
 
@@ -23,8 +24,47 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Add a bounded directory inventory combining relative paths, file sizes, SHA-256 fingerprints, and binary inspection reports.
 - [x] Connect the random-access source to the PE binary inspector.
 - [x] Add streaming, versioned JSON serialization for inventory reports.
-- [ ] Add a user-facing save/share flow for inspection results.
+- [x] Add a per-game user-facing JSON report save flow through the Android document picker.
+- [x] Produce a complete read-only inventory of a representative game folder and preserve the metadata-only JSON report; unknown formats remain explicitly unclassified.
+- [x] Add bounded fixed-buffer streaming for individual resource payload ranges returned by the proprietary archive parsers.
+- [x] Add a bounded BitmapFactory adapter for GPK images and storage-aware Ogg cache materialization without a fixed per-resource size cap.
+- [x] Add a resource inspector screen for browsing GPK/GTB assets and previewing images.
+- [x] Add a basic foreground MediaPlayer flow for selected Ogg resources with play/pause/stop controls.
+- [ ] Validate image rendering and Ogg playback on physical Android devices and supported OS versions.
 - [ ] Add a positional source implementation for Android Storage Access Framework documents where supported.
+
+## M1.6 — Runtime foundation using an original test project
+- [x] Define a small, documented, engine-neutral scenario model.
+- [x] Add an original, age-appropriate fixture with scenes, dialogue, choices, branches, and resource keys.
+- [x] Implement a bounded parser and interpreter with explicit commands and automatic-transition limits.
+- [x] Add a versioned save-state codec and local save/load controls in the demo Activity.
+- [x] Add deterministic regression tests for parsing, branching, save/restore, and automatic-transition cycle limits.
+- [x] Make the playable demo accessible from the main library screen.
+- [x] Define the Ramen test ResourceContainer v1 layout and add a bounded read-only PackArchiveReader with lazy positional payload reads.
+- [x] Validate ResourceContainer indexes from BinarySignatureProbe and report malformed structures through the adapter probe result.
+- [x] Specify the synthetic Ramen Script v1 header, text encodings, opcodes, and address model.
+- [x] Add a streaming ScriptCommandParser for dialogue, background, and jump commands, with strict malformed-input handling.
+- [x] Translate Script v1 command addresses into the existing ScenarioProject model and validate jump boundaries.
+- [x] Validate Script structures from BinarySignatureProbe and preserve malformed script outcomes.
+- [ ] Add a unified ResourceManager/provider that can resolve resources across the test pack and the existing GPK/GTB and VPK/VTB readers.
+- [ ] Replace placeholder scene panels with a resource provider for local images and character art.
+- [ ] Add audio cue commands and a resource-backed audio adapter.
+- [ ] Validate Android lifecycle, layout, and save/restore on physical devices.
+
+**Exit condition:** an original fixture can be launched, completed through multiple branches, saved, and resumed with real local image/audio resources on Android. The current milestone is an executable prototype with placeholder visuals. The binary Script v1 fixture exercises parsing and scenario-model adaptation only; it is not a target-engine format.
+
+## M1.7 — Target-engine adapter research
+- [x] Define a bounded, read-only EngineSource contract for imported files, with stream and positional access.
+- [x] Add a directory-backed source with deterministic snapshots, traversal/symlink rejection, and file/depth/node bounds.
+- [x] Add an EngineAdapter probe contract and registry that preserves malformed and ambiguous outcomes without arbitrary priority.
+- [x] Add a BinarySignatureProbe for the exact Ramen test-fixture headers, with typed resource evidence and structural Script/ResourceContainer validation.
+- [ ] Confirm the likely engine family/version from corroborating executable and file-format evidence.
+- [ ] Implement a target-family probe only after its markers and version discriminators are validated.
+- [ ] Specify runtime session, command, rendering/audio, save-state, and lifecycle contracts from the confirmed engine semantics.
+- [ ] Assess technical and distribution/licensing feasibility before target-specific implementation.
+- [x] Keep the engine-neutral demo DSL explicitly separate from the sample engine's source formats.
+
+**Exit condition:** a versioned adapter specification and end-to-end test plan exist before target-specific compatibility is claimed.
 
 ## M0 — Project foundation
 - [ ] Agree on product scope and Android-first target.

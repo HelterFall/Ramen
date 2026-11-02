@@ -141,3 +141,73 @@ Prefer actionable categories:
 - save data unavailable or incompatible.
 
 Do not hide engine errors behind a generic "unsupported format" message.
+
+
+## Scenario runtime prototype
+
+The experimental engine-neutral scenario runtime is deliberately split into four layers:
+
+1. Parser — converts the documented Ramen DSL into a validated ScenarioProject. It rejects unknown commands, invalid scene references, duplicate IDs, traversal-like resource keys, and inputs beyond configured bounds.
+2. Interpreter — ScenarioSession executes commands and exposes immutable ScenarioFrame snapshots. Dialogue and grouped choices yield control to the UI. Conditional and unconditional jumps stay inside the validated project. A per-yield command budget prevents non-yielding automatic-jump cycles.
+3. Renderer — the current demo Activity renders dialogue and choices with Compose. Background and character identifiers are currently visible placeholders, not resolved images.
+4. Persistence — ScenarioSaveCodec encodes a versioned snapshot; the bundled demo writes a local save file. A future production runtime should add save slots, atomic replacement, migration policy, and lifecycle tests.
+
+The DSL is Ramen's own test format. It is not evidence of compatibility with any external engine. A future adapter must translate an independently understood source format into the common runtime model or implement its own interpreter behind the runtime boundary. Resource resolution and audio are separate interfaces and are not implemented by this first demo.
+
+## Target-engine adapter boundary
+
+The current Scenario DSL is an engine-neutral test fixture only. It must not become the assumed source format for unrelated games. A future adapter for a particular engine family needs independently validated implementations or mappings for:
+- source-file identification and loading;
+- script records, command decoding, and control-flow semantics;
+- resource identifiers and archive lookup;
+- text encoding, layout, and font behavior;
+- graphics composition and transitions;
+- music, voice, and sound-effect playback;
+- game variables, save/load state, and version compatibility;
+- pause/resume, orientation, input, and Android lifecycle.
+
+The shared runtime model may be reused where semantics genuinely match, but a target adapter must preserve engine-specific behavior rather than silently translating unknown commands into the demo DSL. Compatibility is established only by reproducible end-to-end tests against an appropriate original or licensed fixture.
+
+### Implemented adapter-probe boundary
+
+The prototype API currently lives in `runtime/engine`:
+
+- `EngineSource` exposes a bounded immutable entry snapshot plus caller-owned read streams and positional read-only sources.
+- `DirectoryGameSource` implements that contract for an imported directory. It sorts entries, excludes symbolic links, checks canonical containment, rejects path traversal, enforces file/depth/node limits, and detects files changed after the snapshot.
+- `EngineAdapter` is a format-family probe contract. Results distinguish `NoMatch`, `Match` with evidence/confidence, and `Malformed` with a reason.
+- `EngineAdapterRegistry` aggregates independent probes. It selects a result only when exactly one adapter matches; multiple matches remain ambiguous even when their confidence differs.
+
+This is the discovery/inspection part of the adapter boundary, not a game launcher. No adapter for the inventoried proprietary sample is registered. The API deliberately does not define a universal runtime frame, command vocabulary, renderer, or save format yet: those contracts must follow evidence about the actual engine rather than being copied from the Ramen demo DSL. See [Engine Adapter API](ENGINE_ADAPTER_API.md).
+
+
+### First binary resource probe
+
+`BinarySignatureProbe` is the first concrete adapter in `runtime/engine`. It uses positional reads to inspect the eight-byte marker and returns one of the synthetic fixture resource types through `EngineEvidence.resourceType`. It then validates the Script v1 command stream or ResourceContainer v1 index as appropriate; individual malformed candidates return `Malformed`, while whole-directory inspection preserves other entries as diagnostics. It does not use extensions or interpret proprietary game scripts.
+
+
+### Lazy test ResourceContainer reader
+
+`runtime/resources/PackArchiveReader` is a bounded read-only reader for the synthetic Ramen `IF PACKT` v1 container. It parses only the fixed header and bounded index at open time. Resource payloads remain in the original `ReadOnlyRandomAccessSource`; `openFile()` exposes a bounded positional InputStream and `extractFile()` provides a size-limited ByteArray convenience path. The reader does not own or close the source.
+
+The `BinarySignatureProbe` validates the container index after matching the eight-byte magic. A correct magic followed by an unsupported version, malformed index, unsafe path, out-of-range offset, or overlapping payload range is reported as `Malformed`. The v1 test format and its limitations are specified in [PACK_ARCHIVE_FORMAT.md](PACK_ARCHIVE_FORMAT.md); it is not a parser for proprietary sample archives.
+
+
+### Synthetic binary Script bridge
+
+A separate test-only binary fixture is defined in docs/SCRIPT_COMMAND_FORMAT.md. ScriptCommandParser reads a single command from the stream after the Script v1 header; ScriptScenarioLoader validates the header and complete command sequence, checks jump targets against instruction boundaries, and maps the address-based program into the existing ScenarioProject model. The result can be executed by ScenarioSession, without changing the original line-oriented DSL demo.
+
+The parser supports strict UTF-8 and Shift-JIS decoding, bounded length-prefixed strings, and three explicitly synthetic opcodes. Clean EOF between records ends the program; truncated fields, unknown opcodes, invalid encodings/paths, and invalid jump targets are rejected. BinarySignatureProbe validates this structure before reporting a Script match. None of these test opcodes or header fields are a claim about a proprietary engine dialect.
+
+
+### Import-time binary fixture detection
+
+The folder and ZIP importers share `VisualNovelDetector`. It now builds a bounded `DirectoryGameSource` snapshot and invokes `BinarySignatureProbe` through `EngineAdapterRegistry` before filename/HTML heuristics. A structurally validated Script v1 or IF PACKT v1 marker maps to the explicit library state “Обнаружен тестовый движок v1” (`DETECTED_UNSUPPORTED`). The existing resource-inspector action remains available; the UI explicitly says the format is detected but not launchable. Standalone JPEG/BMP block signatures do not promote a directory to an engine match.
+
+GTB resource names are optional display labels. Valid Shift-JIS is decoded, while malformed, empty, control-containing, or duplicate labels are replaced with unique `fallback_resource_N` names. Offset tables, NUL termination limits, block ranges, image headers, and payload boundaries remain validated independently.
+
+
+## Binary Script v1 player boundary
+
+The experimental ScriptScenarioPlayerActivity is selected only for a validated Ramen Script v1 match. It uses ScriptEntryPointResolver over a bounded DirectoryGameSource, loads the selected entry with ScriptScenarioLoader, and executes it through ScenarioSession. Compose renders the current dialogue frame. ScenarioResourceManager indexes GPK/GTB pairs and decodes a selected image payload on demand. A malformed GPK/GTB pair is isolated while other valid pairs are indexed; unsafe or ambiguous resource keys are rejected. A missing background does not abort the story. Unknown opcodes remain ScriptParseException / Malformed and are surfaced as a player error state.
+
+This is a complete parser-to-session-to-Compose path for Ramen's synthetic Script v1 fixture, not a claim that an arbitrary or proprietary .spt is supported.

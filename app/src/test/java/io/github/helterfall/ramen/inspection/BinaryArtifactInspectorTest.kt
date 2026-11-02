@@ -112,7 +112,12 @@ class BinaryArtifactInspectorTest {
     fun containerRegistrySeparatesVerifiedFormatsFromExtensionObservations() {
         assertEquals("zip", ContainerFormatRegistry.findVerifiedByExtension(".ZIP").single().id)
         assertEquals("50 4B 03 04 / 50 4B 05 06 / 50 4B 07 08", ContainerFormatRegistry.findVerifiedByExtension("zip").single().signatureHex)
-        assertTrue(ContainerFormatRegistry.findObservedByExtension("gpk").isNotEmpty())
+        assertTrue(ContainerFormatRegistry.findParsedByExtension("gpk").isNotEmpty())
+        assertTrue(ContainerFormatRegistry.findParsedByExtension("gtb").isNotEmpty())
+        assertTrue(ContainerFormatRegistry.findParsedByExtension("vpk").isNotEmpty())
+        assertTrue(ContainerFormatRegistry.findParsedByExtension("vtb").isNotEmpty())
+        assertTrue(ContainerFormatRegistry.findObservedByExtension("gpk").isEmpty())
+        assertTrue(ContainerFormatRegistry.findObservedByExtension("xtx").isNotEmpty())
         assertTrue(ContainerFormatRegistry.findVerifiedByExtension("gpk").isEmpty())
     }
 

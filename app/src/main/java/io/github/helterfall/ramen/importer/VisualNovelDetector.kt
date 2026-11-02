@@ -1,5 +1,8 @@
 package io.github.helterfall.ramen.importer
 
+import io.github.helterfall.ramen.runtime.engine.BinarySignatureProbe
+import io.github.helterfall.ramen.runtime.engine.DirectoryGameSource
+import io.github.helterfall.ramen.runtime.engine.EngineAdapterRegistry
 import java.io.File
 
 data class GameDetection(
@@ -14,6 +17,8 @@ class VisualNovelDetector {
         if (!gameDirectory.isDirectory) {
             return unknown("The imported directory is unavailable.")
         }
+
+        detectRamenBinaryEngine(gameDirectory)?.let { return it }
 
         val files = gameDirectory
             .walkTopDown()
@@ -79,6 +84,47 @@ class VisualNovelDetector {
         return unknown("No known visual-novel engine markers were found.")
     }
 
+    /**
+     * Runs the bounded binary signature probe against an immutable imported-folder
+     * snapshot. Original EXE/DLL files and other unrelated binaries remain per-file
+     * diagnostics; they do not cancel a positive script/container marker elsewhere.
+     */
+    private fun detectRamenBinaryEngine(gameDirectory: File): GameDetection? = runCatching {
+        val source = DirectoryGameSource(
+            rootDirectory = gameDirectory,
+            sourceId = "library-detection",
+            maxFiles = MAX_SCANNED_FILES,
+            maxDepth = MAX_SCAN_DEPTH
+        )
+        val summary = EngineAdapterRegistry(listOf(BinarySignatureProbe())).probe(source)
+        val evidence = summary.matches
+            .asSequence()
+            .flatMap { it.evidence.asSequence() }
+            .filter { it.resourceType == "script" || it.resourceType == "resource-container" }
+            .toList()
+        if (evidence.isEmpty()) {
+            null
+        } else {
+            val details = evidence.take(MAX_BINARY_EVIDENCE_ITEMS).joinToString("; ") { item ->
+                (item.relativePath ?: "binary resource") + ": " + item.description
+            }
+            val hasValidatedScript = evidence.any { item ->
+                item.resourceType == "script" &&
+                    item.description.contains("Parsed") &&
+                    item.description.contains("Ramen Scenario model")
+            }
+            GameDetection(
+                // Keep the experimental test player gated behind full Script v1
+                // validation. A shared/recognized magic prefix alone is Detected,
+                // not proof that the proprietary scenario dialect is executable.
+                engineId = if (hasValidatedScript) BINARY_SCRIPT_ENGINE_ID else BINARY_ENGINE_ID,
+                engineLabel = "Обнаружен кастомный движок v1",
+                compatibilityStatus = "DETECTED_UNSUPPORTED",
+                evidence = "BinarySignatureProbe: $details"
+            )
+        }
+    }.getOrNull()
+
     private fun unsupported(
         engineId: String,
         engineLabel: String,
@@ -100,5 +146,8 @@ class VisualNovelDetector {
     companion object {
         private const val MAX_SCAN_DEPTH = 4
         private const val MAX_SCANNED_FILES = 10_000
+        private const val MAX_BINARY_EVIDENCE_ITEMS = 8
+        private const val BINARY_ENGINE_ID = "ramen-binary-signature"
+        private const val BINARY_SCRIPT_ENGINE_ID = "ramen-script-v1"
     }
 }

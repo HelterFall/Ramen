@@ -155,3 +155,368 @@ Make the binary inventory portable and comparable without requiring the original
 1. Add a user-facing save/share flow using the Storage Access Framework.
 2. Add a positional source implementation for SAF-selected documents where supported, or bounded staging when seeking is unavailable.
 3. Continue PE metadata coverage and container probes only where evidence supports them.
+
+
+## 2026-11-02 — GPK/GTB and VPK/VTB resource parser research
+
+### Goal
+Use the supplied paired archive samples to move two extension families from filename-level observations to bounded, byte-validated read-only parsers.
+
+### Evidence established
+- The supplied `bg0.gtb` index has a little-endian 32-bit count followed by name-offset and archive-offset tables, then a NUL-terminated ASCII name pool. It maps 163 unique resources in `bg0.gpk`.
+- The GPK sample has 153 JPEG payloads with `PACKTYPE=5` and 10 BMP payloads with `PACKTYPE=0`. Each block starts with a 64-byte header. JPEG header lengths match the indexed payload size; BMP internal file lengths match the indexed BMP payload size.
+- The supplied `aa.vtb` consists of 1,810 12-byte records. Each record contains an 8-byte ASCII name and a little-endian 32-bit VPK offset. The final record points to EOF and is treated as a terminal sentinel; 1,809 resource blocks remain.
+- Each observed VPK block has a 64-byte text preamble, a 44-byte RIFF/WAVE PCM-style descriptor, then Ogg data at offset +108. VTB offsets, not the descriptor's PCM data length, bound the compressed Ogg payload.
+- The supplied audio pair contains 23,592 Ogg pages. A separate sample analysis verified page boundaries, serial and sequence continuity, BOS/EOS flags, and page CRCs. The app parser currently checks page structure/sequence but does not compute CRCs.
+- The supplied `codecerror.xtx` is a 535-byte CRLF-delimited key/value configuration sample. No general claim is made about every .xtx file.
+- `gss.exe` was inspected as a 626,688-byte PE32 x86 image; its import table declares Ogg/Vorbis and DirectDraw/DirectSound/WinMM libraries. It was not executed.
+
+### Changed in this PR
+- Added `GpkGtbArchiveParser` and resource metadata models. It validates index tables, names, offsets, 64-byte block headers, JPEG size/signature fields, and BMP file/DIB bounds.
+- Added `VpkVtbArchiveParser` and audio metadata models. It validates 12-byte index rows, an optional EOF sentinel, the 108-byte block prefix, PCM-style descriptor consistency, and bounded Ogg page sequence structure.
+- Added synthetic tests for JPEG/BMP blocks, optional VTB terminal sentinel handling, and malformed payload/sequence bounds.
+- Updated the format registry and research documentation to distinguish implemented parsers from runtime support.
+- No supplied game files or copyrighted assets were committed.
+
+### Limits
+- Parsers return payload offsets and lengths; they do not decode images/audio, extract complete games, or launch the engine.
+- Ogg page CRC validation is not part of the production parser yet.
+- No user-facing archive browser or streaming export flow exists.
+- The .xtx conclusion applies only to the supplied codecerror.xtx sample.
+
+### Next steps
+1. Add a bounded streaming copy API for individual parser-returned resource ranges.
+2. Add end-to-end extraction tests using original synthetic fixtures.
+3. Explore Android-side image/audio consumption and then evaluate the engine's script/runtime requirements.
+
+
+### Follow-up — bounded payload range streaming
+- Added `ReadOnlyRangeStreamer`, which copies a validated source range to a caller-owned `OutputStream` using a fixed 64 KiB buffer by default (maximum 1 MiB).
+- Invalid/overflowing/out-of-bounds ranges are rejected before copying. The API does not close or flush the source or destination.
+- Added tests for subrange copying, empty ranges at EOF, destination ownership, and invalid ranges.
+
+
+### Follow-up — Android resource bridge APIs
+- Added `ReadOnlySourceRangeInputStream`, a bounded InputStream view that does not close its caller-owned random-access source.
+- Added `AndroidGpkImageDecoder`, which performs a bounds-only decode pass, compares actual dimensions with parsed metadata, then applies `inSampleSize` to cap decoded output at 8 million pixels by default.
+- Added `VpkOggCacheMaterializer`, which stages an individual parsed Ogg payload into a unique app-cache file, with a 256 MiB default per-resource limit and cleanup of partial files on failure.
+- Added JVM tests for range InputStream boundaries, source ownership, cache staging, and cache size rejection.
+- No player lifecycle or UI was added. Android device image/audio behavior remains unverified.
+
+
+### Follow-up — resource inspector UI and Android preview
+- Added `ResourceInspectorActivity` and a library-screen entry point.
+- The inspector opens exactly two documents, validates the expected extension pair and matching base filename, then copies each selected document to private cache before positional parsing. Each selected source file is limited to 512 MiB; no broad storage permission is requested.
+- Added a GPK/GTB image list and image preview. The first image is decoded after parsing; selecting another row decodes it on the worker thread.
+- Added a VPK/VTB audio list and a foreground `MediaPlayer` flow with basic play/pause/stop controls. The selected Ogg range is staged to cache first.
+- The player and temporary cache files are released when the inspector leaves the foreground or is destroyed. This is an asset preview tool, not a game runtime.
+- The device picker, image rendering, and Ogg decoder behavior have not yet been verified on a physical Android device. Android codec support can vary.
+
+
+### Validation — Resource Inspector integration
+- The first CI attempt found an unresolved import for `AndroidGpkImageDecoder`; the class lives in `io.github.helterfall.ramen.runtime.nativeaudio`. The import was corrected.
+- Follow-up GitHub Actions run [41405096328](https://github.com/HelterFall/Ramen/actions/runs/41405096328) passed `assembleDebug`, `testDebugUnitTest`, `lintDebug`, and debug APK artifact upload.
+- CI validates compilation and synthetic unit tests. It does not validate SAF picker behavior, image rendering, or Ogg codec support on a physical Android device.
+
+
+## 2026-11-02 — Remove fixed game-file size ceilings
+
+- Replaced the ZIP extractor's default 512 MiB per-entry and 1 GiB expanded-total ceilings with per-chunk checks against currently available destination storage.
+- Applied the same storage-aware policy to folder imports. Explicit limits remain injectable for tests or deployments that need stricter policies; default production import no longer rejects a game solely because a file crosses 512 MiB.
+- Removed the resource inspector's 512 MiB staging-file cap and the Ogg cache materializer's 256 MiB per-resource cap. Both preserve a dynamic free-space reserve while copying.
+- Removed the 512 MiB standalone HTML copy limit and the fixed 512 MiB per-resource, 512 MiB total-resource, and encoded-data-URI limits. HTML copying, rewritten HTML, and extracted base64 assets now use the same streaming storage guard.
+- Added unit coverage showing that writes above the former 512 MiB threshold are accepted when storage is available, and rejected when they would consume the protected reserve.
+- This changes import/storage capacity, not runtime compatibility: a successfully imported game still needs a compatible engine/runtime before it can launch.
+
+
+## 2026-11-02 — Storage-aware imports, build fix, and file-format catalogue
+
+### Validation
+- GitHub Actions run [41412579423](https://github.com/HelterFall/Ramen/actions/runs/41412579423) completed successfully on commit `a57565c64c8fe02bbabf98f4d92c3398a49c21e4`.
+- The successful run covers the Android CI workflow after fixing the VTB parser's local byte constant and importing `StorageGuardedOutputStream` into the resource inspector.
+
+### Documentation refresh
+- Updated the README with the six supplied sample files and a concise distinction between detected signatures, parsed archive pairs, and the one sample-only XTX observation.
+- Updated the format registry to describe the VPK cache's storage-aware streaming accurately; it no longer claims a fixed 256 MiB resource cap.
+- Added an explicit list of still-unclassified file roles. No extension or file layout is claimed without a representative byte sample.
+- Updated the roadmap to prioritize a full, read-only directory inventory before expanding the parser catalogue.
+
+### Current limits
+- The six inspected samples are not a full game-directory inventory.
+- The JSON inventory writer exists, but the app does not yet provide a user-facing save/share flow.
+- Physical-device image and audio validation remains outstanding.
+- The GPK/GTB and VPK/VTB tools preview individual resources; they do not implement the original engine or run a complete game.
+
+### Next step
+Create and review a complete read-only inventory report from a representative game folder. Use that report to decide which unknown file roles are important enough to investigate, and keep unverified formats explicitly unknown.
+
+
+## 2026-11-02 — Per-game inventory report export
+
+### Changed
+- Added a `Save report (JSON)` action to each imported game card.
+- The action uses Android's Create Document picker so the user chooses the destination.
+- The inventory scan and JSON writing run on the existing background executor, not on the UI thread.
+- The exported report contains paths, sizes, SHA-256 values where computed, recognized signatures/PE metadata, and explicit warnings. It does not contain game file payloads.
+- The game directory is canonicalized and checked to remain inside the app's private `games` directory before scanning.
+- The existing scanner bounds remain in force: 10,000 files, depth 64, and 8 GiB of total input hashed by default. A truncated scan and missing hashes are reported instead of being presented as complete.
+
+### Limits
+- This is a one-off diagnostic export, not a full analysis screen or runtime feature.
+- Physical-device testing is still needed for the Android document picker and large-directory behavior.
+
+
+## 2026-11-02 — Complete metadata-only directory inventory reviewed
+
+### Result
+- Reviewed `ramen-inventory-d9c1071b.json` from the repository root.
+- The report contains 775 file entries across 19 extension hints.
+- Total observed and hashed size: 2,595,371,906 bytes.
+- The scan is not truncated; no report-level or per-entry warnings were recorded; all entries have SHA-256 fingerprints.
+- The inventory is metadata only. It provides a reproducible directory baseline, not the underlying byte streams or a specification for scenario commands, encoding, branching, or engine lifecycle.
+
+### Decision
+- Mark the complete directory census as done; do not add more inventory UI solely to repeat it.
+- Do not infer a proprietary parser from filenames or short signature prefixes.
+- Continue runtime work using an original, age-appropriate fixture and a documented engine-neutral scenario model. Keep parsing, interpretation, graphics/audio resources, save state, and Android UI as separate layers.
+- Update this README and the research log whenever a milestone, confirmed format fact, test result, or limitation changes.
+
+### Next technical milestone
+1. Define the minimal scenario data model (scene, dialogue, choice, branch, resource reference, persistent state).
+2. Add an original fixture and synthetic parser/interpreter tests.
+3. Implement a small bounded interpreter and connect it to existing rendering/resource abstractions.
+4. Validate import-to-play, save/resume, and Android lifecycle behavior.
+
+
+## 2026-11-02 — Engine-neutral scenario runtime prototype
+
+### Added
+- Added a pure Kotlin scenario model and a documented line-oriented DSL for scene IDs, background keys, character visibility/position, dialogue, grouped choices, Boolean flags, conditional jumps, jumps, and end.
+- Added parser bounds for source size, line count, scene count, commands per scene, dialogue length, choice count, identifiers, and resource keys. Unknown commands, duplicate scenes, invalid references, and traversal-like resource keys are rejected.
+- Added a deterministic interpreter with an automatic-command budget to prevent non-yielding jump cycles.
+- Added a versioned save-state codec and a demo-local save/load file.
+- Added an original "Маяк на острове" demo Activity and a launch shortcut on the library screen.
+- Added synthetic unit tests for parser validation, branch paths, save/restore roundtrip, malformed save data, and jump-cycle limits.
+
+### Boundaries
+- This is an engine-neutral Ramen scenario DSL, not a parser for a proprietary legacy script format and not a compatibility claim for a detected game.
+- The demo currently renders symbolic background keys and character labels. Real local image resolution, audio cues, multi-slot saves, and physical-device lifecycle testing remain outstanding.
+- The demo is bundled and does not import third-party game content.
+
+### Commits
+- Scenario model and parser: 165bd9ff
+- Interpreter, save codec, and demo content: 8b6c77ec
+- Playable demo Activity and library shortcut: 3ea8d70e
+- Parser/session tests and validation fixes: 983c2fb8
+
+### Validation status
+- GitHub Actions run 41420729704 was pending when this entry was written. Do not treat the build/test/lint run as passed until GitHub reports a successful conclusion.
+
+### Next
+1. Add a resource-provider contract and resolve safe demo keys to local background/character images.
+2. Add an audio cue command and lifecycle-aware audio adapter.
+3. Add tests for UI-facing save/restore and process/activity recreation.
+4. Document the DSL grammar and runtime contract in a dedicated runtime document.
+
+## 2026-11-02 — Clarify prototype versus target-engine compatibility
+
+### Correction
+- The built-in scenario demo is an original Ramen DSL used to test generic parsing, interpreter control flow, UI updates, and save/restore.
+- It does not parse the sample's SPT, XTX, or FXF source files and does not reproduce the sample engine's command set.
+- Background and character visuals are placeholders. GPK/GTB and VPK/VTB inspectors remain separate asset-preview tools, not a target-engine renderer/audio bridge.
+
+### Independent format-family lead
+- Reviewed the public VNTools catalogue: https://github.com/abunomaru/VNTools
+- It documents overlapping families for System-NNN, DDSystem, and BlackCyc, including GTB/GPK image archives, VTB/VPK sound archives, WGQ BGM, XTX/FXF script-related files, and SPT scripts in a BlackCyc variant.
+- This community reference is a research lead only, not an authoritative specification or definitive identification of the sample's exact engine/version.
+- The inventory's standalone VAW files are not automatically the same thing as the external catalogue's VAW label for the VTB/VPK archive family.
+
+### Decision
+- Keep the neutral demo as a reusable regression fixture and architecture prototype.
+- Do not extend its DSL and imply it is the actual sample engine.
+- Establish a versioned engine-adapter boundary and maintain evidence levels for each observed source format before making compatibility claims.
+- The metadata inventory does not establish a content rating; filenames alone are not a basis for assigning one.
+
+### Next
+1. Confirm the target family/version from independent evidence.
+2. Define the adapter boundary for scenario loading/commands, resource lookup, rendering/audio, save semantics, and lifecycle.
+3. Keep target-specific compatibility claims separate from the neutral demo until a suitable fixture validates the complete path.
+
+## 2026-11-02 — Read-only engine source and adapter probe API
+
+### Added
+- Added `EngineSource` and validated relative-path/file-entry models for read-only engine inspection.
+- Added `DirectoryGameSource` for imported directories. It captures a deterministic sorted snapshot, excludes symbolic links, checks canonical containment, rejects traversal paths, bounds file count/depth/visited nodes, and refuses to open files that changed size after indexing.
+- Added `EngineAdapter` and `EngineAdapterRegistry`. Probe results distinguish ordinary non-matches, evidence-backed matches, and malformed candidates. Multiple adapter matches remain explicitly ambiguous; confidence is not used to guess a winner.
+- Added synthetic tests for registry outcomes, duplicate adapter IDs, sorted snapshots, stream/positional reads, traversal rejection, and post-snapshot additions.
+- Added [Engine Adapter API](ENGINE_ADAPTER_API.md) and synchronized README, architecture, and roadmap.
+
+### Boundaries
+- This is the file-source and engine-discovery portion of the adapter boundary. It is not a runtime launcher and does not parse the sample's SPT, XTX, or FXF files.
+- No adapter for the inventoried proprietary family is registered. The current format-family identification remains a research hypothesis, not a confirmed engine/version.
+- A universal scene/frame model, command interpreter API, renderer/audio host, and target save-state interface are deliberately deferred until the engine's actual semantics are confirmed.
+- The engine-neutral Scenario DSL demo remains independent and unchanged.
+
+### Validation
+- Synthetic JVM tests were added. The GitHub Actions run for this commit must complete successfully before this entry is treated as CI-verified.
+
+
+### Follow-up — deterministic and failure-isolated adapter probes
+- The adapter registry now evaluates adapters in stable ID order, independent of caller collection order.
+- An expected `IOException` from one adapter is recorded as that adapter's malformed candidate; remaining adapters still run.
+- Failure text is bounded before it is surfaced in diagnostics. Unexpected runtime/programming exceptions are not swallowed.
+- Added regression tests for stable ordering and continued probing after an I/O failure.
+
+
+## 2026-11-02 — First byte-only resource signature adapter
+
+### Added
+- Added `BinaryResourceType` with `script`, `resource-container`, and `graphic-archive` identifiers.
+- Added `BinarySignatureProbe`, registered through the existing `EngineAdapterRegistry` contract.
+- The probe reads exactly eight bytes from a read-only positional source. It recognizes the four exact Ramen test-fixture headers: `EB FF FF FF FE FF 99 99`, `IF PACKT`, `JPEG    `, and `BMP     `.
+- Added optional typed `EngineEvidence.resourceType`; the registry preserves the type in its match evidence.
+- Per-file short headers, unrecognized headers, missing entries, and read errors produce `Malformed`. Directory probing continues across entries, aggregates recognized resources, and retains malformed candidates as diagnostic evidence.
+- Added tests for every specified signature, extension-independent detection, truncated/unknown headers, mixed valid/invalid directories, empty sources, and registry integration.
+
+### Boundaries
+- These signatures are the custom synthetic Ramen test-fixture specification only. They do not establish the byte layout of the inventoried proprietary engine's SPT/XTX/FXF files or prove target compatibility.
+- This detector recognizes an eight-byte header only; it does not parse script commands, decompress archives, decode graphics, or execute content.
+
+### Validation
+- CI for the new detector commit is the source of truth for compilation, unit tests, lint, and APK artifact upload. Do not claim success before GitHub reports a completed successful run.
+
+
+## 2026-11-02 — Lazy read-only PackArchiveReader for test ResourceContainer
+
+### Format decision
+- The supplied requirement specified only the eight-byte `IF PACKT` magic and logical index fields. It did not define the fixed header, integer endianness/widths, index boundaries, or path encoding.
+- To make the reader deterministic and testable without asserting compatibility with an unknown external archive, this commit defines a separate versioned Ramen test format. The complete v1 layout is in [PACK_ARCHIVE_FORMAT.md](PACK_ARCHIVE_FORMAT.md).
+
+### Added
+- Added `PackArchiveReader` and `PackArchiveIndex/Entry` models in `runtime/resources`.
+- The reader checks the 20-byte v1 header, a bounded variable-length index, strict UTF-8 relative paths, unique paths, unsigned 64-bit offset/size values representable by Kotlin Long, payload bounds, and non-overlapping non-empty payload ranges.
+- `openArchive()` reads and retains only the index. `openFile()` streams one resource by bounded positional reads without owning or closing the archive source. `extractFile()` returns one resource as a ByteArray with a 64 MiB default cap.
+- Connected `BinarySignatureProbe` to the reader. A file with `IF PACKT` magic but a bad version/index now returns `Malformed`, not a valid ResourceContainer match.
+- Updated the earlier signature tests to use a structurally valid empty v1 container rather than a magic-only byte sequence.
+- Added tests for valid index/extraction, range-limited streaming, source ownership, empty archives, ByteArray cap, invalid magic/version, truncated index, unsafe/duplicate paths, out-of-range/overlapping ranges, and malformed probe integration.
+- Updated README, architecture, roadmap, and adapter documentation.
+
+### Boundaries
+- V1 stores raw payloads; no compression method was specified, so the reader does not decompress.
+- The reader never materializes an entire archive or writes payloads to disk. Only the bounded index is held in memory.
+- The custom test format is not evidence of the on-disk layout used by any proprietary sample archive.
+- Physical Android storage/performance behavior is not inferred from JVM unit tests.
+
+### Validation
+- Await the GitHub Actions run for this commit before marking the reader CI-verified.
+
+
+### CI correction — preserve the primary malformed reason
+- The first CI run for the reader passed compilation and APK assembly but exposed one assertion failure in the registry integration test: the adapter correctly returned a malformed result, but the aggregate reason string was too generic.
+- Updated `BinarySignatureProbe.probe()` to surface the first concrete per-file rejection reason when no resource matches, while keeping every rejection in the evidence list.
+- Tightened the test to assert that an invalid ResourceContainer index is reported by the registry with its structural cause.
+
+
+## 2026-11-02 — Synthetic binary Script parser and Scenario bridge
+
+### Format decision
+- The previously recorded eight-byte Script magic identifies only a Ramen test-fixture resource type; no proprietary opcode values or operand layout had been established.
+- Defined an explicit Ramen-owned Script v1 fixture with a version byte, text-encoding selector, three opcodes, little-endian length/address fields, and a documented command-boundary address model. See docs/SCRIPT_COMMAND_FORMAT.md.
+
+### Added
+- Added TextScriptCommand and a stateful ScriptCommandParser.parseNextCommand(InputStream) that reads one command at a time.
+- Added dialogue, background, and jump commands with strict UTF-8 / Shift-JIS decoding, bounded payload lengths, and safe relative resource-path validation.
+- Added ScriptScenarioLoader to validate the complete header/stream, resolve jump addresses only to command boundaries, and map the instruction sequence into the existing ScenarioProject / ScenarioSession model.
+- Updated BinarySignatureProbe so an eight-byte Script magic alone is no longer a valid Script match. Unknown opcodes, malformed text, truncated operands, unsupported versions/encodings, and invalid jump targets return Malformed.
+- Updated scenario save-state path validation to preserve Unicode resource path segments decoded from Shift-JIS/UTF-8.
+- Added tests for all three opcodes, clean EOF versus truncated input, unknown opcodes, UTF-8 and Shift-JIS, Unicode resource paths, address resolution, ScenarioSession execution/save restoration, and malformed probe integration.
+- Synchronized README, architecture, adapter API, and roadmap.
+
+### Boundaries
+- The opcodes 0x01, 0x02, and 0x03, header layout, and operand widths are only the synthetic Ramen Script v1 test specification.
+- This parser does not interpret the inventoried proprietary SPT/XTX/FXF formats and does not claim compatibility with their engine.
+- The parser/loader are read-only and do not execute native code or interpret arbitrary embedded expressions.
+
+### Validation
+- GitHub Actions validation is required before this change is considered CI-verified.
+
+
+## 2026-11-02 — Tolerant GTB labels and library probe integration
+
+### Changed
+- GTB names now decode as Shift-JIS when valid. Malformed byte sequences, empty/control-containing labels, and duplicate display names receive stable unique `fallback_resource_N` labels.
+- GTB structural checks remain strict: name offsets must stay inside the string pool and point to string starts, names must be NUL-terminated within the configured bound, and GPK block offsets, headers, dimensions, and payload sizes remain validated.
+- `VisualNovelDetector` now invokes `BinarySignatureProbe` via `EngineAdapterRegistry` over a bounded `DirectoryGameSource` during folder and ZIP import.
+- A validated Script v1 or IF PACKT v1 fixture is stored as `ramen-binary-signature` / `DETECTED_UNSUPPORTED`, with the library label “Обнаружен тестовый движок v1”. Resource inspection remains available; launching is not enabled.
+- The library card explicitly shows the Detected state. Tests cover Shift-JIS, invalid name bytes, duplicate names, both binary signatures, and graphic-signature-only non-detection.
+
+### Limits
+- Script and IF PACKT are Ramen-owned synthetic v1 fixtures, not claims of compatibility with proprietary game binaries.
+- The probe validates the supported fixture structure; matching magic with a malformed body remains a malformed candidate, not a successful engine detection.
+- Android CI covers JVM unit tests, Android compilation, and lint. Real sample-folder inspection and physical-device UI validation remain separate checks.
+
+
+## 2026-11-02 — Binary Script v1 player integration
+
+### Added
+- Added bounded entry-point selection: prefer 01.spt, then conventional initializer names; without an .spt, select a file only when its first eight bytes match the exact Ramen Script v1 signature.
+- Added ScriptScenarioPlayerActivity: it loads through ScriptScenarioLoader, creates a ScenarioSession, renders dialogue frames in Compose, and advances the story.
+- Added ScenarioResourceManager for indexed GPK/GTB lookup and bounded on-demand image decoding. It prefers exact resource keys, then filename and filename-without-extension matches; ambiguous and missing resources are reported without terminating dialogue playback.
+- Added a dedicated library action for validated Script v1 records, kept separate from HTML5 launch. Existing ResourceContainer-only detections remain inspection-only.
+- Added unit tests for entry-point ordering, magic fallback, parser-to-session dialogue/background transitions, malformed unknown opcodes, and GPK resource-name matching.
+
+### Limits
+- The player runs only the documented synthetic Ramen Script v1 byte format. A proprietary SPT file with a different header/opcode layout remains Malformed and unsupported.
+- GPK/GTB images are resolved; VPK/VTB audio cues, animation, speaker metadata, variables, and commands not defined in Script v1 are not implemented.
+- Missing or ambiguous background keys do not stop the story. Android image rendering still requires physical-device validation.
+
+
+## 2026-11-02 — Script startup fallback and resource lookup hardening
+
+### Changed
+- Extended ScriptEntryPointResolver with explicit Ready, Malformed, and NotFound outcomes. It now fully parses each candidate in priority order and continues after unknown opcodes, truncated records, invalid encodings, or invalid jump targets.
+- Updated ScriptScenarioPlayerActivity to instantiate ScenarioSession only for a fully validated Ready project. Malformed candidate diagnostics are shown on the controlled load-error screen.
+- Added GpkImageLocation and resolveBackground so the physical archive path and validated payload range can be inspected independently of Android bitmap decoding.
+- ScenarioResourceManager now skips a malformed GPK/GTB pair when other valid image pairs remain available, verifies canonical containment, and rejects unsafe resource keys.
+- Added regressions for malformed-first/valid-second Script startup, all-malformed candidates, magic-only initializer selection, GPK payload offsets, malformed-pair isolation, and unsafe background paths.
+
+### Compatibility boundary
+- Script v1 remains the documented Ramen synthetic format only. These changes do not claim to run arbitrary or proprietary SPT files.
+- Compose displays the ScenarioSession dialogue frame; background changes are resolved to GPK/GTB payloads. A missing or ambiguous image is a visual warning and not a script parser failure.
+
+
+## 2026-11-03 — XOR-masked GTB indexes and Nitro engine-init marker
+
+### Changed
+- Added an independent `indexXorKey` fallback to `GpkGtbArchiveParser`, using the same bounded positional XOR view as GPK. The parser attempts the clear/masked GTB and clear/masked GPK combinations and accepts only a fully validated index plus all referenced image blocks.
+- Kept the GTB table and GPK blocks as separate read-only sources. XOR views preserve all byte offsets and source lengths; the GPK key is retained in parsed resource metadata for Android image decoding.
+- Added `NitroInitEngineCommand` for opcode `0xFF`. The current parser treats it as a zero-operand system marker and the Scenario loader advances to the next instruction. The existing `0xFE` start-scene marker is preserved.
+- A stream containing only system markers is still rejected as having no executable story commands.
+- Added synthetic regressions for masked GTB + clear GPK, masked GTB + masked GPK, direct `0xFF` parsing, loader continuation, marker-only rejection, and XOR-masked `0xFF` preceding dialogue.
+- Updated README, Script format notes, and the binary format registry.
+
+### Compatibility boundary
+- The `0x10` GTB/GPK XOR fallback is a fixed one-byte mask, not a general cipher implementation.
+- `0xFF` is recognized as a start-of-engine initialization marker, but no operand layout has yet been established. The zero-operand handling is provisional; any service bytes observed after it need a format-specific parser rather than guessed skipping.
+- These changes do not establish support for the complete proprietary Nitroplus command set or automatically locate a trailing VFS index.
+
+### Validation
+- GitHub Actions validation for the latest PR head is pending; do not treat the change as CI-verified until `assembleDebug`, `testDebugUnitTest`, and `lintDebug` pass.
+
+
+## 2026-11-03 — Revert unverified Black Cyc SPT and XOR assumptions
+
+### Verified against GARbro
+- GARbro ArcFormats/BlackCyc/ArcGPK.cs reads the GTB entry count as a signed Int32 at offset 0x00, then name offsets at 0x04, GPK offsets at 0x04 + count * 4, and the string pool at 0x04 + count * 8.
+- GARbro's Black Cyc GTB handler does not check a leading signature and does not XOR-decode the count, tables, or filenames. The parser now follows that exact index layout and treats negative counts/negative name offsets as malformed.
+- GARbro's ArcFormats/BlackCyc/ImageDWQ.cs reads a 64-byte DWQ resource header and uses its PACKTYPE metadata; the current Ramen image parser remains a narrower validated JPEG/BMP implementation.
+
+### Removed speculative behavior
+- Removed the default 0x10 GPK/GTB XOR fallback and the payload XOR propagation into Android bitmap decoding.
+- Removed the guessed one-byte XOR script-signature detector and XOR wrapper from the synthetic Ramen Script v1 parser.
+- Removed the unverified 0xFE/0xFF Nitro system-opcode interpretations. They now remain unknown to the synthetic fixture parser.
+- The startup resolver no longer sends every .spt file to the command parser. Only the exact Ramen fixture magic is eligible for the experimental player.
+
+### Compatibility boundary
+- GARbro's current Black Cyc directory contains GPK/GTB, VPK/VTB, and DWQ handlers but no Black Cyc SPT parser. It therefore does not specify the SPT fixed-header fields, offset-table count/location, or the first command offset.
+- No proprietary SPT command parser is claimed. The synthetic Ramen Script v1 reader remains an isolated test format until a sample or authoritative SPT layout is available.

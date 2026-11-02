@@ -8,6 +8,8 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
 import java.util.zip.ZipInputStream
+import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
+import io.github.helterfall.ramen.storage.StorageSpaceGuard
 
 data class ExtractionSummary(
     val fileCount: Int,
@@ -20,8 +22,8 @@ data class ExtractionSummary(
  */
 class SafeZipExtractor(
     private val maxEntries: Int = 10_000,
-    private val maxEntryBytes: Long = 512L * 1024L * 1024L,
-    private val maxTotalBytes: Long = 1024L * 1024L * 1024L,
+    private val maxEntryBytes: Long = Long.MAX_VALUE,
+    private val maxTotalBytes: Long = Long.MAX_VALUE,
     private val maxPathDepth: Int = 64
 ) {
     fun extract(input: InputStream, destination: File): ExtractionSummary {
@@ -40,6 +42,7 @@ class SafeZipExtractor(
         val canonicalRoot = destination.canonicalFile
         val rootPath = canonicalRoot.toPath()
         val seenPaths = HashSet<String>()
+        val storageGuard = StorageSpaceGuard(destination)
         var entryCount = 0
         var fileCount = 0
         var totalBytes = 0L
@@ -85,7 +88,10 @@ class SafeZipExtractor(
                 }
 
                 var entryBytes = 0L
-                BufferedOutputStream(FileOutputStream(outputFile, false)).use { output ->
+                StorageGuardedOutputStream(
+                    delegate = BufferedOutputStream(FileOutputStream(outputFile, false)),
+                    guard = storageGuard
+                ).use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
 
                     while (true) {

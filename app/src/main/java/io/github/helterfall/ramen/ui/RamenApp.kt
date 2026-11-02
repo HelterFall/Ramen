@@ -7,6 +7,7 @@ import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +34,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
@@ -51,10 +53,17 @@ import androidx.compose.ui.unit.sp
 import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
+import io.github.helterfall.ramen.importer.VisualNovelDetector
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
+import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
+import io.github.helterfall.ramen.runtime.scenario.ScenarioDemoActivity
+import io.github.helterfall.ramen.runtime.scenario.ScriptScenarioPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
+import io.github.helterfall.ramen.inspection.DirectoryInventoryJsonWriter
+import io.github.helterfall.ramen.inspection.DirectoryInventoryScanner
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.Executors
 
 private val RamenBackground = Color(0xFF101216)
@@ -74,6 +83,9 @@ fun RamenApp() {
         }
     }
     var isImporting by remember { mutableStateOf(false) }
+    var isExportingInventory by remember { mutableStateOf(false) }
+    var pendingInventoryGame by remember { mutableStateOf<GameRecord?>(null) }
+    val isBusy = isImporting || isExportingInventory
     var statusMessage by remember {
         mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
     }
@@ -87,13 +99,67 @@ fun RamenApp() {
         }
     }
 
+    // Older library records may have been imported before BinarySignatureProbe
+    // was connected. Refresh only UNKNOWN records when the library screen opens.
+    LaunchedEffect(Unit) {
+        val unknownIds = games
+            .filter {
+                (it.engineId == "unknown" && it.compatibilityStatus == "UNKNOWN") ||
+                    it.engineId == "ramen-binary-signature"
+            }
+            .map { it.id }
+            .toSet()
+        if (unknownIds.isNotEmpty()) {
+            executor.execute {
+                val gamesRoot = File(context.filesDir, "games").canonicalFile
+                val gamesRootPath = gamesRoot.toPath()
+                val storedGames = repository.load()
+                val refreshedGames = storedGames.map { game ->
+                    if (game.id !in unknownIds) {
+                        game
+                    } else {
+                        runCatching {
+                            val gameRoot = File(context.filesDir, game.relativeDirectory).canonicalFile
+                            val gamePath = gameRoot.toPath()
+                            if (gamePath == gamesRootPath ||
+                                !gamePath.startsWith(gamesRootPath) ||
+                                !gameRoot.isDirectory
+                            ) {
+                                game
+                            } else {
+                                val detection = VisualNovelDetector().detect(gameRoot)
+                                if (detection.engineId == "unknown") {
+                                    game
+                                } else {
+                                    game.copy(
+                                        engineId = detection.engineId,
+                                        engineLabel = detection.engineLabel,
+                                        compatibilityStatus = detection.compatibilityStatus,
+                                        evidence = detection.evidence
+                                    )
+                                }
+                            }
+                        }.getOrDefault(game)
+                    }
+                }
+                if (refreshedGames != storedGames) {
+                    repository.save(refreshedGames)
+                }
+                mainHandler.post {
+                    games.clear()
+                    games.addAll(refreshedGames)
+                }
+            }
+        }
+    }
+
     fun enqueueImport(
         uri: Uri,
         progressMessage: String,
         releaseReadPermission: Boolean = false,
         importOperation: (Uri) -> GameRecord
     ) {
-        if (isImporting) return
+        if (isBusy) return
 
         isImporting = true
         statusMessage = progressMessage
@@ -173,8 +239,8 @@ fun RamenApp() {
     ) { uri ->
         if (uri == null) {
             statusMessage = "Выбор папки отменён."
-        } else if (isImporting) {
-            statusMessage = "Дождись окончания текущего импорта."
+        } else if (isBusy) {
+            statusMessage = "Дождись окончания текущей операции."
         } else {
             val permissionTaken = runCatching {
                 context.contentResolver.takePersistableUriPermission(
@@ -197,8 +263,81 @@ fun RamenApp() {
         }
     }
 
+    val inventoryExportPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val selectedGame = pendingInventoryGame
+        pendingInventoryGame = null
+
+        when {
+            uri == null -> {
+                statusMessage = "Сохранение отчёта отменено."
+            }
+            selectedGame == null -> {
+                statusMessage = "Не удалось определить игру для отчёта."
+            }
+            isBusy -> {
+                statusMessage = "Дождись окончания текущей операции."
+            }
+            else -> {
+                isExportingInventory = true
+                statusMessage = "Сканирую файлы игры и формирую JSON-отчёт…"
+
+                executor.execute {
+                    try {
+                        val gamesRoot = File(context.filesDir, "games").canonicalFile
+                        val gameRoot = File(
+                            context.filesDir,
+                            selectedGame.relativeDirectory
+                        ).canonicalFile
+                        val gamesPath = gamesRoot.toPath()
+                        val gamePath = gameRoot.toPath()
+
+                        if (gamePath == gamesPath || !gamePath.startsWith(gamesPath)) {
+                            throw IOException("Папка игры находится вне внутреннего каталога библиотеки.")
+                        }
+                        if (!gameRoot.isDirectory) {
+                            throw IOException("Импортированная папка игры больше не существует.")
+                        }
+
+                        val report = DirectoryInventoryScanner().scan(gameRoot)
+                        val output = context.contentResolver.openOutputStream(uri, "w")
+                            ?: throw IOException("Android не смог создать файл отчёта.")
+                        output.use {
+                            DirectoryInventoryJsonWriter().write(report, it)
+                        }
+
+                        val missingHashes = report.entries.count {
+                            it.sizeBytes > 0L && it.sha256Hex == null
+                        }
+                        val completionMessage = buildString {
+                            append("JSON-отчёт сохранён: ${report.entries.size} файлов.")
+                            if (report.truncated) {
+                                append(" Сканирование неполное — причины указаны в warnings.")
+                            }
+                            if (missingHashes > 0) {
+                                append(" Для $missingHashes файлов SHA-256 не вычислен; причины указаны в отчёте.")
+                            }
+                        }
+
+                        mainHandler.post {
+                            isExportingInventory = false
+                            statusMessage = completionMessage
+                        }
+                    } catch (error: Exception) {
+                        mainHandler.post {
+                            isExportingInventory = false
+                            statusMessage = error.message
+                                ?: "Не удалось сформировать JSON-отчёт."
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     val onImportClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isBusy) {
             documentPicker.launch(
                 arrayOf(
                     "application/zip",
@@ -211,13 +350,13 @@ fun RamenApp() {
     }
 
     val onImportFolderClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isBusy) {
             folderPicker.launch(null)
         }
     }
 
     val onImportHtmlClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isBusy) {
             // Some providers label .html as text/plain or octet-stream,
             // so accept the selection broadly and validate it in HtmlFileImporter.
             htmlFilePicker.launch(arrayOf("*/*"))
@@ -252,11 +391,25 @@ fun RamenApp() {
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 item { BrandHeader() }
+                item {
+                    ResourceInspectorShortcut {
+                        context.startActivity(
+                            Intent(context, ResourceInspectorActivity::class.java)
+                        )
+                    }
+                }
+                item {
+                    ScenarioRuntimeShortcut {
+                        context.startActivity(
+                            Intent(context, ScenarioDemoActivity::class.java)
+                        )
+                    }
+                }
 
                 if (games.isEmpty()) {
                     item {
                         EmptyLibraryCard(
-                            isImporting = isImporting,
+                            isImporting = isBusy,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
                             onImportHtmlClick = onImportHtmlClick
@@ -266,7 +419,7 @@ fun RamenApp() {
                     item {
                         LibrarySummaryCard(
                             gameCount = games.size,
-                            isImporting = isImporting,
+                            isImporting = isBusy,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
                             onImportHtmlClick = onImportHtmlClick
@@ -274,23 +427,135 @@ fun RamenApp() {
                     }
                     item { SectionHeading("ТВОЯ БИБЛИОТЕКА") }
                     items(games, key = { it.id }) { game ->
-                        GameCard(game) {
-                            val intent = Intent(context, Html5PlayerActivity::class.java)
-                                .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
-                            context.startActivity(intent)
-                        }
+                        GameCard(
+                            game = game,
+                            actionsEnabled = !isBusy,
+                            onExportInventory = {
+                                if (!isBusy) {
+                                    pendingInventoryGame = game
+                                    inventoryExportPicker.launch(
+                                        "ramen-inventory-${game.id.take(8)}.json"
+                                    )
+                                }
+                            },
+                            onInspectResources = {
+                                val intent = Intent(context, ResourceInspectorActivity::class.java)
+                                    .putExtra(
+                                        ResourceInspectorActivity.EXTRA_GAME_RELATIVE_DIRECTORY,
+                                        game.relativeDirectory
+                                    )
+                                context.startActivity(intent)
+                            },
+                            onLaunch = {
+                                val intent = if (game.engineId == "ramen-script-v1") {
+                                    Intent(context, ScriptScenarioPlayerActivity::class.java)
+                                        .putExtra(
+                                            ScriptScenarioPlayerActivity.EXTRA_GAME_RELATIVE_DIRECTORY,
+                                            game.relativeDirectory
+                                        )
+                                        .putExtra(
+                                            ScriptScenarioPlayerActivity.EXTRA_GAME_TITLE,
+                                            game.title
+                                        )
+                                } else {
+                                    Intent(context, Html5PlayerActivity::class.java)
+                                        .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
+                                }
+                                context.startActivity(intent)
+                            }
+                        )
                     }
                 }
 
                 item {
                     ImportStatusCard(
                         message = statusMessage,
-                        isImporting = isImporting
+                        isImporting = isBusy
                     )
                 }
                 item { ComingNextSection() }
                 item { BuildFooter() }
             }
+        }
+    }
+}
+
+@Composable
+private fun ResourceInspectorShortcut(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp)),
+        color = RamenSurfaceRaised,
+        shape = RoundedCornerShape(17.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onClick)
+                .padding(horizontal = 15.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "ИНСПЕКТОР РЕСУРСОВ",
+                    color = RamenAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = "Просмотр GPK/GTB и проверка VPK/VTB",
+                    color = RamenText,
+                    fontSize = 12.sp
+                )
+            }
+            Text(
+                text = "ОТКРЫТЬ  ›",
+                color = RamenAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun ScenarioRuntimeShortcut(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp)),
+        color = RamenSurface,
+        shape = RoundedCornerShape(17.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onClick)
+                .padding(horizontal = 15.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "СЦЕНАРНЫЙ RUNTIME — ПРОТОТИП",
+                    color = RamenAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.7.sp
+                )
+                Text(
+                    text = "Сцены, реплики, ветвления и сохранение на собственной демо-истории",
+                    color = RamenText,
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp
+                )
+            }
+            Text(
+                text = "ИГРАТЬ  ›",
+                color = RamenAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
@@ -551,6 +816,9 @@ private fun SectionHeading(text: String) {
 @Composable
 private fun GameCard(
     game: GameRecord,
+    actionsEnabled: Boolean,
+    onExportInventory: () -> Unit,
+    onInspectResources: () -> Unit,
     onLaunch: () -> Unit
 ) {
     Card(
@@ -576,10 +844,14 @@ private fun GameCard(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = when (game.compatibilityStatus) {
-                    "SUPPORTED_LIMITED" ->
+                text = when {
+                    game.engineId == "ramen-script-v1" ->
+                        "Script v1 обнаружен. Доступен запуск тестового бинарного сценария."
+                    game.engineId == "ramen-binary-signature" ->
+                        "Статус: Detected. Просмотр ресурсов доступен; запуск игры пока не поддерживается."
+                    game.compatibilityStatus == "SUPPORTED_LIMITED" ->
                         "Доступен ограниченный автономный HTML5-запуск."
-                    "UNKNOWN" ->
+                    game.compatibilityStatus == "UNKNOWN" ->
                         "Движок пока не определён. Запуск недоступен."
                     else ->
                         "Движок распознан, но игровой модуль пока не подключён."
@@ -594,9 +866,28 @@ private fun GameCard(
                 fontSize = 10.sp,
                 lineHeight = 14.sp
             )
-            if (game.compatibilityStatus == "SUPPORTED_LIMITED") {
+            OutlinedButton(
+                onClick = onInspectResources,
+                enabled = actionsEnabled,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(13.dp)
+            ) {
+                Text("Просмотреть ресурсы")
+            }
+            OutlinedButton(
+                onClick = onExportInventory,
+                enabled = actionsEnabled,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(13.dp)
+            ) {
+                Text("Сохранить отчёт (JSON)")
+            }
+            if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
+                game.engineId == "ramen-script-v1"
+            ) {
                 Button(
                     onClick = onLaunch,
+                    enabled = actionsEnabled,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(13.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -604,7 +895,11 @@ private fun GameCard(
                         contentColor = Color(0xFF24190B)
                     )
                 ) {
-                    Text("Запустить", fontWeight = FontWeight.Bold)
+                    Text(
+                        if (game.engineId == "ramen-script-v1") "Запустить Script v1"
+                        else "Запустить",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import io.github.helterfall.ramen.library.GameRecord
+import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
+import io.github.helterfall.ramen.storage.StorageSpaceGuard
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -33,14 +35,6 @@ class HtmlFileImporter(
             throw IOException("Выбери файл .html или .htm. Для игры с картинками, CSS и JS выбери всю папку.")
         }
 
-        metadata.sizeBytes
-            ?.takeIf { it >= 0L }
-            ?.let { declaredSize ->
-                if (declaredSize > SafeHtmlStreamCopier.MAX_BYTES) {
-                    throw IOException("HTML-файл превышает лимит 512 МиБ.")
-                }
-            }
-
         val id = UUID.randomUUID().toString()
         val gamesDirectory = File(context.filesDir, "games")
         if (!gamesDirectory.mkdirs() && !gamesDirectory.isDirectory) {
@@ -60,7 +54,10 @@ class HtmlFileImporter(
 
             val outputFile = File(stagingDirectory, "index.html")
             val copiedBytes = input.use { source ->
-                FileOutputStream(outputFile).use { target ->
+                StorageGuardedOutputStream(
+                    delegate = FileOutputStream(outputFile),
+                    guard = StorageSpaceGuard(stagingDirectory)
+                ).use { target ->
                     streamCopier.copy(
                         input = source,
                         output = target,
@@ -150,7 +147,7 @@ class HtmlFileImporter(
 }
 
 class SafeHtmlStreamCopier(
-    private val maxBytes: Long = MAX_BYTES
+    private val maxBytes: Long = Long.MAX_VALUE
 ) {
     init {
         require(maxBytes > 0L) { "The HTML file size limit must be positive." }
@@ -190,6 +187,5 @@ class SafeHtmlStreamCopier(
     }
 
     companion object {
-        const val MAX_BYTES = 512L * 1024L * 1024L
     }
 }
