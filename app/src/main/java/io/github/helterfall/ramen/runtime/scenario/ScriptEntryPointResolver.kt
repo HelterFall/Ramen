@@ -1,6 +1,9 @@
 package io.github.helterfall.ramen.runtime.scenario
 
 import io.github.helterfall.ramen.runtime.engine.EngineSource
+import java.io.ByteArrayInputStream
+import java.io.InputStream
+import java.io.SequenceInputStream
 import io.github.helterfall.ramen.runtime.engine.EngineSourceEntry
 import java.io.IOException
 import java.util.Locale
@@ -45,7 +48,7 @@ class ScriptEntryPointResolver {
 
         for (entry in inspected) {
             try {
-                val project = source.openRead(entry.relativePath).use(ScriptScenarioLoader::load)
+                val project = source.openRead(entry.relativePath).use(::loadWithDetectedXorKey)
                 return ScriptEntryPointLoadResult.Ready(entry, project)
             } catch (exception: IOException) {
                 failures += ScriptEntryPointFailure(
@@ -102,6 +105,22 @@ class ScriptEntryPointResolver {
             else -> 4
         }
 
+    private fun loadWithDetectedXorKey(stream: InputStream): ScenarioProject {
+        val firstByte = stream.read()
+        if (firstByte < 0) {
+            throw ScriptParseException(0L, "Script file is empty.")
+        }
+
+        // The known plaintext signature begins with 0xEB. Deriving the mask from
+        // the observed first byte also keeps unmasked legacy scripts compatible.
+        val xorKey = firstByte xor (MAGIC[0].toInt() and 0xFF)
+        val replay = SequenceInputStream(
+            ByteArrayInputStream(byteArrayOf(firstByte.toByte())),
+            stream
+        )
+        return ScriptScenarioLoader.load(replay, java.nio.charset.StandardCharsets.UTF_8, xorKey)
+    }
+
     private fun hasScriptMagic(source: EngineSource, entry: EngineSourceEntry): Boolean =
         source.openRandomAccess(entry.relativePath).use { randomAccess ->
             if (randomAccess.sizeBytes < MAGIC.size) {
@@ -109,7 +128,11 @@ class ScriptEntryPointResolver {
             } else {
                 val header = ByteArray(MAGIC.size)
                 randomAccess.readFullyAt(0L, header)
-                header.contentEquals(MAGIC)
+                val xorKey = (header[0].toInt() and 0xFF) xor (MAGIC[0].toInt() and 0xFF)
+                header.indices.all { index ->
+                    ((header[index].toInt() and 0xFF) xor xorKey) ==
+                        (MAGIC[index].toInt() and 0xFF)
+                }
             }
         }
 
