@@ -29,7 +29,9 @@ data class GpkImageResource(
     val bmpPaletteOffsetBytes: Long? = null,
     val bmpPaletteColorCount: Int? = null,
     /** True when BMP rows are stored top-to-bottom rather than bottom-to-top. */
-    val bmpTopDown: Boolean? = null
+    val bmpTopDown: Boolean? = null,
+    /** XOR key used to expose this payload, or null when the archive was already clear. */
+    val payloadXorKey: Int? = null
 )
 
 data class GpkGtbArchive(
@@ -70,19 +72,45 @@ class GpkGtbArchiveParser(
     private val maxEntries: Int = DEFAULT_MAX_ENTRIES,
     private val maxStringPoolBytes: Int = DEFAULT_MAX_STRING_POOL_BYTES,
     private val maxNameBytes: Int = DEFAULT_MAX_NAME_BYTES,
-    private val maxImageDimension: Int = DEFAULT_MAX_IMAGE_DIMENSION
+    private val maxImageDimension: Int = DEFAULT_MAX_IMAGE_DIMENSION,
+    private val archiveXorKey: Int? = null
 ) {
     init {
         require(maxEntries in 1..ABSOLUTE_MAX_ENTRIES)
         require(maxStringPoolBytes in 1..ABSOLUTE_MAX_STRING_POOL_BYTES)
         require(maxNameBytes in 1..ABSOLUTE_MAX_NAME_BYTES)
         require(maxImageDimension in 1..ABSOLUTE_MAX_IMAGE_DIMENSION)
+        require(archiveXorKey == null || archiveXorKey in 0..0xFF) {
+            "Archive XOR key must be an unsigned byte."
+        }
     }
 
     @Throws(IOException::class)
     fun parse(
         indexSource: ReadOnlyRandomAccessSource,
         archiveSource: ReadOnlyRandomAccessSource
+    ): GpkGtbArchive {
+        val key = archiveXorKey ?: return parseArchive(indexSource, archiveSource, null)
+        return try {
+            // Prefer the already-clear layout. This keeps one parser usable for both
+            // legacy samples and the target build whose GPK blocks use the XOR mask.
+            parseArchive(indexSource, archiveSource, null)
+        } catch (clearFailure: IOException) {
+            val decodedSource = XorMaskingRandomAccessSource(archiveSource, key)
+            try {
+                parseArchive(indexSource, decodedSource, key)
+            } catch (maskedFailure: IOException) {
+                maskedFailure.addSuppressed(clearFailure)
+                throw maskedFailure
+            }
+        }
+    }
+
+    @Throws(IOException::class)
+    private fun parseArchive(
+        indexSource: ReadOnlyRandomAccessSource,
+        archiveSource: ReadOnlyRandomAccessSource,
+        payloadXorKey: Int?
     ): GpkGtbArchive {
         if (indexSource.sizeBytes < UINT32_BYTES) {
             malformed("GTB index is shorter than its entry-count field.")
@@ -176,7 +204,8 @@ class GpkGtbArchiveParser(
                     blockOffset = blockOffset,
                     blockSize = blockSize,
                     payloadOffset = payloadOffset,
-                    payloadSize = payloadSize
+                    payloadSize = payloadSize,
+                    payloadXorKey = payloadXorKey
                 )
                 GpkImageFormat.BMP -> parseBmpResource(
                     source = archiveSource,
@@ -184,7 +213,8 @@ class GpkGtbArchiveParser(
                     blockOffset = blockOffset,
                     blockSize = blockSize,
                     payloadOffset = payloadOffset,
-                    payloadSize = payloadSize
+                    payloadSize = payloadSize,
+                    payloadXorKey = payloadXorKey
                 )
             }
             entries += resource
@@ -342,7 +372,8 @@ class GpkGtbArchiveParser(
         blockOffset: Long,
         blockSize: Long,
         payloadOffset: Long,
-        payloadSize: Long
+        payloadSize: Long,
+        payloadXorKey: Int?
     ): GpkImageResource {
         if (payloadSize < JPEG_SIGNATURE.size) {
             malformed("JPEG GPK payload is too short.")
@@ -378,7 +409,8 @@ class GpkGtbArchiveParser(
             payloadSizeBytes = payloadSize,
             widthPixels = dimensions.first,
             heightPixels = dimensions.second,
-            packType = JPEG_PACK_TYPE_NUMBER
+            packType = JPEG_PACK_TYPE_NUMBER,
+            payloadXorKey = payloadXorKey
         )
     }
 
@@ -575,7 +607,8 @@ class GpkGtbArchiveParser(
             bmpCompression = compression,
             bmpPaletteOffsetBytes = paletteOffset.takeIf { paletteEntries > 0 },
             bmpPaletteColorCount = paletteEntries.takeIf { paletteEntries > 0 },
-            bmpTopDown = signedHeight < 0
+            bmpTopDown = signedHeight < 0,
+            payloadXorKey = payloadXorKey
         )
     }
 
