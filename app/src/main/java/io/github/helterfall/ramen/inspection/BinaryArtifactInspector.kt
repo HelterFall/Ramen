@@ -85,7 +85,7 @@ class BinaryArtifactInspector(
                 fileSizeBytes = fileSize,
                 extensionHint = extension,
                 kind = ArtifactKind.UNKNOWN,
-                signature = prefix.take(8).toHexString(),
+                signature = prefix.toHexString(),
                 evidence = "No registered binary signature matched. The extension is not used as proof of format."
             )
         }
