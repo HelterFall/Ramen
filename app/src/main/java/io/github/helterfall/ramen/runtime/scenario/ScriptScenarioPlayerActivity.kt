@@ -133,13 +133,23 @@ class ScriptScenarioPlayerActivity : ComponentActivity() {
                 rootDirectory = gameRoot,
                 sourceId = "script-player-${gameRoot.name}"
             )
-            val entry = ScriptEntryPointResolver().select(source)
-                ?: throw IOException(
+            val loaded = when (val result = ScriptEntryPointResolver().load(source)) {
+                is ScriptEntryPointLoadResult.Ready -> result
+                is ScriptEntryPointLoadResult.Malformed -> {
+                    val details = result.failures
+                        .take(MAX_VISIBLE_CANDIDATE_FAILURES)
+                        .joinToString("\\n") { it.relativePath + ": " + it.reason }
+                    throw IOException(
+                        "Не найден корректный стартовый Script v1. Проверено файлов: " +
+                            result.candidatesInspected + "." +
+                            if (details.isBlank()) "" else "\\n" + details
+                    )
+                }
+                ScriptEntryPointLoadResult.NotFound -> throw IOException(
                     "В папке не найден стартовый Script v1 (.spt или файл с сигнатурой Ramen Script v1)."
                 )
-            val loadedProject = source.openRead(entry.relativePath).use { input ->
-                ScriptScenarioLoader.load(input)
             }
+            val loadedProject = loaded.project
             val startedSession = ScenarioSession.start(loadedProject)
             resourceManager = ScenarioResourceManager(gameRoot)
 
@@ -147,7 +157,7 @@ class ScriptScenarioPlayerActivity : ComponentActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 project = loadedProject
                 session = startedSession
-                statusMessage = "Сценарий: ${entry.relativePath}"
+                statusMessage = "Сценарий: ${loaded.entry.relativePath}"
                 publishFrame(startedSession.frame())
             }
         } catch (error: Exception) {
@@ -223,6 +233,7 @@ class ScriptScenarioPlayerActivity : ComponentActivity() {
     }
 
     companion object {
+        private const val MAX_VISIBLE_CANDIDATE_FAILURES = 8
         const val EXTRA_GAME_RELATIVE_DIRECTORY = "script_game_relative_directory"
         const val EXTRA_GAME_TITLE = "script_game_title"
     }

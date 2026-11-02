@@ -81,6 +81,61 @@ class ScriptEntryPointResolverTest {
     }
 
     @Test
+    fun loadSkipsMalformedPreferredSptAndUsesNextValidScript() {
+        withGameDirectory { root ->
+            File(root, "01.spt").writeBytes(validScript(byteArrayOf(0x7F)))
+            File(root, "main.spt").writeBytes(validScript(dialogue("Valid fallback")))
+
+            val result = ScriptEntryPointResolver().load(
+                DirectoryGameSource(root, "script-starter-fallback")
+            )
+
+            assertTrue(result is ScriptEntryPointLoadResult.Ready)
+            val ready = result as ScriptEntryPointLoadResult.Ready
+            assertEquals("main.spt", ready.entry.relativePath)
+            assertEquals(
+                "Valid fallback",
+                ScenarioSession.start(ready.project).frame().dialogue?.text
+            )
+        }
+    }
+
+    @Test
+    fun loadReportsUnknownOpcodeWhenNoCandidateCanBeParsed() {
+        withGameDirectory { root ->
+            File(root, "01.spt").writeBytes(validScript(byteArrayOf(0x7F)))
+
+            val result = ScriptEntryPointResolver().load(
+                DirectoryGameSource(root, "script-starter-only-malformed")
+            )
+
+            assertTrue(result is ScriptEntryPointLoadResult.Malformed)
+            val malformed = result as ScriptEntryPointLoadResult.Malformed
+            assertEquals(1, malformed.candidatesInspected)
+            assertTrue(malformed.failures.single().reason.contains("Unknown command opcode"))
+        }
+    }
+
+    @Test
+    fun loadRecognizesMagicInitializerWithoutSptExtension() {
+        withGameDirectory { root ->
+            File(root, "bootstrap.bin").writeBytes(validScript(dialogue("Magic initializer")))
+
+            val result = ScriptEntryPointResolver().load(
+                DirectoryGameSource(root, "script-magic-initializer")
+            )
+
+            assertTrue(result is ScriptEntryPointLoadResult.Ready)
+            val ready = result as ScriptEntryPointLoadResult.Ready
+            assertEquals("bootstrap.bin", ready.entry.relativePath)
+            assertEquals(
+                "Magic initializer",
+                ScenarioSession.start(ready.project).frame().dialogue?.text
+            )
+        }
+    }
+
+    @Test
     fun returnsNoEntryPointWhenThereIsNoSptOrScriptSignature() {
         withGameDirectory { root ->
             File(root, "notes.txt").writeText("ordinary content")
