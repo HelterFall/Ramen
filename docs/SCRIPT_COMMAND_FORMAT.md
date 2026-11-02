@@ -53,6 +53,12 @@ The experimental Android player selects 01.spt first, then conventional initiali
 
 BinarySignatureProbe validates the full Ramen test command structure after matching the magic. A valid magic alone is not considered a valid script. The byte immediately following the magic is passed to the opcode parser without being interpreted as a version; unknown target-engine system opcodes are reported rather than skipped or guessed.
 
+## Optional single-byte XOR transport
+
+The startup resolver supports a fixed, repeating one-byte XOR mask around this fixture format. It derives the candidate key from the raw first byte as `rawFirstByte XOR 0xEB`, then validates the complete eight-byte magic after applying that key. A zero key preserves an unmasked file. The same key is applied to every command opcode, length field, address byte, and text byte through a streaming view; byte positions and absolute jump addresses do not change.
+
+This is a narrow compatibility layer for the observed `0x10` mask, not a general cipher detector. A candidate is accepted only when the decoded header and the complete known command stream validate. The four opcodes listed above remain the only commands currently implemented by this fixture loader; XOR decoding does not establish support for the full proprietary Nitroplus command set.
+
 ## Non-goals
 
 V1 defines no speaker metadata, labels, choices, variables, conditional branches, compression, encryption, checksums, timestamps, resource archive layout, text layout, or proprietary-engine compatibility. The original line-oriented Scenario DSL remains a separate fixture format.
