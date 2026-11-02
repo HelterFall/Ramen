@@ -61,4 +61,4 @@ This is a narrow compatibility layer for the observed `0x10` mask, not a general
 
 ## Non-goals
 
-V1 defines no speaker metadata, labels, choices, variables, conditional branches, compression, encryption, checksums, timestamps, resource archive layout, text layout, or proprietary-engine compatibility. The original line-oriented Scenario DSL remains a separate fixture format.
+V1 defines no speaker metadata, labels, choices, variables, conditional branches, compression, checksums, timestamps, resource archive layout, text layout, or proprietary-engine compatibility. The optional single-byte XOR transport described above is a compatibility wrapper around this fixture, not a command-format feature or a secure cipher. The original line-oriented Scenario DSL remains a separate fixture format.
