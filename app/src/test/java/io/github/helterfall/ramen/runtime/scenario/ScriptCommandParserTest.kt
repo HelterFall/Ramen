@@ -31,6 +31,20 @@ class ScriptCommandParserTest {
     }
 
     @Test
+    fun decodesXorMaskedOpcodesAndOperandsFromOneContinuousStream() {
+        val plaintext = commandStream(dialogue("Masked dialogue"), background("bg/masked.png"))
+        val masked = ByteArray(plaintext.size) { index ->
+            (plaintext[index].toInt() xor 0x10).toByte()
+        }
+        val parser = ScriptCommandParser(xorKey = 0x10)
+        val stream = ByteArrayInputStream(masked)
+
+        assertEquals(DisplayDialogueCommand("Masked dialogue"), parser.parseNextCommand(stream))
+        assertEquals(ChangeBackgroundCommand("bg/masked.png"), parser.parseNextCommand(stream))
+        assertNull(parser.parseNextCommand(stream))
+    }
+
+    @Test
     fun decodesShiftJisDialogueAndUnicodeBackgroundNames() {
         val charset = Charset.forName("Shift_JIS")
         val parser = ScriptCommandParser(charset)
