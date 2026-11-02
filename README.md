@@ -2,7 +2,7 @@
 
 **Ramen** is an Android-first player and library for visual novels. The goal is to make one focused app that can identify, organize, and run visual novels through engine-specific runtime adapters.
 
-> **Project status:** Android library, safe import, and a restricted HTML5 runtime are implemented as early prototypes. A new native/proprietary engine research track has started with read-only PE and binary-signature inspection. No proprietary Windows engine is currently supported.
+> **Project status:** Android library, safe import, a restricted HTML5 runtime, read-only binary inspection, and bounded GPK/GTB + VPK/VTB resource previews are implemented as early prototypes. A complete metadata-only inventory has been recorded for one representative directory. No proprietary Windows engine runtime is currently supported.
 
 ## Product idea
 
@@ -40,7 +40,7 @@ The current research is based on six supplied sample files. The table below sepa
 
 The generic inspector also recognizes PE, ELF, ZIP, RIFF, Ogg, PNG, and JPEG signatures. A signature match is not the same as a full parser.
 
-**Still to inventory:** the complete game folder may contain scenario/control data, save data, fonts, video, tables, and additional media. These categories have not been established from the supplied byte samples, so the project does not yet claim specific extensions or support for them. See the [format registry](docs/FORMAT_REGISTRY.md) for evidence and limitations.
+**Inventory status:** a complete read-only census of the imported sample directory is now available in [`ramen-inventory-d9c1071b.json`](ramen-inventory-d9c1071b.json). It contains 775 files, 19 extension hints, and 2,595,371,906 bytes observed and hashed. The scan was not truncated; every entry has a SHA-256 value and the report contains no warnings. This is a file census, not proof that every file format or engine behavior is understood. See the [engine research log](docs/ENGINE_RESEARCH.md) and [format registry](docs/FORMAT_REGISTRY.md) for confirmed facts and unknowns.
 
 ## Initial MVP
 
@@ -95,9 +95,9 @@ Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](doc
 
 ## Current next step
 
-Build a complete, read-only inventory of a representative game folder and use it to classify the files that are not covered by the six inspected samples. Prioritize understanding the data needed for game control and lifecycle before adding more asset previews. In parallel, validate the existing image/audio inspector on physical Android devices. The per-game JSON report action is implemented. Positional access for user-selected SAF documents and a richer in-app inventory viewer remain pending.
+Move from file census to a small, original, age-appropriate runtime fixture. Define a minimal engine-neutral scenario model for scenes, dialogue, choices, branching, backgrounds, characters, audio cues, and persistent state; then implement and test its parser/interpreter separately from the Android UI. Reuse the existing resource-provider interfaces for original test assets. This is the runtime foundation work—not another inventory feature. Keep proprietary formats unclassified until there is suitable, repeatable evidence and an appropriate test project.
 
-The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-256 input by default); the report marks truncated scans and records files whose hashes were skipped. The current archive tools preview individual assets; they do not run the original engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
+The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-256 input by default); the report marks truncated scans and records files whose hashes were skipped. The current archive tools preview individual assets; they do not run an engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
 
 ## Naming
 

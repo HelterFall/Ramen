@@ -60,9 +60,9 @@ The supplied `gss.exe` is a 626,688-byte PE32 x86 image. Its standard import tab
 
 ### What is still unknown
 
-The sample set is not a complete game-directory inventory. It establishes the image pair, the audio pair, one configuration-text example, and one executable. It does **not** establish the filenames or byte layouts used for scenario/control data, save state, fonts, video, lookup tables, or any additional resource banks.
+The complete read-only census for one imported sample directory is now available as [`ramen-inventory-d9c1071b.json`](../ramen-inventory-d9c1071b.json). It records 775 files across 19 extension hints and 2,595,371,906 bytes. The scan completed without truncation or warnings, and all file entries have SHA-256 fingerprints.
 
-The next step is a read-only directory census, not guesswork: record every relative path, extension hint, file size, SHA-256 where within the scan budget, and recognized byte signature. Group the results by likely role, but keep unknown files unknown until representative bytes have been inspected. The existing inventory scanner and JSON writer provide the core APIs; a user-facing export/share flow is still pending.
+The inventory broadens the list of observed file families, but it does **not** establish the grammar, encoding, command set, or runtime semantics of any scenario/control data. The JSON stores metadata and short signature observations, not file payloads. A filename, extension, or short byte prefix is not sufficient evidence for a parser. The user-facing report export flow is implemented; SAF positional access and physical-device validation remain separate tasks.
 
 ## Current boundaries
 
@@ -72,15 +72,16 @@ The next step is a read-only directory census, not guesswork: record every relat
 - Ogg page CRCs are not checked by the app parser.
 - The resource inspector and foreground media-player preview exist, but physical-device image/audio validation has not been performed. Android codec support may vary. The inspector stops/releases its preview player when it leaves the foreground and does not provide a background audio service or seek bar.
 - The supplied game samples are not stored in the repository; tests use small synthetic fixtures.
-- SAF/content-URI positional random access and the inventory-report save/share flow are not implemented. The separate resource inspector UI works by copying selected files into private cache.
+- SAF/content-URI positional random access is not implemented. The inventory-report save/share flow is implemented; reports contain metadata only. The separate resource inspector UI works by copying selected files into private cache.
 - A detected file format does not imply that Ramen can run the associated game.
 
 ## Next technical steps
 
-1. Produce a complete read-only inventory of a representative game folder and preserve the resulting report.
-2. Classify additional files by evidence and role; do not infer a parser specification from an extension or filename.
-3. Determine which non-asset data and lifecycle behavior a compatible runtime would need, and assess technical and licensing feasibility before selecting an adapter.
-4. Validate the existing image/audio preview on physical Android devices; add playback controls only after that validation.
+1. Keep the completed inventory as a metadata baseline; do not treat it as a script-format specification.
+2. Create a small original, age-appropriate test project with a documented scenario format.
+3. Define an engine-neutral scene/state model and keep parsing, interpretation, rendering, and resource access as separate layers.
+4. Implement a minimal parser/interpreter against synthetic fixtures for dialogue, choices, branches, resource references, and save state.
+5. Validate the existing image/audio preview on physical Android devices and connect it to the runtime only after that validation.
 
 ## Decision log
 
@@ -89,3 +90,13 @@ The next step is a read-only directory census, not guesswork: record every relat
 - 2026-11-02: Record the visible extension families as unverified until sample bytes are available.
 - 2026-11-02: Promote the observed GPK/GTB and VPK/VTB pairs to implemented parser entries only after paired-index structure and payload boundaries were validated against the supplied samples.
 - 2026-11-02: Keep the README format summary limited to the six examined samples; classify other roles only after a complete directory inventory and representative byte-level evidence.
+
+
+## Full directory inventory — 2026-11-02
+
+- Report: [`ramen-inventory-d9c1071b.json`](../ramen-inventory-d9c1071b.json)
+- 775 file entries and 19 distinct extension hints.
+- 2,595,371,906 bytes observed; the same total was hashed.
+- `truncated` is false; report-level and per-file warnings are empty; every entry has SHA-256 and artifact metadata.
+- The report is metadata-only. It does not contain file payloads and cannot establish scenario syntax or engine behavior.
+- The next runtime prototype will use original, age-appropriate fixtures. Unknown proprietary formats remain unknown until independently suitable evidence exists.

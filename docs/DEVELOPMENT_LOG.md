@@ -264,3 +264,25 @@ Create and review a complete read-only inventory report from a representative ga
 ### Limits
 - This is a one-off diagnostic export, not a full analysis screen or runtime feature.
 - Physical-device testing is still needed for the Android document picker and large-directory behavior.
+
+
+## 2026-11-02 — Complete metadata-only directory inventory reviewed
+
+### Result
+- Reviewed `ramen-inventory-d9c1071b.json` from the repository root.
+- The report contains 775 file entries across 19 extension hints.
+- Total observed and hashed size: 2,595,371,906 bytes.
+- The scan is not truncated; no report-level or per-entry warnings were recorded; all entries have SHA-256 fingerprints.
+- The inventory is metadata only. It provides a reproducible directory baseline, not the underlying byte streams or a specification for scenario commands, encoding, branching, or engine lifecycle.
+
+### Decision
+- Mark the complete directory census as done; do not add more inventory UI solely to repeat it.
+- Do not infer a proprietary parser from filenames or short signature prefixes.
+- Continue runtime work using an original, age-appropriate fixture and a documented engine-neutral scenario model. Keep parsing, interpretation, graphics/audio resources, save state, and Android UI as separate layers.
+- Update this README and the research log whenever a milestone, confirmed format fact, test result, or limitation changes.
+
+### Next technical milestone
+1. Define the minimal scenario data model (scene, dialogue, choice, branch, resource reference, persistent state).
+2. Add an original fixture and synthetic parser/interpreter tests.
+3. Implement a small bounded interpreter and connect it to existing rendering/resource abstractions.
+4. Validate import-to-play, save/resume, and Android lifecycle behavior.

@@ -4,7 +4,7 @@ The roadmap is milestone-based. Dates are intentionally omitted until the first 
 
 ## Current research track — Native and proprietary engines
 
-The current direction is to build reusable inspection infrastructure before selecting or promising another native runtime. The immediate research task is to inventory the complete game folder and classify unknown file roles, not to add parsers based on extensions alone. See [Engine Research](ENGINE_RESEARCH.md), [Format Registry](FORMAT_REGISTRY.md), and the chronological [Development Log](DEVELOPMENT_LOG.md).
+The current direction is to build reusable runtime foundations from confirmed evidence, without guessing proprietary formats from extensions. A complete metadata-only inventory has been captured for one representative directory; the next step is an original, age-appropriate scenario fixture and a small engine-neutral interpreter. See [Engine Research](ENGINE_RESEARCH.md), [Format Registry](FORMAT_REGISTRY.md), and the chronological [Development Log](DEVELOPMENT_LOG.md).
 
 ### M1.5 — Binary inspection foundation
 - [x] Add bounded, read-only PE header inspection.
@@ -25,13 +25,23 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Connect the random-access source to the PE binary inspector.
 - [x] Add streaming, versioned JSON serialization for inventory reports.
 - [x] Add a per-game user-facing JSON report save flow through the Android document picker.
-- [ ] Produce a complete read-only inventory of a representative game folder and document all observed extension/signature families, leaving unknown formats explicitly unclassified.
+- [x] Produce a complete read-only inventory of a representative game folder and preserve the metadata-only JSON report; unknown formats remain explicitly unclassified.
 - [x] Add bounded fixed-buffer streaming for individual resource payload ranges returned by the proprietary archive parsers.
 - [x] Add a bounded BitmapFactory adapter for GPK images and storage-aware Ogg cache materialization without a fixed per-resource size cap.
 - [x] Add a resource inspector screen for browsing GPK/GTB assets and previewing images.
 - [x] Add a basic foreground MediaPlayer flow for selected Ogg resources with play/pause/stop controls.
 - [ ] Validate image rendering and Ogg playback on physical Android devices and supported OS versions.
 - [ ] Add a positional source implementation for Android Storage Access Framework documents where supported.
+
+## M1.6 — Runtime foundation using an original test project
+- [ ] Define a small, documented, engine-neutral scenario model.
+- [ ] Add an original, age-appropriate fixture with scenes, dialogue, choices, branches, and resource references.
+- [ ] Implement a parser and interpreter with explicit, bounded commands.
+- [ ] Add save/restore for scene position and persistent state.
+- [ ] Connect rendering and audio through separate resource-provider interfaces.
+- [ ] Add deterministic regression tests for branching and lifecycle behavior.
+
+**Exit condition:** an original test project can be imported, launched, completed through multiple branches, saved, and resumed on Android.
 
 ## M0 — Project foundation
 - [ ] Agree on product scope and Android-first target.
