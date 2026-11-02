@@ -50,7 +50,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.helterfall.ramen.inspection.AndroidGpkImageDecoder
+import io.github.helterfall.ramen.runtime.nativeaudio.AndroidGpkImageDecoder
 import io.github.helterfall.ramen.inspection.FileRandomAccessSource
 import io.github.helterfall.ramen.inspection.GpkGtbArchiveParser
 import io.github.helterfall.ramen.inspection.GpkImageResource
