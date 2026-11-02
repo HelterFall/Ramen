@@ -18,7 +18,7 @@ The selected tree is copied; it is not modified. Ramen releases the persisted re
 - No fixed per-file or total-byte ceiling.
 - Each streamed write is checked against currently available storage.
 - A dynamic free-space reserve is preserved (at least 16 MiB, up to 256 MiB or 5% of currently available space).
-- Declared document sizes are treated as hints only; streaming byte limits remain authoritative.
+- Declared document sizes are treated as hints only; streaming storage-capacity checks remain authoritative.
 - Data is copied to a temporary app-private directory and only renamed into the library after copy and engine inspection succeed.
 - Failed imports clean up the temporary copy.
 
