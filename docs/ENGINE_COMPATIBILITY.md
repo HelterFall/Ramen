@@ -20,7 +20,11 @@ At project start, **no engine is supported yet**.
 | Ren'Py | Research | Official Android workflow is packaging-oriented and produces an APK/AAB for each game. Investigate whether a reusable embedded runtime is practical before promising folder-based playback. |
 | KiriKiri / KAG | Research | Evaluate available mobile runtime projects, supported versions, formats, build requirements, and licence obligations. |
 | ONScripter | Later / research | Consider after the first runtime and compatibility test system exist. |
-| Unity-based visual novels | Later | Unity is a general-purpose engine; version and build variations make this a separate, substantial compatibility project. |
+| Native/proprietary Windows VN engines | Research | Start with PE architecture/import metadata and byte-level container identification. Each engine family requires independent format evidence and a feasibility report; no Windows executable is launched by the inspector. |\n| Unity-based visual novels | Later | Unity is a general-purpose engine; version and build variations make this a separate, substantial compatibility project. |
+
+## Native / proprietary engine research
+
+The first tooling step is read-only inspection, not emulation. Ramen currently reports common executable and container signatures and a limited set of PE header fields. It does not execute Windows binaries, decode proprietary archives, or claim compatibility with any engine based on filenames. See [Engine Research](ENGINE_RESEARCH.md), [Format Registry](FORMAT_REGISTRY.md), and [Development Log](DEVELOPMENT_LOG.md) for the evidence record and next steps.
 
 ## Important distinctions
 
