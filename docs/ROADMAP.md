@@ -16,6 +16,7 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Add a generic read-only positional source abstraction with a FileChannel implementation.
 - [x] Add container-probe contracts with `MATCH`, `NO_MATCH`, and `MALFORMED` outcomes.
 - [x] Create synthetic fixtures for PE import headers, random-access boundaries, hashes, and signature probes.
+- [x] Add bounded read-only parsers for the observed GPK/GTB image and VPK/VTB audio archive pairs, with synthetic malformed-input tests.
 
 **Exit condition:** Ramen can produce reproducible, read-only executable metadata, streaming file fingerprints, and explicit format-probe evidence, while unknown proprietary formats remain explicitly unknown.
 
@@ -24,6 +25,7 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Connect the random-access source to the PE binary inspector.
 - [x] Add streaming, versioned JSON serialization for inventory reports.
 - [ ] Add a user-facing save/share flow for inspection results.
+- [ ] Add bounded streaming of individual resource payload ranges returned by the proprietary archive parsers.
 - [ ] Add a positional source implementation for Android Storage Access Framework documents where supported.
 
 ## M0 — Project foundation
