@@ -56,9 +56,9 @@ data class VpkVtbArchive(
  *
  * The index contains a little-endian count, a table of name offsets, a table of
  * archive offsets, and a NUL-terminated ASCII string pool. Archive blocks have
- * a fixed 64-byte service preamble followed by JPEG or BMP payloads. Known text
- * preambles are validated when recognized; opaque preambles are skipped and the
- * image payload signature is used to determine the format.
+ * a fixed 64-byte service preamble followed by JPEG, BMP, or a supported raw DIB
+ * payload. Known text preambles are validated when recognized; opaque preambles
+ * are skipped and the payload signature/header is used to determine the format.
  *
  * Payloads are not decoded or copied into memory. Returned offsets can be used
  * by a caller to stream an individual image to another destination.
