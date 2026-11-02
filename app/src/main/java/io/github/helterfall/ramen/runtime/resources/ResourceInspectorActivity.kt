@@ -58,6 +58,8 @@ import io.github.helterfall.ramen.inspection.VpkAudioResource
 import io.github.helterfall.ramen.inspection.VpkOggCacheMaterializer
 import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
 import io.github.helterfall.ramen.storage.StorageSpaceGuard
+
+private const val OBSERVED_GPK_XOR_KEY = 0x10
 import io.github.helterfall.ramen.inspection.VpkVtbArchiveParser
 import java.io.File
 import java.io.IOException
@@ -255,7 +257,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                     ResourcePairKind.IMAGES -> {
                         val parsed = FileRandomAccessSource(pair.archiveFile).use { archive ->
                             FileRandomAccessSource(pair.indexFile).use { index ->
-                                GpkGtbArchiveParser().parse(index, archive)
+                                GpkGtbArchiveParser(archiveXorKey = OBSERVED_GPK_XOR_KEY).parse(index, archive)
                             }
                         }
                         if (parsed.entries.isEmpty()) {
@@ -364,7 +366,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                     ResourcePairKind.IMAGES -> {
                         val parsed = FileRandomAccessSource(firstFile).use { archive ->
                             FileRandomAccessSource(secondFile).use { index ->
-                                GpkGtbArchiveParser().parse(index, archive)
+                                GpkGtbArchiveParser(archiveXorKey = OBSERVED_GPK_XOR_KEY).parse(index, archive)
                             }
                         }
                         if (parsed.entries.isEmpty()) {
