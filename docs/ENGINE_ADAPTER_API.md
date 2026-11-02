@@ -83,14 +83,14 @@ The first concrete adapter is `BinarySignatureProbe`. It reads exactly eight byt
 
 The type is exposed on `EngineEvidence.resourceType` and is carried through the registry to `EngineProbeMatch.evidence`.
 
-Calling `probeFile(source, path)` is strict: a file shorter than eight bytes, an unrecognized 8-byte header, a missing entry, or an I/O read failure returns `Malformed`. A directory-level `probe(source)` scans the whole bounded source snapshot. It aggregates all recognized resources into one `Match`; any other candidate files are retained as diagnostic evidence so they cannot hide valid resources. If the non-empty source contains no recognized headers, the aggregate result is `Malformed`. An empty source is an ordinary `NoMatch`.
+Calling `probeFile(source, path)` returns `Malformed` for a file shorter than eight bytes, an unrecognized 8-byte header, a missing entry, or an I/O read failure. Once a known Script or IF PACKT marker is present, it returns `Match` and reports whether the synthetic body parser also validated the structure. A directory-level `probe(source)` scans the whole bounded source snapshot. It aggregates all recognized markers into one `Match`; unrelated or malformed files are retained as diagnostic evidence so they cannot hide valid resources. If the non-empty source contains no recognized marker, the aggregate result is `Malformed`. An empty source is an ordinary `NoMatch`.
 
-These four signatures are the custom Ramen test-fixture specification only. In particular, the script prefix is not a decoded SPT format and does not prove compatibility with the inventoried game's script engine. After signature matching, Script v1 and ResourceContainer v1 receive separate structural validation as documented below; this does not decode the proprietary formats or execute content.
+These four signatures are the custom Ramen test-fixture specification only. In particular, the script prefix is not a decoded SPT format and does not prove compatibility with the inventoried game's script engine. Structural validation remains separate: a recognized marker can be Detected even when the Ramen-owned Script v1 or ResourceContainer v1 parser does not understand the body. Such a result is not launchable and does not decode or execute proprietary content.
 
 
 ## PackArchiveReader — Ramen test ResourceContainer v1
 
-`BinarySignatureProbe` no longer treats the eight-byte `IF PACKT` prefix alone as a valid container. It passes the same positional source to `PackArchiveReader.openArchive()`; a bad version or index produces `EngineProbeResult.Malformed`.
+`BinarySignatureProbe` treats the eight-byte `IF PACKT` prefix as marker-level discovery evidence, then passes the same positional source to `PackArchiveReader.openArchive()`. A bad version or index is recorded in the match evidence as a body-validation failure; it does not erase the recognized marker or make the container launchable.
 
 `PackArchiveReader` reads the 20-byte fixed header and at most the configured index limit (16 MiB by default, 64 MiB absolute ceiling). It validates record count, strict UTF-8 paths, path traversal, duplicate names, unsigned offset/size values, payload bounds, and overlapping ranges. It retains only the parsed index in memory.
 
@@ -112,6 +112,6 @@ The eight-byte Script magic is only the first field of the synthetic test format
 
 String operands are length-prefixed and decoded strictly using the header-selected UTF-8 or Shift-JIS charset. Jump addresses are absolute byte offsets from the start of the Script file and must point to a decoded command boundary. The loader maps instruction addresses to stable addr_<offset> scene IDs and translates the commands into the existing ScenarioProject model, which is executable by ScenarioSession.
 
-EOF between commands is a normal end of stream. EOF inside an opcode operand or string payload, an unknown opcode, invalid text, an unsafe background path, or an unresolved jump address is malformed. BinarySignatureProbe now runs this structural loader after matching the magic and reports invalid scripts as EngineProbeResult.Malformed.
+EOF between commands is a normal end of stream. EOF inside an opcode operand or string payload, an unknown opcode, invalid text, an unsafe background path, or an unresolved jump address is malformed. BinarySignatureProbe runs this structural loader after matching the magic and includes its result in the evidence. If the Ramen test parser rejects the body, marker-level detection remains `Match`, but the file is not eligible for the experimental Script v1 player.
 
 The exact synthetic v1 layout, limits, and opcode numbers are in docs/SCRIPT_COMMAND_FORMAT.md. These values are Ramen-owned test-fixture decisions; they are not inferred from the inventoried proprietary script files.
