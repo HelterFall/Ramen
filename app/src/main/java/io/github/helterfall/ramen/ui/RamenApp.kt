@@ -56,7 +56,10 @@ import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
+import io.github.helterfall.ramen.inspection.DirectoryInventoryJsonWriter
+import io.github.helterfall.ramen.inspection.DirectoryInventoryScanner
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.Executors
 
 private val RamenBackground = Color(0xFF101216)
@@ -76,6 +79,9 @@ fun RamenApp() {
         }
     }
     var isImporting by remember { mutableStateOf(false) }
+    var isExportingInventory by remember { mutableStateOf(false) }
+    var pendingInventoryGame by remember { mutableStateOf<GameRecord?>(null) }
+    val isBusy = isImporting || isExportingInventory
     var statusMessage by remember {
         mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
     }
@@ -95,7 +101,7 @@ fun RamenApp() {
         releaseReadPermission: Boolean = false,
         importOperation: (Uri) -> GameRecord
     ) {
-        if (isImporting) return
+        if (isBusy) return
 
         isImporting = true
         statusMessage = progressMessage
@@ -175,8 +181,8 @@ fun RamenApp() {
     ) { uri ->
         if (uri == null) {
             statusMessage = "Выбор папки отменён."
-        } else if (isImporting) {
-            statusMessage = "Дождись окончания текущего импорта."
+        } else if (isBusy) {
+            statusMessage = "Дождись окончания текущей операции."
         } else {
             val permissionTaken = runCatching {
                 context.contentResolver.takePersistableUriPermission(
@@ -199,8 +205,81 @@ fun RamenApp() {
         }
     }
 
+    val inventoryExportPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val selectedGame = pendingInventoryGame
+        pendingInventoryGame = null
+
+        when {
+            uri == null -> {
+                statusMessage = "Сохранение отчёта отменено."
+            }
+            selectedGame == null -> {
+                statusMessage = "Не удалось определить игру для отчёта."
+            }
+            isBusy -> {
+                statusMessage = "Дождись окончания текущей операции."
+            }
+            else -> {
+                isExportingInventory = true
+                statusMessage = "Сканирую файлы игры и формирую JSON-отчёт…"
+
+                executor.execute {
+                    try {
+                        val gamesRoot = File(context.filesDir, "games").canonicalFile
+                        val gameRoot = File(
+                            context.filesDir,
+                            selectedGame.relativeDirectory
+                        ).canonicalFile
+                        val gamesPath = gamesRoot.toPath()
+                        val gamePath = gameRoot.toPath()
+
+                        if (gamePath == gamesPath || !gamePath.startsWith(gamesPath)) {
+                            throw IOException("Папка игры находится вне внутреннего каталога библиотеки.")
+                        }
+                        if (!gameRoot.isDirectory) {
+                            throw IOException("Импортированная папка игры больше не существует.")
+                        }
+
+                        val report = DirectoryInventoryScanner().scan(gameRoot)
+                        val output = context.contentResolver.openOutputStream(uri, "w")
+                            ?: throw IOException("Android не смог создать файл отчёта.")
+                        output.use {
+                            DirectoryInventoryJsonWriter().write(report, it)
+                        }
+
+                        val missingHashes = report.entries.count {
+                            it.sizeBytes > 0L && it.sha256Hex == null
+                        }
+                        val completionMessage = buildString {
+                            append("JSON-отчёт сохранён: ${report.entries.size} файлов.")
+                            if (report.truncated) {
+                                append(" Сканирование неполное — причины указаны в warnings.")
+                            }
+                            if (missingHashes > 0) {
+                                append(" Для $missingHashes файлов SHA-256 не вычислен; причины указаны в отчёте.")
+                            }
+                        }
+
+                        mainHandler.post {
+                            isExportingInventory = false
+                            statusMessage = completionMessage
+                        }
+                    } catch (error: Exception) {
+                        mainHandler.post {
+                            isExportingInventory = false
+                            statusMessage = error.message
+                                ?: "Не удалось сформировать JSON-отчёт."
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     val onImportClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isBusy) {
             documentPicker.launch(
                 arrayOf(
                     "application/zip",
@@ -213,13 +292,13 @@ fun RamenApp() {
     }
 
     val onImportFolderClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isBusy) {
             folderPicker.launch(null)
         }
     }
 
     val onImportHtmlClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isBusy) {
             // Some providers label .html as text/plain or octet-stream,
             // so accept the selection broadly and validate it in HtmlFileImporter.
             htmlFilePicker.launch(arrayOf("*/*"))
@@ -265,7 +344,7 @@ fun RamenApp() {
                 if (games.isEmpty()) {
                     item {
                         EmptyLibraryCard(
-                            isImporting = isImporting,
+                            isImporting = isBusy,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
                             onImportHtmlClick = onImportHtmlClick
@@ -275,7 +354,7 @@ fun RamenApp() {
                     item {
                         LibrarySummaryCard(
                             gameCount = games.size,
-                            isImporting = isImporting,
+                            isImporting = isBusy,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
                             onImportHtmlClick = onImportHtmlClick
@@ -285,6 +364,15 @@ fun RamenApp() {
                     items(games, key = { it.id }) { game ->
                         GameCard(
                             game = game,
+                            actionsEnabled = !isBusy,
+                            onExportInventory = {
+                                if (!isBusy) {
+                                    pendingInventoryGame = game
+                                    inventoryExportPicker.launch(
+                                        "ramen-inventory-${game.id.take(8)}.json"
+                                    )
+                                }
+                            },
                             onInspectResources = {
                                 val intent = Intent(context, ResourceInspectorActivity::class.java)
                                     .putExtra(
@@ -305,7 +393,7 @@ fun RamenApp() {
                 item {
                     ImportStatusCard(
                         message = statusMessage,
-                        isImporting = isImporting
+                        isImporting = isBusy
                     )
                 }
                 item { ComingNextSection() }
@@ -610,6 +698,8 @@ private fun SectionHeading(text: String) {
 @Composable
 private fun GameCard(
     game: GameRecord,
+    actionsEnabled: Boolean,
+    onExportInventory: () -> Unit,
     onInspectResources: () -> Unit,
     onLaunch: () -> Unit
 ) {
@@ -656,14 +746,24 @@ private fun GameCard(
             )
             OutlinedButton(
                 onClick = onInspectResources,
+                enabled = actionsEnabled,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(13.dp)
             ) {
                 Text("Просмотреть ресурсы")
             }
+            OutlinedButton(
+                onClick = onExportInventory,
+                enabled = actionsEnabled,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(13.dp)
+            ) {
+                Text("Сохранить отчёт (JSON)")
+            }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED") {
                 Button(
                     onClick = onLaunch,
+                    enabled = actionsEnabled,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(13.dp),
                     colors = ButtonDefaults.buttonColors(

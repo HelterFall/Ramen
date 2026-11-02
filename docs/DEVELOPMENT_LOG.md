@@ -249,3 +249,18 @@ Use the supplied paired archive samples to move two extension families from file
 
 ### Next step
 Create and review a complete read-only inventory report from a representative game folder. Use that report to decide which unknown file roles are important enough to investigate, and keep unverified formats explicitly unknown.
+
+
+## 2026-11-02 — Per-game inventory report export
+
+### Changed
+- Added a `Save report (JSON)` action to each imported game card.
+- The action uses Android's Create Document picker so the user chooses the destination.
+- The inventory scan and JSON writing run on the existing background executor, not on the UI thread.
+- The exported report contains paths, sizes, SHA-256 values where computed, recognized signatures/PE metadata, and explicit warnings. It does not contain game file payloads.
+- The game directory is canonicalized and checked to remain inside the app's private `games` directory before scanning.
+- The existing scanner bounds remain in force: 10,000 files, depth 64, and 8 GiB of total input hashed by default. A truncated scan and missing hashes are reported instead of being presented as complete.
+
+### Limits
+- This is a one-off diagnostic export, not a full analysis screen or runtime feature.
+- Physical-device testing is still needed for the Android document picker and large-directory behavior.

@@ -21,7 +21,7 @@ The long-term ambition is broad compatibility. It is **not** a promise that ever
 - A restricted HTML5 WebView runtime using app-controlled local resource loading, per-game browser profiles, and an offline-only policy.
 - A read-only binary inspector for PE/ELF and common file signatures, including standard PE32/PE32+ imported DLL names.
 - A bounded deterministic directory inventory with per-file size, SHA-256 fingerprint, binary metadata, and explicit scan/hash limits.
-- A streaming, versioned JSON writer for inventory reports; a user-facing export/share screen is still pending.
+- A streaming, versioned JSON inventory report with a per-game “Save report (JSON)” action in the library; it writes metadata only and never copies file payloads into the report.
 - Bounded, read-only parsers for the observed paired GPK/GTB image and VPK/VTB audio resource archives, plus fixed-buffer streaming of individual payload ranges.
 - A resource inspector screen can open matching archive pairs, browse image/audio metadata, preview GPK images through a bounded Android BitmapFactory decoder, and play selected Ogg resources through Android MediaPlayer with basic play/pause/stop controls. Selected archives are copied to app-private cache with storage-aware streaming and no fixed per-file size cap.
 - No broad storage permissions. Native/proprietary engine runtime integrations are not available yet.
@@ -95,9 +95,9 @@ Use the committed Gradle Wrapper with `./gradlew`. See [Android Build Setup](doc
 
 ## Current next step
 
-Build a complete, read-only inventory of a representative game folder and use it to classify the files that are not covered by the six inspected samples. Prioritize understanding the data needed for game control and lifecycle before adding more asset previews. In parallel, validate the existing image/audio inspector on physical Android devices. The inventory save/share UI and positional access for user-selected SAF documents remain pending.
+Build a complete, read-only inventory of a representative game folder and use it to classify the files that are not covered by the six inspected samples. Prioritize understanding the data needed for game control and lifecycle before adding more asset previews. In parallel, validate the existing image/audio inspector on physical Android devices. The per-game JSON report action is implemented. Positional access for user-selected SAF documents and a richer in-app inventory viewer remain pending.
 
-The current archive tools preview individual assets; they do not run the original engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
+The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-256 input by default); the report marks truncated scans and records files whose hashes were skipped. The current archive tools preview individual assets; they do not run the original engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
 
 ## Naming
 

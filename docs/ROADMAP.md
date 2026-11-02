@@ -24,7 +24,7 @@ The current direction is to build reusable inspection infrastructure before sele
 - [x] Add a bounded directory inventory combining relative paths, file sizes, SHA-256 fingerprints, and binary inspection reports.
 - [x] Connect the random-access source to the PE binary inspector.
 - [x] Add streaming, versioned JSON serialization for inventory reports.
-- [ ] Add a user-facing save/share flow for inspection results.
+- [x] Add a per-game user-facing JSON report save flow through the Android document picker.
 - [ ] Produce a complete read-only inventory of a representative game folder and document all observed extension/signature families, leaving unknown formats explicitly unclassified.
 - [x] Add bounded fixed-buffer streaming for individual resource payload ranges returned by the proprietary archive parsers.
 - [x] Add a bounded BitmapFactory adapter for GPK images and storage-aware Ogg cache materialization without a fixed per-resource size cap.
