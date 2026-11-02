@@ -15,8 +15,9 @@ The selected tree is copied; it is not modified. Ramen releases the persisted re
 - Repeated document URIs from a provider are rejected to prevent provider cycles.
 - Maximum depth: 64 levels.
 - Maximum entries: 10,000.
-- Maximum file size: 512 MiB.
-- Maximum total copied data: 1 GiB.
+- No fixed per-file or total-byte ceiling.
+- Each streamed write is checked against currently available storage.
+- A dynamic free-space reserve is preserved (at least 16 MiB, up to 256 MiB or 5% of currently available space).
 - Declared document sizes are treated as hints only; streaming byte limits remain authoritative.
 - Data is copied to a temporary app-private directory and only renamed into the library after copy and engine inspection succeed.
 - Failed imports clean up the temporary copy.
@@ -29,5 +30,5 @@ The same detector used for ZIP imports inspects the copied content. Detection ne
 
 - Cloud providers may be slower or may fail while streaming a file; those errors are reported and the partial import is discarded.
 - The initial implementation copies files rather than retaining a live link to the selected folder.
-- Very large games may exceed the configured 1 GiB import limit.
-- Folder import has unit coverage for safe path handling, nested copies, duplicates, and expanded-size limits, but physical-device testing across different document providers is still required.
+- Imports can still stop when the selected storage volume cannot safely hold more data; this is reported as insufficient free space rather than an arbitrary 512 MiB file-size error.
+- Folder import has unit coverage for safe path handling, nested copies, duplicates, explicit size limits, and dynamic storage-reserve checks, but physical-device testing across different document providers is still required.
