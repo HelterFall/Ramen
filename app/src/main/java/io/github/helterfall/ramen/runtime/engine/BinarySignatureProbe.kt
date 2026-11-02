@@ -11,11 +11,12 @@ enum class BinaryResourceType(val id: String) {
 }
 
 /**
- * Recognizes the explicitly documented Ramen test-fixture signatures.
+ * Recognizes known binary marker signatures and records structural validation separately.
  *
- * These signatures identify resource kinds in the Ramen synthetic test format only.
- * They are not a general-purpose file-type database and do not identify the proprietary
- * sample engine's script or archive formats.
+ * A marker match is discovery evidence, not proof that the body uses the synthetic Ramen
+ * test layout. In particular, a legacy SPT dialect may share the script prefix while
+ * remaining unsupported by ScriptScenarioLoader. Only a successfully parsed Ramen Script
+ * v1 file is eligible for the experimental Script v1 player.
  */
 class BinarySignatureProbe : EngineAdapter {
     override val descriptor = EngineAdapterDescriptor(
@@ -27,8 +28,9 @@ class BinarySignatureProbe : EngineAdapter {
     /**
      * Inspects one explicitly selected source entry.
      *
-     * This operation is strict: short files, unrecognized magic bytes, and I/O failures
-     * are reported as Malformed rather than silently treated as an ordinary non-match.
+     * Short files and unrecognized magic bytes are reported as Malformed. Once a known
+     * signature is present, the probe returns a Match even when the synthetic body parser
+     * cannot validate the layout; the evidence explains that the body remains unparsed.
      */
     fun probeFile(source: EngineSource, relativePath: String): EngineProbeResult {
         val entry = source.entries.firstOrNull { it.relativePath == relativePath }
@@ -65,12 +67,13 @@ class BinarySignatureProbe : EngineAdapter {
                     BinaryResourceType.RESOURCE_CONTAINER -> {
                         try {
                             val index = PackArchiveReader(randomAccess).openArchive()
-                            " Validated index with ${index.entries.size} entries."
+                            " Validated Ramen test-container index with ${index.entries.size} entries."
                         } catch (exception: IOException) {
-                            return malformed(
-                                "Invalid ResourceContainer structure: ${exception.message ?: "malformed index"}.",
-                                relativePath
-                            )
+                            // The signature is still useful discovery evidence for a
+                            // proprietary container that the synthetic test reader does
+                            // not understand. Keep it Detected, but do not claim parsing.
+                            " Signature matched; the Ramen test-container parser did not " +
+                                "validate this layout: ${exception.message ?: "unknown structure"}."
                         }
                     }
                     BinaryResourceType.SCRIPT -> {
@@ -78,10 +81,11 @@ class BinarySignatureProbe : EngineAdapter {
                             val project = source.openRead(relativePath).use { ScriptScenarioLoader.load(it) }
                             " Parsed ${project.scenes.size} command records into the Ramen Scenario model."
                         } catch (exception: IOException) {
-                            return malformed(
-                                "Invalid Script structure: ${exception.message ?: "malformed command stream"}.",
-                                relativePath
-                            )
+                            // A recognized script magic can belong to a different SPT
+                            // dialect. Detection must not promote it to the Ramen Script
+                            // v1 launcher unless the complete test format validates.
+                            " Signature matched; the Ramen Script v1 parser did not " +
+                                "validate this command stream: ${exception.message ?: "unknown structure"}."
                         }
                     }
                     BinaryResourceType.GRAPHIC_ARCHIVE -> ""
