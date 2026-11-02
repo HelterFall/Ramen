@@ -53,6 +53,44 @@ class ResourceArchiveParsersTest {
     }
 
     @Test
+    fun skipsOpaque64BytePreamblesAndDetectsJpegAndBmpFromPayloads() {
+        val jpegPayload = createJpegWithSof(width = 640, height = 480)
+        val bmpPayload = createBmp1x1()
+        val jpegBlock = ByteArray(64) { (it + 1).toByte() } + jpegPayload
+        val bmpBlock = ByteArray(64) { (it + 65).toByte() } + bmpPayload
+        val indexBytes = createGtbIndex(
+            names = listOf("opaque-jpeg", "opaque-bmp"),
+            blockSizes = listOf(jpegBlock.size, bmpBlock.size)
+        )
+
+        withSources(indexBytes, jpegBlock + bmpBlock) { index, archive ->
+            val parsed = GpkGtbArchiveParser().parse(index, archive)
+
+            assertEquals(2, parsed.entries.size)
+
+            val jpeg = parsed.entries[0]
+            assertEquals(GpkImageFormat.JPEG, jpeg.format)
+            assertEquals(64L, jpeg.payloadOffset)
+            assertEquals(jpegPayload.size.toLong(), jpeg.payloadSizeBytes)
+            assertEquals(640, jpeg.widthPixels)
+            assertEquals(480, jpeg.heightPixels)
+            val extractedJpeg = ByteArray(jpeg.payloadSizeBytes.toInt())
+            archive.readFullyAt(jpeg.payloadOffset, extractedJpeg)
+            assertTrue(extractedJpeg.contentEquals(jpegPayload))
+
+            val bmp = parsed.entries[1]
+            assertEquals(GpkImageFormat.BMP, bmp.format)
+            assertEquals((jpegBlock.size + 64).toLong(), bmp.payloadOffset)
+            assertEquals(bmpPayload.size.toLong(), bmp.payloadSizeBytes)
+            assertEquals(1, bmp.widthPixels)
+            assertEquals(1, bmp.heightPixels)
+            val extractedBmp = ByteArray(bmp.payloadSizeBytes.toInt())
+            archive.readFullyAt(bmp.payloadOffset, extractedBmp)
+            assertTrue(extractedBmp.contentEquals(bmpPayload))
+        }
+    }
+
+    @Test
     fun keepsGpkEntriesReadableWithShiftJisAndMalformedNameBytes() {
         val firstPayload = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x01)
         val secondPayload = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x02)
@@ -285,6 +323,19 @@ class ResourceArchiveParsersTest {
         }
         return header + payload
     }
+
+    private fun createJpegWithSof(width: Int, height: Int): ByteArray =
+        byteArrayOf(
+            0xFF.toByte(), 0xD8.toByte(),
+            0xFF.toByte(), 0xC0.toByte(),
+            0x00, 0x0B, // SOF0 segment length: 8 + 3 * component count
+            0x08, // sample precision
+            (height ushr 8).toByte(), height.toByte(),
+            (width ushr 8).toByte(), width.toByte(),
+            0x01, // one colour component
+            0x01, 0x11, 0x00, // component id, sampling, quantization table
+            0xFF.toByte(), 0xD9.toByte()
+        )
 
     private fun createBmp1x1(): ByteArray {
         val bytes = ByteArray(58)
