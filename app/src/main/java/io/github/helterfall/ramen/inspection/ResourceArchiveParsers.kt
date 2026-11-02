@@ -73,7 +73,7 @@ class GpkGtbArchiveParser(
     private val maxStringPoolBytes: Int = DEFAULT_MAX_STRING_POOL_BYTES,
     private val maxNameBytes: Int = DEFAULT_MAX_NAME_BYTES,
     private val maxImageDimension: Int = DEFAULT_MAX_IMAGE_DIMENSION,
-    private val archiveXorKey: Int? = null
+    private val archiveXorKey: Int? = DEFAULT_GPK_XOR_FALLBACK_KEY
 ) {
     init {
         require(maxEntries in 1..ABSOLUTE_MAX_ENTRIES)
@@ -632,6 +632,7 @@ class GpkGtbArchiveParser(
     }
 
     companion object {
+        private const val DEFAULT_GPK_XOR_FALLBACK_KEY = 0x10
         private const val DEFAULT_MAX_ENTRIES = 100_000
         private const val ABSOLUTE_MAX_ENTRIES = 1_000_000
         private const val DEFAULT_MAX_STRING_POOL_BYTES = 16 * 1024 * 1024
