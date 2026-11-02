@@ -131,6 +131,68 @@ class ResourceArchiveParsersTest {
     }
 
     @Test
+    fun parsesCompressedBmpRle4AndRle8WithoutExpectingExpandedPixelRowsInGpk() {
+        val width = 32
+        val height = 8
+        val rle8Data = ByteArrayOutputStream().apply {
+            repeat(height) {
+                write(width)
+                write(3)
+                write(0)
+                write(0) // end of line
+            }
+            write(0)
+            write(1) // end of bitmap
+        }.toByteArray()
+        val rle4Data = ByteArrayOutputStream().apply {
+            repeat(height) {
+                write(width)
+                write(0x12)
+                write(0)
+                write(0) // end of line
+            }
+            write(0)
+            write(1) // end of bitmap
+        }.toByteArray()
+
+        val rle8Payload = createRleBmp(width, height, 8, 1, rle8Data)
+        val rle4Payload = createRleBmp(width, height, 4, 2, rle4Data)
+        val rle8Block = createGpkBlock("BMP", rle8Payload)
+        val rle4Block = createGpkBlock("BMP", rle4Payload)
+        val index = createGtbIndex(
+            names = listOf("compressed-rle8", "compressed-rle4"),
+            blockSizes = listOf(rle8Block.size, rle4Block.size)
+        )
+
+        withSources(index, rle8Block + rle4Block) { indexSource, archiveSource ->
+            val parsed = GpkGtbArchiveParser().parse(indexSource, archiveSource)
+
+            assertEquals(2, parsed.entries.size)
+            val rle8 = parsed.entries[0]
+            assertEquals(GpkImageFormat.BMP, rle8.format)
+            assertEquals(width, rle8.widthPixels)
+            assertEquals(height, rle8.heightPixels)
+            assertEquals(8, rle8.bmpBitsPerPixel)
+            assertEquals(1L, rle8.bmpCompression)
+            assertEquals(256, rle8.bmpPaletteColorCount)
+            assertEquals((14 + 40).toLong(), rle8.bmpPaletteOffsetBytes)
+            assertEquals((14 + 40 + 256 * 4).toLong(), rle8.bmpPixelDataOffsetBytes)
+            assertTrue(rle8Data.size < width * height)
+
+            val rle4 = parsed.entries[1]
+            assertEquals(GpkImageFormat.BMP, rle4.format)
+            assertEquals(width, rle4.widthPixels)
+            assertEquals(height, rle4.heightPixels)
+            assertEquals(4, rle4.bmpBitsPerPixel)
+            assertEquals(2L, rle4.bmpCompression)
+            assertEquals(16, rle4.bmpPaletteColorCount)
+            assertEquals((14 + 40).toLong(), rle4.bmpPaletteOffsetBytes)
+            assertEquals((14 + 40 + 16 * 4).toLong(), rle4.bmpPixelDataOffsetBytes)
+            assertTrue(rle4Data.size < width * height)
+        }
+    }
+
+    @Test
     fun keepsGpkEntriesReadableWithShiftJisAndMalformedNameBytes() {
         val firstPayload = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x01)
         val secondPayload = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x02)
@@ -376,6 +438,41 @@ class ResourceArchiveParsersTest {
             0x01, 0x11, 0x00, // component id, sampling, quantization table
             0xFF.toByte(), 0xD9.toByte()
         )
+
+    private fun createRleBmp(
+        width: Int,
+        height: Int,
+        bitsPerPixel: Int,
+        compression: Int,
+        compressedPixels: ByteArray
+    ): ByteArray {
+        val paletteEntries = 1 shl bitsPerPixel
+        val paletteOffset = 14 + 40
+        val pixelDataOffset = paletteOffset + paletteEntries * 4
+        val bytes = ByteArray(pixelDataOffset + compressedPixels.size)
+        bytes[0] = 'B'.code.toByte()
+        bytes[1] = 'M'.code.toByte()
+        putU32(bytes, 2, bytes.size.toLong())
+        putU32(bytes, 10, pixelDataOffset.toLong())
+        putU32(bytes, 14, 40)
+        putU32(bytes, 18, width.toLong())
+        putU32(bytes, 22, height.toLong())
+        putU16(bytes, 26, 1)
+        putU16(bytes, 28, bitsPerPixel)
+        putU32(bytes, 30, compression.toLong())
+        putU32(bytes, 34, compressedPixels.size.toLong())
+        putU32(bytes, 46, 0) // zero means the default palette size for this bit depth
+
+        repeat(paletteEntries) { index ->
+            val base = paletteOffset + index * 4
+            bytes[base] = index.toByte()
+            bytes[base + 1] = index.toByte()
+            bytes[base + 2] = index.toByte()
+            bytes[base + 3] = 0
+        }
+        compressedPixels.copyInto(bytes, pixelDataOffset)
+        return bytes
+    }
 
     private fun createDibOnlyBmp1x1(): ByteArray {
         val bytes = ByteArray(44)
