@@ -71,15 +71,15 @@ class DirectoryInventoryScanner(
                     continue
                 }
 
-                val orderedChildren = children.sortedBy { it.name }
+                val orderedChildren = children
+                    .filterNot { Files.isSymbolicLink(it.toPath()) }
+                    .sortedBy { it.name }
                 if (node.depth >= maxDepth) {
                     if (orderedChildren.isNotEmpty()) depthLimitReached = true
                     continue
                 }
                 for (child in orderedChildren.asReversed()) {
-                    if (!Files.isSymbolicLink(child.toPath())) {
-                        pending.addLast(PendingNode(child, node.depth + 1))
-                    }
+                    pending.addLast(PendingNode(child, node.depth + 1))
                 }
             } else if (current.isFile) {
                 discovered += current
