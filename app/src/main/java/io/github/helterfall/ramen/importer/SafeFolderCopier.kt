@@ -7,6 +7,7 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
+import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
 import io.github.helterfall.ramen.storage.StorageSpaceGuard
 
 interface FolderEntryNode {
@@ -121,7 +122,10 @@ class SafeFolderCopier(
 
             var entryBytes = 0L
             BufferedInputStream(node.openInputStream()).use { input ->
-                BufferedOutputStream(FileOutputStream(output, false)).use { stream ->
+                StorageGuardedOutputStream(
+                delegate = BufferedOutputStream(FileOutputStream(output, false)),
+                guard = storageGuard
+            ).use { stream ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
 
                     while (true) {
@@ -137,7 +141,6 @@ class SafeFolderCopier(
                             throw IOException("The selected folder exceeds the total size limit.")
                         }
 
-                        storageGuard.requireCapacity(bytesRead)
                         entryBytes += bytesRead
                         totalBytes += bytesRead
                         stream.write(buffer, 0, read)
