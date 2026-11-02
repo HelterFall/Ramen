@@ -2,33 +2,99 @@ package io.github.helterfall.ramen.runtime.scenario
 
 import io.github.helterfall.ramen.runtime.engine.EngineSource
 import io.github.helterfall.ramen.runtime.engine.EngineSourceEntry
+import java.io.IOException
+import java.util.Locale
+
+sealed interface ScriptEntryPointLoadResult {
+    data class Ready(
+        val entry: EngineSourceEntry,
+        val project: ScenarioProject
+    ) : ScriptEntryPointLoadResult
+
+    data class Malformed(
+        val failures: List<ScriptEntryPointFailure>,
+        val candidatesInspected: Int
+    ) : ScriptEntryPointLoadResult
+
+    data object NotFound : ScriptEntryPointLoadResult
+}
+
+data class ScriptEntryPointFailure(
+    val relativePath: String,
+    val reason: String
+)
 
 /**
- * Selects one Ramen Script v1 entry point from a bounded source snapshot.
- * Conventional SPT names are preferred; otherwise the exact Script v1 magic is checked.
+ * Finds and fully validates a Ramen Script v1 startup file.
+ *
+ * .spt is an ordering hint, not proof of format. Candidate scripts are passed through
+ * ScriptScenarioLoader in priority order; malformed candidates (including unknown
+ * opcodes) are recorded and skipped. Non-.spt files are considered only when their
+ * bytes match the exact Ramen Script v1 signature.
  */
 class ScriptEntryPointResolver {
-    fun select(source: EngineSource): EngineSourceEntry? {
-        val scriptFiles = source.entries.filter {
-            it.relativePath.substringAfterLast('/').endsWith(".spt", ignoreCase = true)
+    fun select(source: EngineSource): EngineSourceEntry? =
+        orderedCandidates(source).firstOrNull()
+
+    fun load(source: EngineSource): ScriptEntryPointLoadResult {
+        val candidates = orderedCandidates(source)
+        if (candidates.isEmpty()) return ScriptEntryPointLoadResult.NotFound
+
+        val inspected = candidates.take(MAX_CANDIDATES)
+        val failures = mutableListOf<ScriptEntryPointFailure>()
+
+        for (entry in inspected) {
+            try {
+                val project = source.openRead(entry.relativePath).use(ScriptScenarioLoader::load)
+                return ScriptEntryPointLoadResult.Ready(entry, project)
+            } catch (exception: IOException) {
+                failures += ScriptEntryPointFailure(
+                    relativePath = entry.relativePath,
+                    reason = (exception.message ?: "Malformed Script v1 candidate.")
+                        .take(MAX_FAILURE_LENGTH)
+                )
+            }
         }
-        if (scriptFiles.isNotEmpty()) {
-            return scriptFiles.minWithOrNull(
-                compareBy<EngineSourceEntry> { priority(it.relativePath) }
-                    .thenBy { it.relativePath.count { char -> char == '/' } }
-                    .thenBy { it.relativePath.lowercase() }
+
+        if (candidates.size > MAX_CANDIDATES) {
+            failures += ScriptEntryPointFailure(
+                relativePath = "<scan>",
+                reason = "Startup candidate limit reached ($MAX_CANDIDATES)."
             )
         }
 
-        return source.entries
-            .asSequence()
-            .filter { it.sizeBytes >= MAGIC.size }
-            .sortedBy { it.relativePath.lowercase() }
-            .firstOrNull { entry -> hasScriptMagic(source, entry) }
+        return ScriptEntryPointLoadResult.Malformed(
+            failures = failures.take(MAX_REPORTED_FAILURES),
+            candidatesInspected = inspected.size
+        )
+    }
+
+    private fun orderedCandidates(source: EngineSource): List<EngineSourceEntry> {
+        val sptEntries = source.entries
+            .filter {
+                it.relativePath.substringAfterLast('/')
+                    .endsWith(".spt", ignoreCase = true)
+            }
+            .sortedWith(
+                compareBy<EngineSourceEntry> { priority(it.relativePath) }
+                    .thenBy { it.relativePath.count { char -> char == '/' } }
+                    .thenBy { it.relativePath.lowercase(Locale.ROOT) }
+            )
+
+        val sptPaths = sptEntries.mapTo(mutableSetOf()) { it.relativePath }
+        val magicEntries = source.entries.asSequence()
+            .filter { it.relativePath !in sptPaths && it.sizeBytes >= MAGIC.size }
+            .sortedBy { it.relativePath.lowercase(Locale.ROOT) }
+            .filter { entry ->
+                runCatching { hasScriptMagic(source, entry) }.getOrDefault(false)
+            }
+            .toList()
+
+        return sptEntries + magicEntries
     }
 
     private fun priority(relativePath: String): Int =
-        when (relativePath.substringAfterLast('/').lowercase()) {
+        when (relativePath.substringAfterLast('/').lowercase(Locale.ROOT)) {
             "01.spt" -> 0
             "00.spt" -> 1
             "init.spt", "initialize.spt", "startup.spt" -> 2
@@ -48,6 +114,9 @@ class ScriptEntryPointResolver {
         }
 
     private companion object {
+        private const val MAX_CANDIDATES = 64
+        private const val MAX_REPORTED_FAILURES = 12
+        private const val MAX_FAILURE_LENGTH = 384
         private val MAGIC = byteArrayOf(
             0xEB.toByte(), 0xFF.toByte(), 0xFF.toByte(), 0xFF.toByte(),
             0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte()
