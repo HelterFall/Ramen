@@ -15,7 +15,11 @@ The work must remain engine-agnostic until the evidence supports a specific adap
 - PE inspection reads the DOS header's PE offset, validates the PE signature, and reports the COFF machine type, optional-header kind, section count, and DLL flag. The follow-up import-directory parser reports bounded DLL names for PE32 and PE32+ images.
 - Known signatures include PE, ELF, ZIP, RIFF, Ogg, PNG, and JPEG.
 - `ContainerFormatRegistry` separates verified signature-backed formats from extension-only observations.
-- Unit tests cover PE32/x86, PE32+/ARM64 DLL metadata, PE32/PE32+ import tables, invalid import RVAs, ZIP/Ogg signatures, unknown extensions, malformed MZ input, and evidence-level separation.\n- Added `ReadOnlyRandomAccessSource` with a positional `FileChannel` implementation.\n- Added incremental SHA-256 fingerprinting with a fixed-size buffer.\n- Added a container-probe contract with explicit `MATCH`, `NO_MATCH`, and `MALFORMED` results and a fixed-signature probe.
+- Unit tests cover PE32/x86, PE32+/ARM64 DLL metadata, PE32/PE32+ import tables, invalid import RVAs, ZIP/Ogg signatures, unknown extensions, malformed MZ input, and evidence-level separation.
+- Added `ReadOnlyRandomAccessSource` with positional `FileChannel` access; the PE inspector now consumes this abstraction directly.
+- Added incremental SHA-256 fingerprinting with a fixed-size buffer.
+- Added a container-probe contract with explicit `MATCH`, `NO_MATCH`, and `MALFORMED` results and a fixed-signature probe.
+- Added `DirectoryInventoryScanner`, which traverses files deterministically under file-count/depth limits and reports relative paths, sizes, SHA-256, binary metadata, and warnings.
 
 ## Evidence from the initial directory listing
 
