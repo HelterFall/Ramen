@@ -16,6 +16,8 @@ Core
    |-- Game model
    |-- Source abstraction
    |-- File index / inspection
+   |-- Binary artifact inspector
+   |-- Container format registry
    |-- Engine registry
    |-- Runtime contracts
    |
@@ -39,6 +41,7 @@ Potential future modules:
 - `app`: Android entry point, navigation, Compose screens, dependency wiring.
 - `core:model`: game metadata, source references, engine IDs, compatibility states.
 - `core:import`: folder/archive inspection and safe extraction.
+- `core:inspection`: bounded read-only binary inspection and evidence-aware format registry.
 - `core:runtime-api`: contracts shared by the runtime adapters.
 - `data:library`: Room entities, DAOs, and repositories.
 - `runtime:html5`: WebView-based HTML5 player.
@@ -69,6 +72,17 @@ Use the Storage Access Framework for user-selected folders and files. Consider c
 8. Determine launchability separately from detection.
 
 A detector should be deterministic and testable against small fixture directories.
+
+### Binary artifact inspection
+
+Binary inspection is a separate read-only step after safe import. It records byte signatures and bounded executable metadata without launching the file. The current implementation recognizes common PE/ELF, ZIP, RIFF, Ogg, PNG, and JPEG signatures and reads a small subset of PE headers. It does not parse proprietary containers or execute binaries.
+
+Keep three concepts separate:
+- **Observed:** a filename, extension, or directory pattern seen in a sample.
+- **Identified:** a byte signature or validated header matches a known format.
+- **Parsed:** a bounded parser has validated structural fields against fixtures.
+
+An extension must never be promoted to an identified format by itself. Candidate archive parsers should use a read-only random-access source, check offset arithmetic and length bounds, and return explicit `MATCH`, `NO_MATCH`, or `MALFORMED` results.
 
 ## Runtime boundary
 
