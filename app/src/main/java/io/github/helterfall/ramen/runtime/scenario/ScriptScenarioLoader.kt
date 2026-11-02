@@ -38,11 +38,34 @@ object ScriptScenarioLoader {
         stream: InputStream,
         textCharset: Charset,
         xorKey: Int
+    ): ScenarioProject = load(
+        stream = stream,
+        textCharset = textCharset,
+        xorKey = xorKey,
+        commandStreamLengthBytes = null
+    )
+
+    /**
+     * Loads only the bounded command region. When a clear VFS/index trailer follows
+     * encrypted commands, callers that have validated its start offset can pass the
+     * command byte count so those trailer bytes are not decoded as opcodes.
+     */
+    fun load(
+        stream: InputStream,
+        textCharset: Charset,
+        xorKey: Int,
+        commandStreamLengthBytes: Long?
     ): ScenarioProject {
         require(xorKey in 0..0xFF) { "XOR key must be an unsigned byte." }
+        require(commandStreamLengthBytes == null || commandStreamLengthBytes >= 0L) {
+            "Command stream length must not be negative."
+        }
         val headerStream = if (xorKey == 0) stream else XorMaskingInputStream(stream, xorKey)
         readAndValidateMagic(headerStream)
 
+        val commandInput = commandStreamLengthBytes?.let {
+            BoundedCommandInputStream(stream, it)
+        } ?: stream
         val parser = ScriptCommandParser(
             textCharset,
             initialOffset = HEADER_SIZE,
@@ -52,7 +75,7 @@ object ScriptScenarioLoader {
 
         while (true) {
             val address = parser.nextCommandOffset
-            val command = parser.parseNextCommand(stream) ?: break
+            val command = parser.parseNextCommand(commandInput) ?: break
             if (instructions.size >= MAX_COMMANDS) {
                 throw ScriptParseException(address, "Script exceeds the $MAX_COMMANDS command limit.")
             }
@@ -111,6 +134,43 @@ object ScriptScenarioLoader {
     }
 
     private fun sceneId(address: Long): String = "addr_$address"
+
+    /**
+     * Limits only reads from the command section and deliberately does not close
+     * the caller-owned source. The first byte after the limit remains unread.
+     */
+    private class BoundedCommandInputStream(
+        private val source: InputStream,
+        byteLimit: Long
+    ) : InputStream() {
+        private var remainingBytes = byteLimit
+
+        override fun read(): Int {
+            if (remainingBytes == 0L) return -1
+            val value = source.read()
+            if (value >= 0) remainingBytes--
+            return value
+        }
+
+        override fun read(target: ByteArray, offset: Int, length: Int): Int {
+            if (length == 0) return 0
+            if (remainingBytes == 0L) return -1
+            val boundedLength = minOf(length.toLong(), remainingBytes).toInt()
+            val count = source.read(target, offset, boundedLength)
+            if (count > 0) remainingBytes -= count.toLong()
+            return count
+        }
+
+        override fun skip(count: Long): Long {
+            if (count <= 0L || remainingBytes == 0L) return 0L
+            val skipped = source.skip(minOf(count, remainingBytes))
+            remainingBytes -= skipped
+            return skipped
+        }
+
+        override fun available(): Int =
+            minOf(source.available().toLong(), remainingBytes, Int.MAX_VALUE.toLong()).toInt()
+    }
 
     private fun readAndValidateMagic(stream: InputStream) {
         MAGIC.forEachIndexed { index, expected ->
