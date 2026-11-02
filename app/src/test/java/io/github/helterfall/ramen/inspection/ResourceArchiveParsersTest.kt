@@ -83,6 +83,49 @@ class ResourceArchiveParsersTest {
     }
 
     @Test
+    fun parsesXorMaskedGtbIndexWithClearGpkArchive() {
+        val bmpPayload = createBmp1x1()
+        val block = createGpkBlock("BMP", bmpPayload)
+        val clearIndex = createGtbIndex(
+            names = listOf("masked-index-bmp"),
+            blockSizes = listOf(block.size)
+        )
+        val maskedIndex = xorMask(clearIndex, 0x10)
+
+        withSources(maskedIndex, block) { index, archive ->
+            val parsed = GpkGtbArchiveParser().parse(index, archive)
+            val image = parsed.entries.single()
+
+            assertEquals("masked-index-bmp", image.name)
+            assertEquals(GpkImageFormat.BMP, image.format)
+            assertEquals(1, image.widthPixels)
+            assertEquals(null, image.payloadXorKey)
+        }
+    }
+
+    @Test
+    fun parsesXorMaskedGtbIndexAndGpkArchiveTogether() {
+        val bmpPayload = createBmp1x1()
+        val block = createGpkBlock("BMP", bmpPayload)
+        val clearIndex = createGtbIndex(
+            names = listOf("masked-pair-bmp"),
+            blockSizes = listOf(block.size)
+        )
+        val maskedIndex = xorMask(clearIndex, 0x10)
+        val maskedArchive = xorMask(block, 0x10)
+
+        withSources(maskedIndex, maskedArchive) { index, archive ->
+            val parsed = GpkGtbArchiveParser().parse(index, archive)
+            val image = parsed.entries.single()
+
+            assertEquals("masked-pair-bmp", image.name)
+            assertEquals(GpkImageFormat.BMP, image.format)
+            assertEquals(1, image.widthPixels)
+            assertEquals(0x10, image.payloadXorKey)
+        }
+    }
+
+    @Test
     fun skipsOpaque64BytePreamblesAndDetectsJpegAndBmpFromPayloads() {
         val jpegPayload = createJpegWithSof(width = 640, height = 480)
         val bmpPayload = createBmp1x1()
@@ -381,6 +424,9 @@ class ResourceArchiveParsersTest {
             assertTrue(result.exceptionOrNull() is IOException)
         }
     }
+
+    private fun xorMask(bytes: ByteArray, key: Int): ByteArray =
+        ByteArray(bytes.size) { index -> (bytes[index].toInt() xor key).toByte() }
 
     private fun withSources(
         indexBytes: ByteArray,
