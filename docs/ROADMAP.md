@@ -40,6 +40,9 @@ The current direction is to build reusable runtime foundations from confirmed ev
 - [x] Add a versioned save-state codec and local save/load controls in the demo Activity.
 - [x] Add deterministic regression tests for parsing, branching, save/restore, and automatic-transition cycle limits.
 - [x] Make the playable demo accessible from the main library screen.
+- [x] Define the Ramen test ResourceContainer v1 layout and add a bounded read-only PackArchiveReader with lazy positional payload reads.
+- [x] Validate ResourceContainer indexes from BinarySignatureProbe and report malformed structures through the adapter probe result.
+- [ ] Add a unified ResourceManager/provider that can resolve resources across the test pack and the existing GPK/GTB and VPK/VTB readers.
 - [ ] Replace placeholder scene panels with a resource provider for local images and character art.
 - [ ] Add audio cue commands and a resource-backed audio adapter.
 - [ ] Validate Android lifecycle, layout, and save/restore on physical devices.

@@ -183,3 +183,10 @@ This is the discovery/inspection part of the adapter boundary, not a game launch
 ### First binary resource probe
 
 `BinarySignatureProbe` is the first concrete adapter in `runtime/engine`. It uses positional reads to inspect exactly eight bytes and returns one of the synthetic fixture resource types through `EngineEvidence.resourceType`. Individual files with short or unknown headers return `Malformed`; whole-directory inspection collects recognized resources and keeps other entries as diagnostics. It does not use extensions, decode payloads, or interpret proprietary game scripts.
+
+
+### Lazy test ResourceContainer reader
+
+`runtime/resources/PackArchiveReader` is a bounded read-only reader for the synthetic Ramen `IF PACKT` v1 container. It parses only the fixed header and bounded index at open time. Resource payloads remain in the original `ReadOnlyRandomAccessSource`; `openFile()` exposes a bounded positional InputStream and `extractFile()` provides a size-limited ByteArray convenience path. The reader does not own or close the source.
+
+The `BinarySignatureProbe` validates the container index after matching the eight-byte magic. A correct magic followed by an unsupported version, malformed index, unsafe path, out-of-range offset, or overlapping payload range is reported as `Malformed`. The v1 test format and its limitations are specified in [PACK_ARCHIVE_FORMAT.md](PACK_ARCHIVE_FORMAT.md); it is not a parser for proprietary sample archives.

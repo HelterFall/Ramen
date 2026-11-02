@@ -1,6 +1,8 @@
 package io.github.helterfall.ramen.runtime.engine
 
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -18,7 +20,7 @@ class BinarySignatureProbeTest {
                     0xFE.toByte(), 0xFF.toByte(), 0x99.toByte(), 0x99.toByte()
                 ) + byteArrayOf(1, 2)
             )
-            File(root, "b-container.any").writeBytes("IF PACKT".toByteArray(Charsets.US_ASCII))
+            File(root, "b-container.any").writeBytes(emptyPackArchive())
             File(root, "c-jpeg.bin").writeBytes("JPEG    ".toByteArray(Charsets.US_ASCII))
             File(root, "d-bmp.bin").writeBytes("BMP     ".toByteArray(Charsets.US_ASCII))
 
@@ -76,7 +78,7 @@ class BinarySignatureProbeTest {
     fun directoryScanRetainsValidMatchesAndDiagnosticsForUnrecognizedFiles() {
         val root = Files.createTempDirectory("ramen-binary-mixed").toFile()
         try {
-            File(root, "valid.data").writeBytes("IF PACKT".toByteArray(Charsets.US_ASCII))
+            File(root, "valid.data").writeBytes(emptyPackArchive())
             File(root, "unknown.data").writeBytes(byteArrayOf(0, 1, 2, 3, 4, 5, 6, 7))
             val source = DirectoryGameSource(root, sourceId = "mixed-test")
 
@@ -104,4 +106,14 @@ class BinarySignatureProbeTest {
             root.deleteRecursively()
         }
     }
+
+    private fun emptyPackArchive(): ByteArray =
+        ByteBuffer.allocate(20)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .put("IF PACKT".toByteArray(Charsets.US_ASCII))
+            .putInt(1) // format version
+            .putInt(0) // entry count
+            .putInt(0) // index length
+            .array()
+
 }

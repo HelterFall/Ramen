@@ -384,3 +384,28 @@ Create and review a complete read-only inventory report from a representative ga
 
 ### Validation
 - CI for the new detector commit is the source of truth for compilation, unit tests, lint, and APK artifact upload. Do not claim success before GitHub reports a completed successful run.
+
+
+## 2026-11-02 — Lazy read-only PackArchiveReader for test ResourceContainer
+
+### Format decision
+- The supplied requirement specified only the eight-byte `IF PACKT` magic and logical index fields. It did not define the fixed header, integer endianness/widths, index boundaries, or path encoding.
+- To make the reader deterministic and testable without asserting compatibility with an unknown external archive, this commit defines a separate versioned Ramen test format. The complete v1 layout is in [PACK_ARCHIVE_FORMAT.md](PACK_ARCHIVE_FORMAT.md).
+
+### Added
+- Added `PackArchiveReader` and `PackArchiveIndex/Entry` models in `runtime/resources`.
+- The reader checks the 20-byte v1 header, a bounded variable-length index, strict UTF-8 relative paths, unique paths, unsigned 64-bit offset/size values representable by Kotlin Long, payload bounds, and non-overlapping non-empty payload ranges.
+- `openArchive()` reads and retains only the index. `openFile()` streams one resource by bounded positional reads without owning or closing the archive source. `extractFile()` returns one resource as a ByteArray with a 64 MiB default cap.
+- Connected `BinarySignatureProbe` to the reader. A file with `IF PACKT` magic but a bad version/index now returns `Malformed`, not a valid ResourceContainer match.
+- Updated the earlier signature tests to use a structurally valid empty v1 container rather than a magic-only byte sequence.
+- Added tests for valid index/extraction, range-limited streaming, source ownership, empty archives, ByteArray cap, invalid magic/version, truncated index, unsafe/duplicate paths, out-of-range/overlapping ranges, and malformed probe integration.
+- Updated README, architecture, roadmap, and adapter documentation.
+
+### Boundaries
+- V1 stores raw payloads; no compression method was specified, so the reader does not decompress.
+- The reader never materializes an entire archive or writes payloads to disk. Only the bounded index is held in memory.
+- The custom test format is not evidence of the on-disk layout used by any proprietary sample archive.
+- Physical Android storage/performance behavior is not inferred from JVM unit tests.
+
+### Validation
+- Await the GitHub Actions run for this commit before marking the reader CI-verified.

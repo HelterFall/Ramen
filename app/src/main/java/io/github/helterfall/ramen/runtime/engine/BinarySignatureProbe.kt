@@ -1,6 +1,6 @@
 package io.github.helterfall.ramen.runtime.engine
 
-import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
+import io.github.helterfall.ramen.runtime.resources.PackArchiveReader
 import java.io.IOException
 
 enum class BinaryResourceType(val id: String) {
@@ -43,8 +43,7 @@ class BinarySignatureProbe : EngineAdapter {
             )
         }
 
-        val header = ByteArray(MAGIC_BYTE_COUNT)
-        try {
+        val (signature, validationDescription) = try {
             source.openRandomAccess(relativePath).use { randomAccess ->
                 if (randomAccess.sizeBytes < MAGIC_BYTE_COUNT) {
                     return malformed(
@@ -52,28 +51,47 @@ class BinarySignatureProbe : EngineAdapter {
                         relativePath
                     )
                 }
+
+                val header = ByteArray(MAGIC_BYTE_COUNT)
                 randomAccess.readFullyAt(0L, header)
+                val matchedSignature = SIGNATURES.firstOrNull { it.bytes.contentEquals(header) }
+                    ?: return malformed(
+                        "Unrecognized 8-byte magic header: ${header.toHexString()}.",
+                        relativePath
+                    )
+
+                val validation = if (
+                    matchedSignature.resourceType == BinaryResourceType.RESOURCE_CONTAINER
+                ) {
+                    try {
+                        val index = PackArchiveReader(randomAccess).openArchive()
+                        " Validated index with ${index.entries.size} entries."
+                    } catch (exception: IOException) {
+                        return malformed(
+                            "Invalid ResourceContainer structure: ${exception.message ?: "malformed index"}.",
+                            relativePath
+                        )
+                    }
+                } else {
+                    ""
+                }
+
+                matchedSignature to validation
             }
         } catch (exception: IOException) {
             return malformed(
                 exception.message?.take(MAX_FAILURE_REASON_LENGTH)
-                    ?: "I/O failure while reading the binary header.",
+                    ?: "I/O failure while reading the binary resource.",
                 relativePath
             )
         }
-
-        val signature = SIGNATURES.firstOrNull { it.bytes.contentEquals(header) }
-            ?: return malformed(
-                "Unrecognized 8-byte magic header: ${header.toHexString()}.",
-                relativePath
-            )
 
         return EngineProbeResult.Match(
             confidence = EngineMatchConfidence.HIGH,
             formatVersion = TEST_FORMAT_VERSION,
             evidence = listOf(
                 EngineEvidence(
-                    description = "Matched ${signature.label} signature.",
+                    description = "Matched ${signature.label} signature.$validationDescription",
                     relativePath = relativePath,
                     resourceType = signature.resourceType.id
                 )

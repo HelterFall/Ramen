@@ -86,3 +86,17 @@ The type is exposed on `EngineEvidence.resourceType` and is carried through the 
 Calling `probeFile(source, path)` is strict: a file shorter than eight bytes, an unrecognized 8-byte header, a missing entry, or an I/O read failure returns `Malformed`. A directory-level `probe(source)` scans the whole bounded source snapshot. It aggregates all recognized resources into one `Match`; any other candidate files are retained as diagnostic evidence so they cannot hide valid resources. If the non-empty source contains no recognized headers, the aggregate result is `Malformed`. An empty source is an ordinary `NoMatch`.
 
 These four signatures are the custom Ramen test-fixture specification only. In particular, the script prefix is not a decoded SPT format and does not prove compatibility with the inventoried game's script engine. The detector recognizes a header; it does not parse or execute a script or decode a resource container.
+
+
+## PackArchiveReader — Ramen test ResourceContainer v1
+
+`BinarySignatureProbe` no longer treats the eight-byte `IF PACKT` prefix alone as a valid container. It passes the same positional source to `PackArchiveReader.openArchive()`; a bad version or index produces `EngineProbeResult.Malformed`.
+
+`PackArchiveReader` reads the 20-byte fixed header and at most the configured index limit (16 MiB by default, 64 MiB absolute ceiling). It validates record count, strict UTF-8 paths, path traversal, duplicate names, unsigned offset/size values, payload bounds, and overlapping ranges. It retains only the parsed index in memory.
+
+- `openArchive()` returns the version and indexed `PackArchiveEntry(path, offset, size)` rows.
+- `openFile(path)` returns a bounded `InputStream` backed by positional reads; closing it does not close the caller-owned source.
+- `extractFile(path)` returns a `ByteArray` for resources up to 64 MiB by default. Larger resources must use `openFile()`.
+- The reader is read-only and never extracts a whole archive to disk. No compression codec is specified by v1, so payload bytes are returned unchanged.
+
+The complete byte layout is documented in [PACK_ARCHIVE_FORMAT.md](PACK_ARCHIVE_FORMAT.md). This format is a Ramen synthetic test fixture and is separate from the observed GPK/GTB and VPK/VTB archive parsers.

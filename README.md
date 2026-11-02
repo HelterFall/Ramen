@@ -104,7 +104,7 @@ The demo currently draws labelled placeholder backgrounds and character tags. It
 
 ## Current next step
 
-The first read-only engine-source and adapter-probe API is now in place, but no adapter for the inventoried engine family is registered and no proprietary script file is parsed. Next, corroborate the engine family/version from byte-level evidence, then implement a narrowly scoped probe for the confirmed format. Keep a runtime session/renderer contract separate until command semantics and save behavior are understood. The neutral demo's image/audio resource-provider work remains a separate M1.6 task.
+The synthetic ResourceContainer now has a bounded index reader and lazy per-resource access. The next resource-layer task is a shared ResourceManager/provider that can resolve resource IDs across this test container and the existing GPK/GTB image and VPK/VTB audio readers without copying whole archives. The proprietary target-engine track remains separate: its family/version and actual script format still require corroborating byte-level evidence before a runtime adapter can be claimed.
 
 The inventory scan is bounded (up to 10,000 files, depth 64, and 8 GiB of SHA-256 input by default); the report marks truncated scans and records files whose hashes were skipped. The archive tools preview individual resources; they do not run a legacy engine. File extensions remain hints, not proof of format or compatibility. Do not add third-party game assets to the repository.
 
