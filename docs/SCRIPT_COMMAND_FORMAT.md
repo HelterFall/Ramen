@@ -59,6 +59,8 @@ The startup resolver supports a fixed, repeating one-byte XOR mask around this f
 
 This is a narrow compatibility layer for the observed `0x10` mask, not a general cipher detector. A candidate is accepted only when the decoded header and the complete known command stream validate. The four opcodes listed above remain the only commands currently implemented by this fixture loader; XOR decoding does not establish support for the full proprietary Nitroplus command set.
 
+Some target SPT files may append a clear VFS/resource index after the encrypted command region. `ScriptScenarioLoader` therefore exposes an optional `commandStreamLengthBytes` bound: when the caller has independently established the command-region length, the loader stops before the trailer and leaves those bytes unread. The current startup resolver does not yet derive that boundary from the target VFS layout; it still treats EOF as the command-stream terminator unless a caller supplies the verified bound.
+
 ## Non-goals
 
 V1 defines no speaker metadata, labels, choices, variables, conditional branches, compression, checksums, timestamps, resource archive layout, text layout, or proprietary-engine compatibility. The optional single-byte XOR transport described above is a compatibility wrapper around this fixture, not a command-format feature or a secure cipher. The original line-oriented Scenario DSL remains a separate fixture format.
