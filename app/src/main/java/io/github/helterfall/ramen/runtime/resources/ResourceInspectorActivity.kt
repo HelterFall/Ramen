@@ -229,76 +229,21 @@ class ResourceInspectorActivity : ComponentActivity() {
         }
     }
 
-    private fun discoverResourcePairs(root: File): List<ResourceArchivePair> {
-        val filesByPair = linkedMapOf<String, MutableMap<String, File>>()
-        val pending = ArrayDeque<Pair<File, Int>>()
-        pending.add(root to 0)
-        var visitedEntries = 0
-
-        while (pending.isNotEmpty()) {
-            val (directory, depth) = pending.removeLast()
-            if (depth > MAX_DIRECTORY_DEPTH) continue
-            val children = directory.listFiles()
-                ?.sortedBy { it.name.lowercase(Locale.ROOT) }
-                ?: continue
-
-            for (child in children) {
-                if (java.nio.file.Files.isSymbolicLink(child.toPath())) continue
-                visitedEntries += 1
-                if (visitedEntries > MAX_DISCOVERED_FILES) {
-                    throw IOException("В папке слишком много файлов: лимит ${MAX_DISCOVERED_FILES}.")
-                }
-
-                if (child.isDirectory) {
-                    if (depth < MAX_DIRECTORY_DEPTH) {
-                        pending.add(child to depth + 1)
-                    }
-                    continue
-                }
-                if (!child.isFile) continue
-
-                val extension = extensionOf(child.name)
-                if (extension !in RESOURCE_PAIR_EXTENSIONS) continue
-                val stem = stemOf(child.name).lowercase(Locale.ROOT)
-                if (stem.isBlank()) continue
-                val parentPath = child.parentFile?.canonicalPath
-                    ?: throw IOException("Не удалось определить папку ресурса.")
-                val key = parentPath + File.separator + stem
-                filesByPair.getOrPut(key) { linkedMapOf() }[extension] = child
-            }
+    private fun discoverResourcePairs(root: File): List<ResourceArchivePair> =
+        ImportedResourcePairScanner().scan(root).map { discovered ->
+            ResourceArchivePair(
+                kind = when (discovered.family) {
+                    ResourceArchiveFamily.IMAGES -> ResourcePairKind.IMAGES
+                    ResourceArchiveFamily.AUDIO -> ResourcePairKind.AUDIO
+                },
+                archiveFile = discovered.archiveFile,
+                indexFile = discovered.indexFile,
+                displayName = discovered.relativePath
+            )
         }
-
-        val result = ArrayList<ResourceArchivePair>()
-        filesByPair.values.forEach { files ->
-            val imageArchive = files["gpk"]
-            val imageIndex = files["gtb"]
-            if (imageArchive != null && imageIndex != null) {
-                result += ResourceArchivePair(
-                    kind = ResourcePairKind.IMAGES,
-                    archiveFile = imageArchive,
-                    indexFile = imageIndex,
-                    displayName = imageArchive.relativeTo(root).invariantSeparatorsPath
-                )
-            }
-
-            val audioArchive = files["vpk"]
-            val audioIndex = files["vtb"]
-            if (audioArchive != null && audioIndex != null) {
-                result += ResourceArchivePair(
-                    kind = ResourcePairKind.AUDIO,
-                    archiveFile = audioArchive,
-                    indexFile = audioIndex,
-                    displayName = audioArchive.relativeTo(root).invariantSeparatorsPath
-                )
-            }
-        }
-        return result.sortedWith(
-            compareBy<ResourceArchivePair> { it.kind.ordinal }
-                .thenBy { it.displayName.lowercase(Locale.ROOT) }
-        )
-    }
 
     private fun loadImportedPair(pair: ResourceArchivePair) {
+        if (pair.kind == ResourcePairKind.AUDIO) stopPlayback()
         updatePairBusy(pair.kind, true, "Проверяю ${pair.displayName}…")
         worker.execute {
             try {
@@ -334,7 +279,6 @@ class ResourceInspectorActivity : ComponentActivity() {
                         }
                     }
                     ResourcePairKind.AUDIO -> {
-                        stopPlayback()
                         val parsed = FileRandomAccessSource(pair.archiveFile).use { archive ->
                             FileRandomAccessSource(pair.indexFile).use { index ->
                                 VpkVtbArchiveParser().parse(index, archive)
@@ -755,10 +699,7 @@ class ResourceInspectorActivity : ComponentActivity() {
 
         private const val COPY_BUFFER_BYTES = 64 * 1024
         private const val MAX_ARCHIVE_COPY_BYTES = 512L * 1024L * 1024L
-        private const val MAX_DISCOVERED_FILES = 10_000
-        private const val MAX_DIRECTORY_DEPTH = 64
         private const val MAX_VISIBLE_PAIR_CHOICES = 6
-        private val RESOURCE_PAIR_EXTENSIONS = setOf("gpk", "gtb", "vpk", "vtb")
     }
 }
 
