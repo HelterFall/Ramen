@@ -27,7 +27,9 @@ The current direction is to build reusable inspection infrastructure before sele
 - [ ] Add a user-facing save/share flow for inspection results.
 - [x] Add bounded fixed-buffer streaming for individual resource payload ranges returned by the proprietary archive parsers.
 - [x] Add a bounded BitmapFactory adapter for GPK images and size-limited Ogg cache materialization for a future Android media player.
-- [ ] Add and device-test an Ogg playback lifecycle and an image-rendering UI.
+- [x] Add a resource inspector screen for browsing GPK/GTB assets and previewing images.
+- [x] Add a basic foreground MediaPlayer flow for selected Ogg resources with play/pause/stop controls.
+- [ ] Validate image rendering and Ogg playback on physical Android devices and supported OS versions.
 - [ ] Add a positional source implementation for Android Storage Access Framework documents where supported.
 
 ## M0 — Project foundation
