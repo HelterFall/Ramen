@@ -427,12 +427,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                             AndroidGpkImageDecoder().decode(source, initial)
                         }
                         runOnUiThread {
-                            imageFiles?.let { old ->
-                                sessionFiles.remove(old.first)
-                                sessionFiles.remove(old.second)
-                                old.first.delete()
-                                old.second.delete()
-                            }
+                            releaseSessionPair(imageFiles)
                             imageFiles = firstFile to secondFile
                             copiedFiles.forEach(sessionFiles::add)
                             val oldBitmap = imageState.value.bitmap
@@ -458,12 +453,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                             throw IOException("В VPK/VTB не найдено аудиоресурсов.")
                         }
                         runOnUiThread {
-                            audioFiles?.let { old ->
-                                sessionFiles.remove(old.first)
-                                sessionFiles.remove(old.second)
-                                old.first.delete()
-                                old.second.delete()
-                            }
+                            releaseSessionPair(audioFiles)
                             audioFiles = firstFile to secondFile
                             copiedFiles.forEach(sessionFiles::add)
                             audioState.value = AudioInspectorState(
