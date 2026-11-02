@@ -143,7 +143,8 @@ Make the binary inventory portable and comparable without requiring the original
 - Added a separate schema document and updated README, roadmap, engine research, and format registry.
 
 ### CI follow-up
-- The first CI run compiled the app but failed three JSON writer tests because the quote-emission helper did not write the quote character correctly. The implementation now writes the `"` code point explicitly; the tests remain strict about complete JSON keys and escaping. A follow-up run is required.
+- The first CI run compiled the app but failed three JSON writer tests because the quote-emission helper did not write the quote character correctly.
+- The writer now emits the quote code point explicitly. Follow-up CI run [41394618440](https://github.com/HelterFall/Ramen/actions/runs/41394618440) passed `assembleDebug`, `testDebugUnitTest`, `lintDebug`, and APK artifact upload; PR #24 was merged.
 
 ### Limits
 - The writer is a serialization component only; the app does not yet expose a save/share UI.
