@@ -166,8 +166,8 @@ class BinarySignatureProbe : EngineAdapter {
     }
 
     private fun isValidatedTestFormat(description: String): Boolean =
-        description.startsWith(" Validated Ramen test-container index") ||
-            description.startsWith(" Parsed ") &&
+        description.contains("Validated Ramen test-container index") ||
+            description.contains("Parsed ") &&
             description.contains("Ramen Scenario model")
 
     private fun malformed(reason: String, relativePath: String): EngineProbeResult.Malformed =
