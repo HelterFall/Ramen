@@ -7,6 +7,7 @@ import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -52,6 +53,7 @@ import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
+import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
@@ -253,6 +255,13 @@ fun RamenApp() {
                 verticalArrangement = Arrangement.spacedBy(18.dp)
             ) {
                 item { BrandHeader() }
+                item {
+                    ResourceInspectorShortcut {
+                        context.startActivity(
+                            Intent(context, ResourceInspectorActivity::class.java)
+                        )
+                    }
+                }
 
                 if (games.isEmpty()) {
                     item {
@@ -275,23 +284,34 @@ fun RamenApp() {
                     }
                     item { SectionHeading("ТВОЯ БИБЛИОТЕКА") }
                     items(games, key = { it.id }) { game ->
-                        GameCard(game) {
-                            when (game.engineId) {
-                                "system-nnn-spt" -> {
-                                    val intent = Intent(context, SystemNnnPlayerActivity::class.java)
-                                        .putExtra(SystemNnnPlayerActivity.EXTRA_GAME_ID, game.id)
-                                    context.startActivity(intent)
-                                }
-                                "html5" -> {
-                                    val intent = Intent(context, Html5PlayerActivity::class.java)
-                                        .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
-                                    context.startActivity(intent)
-                                }
-                                else -> {
-                                    statusMessage = "Для этого формата запуск пока не подключён."
+                        GameCard(
+                            game = game,
+                            onInspectResources = {
+                                val intent = Intent(context, ResourceInspectorActivity::class.java)
+                                    .putExtra(
+                                        ResourceInspectorActivity.EXTRA_GAME_RELATIVE_DIRECTORY,
+                                        game.relativeDirectory
+                                    )
+                                context.startActivity(intent)
+                            },
+                            onLaunch = {
+                                when (game.engineId) {
+                                    "system-nnn-spt" -> {
+                                        val intent = Intent(context, SystemNnnPlayerActivity::class.java)
+                                            .putExtra(SystemNnnPlayerActivity.EXTRA_GAME_ID, game.id)
+                                        context.startActivity(intent)
+                                    }
+                                    "html5" -> {
+                                        val intent = Intent(context, Html5PlayerActivity::class.java)
+                                            .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
+                                        context.startActivity(intent)
+                                    }
+                                    else -> {
+                                        statusMessage = "Для этого формата запуск пока не подключён."
+                                    }
                                 }
                             }
-                        }
+                        )
                     }
                 }
 
@@ -304,6 +324,45 @@ fun RamenApp() {
                 item { ComingNextSection() }
                 item { BuildFooter() }
             }
+        }
+    }
+}
+
+@Composable
+private fun ResourceInspectorShortcut(onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp)),
+        color = RamenSurfaceRaised,
+        shape = RoundedCornerShape(17.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable(onClick = onClick)
+                .padding(horizontal = 15.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "ИНСПЕКТОР РЕСУРСОВ",
+                    color = RamenAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = "Проверка GPK/GTB и VPK/VTB",
+                    color = RamenText,
+                    fontSize = 12.sp
+                )
+            }
+            Text(
+                text = "ОТКРЫТЬ  ›",
+                color = RamenAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
@@ -564,6 +623,7 @@ private fun SectionHeading(text: String) {
 @Composable
 private fun GameCard(
     game: GameRecord,
+    onInspectResources: () -> Unit,
     onLaunch: () -> Unit
 ) {
     Card(
@@ -613,6 +673,13 @@ private fun GameCard(
                 fontSize = 10.sp,
                 lineHeight = 14.sp
             )
+            OutlinedButton(
+                onClick = onInspectResources,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(13.dp)
+            ) {
+                Text("Просмотреть GPK/GTB и VPK/VTB")
+            }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
                 (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE")
             ) {
