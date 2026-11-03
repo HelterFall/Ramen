@@ -288,7 +288,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
 
         voiceExecutor.execute {
-            val staged = runCatching { repository.materialize(resource.name) }
+            val staged = runCatching { repository.materializeByIndex(dialogueStepIndex) }
             mainHandler.post {
                 if (requestId != audioRequestId) {
                     staged.getOrNull()?.delete()
