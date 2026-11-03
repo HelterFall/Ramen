@@ -218,8 +218,6 @@ fun RamenApp() {
 
     val onImportHtmlClick: () -> Unit = {
         if (!isImporting) {
-            // Some providers label .html as text/plain or octet-stream,
-            // so accept the selection broadly and validate it in HtmlFileImporter.
             htmlFilePicker.launch(arrayOf("*/*"))
         }
     }
@@ -577,6 +575,8 @@ private fun GameCard(
             )
             Text(
                 text = when (game.compatibilityStatus) {
+                    "PARSER_AVAILABLE" ->
+                        "Формат сценария распознан и доступен для разбора; игровой интерпретатор ещё не подключён."
                     "SUPPORTED_LIMITED" ->
                         "Доступен ограниченный автономный HTML5-запуск."
                     "UNKNOWN" ->
