@@ -21,7 +21,7 @@ data class DiscoveredResourceArchivePair(
  * Finds matching archive/index siblings inside an already-imported private game folder.
  *
  * Pairing requires the same parent directory and case-insensitive basename:
- * .gpk + .gtb or .vpk + .vtb. Symlinks are ignored and traversal is bounded.
+ * .gpk + .gtb or .vpk + .vtb. Symlinks and .xtx script config files are ignored.
  */
 class ImportedResourcePairScanner {
 
@@ -51,6 +51,7 @@ class ImportedResourcePairScanner {
                 if (!child.isFile) continue
 
                 val extension = child.extension.lowercase(Locale.ROOT)
+                if (extension in IGNORED_SCRIPT_CONFIGURATION_EXTENSIONS) continue
                 if (extension !in RESOURCE_EXTENSIONS) continue
                 val stem = child.nameWithoutExtension.lowercase(Locale.ROOT)
                 if (stem.isBlank()) continue
@@ -95,5 +96,6 @@ class ImportedResourcePairScanner {
 
     companion object {
         private val RESOURCE_EXTENSIONS = setOf("gpk", "gtb", "vpk", "vtb")
+        private val IGNORED_SCRIPT_CONFIGURATION_EXTENSIONS = setOf("xtx")
     }
 }

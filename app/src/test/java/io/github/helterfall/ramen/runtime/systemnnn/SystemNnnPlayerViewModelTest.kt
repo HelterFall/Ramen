@@ -145,6 +145,26 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun dialogueLoadsItsSynchronizedGtbBackgroundIndex() {
+        val decoder = FakeDecoder(
+            mapOf(
+                0xC5BAL to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = 0xC5BE,
+                    textEntryOffset = 0x32B64,
+                    backgroundResourceIndex = 4L,
+                    dialogueStepIndex = 4L
+                )
+            )
+        )
+        val assets = IndexRecordingAssets
+        assets.lastRequestedIndex = null
+
+        SystemNnnPlayerViewModel().start(testScript(), decoder, assets)
+
+        assertEquals(4L, assets.lastRequestedIndex)
+    }
+
+    @Test
     fun decodesOnlyTheLastSceneBackgroundBeforeTheVisibleDialogue() {
         val assets = RecordingAssets
         assets.requestedIndexes.clear()

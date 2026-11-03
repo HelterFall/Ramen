@@ -610,6 +610,52 @@ class ResourceArchiveParsersTest {
         private val SPACE = ' '.code.toByte()
     }
     @Test
+    fun decodesStandaloneWgqPackedDwqFile() {
+        val directory = Files.createTempDirectory("ramen-wgq-decode").toFile()
+        try {
+            val bmp = ByteArray(0x36 + 3)
+            writeI32Le(bmp, 0x0A, 0x36)
+            writeI32Le(bmp, 0x12, 1)
+            writeI32Le(bmp, 0x16, 1)
+            writeU16Le(bmp, 0x1C, 24)
+            byteArrayOf(1, 2, 3).copyInto(bmp, 0x36)
+
+            val wgq = ByteArray(0x40 + bmp.size)
+            "IF PACKTYPE==".toByteArray(Charsets.US_ASCII).copyInto(wgq, 0)
+            "0 ".toByteArray(Charsets.US_ASCII).copyInto(wgq, 0x0D)
+            "BMP ".toByteArray(Charsets.US_ASCII).copyInto(wgq, 0x2C)
+            "PACKTYPE=1      ".toByteArray(Charsets.US_ASCII).copyInto(wgq, 0x30)
+            bmp.copyInto(wgq, 0x40)
+
+            val file = File(directory, "0001.WGQ").apply { writeBytes(wgq) }
+            val decoded = ResourceArchiveParsers.decodeBlackCycWgqFile(file)
+
+            assertEquals(1, decoded.width)
+            assertEquals(1, decoded.height)
+            assertEquals(0xFF030201.toInt(), decoded.argbPixels.single())
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun wgqDiscoverySortsResourcesAndIgnoresXtxScriptSidecars() {
+        val root = Files.createTempDirectory("ramen-wgq-discovery").toFile()
+        try {
+            File(root, "02.wgq").writeBytes(byteArrayOf(1))
+            File(root, "01.WGQ").writeBytes(byteArrayOf(1))
+            File(root, "script.xtx").writeText("configuration")
+            File(root, "readme.txt").writeText("ignored")
+
+            val files = ResourceArchiveParsers.findBlackCycWgqFiles(root)
+
+            assertEquals(listOf("01.WGQ", "02.wgq"), files.map { it.name })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun acceptsGtbNamesLongerThanTheFormer255ByteCeiling() {
         val longName = "n".repeat(300)
         val jpeg = createJpegWithSof(1, 1)
