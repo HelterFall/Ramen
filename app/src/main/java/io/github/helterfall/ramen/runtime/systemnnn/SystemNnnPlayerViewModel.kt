@@ -69,9 +69,6 @@ fun interface SystemNnnSceneAssetResolver : Closeable {
  * command boundary, rather than treating each byte as an independent opcode.
  */
 fun interface SystemNnnCommandDecoder {
-    val usesSequentialTextPool: Boolean
-        get() = false
-
     @Throws(IOException::class)
     fun decodeNext(
         script: SystemNnnScript,
@@ -132,8 +129,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private val bitmapOwners = IdentityHashMap<Bitmap, SystemNnnSceneAssetResolver>()
     private var nextCommandOffset: Long = 0L
     private var frameCounter: Long = 0L
-    private var nextTextPoolIndex: Int = 0
-    private var activeTextPoolIndex: Int = -1
     private var audioRepository: SystemNnnVpkAudioRepository? = null
     private var audioPlayer: SystemNnnAudioPlayer? = null
 
@@ -165,14 +160,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         this.audioRepository = audioRepository
         this.nextCommandOffset = initialCommandOffset
         this.frameCounter = 0L
-        this.nextTextPoolIndex = 0
-        this.activeTextPoolIndex = -1
 
-        val initialBackground = loadInitialBackground(assetResolver)
-        uiState = SystemNnnPlayerUiState(
-            isLoading = true,
-            backgroundBitmap = initialBackground
-        )
+        uiState = SystemNnnPlayerUiState(isLoading = true)
         startAudio(initialAudioTrack, initialAudioResourceName)
 
         if (commandDecoder == null) {
@@ -204,10 +193,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
             return
         }
 
-        if (decoder?.usesSequentialTextPool == true && activeTextPoolIndex >= 0) {
-            nextTextPoolIndex = (activeTextPoolIndex + 1)
-                .coerceAtMost(script?.textPool?.size ?: Int.MAX_VALUE)
-        }
         advanceToVisibleEvent()
     }
 
@@ -228,17 +213,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
         resolver: SystemNnnSceneAssetResolver
     ): Bitmap? = resolver.loadBitmap(resourceId)?.also { bitmap ->
         bitmapOwners[bitmap] = resolver
-    }
-
-    private fun loadInitialBackground(resolver: SystemNnnSceneAssetResolver): Bitmap? {
-        for (index in 0L..1L) {
-            try {
-                loadBitmapByIndex(index, resolver)?.let { return it }
-            } catch (_: Exception) {
-                // One bad first row must not prevent trying the next GTB row.
-            }
-        }
-        return null
     }
 
     private fun startAudio(track: File?, resourceName: String?) {
@@ -355,20 +329,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
                     is SystemNnnDecodedCommand.Dialogue -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
-                        val textEntry = if (currentDecoder.usesSequentialTextPool) {
-                            val selectedIndex = nextTextPoolIndex
-                            currentScript.textPool.getOrNull(selectedIndex)?.also {
-                                activeTextPoolIndex = selectedIndex
-                            } ?: throw IOException("The sequential Shift-JIS text-pool cursor is exhausted.")
-                        } else {
-                            currentScript.textEntryAtOffset(command.textEntryOffset)?.also { entry ->
-                                activeTextPoolIndex = currentScript.textPool.indexOf(entry)
-                                if (activeTextPoolIndex >= 0) nextTextPoolIndex = activeTextPoolIndex + 1
-                            } ?: throw IOException(
+                        val text = currentScript.textEntryAtOffset(command.textEntryOffset)?.text
+                            ?: throw IOException(
                                 "Dialogue points to an unknown Shift-JIS text-pool offset."
                             )
-                        }
-                        val text = textEntry.text
                         nextCommandOffset = command.nextCommandOffset
 
                         if (command.backgroundResourceId != null) {
@@ -428,9 +392,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     SystemNnnDecodedCommand.End -> {
-                        // The end screen needs no scene textures. Removing these
-                        // references disposes their Compose Image nodes and releases
-                        // the native bitmap allocations through onBitmapDisposed().
+                        if (commandOffset != mainTableEndOffset(currentScript)) {
+                            throw IOException(
+                                "The decoder reported End before the declared 1,299-entry table boundary."
+                            )
+                        }
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter + 1L,
                             isEnded = true
@@ -470,13 +436,48 @@ class SystemNnnPlayerViewModel : ViewModel() {
         currentOffset: Long,
         nextOffset: Long
     ) {
-        if (!isValidCommandOffset(currentScript, nextOffset) || nextOffset == currentOffset) {
-            throw IOException("Decoded command has an invalid next offset.")
+        if (nextOffset != currentOffset + UINT32_BYTES ||
+            !isValidCommandCursor(currentScript, nextOffset)
+        ) {
+            throw IOException("Decoded command must advance exactly four bytes.")
         }
     }
 
-    private fun isValidCommandOffset(currentScript: SystemNnnScript, offset: Long): Boolean =
-        offset >= currentScript.commandStartOffset && offset < currentScript.commandEndOffset
+    private fun mainTableEndOffset(currentScript: SystemNnnScript): Long {
+        val mainTable = currentScript.offsetTables.firstOrNull { it.name == MAIN_TABLE_NAME }
+            ?: throw IOException("The SPT main transition table is missing.")
+        val start = mainTable.offset.toLong()
+        val entryCount = mainTable.entryCount.toLong()
+
+        if (start != currentScript.commandStartOffset ||
+            entryCount != MAIN_TABLE_ENTRY_COUNT
+        ) {
+            throw IOException("The SPT main transition table descriptor is invalid.")
+        }
+
+        val end = start + entryCount * UINT32_BYTES
+        if (end <= start ||
+            end > currentScript.commandEndOffset ||
+            end > currentScript.fileSizeBytes ||
+            end > currentScript.textPoolOffset
+        ) {
+            throw IOException("The declared SPT main table exceeds its validated file bounds.")
+        }
+        return end
+    }
+
+    private fun isValidCommandCursor(currentScript: SystemNnnScript, offset: Long): Boolean {
+        val end = runCatching { mainTableEndOffset(currentScript) }.getOrNull() ?: return false
+        val relativeOffset = offset - currentScript.commandStartOffset
+        return offset >= currentScript.commandStartOffset &&
+            offset <= end &&
+            relativeOffset % UINT32_BYTES == 0L
+    }
+
+    private fun isValidCommandOffset(currentScript: SystemNnnScript, offset: Long): Boolean {
+        val end = runCatching { mainTableEndOffset(currentScript) }.getOrNull() ?: return false
+        return isValidCommandCursor(currentScript, offset) && offset < end
+    }
 
     private fun releaseAssets() {
         val player = audioPlayer
@@ -498,6 +499,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     companion object {
+        private const val MAIN_TABLE_NAME = "main"
+        private const val MAIN_TABLE_ENTRY_COUNT = 1_299L
+        private const val UINT32_BYTES = 4L
         private const val MAX_SCENE_COMMANDS_PER_ADVANCE = 2_048
     }
 }

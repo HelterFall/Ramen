@@ -17,19 +17,19 @@ class SystemNnnPlayerViewModelTest {
         val decoder = FakeDecoder(
             mapOf(
                 0xC5BAL to SystemNnnDecodedCommand.Dialogue(
-                    nextCommandOffset = 0xC5BB,
+                    nextCommandOffset = 0xC5BE,
                     textEntryOffset = 0x32B64,
                     speakerName = "Guide"
                 ),
-                0xC5BBL to SystemNnnDecodedCommand.Choice(
+                0xC5BEL to SystemNnnDecodedCommand.Choice(
                     promptTextEntryOffset = 0x32B70,
                     options = listOf(
-                        SystemNnnChoiceOption("left", "Take the left path", 0xC5BD),
+                        SystemNnnChoiceOption("left", "Take the left path", 0xC5C2),
                         SystemNnnChoiceOption("right", "Take the right path", 0xC5BE)
                     )
                 ),
-                0xC5BDL to SystemNnnDecodedCommand.Dialogue(
-                    nextCommandOffset = 0xC5C0,
+                0xC5C2L to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = 0xC5C6,
                     textEntryOffset = 0x32B7F
                 ),
                 0xC5BEL to SystemNnnDecodedCommand.End
@@ -77,6 +77,51 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun rejectsSkipThatDoesNotAdvanceExactlyFourBytes() {
+        val decoder = FakeDecoder(
+            mapOf(0xC5BAL to SystemNnnDecodedCommand.Skip(nextCommandOffset = 0xC5C2))
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertNotNull(viewModel.uiState.errorMessage)
+        assertTrue(viewModel.uiState.errorMessage!!.contains("exactly four bytes"))
+    }
+
+    @Test
+    fun rejectsEndBeforeThe1299EntryTableBoundary() {
+        val decoder = FakeDecoder(mapOf(0xC5BAL to SystemNnnDecodedCommand.End))
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertFalse(viewModel.uiState.isEnded)
+        assertNotNull(viewModel.uiState.errorMessage)
+        assertTrue(viewModel.uiState.errorMessage!!.contains("before the declared"))
+    }
+
+    @Test
+    fun consumesExactly1299WordsThenAcceptsEnd() {
+        val start = 0xC5BAL
+        val end = start + 1_299L * 4L
+        val commands = buildMap<Long, SystemNnnDecodedCommand> {
+            var cursor = start
+            while (cursor < end) {
+                put(cursor, SystemNnnDecodedCommand.Skip(cursor + 4L))
+                cursor += 4L
+            }
+            put(end, SystemNnnDecodedCommand.End)
+        }
+        val decoder = FakeDecoder(commands)
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertTrue(viewModel.uiState.isEnded)
+    }
+
+    @Test
     fun requestsSceneBitmapUsingGtbIndexRatherThanRawStringIdentifier() {
         val decoder = FakeDecoder(
             mapOf(
@@ -96,12 +141,12 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
-    fun startupTriesFirstTwoGtbRowsBeforeAnySceneCommand() {
+    fun startupDoesNotLoadUnreferencedGtbRows() {
         val assets = RecordingAssets
         val decoder = FakeDecoder(
             mapOf(
                 0xC5BAL to SystemNnnDecodedCommand.Dialogue(
-                    nextCommandOffset = 0xC5BB,
+                    nextCommandOffset = 0xC5BE,
                     textEntryOffset = 0x32B64
                 )
             )
@@ -109,7 +154,7 @@ class SystemNnnPlayerViewModelTest {
 
         SystemNnnPlayerViewModel().start(testScript(), decoder, assets)
 
-        assertEquals(listOf(0L, 1L), assets.requestedIndexes)
+        assertTrue(assets.requestedIndexes.isEmpty())
     }
 
     @Test
@@ -117,16 +162,15 @@ class SystemNnnPlayerViewModelTest {
         val decoder = FakeDecoder(
             commands = mapOf(
                 0xC5BAL to SystemNnnDecodedCommand.Dialogue(
-                    nextCommandOffset = 0xC5BB,
+                    nextCommandOffset = 0xC5BE,
                     textEntryOffset = 0x32B64
                 ),
-                0xC5BBL to SystemNnnDecodedCommand.Dialogue(
-                    nextCommandOffset = 0xC5BC,
+                0xC5BEL to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = 0xC5C2,
                     textEntryOffset = 0x32B70
                 ),
-                0xC5BCL to SystemNnnDecodedCommand.End
-            ),
-            usesSequentialTextPool = true
+                0xC5C2L to SystemNnnDecodedCommand.End
+            )
         )
         val viewModel = SystemNnnPlayerViewModel()
 
@@ -191,8 +235,7 @@ class SystemNnnPlayerViewModelTest {
     )
 
     private class FakeDecoder(
-        private val commands: Map<Long, SystemNnnDecodedCommand>,
-        override val usesSequentialTextPool: Boolean = false
+        private val commands: Map<Long, SystemNnnDecodedCommand>
     ) : SystemNnnCommandDecoder {
         var lastRequestedBranch: String? = null
 
@@ -200,7 +243,7 @@ class SystemNnnPlayerViewModelTest {
             script: SystemNnnScript,
             commandOffset: Long
         ): SystemNnnDecodedCommand {
-            if (commandOffset == 0xC5BDL) lastRequestedBranch = "left"
+            if (commandOffset == 0xC5C2L) lastRequestedBranch = "left"
             return commands[commandOffset] ?: throw IOException("No fake command at " + commandOffset)
         }
     }

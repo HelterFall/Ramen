@@ -63,6 +63,20 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun engineMarkerWordsAdvanceByFourAndSelectSequentialText() {
+        val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
+        val script = scriptWithPointers(0xFFFF0000L, 144_179)
+
+        val first = decoder.decodeNext(script, TABLE_START) as SystemNnnDecodedCommand.Dialogue
+        assertEquals(TABLE_START + 4L, first.nextCommandOffset)
+        assertEquals(0x32B64L, first.textEntryOffset)
+
+        val second = decoder.decodeNext(script, first.nextCommandOffset) as SystemNnnDecodedCommand.Dialogue
+        assertEquals(TABLE_START + 8L, second.nextCommandOffset)
+        assertEquals(0x32B70L, second.textEntryOffset)
+    }
+
+    @Test
     fun rejectsUnalignedOrOutOfRangeTableCursors() {
         val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
         val script = scriptWithPointers(0x32B64, 0)
