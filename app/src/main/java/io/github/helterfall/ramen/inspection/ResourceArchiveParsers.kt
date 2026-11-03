@@ -2,6 +2,8 @@ package io.github.helterfall.ramen.inspection
 
 import java.io.IOException
 import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileInputStream
 import java.io.EOFException
 import kotlin.math.abs
 import java.nio.ByteBuffer
@@ -1376,8 +1378,53 @@ object ResourceArchiveParsers {
 
     private const val DWQ_HEADER_SIZE = 0x40
     private const val BMP_HEADER_SIZE = 0x36
+    private const val MAX_WGQ_FILES = 10_000
+    private val IGNORED_SCRIPT_CONFIGURATION_EXTENSIONS = setOf("xtx")
 
     private val PACKTYPE_PATTERN = Regex("^PACKTYPE=([0-9]+)(A?)$")
+
+    /** Lists .wgq resources and deliberately excludes .xtx script sidecars. */
+    @Throws(IOException::class)
+    fun findBlackCycWgqFiles(directory: File): List<File> {
+        if (!directory.exists()) return emptyList()
+        if (!directory.isDirectory || java.nio.file.Files.isSymbolicLink(directory.toPath())) {
+            throw IOException("The Black Cyc wgq resource path is not a regular directory.")
+        }
+        return directory.walkTopDown()
+            .maxDepth(12)
+            .filter { file ->
+                val extension = file.extension.lowercase()
+                file.isFile &&
+                    !java.nio.file.Files.isSymbolicLink(file.toPath()) &&
+                    extension !in IGNORED_SCRIPT_CONFIGURATION_EXTENSIONS &&
+                    extension == "wgq"
+            }
+            .take(MAX_WGQ_FILES)
+            .sortedBy { it.relativeTo(directory).invariantSeparatorsPath.lowercase() }
+            .toList()
+    }
+
+    /** Reads one complete DWQ block from a standalone .wgq resource. */
+    @Throws(IOException::class)
+    fun decodeBlackCycWgqFile(file: File): DecodedDwqBitmap {
+        if (!file.isFile || java.nio.file.Files.isSymbolicLink(file.toPath())) {
+            throw IOException("The WGQ image resource is not a regular file.")
+        }
+        val length = file.length()
+        if (length < DWQ_HEADER_SIZE.toLong() || length > Int.MAX_VALUE.toLong()) {
+            throw IOException("The WGQ image resource is outside the supported buffer range.")
+        }
+        val bytes = ByteArray(length.toInt())
+        FileInputStream(file).use { input ->
+            var offset = 0
+            while (offset < bytes.size) {
+                val read = input.read(bytes, offset, bytes.size - offset)
+                if (read < 0) throw EOFException("Truncated WGQ image resource.")
+                if (read > 0) offset += read
+            }
+        }
+        return decodeBlackCycDwqPackedBmp(bytes)
+    }
 
     data class DecodedDwqBitmap(
         val width: Int,
