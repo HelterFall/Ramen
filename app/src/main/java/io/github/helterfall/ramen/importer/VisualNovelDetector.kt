@@ -44,7 +44,7 @@ class VisualNovelDetector {
                 engineId = "system-nnn-spt",
                 engineLabel = "System-NNN SPT (парсер доступен)",
                 compatibilityStatus = "PARSER_AVAILABLE",
-                evidence = "Validated XOR-masked SPTHEADER0 at 0x30; " +
+                evidence = "Validated XOR-masked SPTHEADER[0-9] at 0x30; " +
                     "${sptScript.offsetTables.size} table descriptors, " +
                     "${sptScript.commandByteCount} raw command-region bytes and " +
                     "${sptScript.textPool.size} Shift-JIS text/resource entries parsed. " +

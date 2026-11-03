@@ -210,14 +210,13 @@ class SystemNnnScriptLoader(
     }
 
     private fun validateSignature(decoded: ByteArray) {
-        val signatureEnd = SIGNATURE_OFFSET + SIGNATURE.size
+        val signatureEnd = SIGNATURE_OFFSET + SIGNATURE_LENGTH
         if (decoded.size < signatureEnd) {
             throw IOException("The SPT header is truncated.")
         }
-        for (index in SIGNATURE.indices) {
-            if (decoded[SIGNATURE_OFFSET + index] != SIGNATURE[index]) {
-                throw IOException("SPTHEADER0 signature was not found at 0x30.")
-            }
+        val signature = String(decoded, SIGNATURE_OFFSET, SIGNATURE_LENGTH, Charsets.US_ASCII)
+        if (!SIGNATURE_PATTERN.matches(signature)) {
+            throw IOException("SPTHEADER[0-9] signature was not found at 0x30.")
         }
     }
 
@@ -326,7 +325,8 @@ class SystemNnnScriptLoader(
         private const val MAX_TEXT_ENTRIES = 1_000_000
         private const val MAX_TEXT_ENTRY_BYTES = 1024 * 1024
 
-        private val SIGNATURE = "SPTHEADER0".toByteArray(Charsets.US_ASCII)
+        private const val SIGNATURE_LENGTH = 10
+        private val SIGNATURE_PATTERN = Regex("SPTHEADER[0-9]")
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
 
         /**
@@ -344,7 +344,7 @@ class SystemNnnScriptLoader(
          * Checks the fixed signature without taking ownership of [source].
          */
         fun hasValidHeader(source: ReadOnlyRandomAccessSource): Boolean {
-            val signatureEnd = SIGNATURE_OFFSET + SIGNATURE.size
+            val signatureEnd = SIGNATURE_OFFSET + SIGNATURE_LENGTH
             if (source.sizeBytes < signatureEnd.toLong()) return false
 
             return runCatching {
@@ -353,9 +353,8 @@ class SystemNnnScriptLoader(
                 for (index in masked.indices) {
                     masked[index] = (masked[index].toInt() xor 0xFF).toByte()
                 }
-                SIGNATURE.indices.all { index ->
-                    masked[SIGNATURE_OFFSET + index] == SIGNATURE[index]
-                }
+                val signature = String(masked, SIGNATURE_OFFSET, SIGNATURE_LENGTH, Charsets.US_ASCII)
+                SIGNATURE_PATTERN.matches(signature)
             }.getOrDefault(false)
         }
     }

@@ -96,6 +96,19 @@ class VisualNovelDetectorTest {
     }
 
     @Test
+    fun detectsUpdatedSystemNnnHeaderDigit() {
+        val root = Files.createTempDirectory("ramen-system-nnn-header-detect").toFile()
+        try {
+            File(root, "scenario.spt").writeBytes(createMinimalSptFixture(headerVersion = 7))
+            val result = VisualNovelDetector().detect(root)
+            assertEquals("system-nnn-spt", result.engineId)
+            assertEquals("PARSER_AVAILABLE", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun unknownContentStaysUnknown() {
         val root = Files.createTempDirectory("ramen-unknown-detect").toFile()
 
@@ -111,7 +124,7 @@ class VisualNovelDetectorTest {
         }
     }
 
-    private fun createMinimalSptFixture(): ByteArray {
+    private fun createMinimalSptFixture(headerVersion: Int = 0): ByteArray {
         val text = "fixture".toByteArray(Charset.forName("Shift_JIS")) + byteArrayOf(0)
         val decoded = ByteArray(0x32B64 + text.size)
         putUInt32(decoded, 0x00, 20)
@@ -123,7 +136,7 @@ class VisualNovelDetectorTest {
         putUInt32(decoded, 0x24, 0xC390)
         putUInt32(decoded, 0x28, 2)
         putUInt32(decoded, 0x2C, 0)
-        "SPTHEADER0".toByteArray(Charsets.US_ASCII).copyInto(decoded, 0x30)
+        "SPTHEADER$headerVersion".toByteArray(Charsets.US_ASCII).copyInto(decoded, 0x30)
 
         text.copyInto(decoded, 0x32B64)
 
