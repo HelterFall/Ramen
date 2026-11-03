@@ -549,16 +549,16 @@ class SystemNnnPlayerViewModel : ViewModel() {
         if (entryCount <= 0L || start != currentScript.commandStartOffset) {
             throw IOException("The SPT main transition table descriptor is invalid.")
         }
-        val end = currentScript.commandEndOffset
-        if (entryCount <= 0L ||
-            start != currentScript.commandStartOffset ||
-            end <= start ||
-            end > currentScript.fileSizeBytes ||
-            end > currentScript.textPoolOffset
+        val commandRegionEnd = currentScript.commandEndOffset
+        if (start != currentScript.commandStartOffset ||
+            commandRegionEnd <= start ||
+            commandRegionEnd > currentScript.fileSizeBytes ||
+            commandRegionEnd > currentScript.textPoolOffset
         ) {
             throw IOException("The SPT command region exceeds its validated file bounds.")
         }
-        return end
+        // Keep the terminal cursor on the same four-byte stride as entries.
+        return start + ((commandRegionEnd - start) / UINT32_BYTES) * UINT32_BYTES
     }
 
     /** Allows the one-past-last cursor solely for the decoder's End result. */

@@ -150,6 +150,6 @@ class SystemNnnCommandDecoderImplTest {
 
     companion object {
         private const val TABLE_START = 0xC5BAL
-        private const val COMMAND_END = 0x32B20L
+        private const val COMMAND_END = 0x32B1EL
     }
 }

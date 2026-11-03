@@ -79,7 +79,7 @@ class SystemNnnPlayerViewModelTest {
     @Test
     fun pausesOnDialogueAfterSkipAndResumesOnlyAfterExplicitNextTap() {
         val dialogueOffset = 0xC5BAL + 1_300L * 4L
-        val commandEnd = 0x32B20L
+        val commandEnd = 0x32B1EL
         val commands = buildMap<Long, SystemNnnDecodedCommand> {
             var offset = 0xC5BAL
             while (offset < dialogueOffset) {

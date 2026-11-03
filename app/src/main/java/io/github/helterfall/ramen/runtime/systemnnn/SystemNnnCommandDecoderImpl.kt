@@ -37,14 +37,18 @@ class SystemNnnCommandDecoderImpl(
         // entryCount=1,299 describes the header's table metadata. The observed
         // executable byte window is independently bounded by the parser and
         // extends to commandEndOffset, well beyond those first 1,299 words.
-        val commandEndOffset = script.commandEndOffset
+        val commandRegionEndOffset = script.commandEndOffset
         if (script.commandStartOffset != MAIN_TABLE_OFFSET ||
-            commandEndOffset <= MAIN_TABLE_OFFSET ||
-            commandEndOffset > script.fileSizeBytes ||
-            commandEndOffset > script.textPoolOffset
+            commandRegionEndOffset <= MAIN_TABLE_OFFSET ||
+            commandRegionEndOffset > script.fileSizeBytes ||
+            commandRegionEndOffset > script.textPoolOffset
         ) {
             throw IOException("The SPT command region has invalid validated file bounds.")
         }
+        // The start address is 2-byte aligned; trim any trailing partial word
+        // so the terminal cursor remains on the same four-byte stride.
+        val commandEndOffset = MAIN_TABLE_OFFSET +
+            ((commandRegionEndOffset - MAIN_TABLE_OFFSET) / UINT32_BYTES) * UINT32_BYTES
 
         if (commandOffset == commandEndOffset) {
             return SystemNnnDecodedCommand.End
