@@ -68,7 +68,7 @@ It does **not**:
 
 A successful Actions run means the specified debug build, unit tests, and lint passed for the checked source tree. It is not a physical-device acceptance test.
 
-For pull requests, actions/checkout checks out GitHub's synthetic merge ref refs/pull/<number>/merge. Run #278 completed successfully for the exact PR #27 source head 75675e3302439bc31f5bc1961bc82b1233ec34b7 before merge. After merge, push-run #279 started directly on main commit 026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5; always consult the latest main run.
+For pull requests, actions/checkout checks out GitHub's synthetic merge ref refs/pull/<number>/merge. Run #278 completed successfully for the exact PR #27 source head 75675e3302439bc31f5bc1961bc82b1233ec34b7 before merge. After merge, push-run #279 completed successfully on main commit 026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5. It completed assembleDebug, testDebugUnitTest, lintDebug, and debug APK upload.
 
 ## 3. Recent build comparison
 
@@ -77,7 +77,9 @@ For pull requests, actions/checkout checks out GitHub's synthetic merge ref refs
 | PR #25 / [run #219](https://github.com/HelterFall/Ramen/actions/runs/41503698179) | b388d449... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, about 11.67 MB |
 | PR #26 / [run #224](https://github.com/HelterFall/Ramen/actions/runs/41580168158) | e6daf72f... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, about 11.54 MB |
 | PR #27 / [run #265](https://github.com/HelterFall/Ramen/actions/runs/41671391772) | 648c4d605... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, about 11.64 MB |
-| PR #27 / [run #270](https://github.com/HelterFall/Ramen/actions/runs/41673052449) | 4a400535... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, historical artifact |\n| PR #27 / [run #278](https://github.com/HelterFall/Ramen/actions/runs/41674773614) | **75675e3302439bc31f5bc1961bc82b1233ec34b7** | **Success**: assemble, unit tests, lint, APK upload | ramen-debug-apk, 11,642,991 bytes |\n| main / [run #279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) | **026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5** | Started after merge; in progress at last check | Push validation for canonical main |
+| PR #27 / [run #270](https://github.com/HelterFall/Ramen/actions/runs/41673052449) | 4a400535... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, historical artifact |
+| PR #27 / [run #278](https://github.com/HelterFall/Ramen/actions/runs/41674773614) | **75675e3302439bc31f5bc1961bc82b1233ec34b7** | **Success**: assemble, unit tests, lint, APK upload | ramen-debug-apk, 11,642,991 bytes |
+| main / [run #279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) | **026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5** | **Success**: assemble, tests, lint, APK upload | Push validation for canonical main |
 
 Run #270 artifact metadata:
 - Artifact ID: 13250265749
@@ -95,7 +97,17 @@ Run #278 artifact metadata:
 - Workflow: Android CI, run #278
 - Tested source: `feat/system-nnn-spt-loader` at `75675e3302439bc31f5bc1961bc82b1233ec34b7`
 
-The code from this run was promoted into `main` by merge commit `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`. Run #279 is the post-merge push validation; consult Actions for its latest state.
+
+Run #279 post-merge artifact metadata:
+- Artifact ID: 13251016631
+- SHA-256: f4d34352b983b46e583cd776e9dc3825d340632fafcfe28edfc96b2690701f99
+- Size: 11,642,990 bytes
+- Created: 2026-11-03 16:45:09 UTC
+- Expiry: 2026-11-10 16:45:07 UTC
+- Workflow: Android CI, run #279
+- Tested source: `main` at merge commit `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`
+
+The code from run #278 was promoted into `main` by merge commit `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`. Post-merge run [#279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) then completed successfully on that exact merge commit.
 
 Compare between PR #27 run #265 code snapshot 648c4d605... and current head 4a400535... shows only documentation files changed: root HANDOFF.md, root README.md, and docs/DEVELOPMENT_LOG.md. No app source or test source changed between those two heads. Run #270 then passed against the exact current PR head.
 
