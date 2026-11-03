@@ -131,7 +131,7 @@ class SystemNnnPlayerViewModelTest {
 
         assertFalse(viewModel.uiState.isEnded)
         assertEquals(NovelState.Failed, viewModel.uiState.novelState)
-        assertTrue(viewModel.uiState.errorMessage!!.contains("before the declared"))
+        assertTrue(viewModel.uiState.errorMessage!!.contains("before the validated"))
     }
 
     @Test
