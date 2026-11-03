@@ -59,11 +59,11 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                 val scriptFile = findSystemNnnScript(gameDirectory)
                 val script = SystemNnnScriptLoader().load(scriptFile)
                 val resourcePair = findGpkGtbPair(gameDirectory)
-                assetResolver = SystemNnnGpkBitmapRepository(
+                val resolverToTransfer = SystemNnnGpkBitmapRepository(
                     indexFile = resourcePair.first,
                     archiveFile = resourcePair.second
                 )
-                val resolverToTransfer = assetResolver
+                assetResolver = resolverToTransfer
 
                 mainHandler.post {
                     if (isFinishing || isDestroyed) {
@@ -71,7 +71,9 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     } else {
                         playerViewModel.start(
                             script = script,
-                            commandDecoder = SystemNnnCommandDecoderImpl(),
+                            commandDecoder = SystemNnnCommandDecoderImpl(
+                                gtbResourceCount = resolverToTransfer.entries.size
+                            ),
                             assetResolver = resolverToTransfer
                         )
                     }

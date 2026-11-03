@@ -57,6 +57,45 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun skipsUnmappedSystemWordAndContinuesToExactTextPoolEntry() {
+        val decoder = FakeDecoder(
+            mapOf(
+                0xC5BAL to SystemNnnDecodedCommand.Skip(nextCommandOffset = 0xC5BEL),
+                0xC5BEL to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = 0xC5C2,
+                    textEntryOffset = 0x32B64
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertEquals(null, viewModel.uiState.errorMessage)
+        assertFalse(viewModel.uiState.isLoading)
+    }
+
+    @Test
+    fun requestsSceneBitmapUsingGtbIndexRatherThanRawStringIdentifier() {
+        val decoder = FakeDecoder(
+            mapOf(
+                0xC5BAL to SystemNnnDecodedCommand.SceneUpdate(
+                    nextCommandOffset = 0xC5BE,
+                    backgroundResourceIndex = 3L
+                )
+            )
+        )
+        val assets = IndexRecordingAssets
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, assets)
+
+        assertEquals(3L, assets.lastRequestedIndex)
+        assertEquals(null, assets.lastRequestedName)
+    }
+
+    @Test
     fun missingDecoderDoesNotPretendToInterpretRawBytesAsOpcodes() {
         val viewModel = SystemNnnPlayerViewModel()
 
@@ -121,6 +160,23 @@ class SystemNnnPlayerViewModelTest {
 
     private object EmptyAssets : SystemNnnSceneAssetResolver {
         override fun loadBitmap(resourceId: String) = null
+        override fun close() = Unit
+    }
+
+    private object IndexRecordingAssets : SystemNnnSceneAssetResolver {
+        var lastRequestedIndex: Long? = null
+        var lastRequestedName: String? = null
+
+        override fun loadBitmap(resourceId: String): android.graphics.Bitmap? {
+            lastRequestedName = resourceId
+            return null
+        }
+
+        override fun loadBitmapByIndex(index: Long): android.graphics.Bitmap? {
+            lastRequestedIndex = index
+            return null
+        }
+
         override fun close() = Unit
     }
 }

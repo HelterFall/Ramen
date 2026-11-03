@@ -41,12 +41,16 @@ data class SystemNnnPlayerUiState(
 )
 
 /**
- * Resource lookup contract used by scene commands. The GPK implementation
- * resolves a GTB name, table index, or absolute GPK block offset to a Bitmap.
+ * Resource lookup contract used by scene commands. Scene resources may be
+ * requested by GTB name, by an explicit GTB table index, or by block offset.
  */
 fun interface SystemNnnSceneAssetResolver : Closeable {
     @Throws(IOException::class)
     fun loadBitmap(resourceId: String): Bitmap?
+
+    /** Resolves a zero-based row in the already-validated GTB catalog. */
+    @Throws(IOException::class)
+    fun loadBitmapByIndex(index: Long): Bitmap? = null
 
     /** Called only after the matching Compose Image node has left composition. */
     fun releaseBitmap(bitmap: Bitmap) {
@@ -82,7 +86,12 @@ sealed interface SystemNnnDecodedCommand {
     data class SceneUpdate(
         val nextCommandOffset: Long,
         val backgroundResourceId: String? = null,
-        val sprites: List<SystemNnnSpriteReference> = emptyList()
+        val sprites: List<SystemNnnSpriteReference> = emptyList(),
+        val backgroundResourceIndex: Long? = null
+    ) : SystemNnnDecodedCommand
+
+    data class Skip(
+        val nextCommandOffset: Long
     ) : SystemNnnDecodedCommand
 
     data class Choice(
@@ -197,6 +206,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
         bitmapOwners[bitmap] = resolver
     }
 
+    private fun loadBitmapByIndex(
+        index: Long,
+        resolver: SystemNnnSceneAssetResolver
+    ): Bitmap? = resolver.loadBitmapByIndex(index)?.also { bitmap ->
+        bitmapOwners[bitmap] = resolver
+    }
+
     fun onTypewriterProgress(visibleCharacters: Int) {
         val current = uiState
         if (current.isTextComplete || current.forceReveal) return
@@ -259,11 +275,25 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     is SystemNnnDecodedCommand.SceneUpdate -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
-                        if (command.backgroundResourceId != null) {
+                        if (command.backgroundResourceIndex != null) {
+                            sceneBackground = loadBitmapByIndex(
+                                command.backgroundResourceIndex,
+                                resolver
+                            ) ?: throw IOException(
+                                "Background GTB resource index " +
+                                    command.backgroundResourceIndex + " was not found."
+                            )
+                        } else if (command.backgroundResourceId != null) {
                             sceneBackground = loadBitmap(command.backgroundResourceId, resolver)
                                 ?: throw IOException("Background resource was not found.")
                         }
                         sceneSprites = resolveSprites(command.sprites, resolver)
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.Skip -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        nextCommandOffset = command.nextCommandOffset
                         commandsWithoutVisibleOutput += 1
                     }
 

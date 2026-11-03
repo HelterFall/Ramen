@@ -46,10 +46,12 @@ class SystemNnnGpkBitmapRepository(
         return decode(entry)
     }
 
-    fun loadBitmap(index: Int): Bitmap? {
-        val entry = archive.entries.getOrNull(index) ?: return null
-        return decode(entry)
+    override fun loadBitmapByIndex(index: Long): Bitmap? {
+        if (index < 0L || index >= archive.entries.size.toLong()) return null
+        return decode(archive.entries[index.toInt()])
     }
+
+    fun loadBitmap(index: Int): Bitmap? = loadBitmapByIndex(index.toLong())
 
     fun loadBitmapAtBlockOffset(blockOffset: Long): Bitmap? {
         val entry = archive.entries.firstOrNull { it.blockOffset == blockOffset } ?: return null

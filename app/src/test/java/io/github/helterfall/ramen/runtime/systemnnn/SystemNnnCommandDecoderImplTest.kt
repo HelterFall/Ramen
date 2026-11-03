@@ -10,9 +10,9 @@ import org.junit.Test
 class SystemNnnCommandDecoderImplTest {
 
     @Test
-    fun mapsTextPoolOffsetsToDialogueAndLowerValuesToGtbSceneUpdates() {
-        val script = scriptWithPointers(0x32B64, 7)
-        val decoder = SystemNnnCommandDecoderImpl()
+    fun mapsExactTextOffsetsAndValidGtbIndexesAndSkipsUnknownValues() {
+        val script = scriptWithPointers(0x32B64, 7, 0x40000, 9)
+        val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
 
         val dialogue = decoder.decodeNext(script, TABLE_START) as SystemNnnDecodedCommand.Dialogue
         assertEquals(TABLE_START + 4L, dialogue.nextCommandOffset)
@@ -20,7 +20,20 @@ class SystemNnnCommandDecoderImplTest {
 
         val scene = decoder.decodeNext(script, TABLE_START + 4L) as SystemNnnDecodedCommand.SceneUpdate
         assertEquals(TABLE_START + 8L, scene.nextCommandOffset)
-        assertEquals("7", scene.backgroundResourceId)
+        assertEquals(7L, scene.backgroundResourceIndex)
+        assertEquals(null, scene.backgroundResourceId)
+
+        val skippedHighValue = decoder.decodeNext(
+            script,
+            TABLE_START + 8L
+        ) as SystemNnnDecodedCommand.Skip
+        assertEquals(TABLE_START + 12L, skippedHighValue.nextCommandOffset)
+
+        val skippedOutOfRangeIndex = decoder.decodeNext(
+            script,
+            TABLE_START + 12L
+        ) as SystemNnnDecodedCommand.Skip
+        assertEquals(TABLE_START + 16L, skippedOutOfRangeIndex.nextCommandOffset)
 
         assertTrue(decoder.decodeNext(script, TABLE_END) is SystemNnnDecodedCommand.End)
     }

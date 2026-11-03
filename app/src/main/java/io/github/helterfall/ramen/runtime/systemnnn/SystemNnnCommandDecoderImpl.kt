@@ -7,10 +7,16 @@ import java.io.IOException
  * Interpreter for the verified fixed-width System-NNN scene pointer table.
  *
  * The 1,299-entry table at 0xC5BA consists of UInt32 little-endian values.
- * Values at or above 0x32B64 are absolute offsets into the Shift-JIS text pool;
- * lower values are GTB resource indices. Records are visited in table order.
+ * Exact text-pool offsets become dialogue commands; values within the parsed
+ * GTB catalog become indexed scene updates. Unknown values are safely skipped.
  */
-class SystemNnnCommandDecoderImpl : SystemNnnCommandDecoder {
+class SystemNnnCommandDecoderImpl(
+    private val gtbResourceCount: Int
+) : SystemNnnCommandDecoder {
+
+    init {
+        require(gtbResourceCount >= 0) { "gtbResourceCount must not be negative." }
+    }
 
     override fun decodeNext(
         script: SystemNnnScript,
@@ -57,16 +63,26 @@ class SystemNnnCommandDecoderImpl : SystemNnnCommandDecoder {
         val value = readUInt32LittleEndian(bytes)
         val nextCommandOffset = commandOffset + UINT32_BYTES
 
-        return if (value >= TEXT_POOL_START_OFFSET) {
-            SystemNnnDecodedCommand.Dialogue(
-                nextCommandOffset = nextCommandOffset,
-                textEntryOffset = value
-            )
-        } else {
-            SystemNnnDecodedCommand.SceneUpdate(
-                nextCommandOffset = nextCommandOffset,
-                backgroundResourceId = value.toString()
-            )
+        return when {
+            script.textEntryAtOffset(value) != null -> {
+                SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = nextCommandOffset,
+                    textEntryOffset = value
+                )
+            }
+
+            value < gtbResourceCount.toLong() -> {
+                SystemNnnDecodedCommand.SceneUpdate(
+                    nextCommandOffset = nextCommandOffset,
+                    backgroundResourceIndex = value
+                )
+            }
+
+            else -> {
+                SystemNnnDecodedCommand.Skip(
+                    nextCommandOffset = nextCommandOffset
+                )
+            }
         }
     }
 
@@ -86,6 +102,5 @@ class SystemNnnCommandDecoderImpl : SystemNnnCommandDecoder {
         private const val MAIN_TABLE_ENTRY_COUNT = 1_299L
         private const val UINT32_BYTES = 4L
         private const val MAIN_TABLE_BYTE_COUNT = MAIN_TABLE_ENTRY_COUNT * UINT32_BYTES
-        private const val TEXT_POOL_START_OFFSET = 0x32B64L
     }
 }
