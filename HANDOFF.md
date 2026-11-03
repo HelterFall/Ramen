@@ -404,13 +404,13 @@ Five little-endian DWORD values printed at `0x32B20`:
 |---|---|---|---|---|
 | [#25](https://github.com/HelterFall/Ramen/pull/25) | `research/gpk-vpk-readonly-parsers` | Open, not merged; 191 commits / 63 files | Run #219 success | GPK/GTB, VPK/VTB parsers and resource work; branch очень крупная |
 | [#26](https://github.com/HelterFall/Ramen/pull/26) | `feature/blackcyc-resource-preview` | Open, not merged; 6 commits / 20 files | Run #224 success | Black Cyc resource preview, DWQ, opaque SPT detection |
-| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; 45 commits / 45 files | Run #265 passed on the code snapshot before docs-only commits | System-NNN loader/player plus resource code and storage changes |
+| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; 45 changed files | Run #265 passed on the code snapshot before docs-only commits | System-NNN loader/player plus resource code and storage changes |
 
 Снимок Git:
 - `main` head в ходе аудита: `305f3f25c09c7f2d13c9d0ad7027f9124dcf7884`.
-- PR #27 head после добавления HANDOFF и обновления README: `87afbae17c257fdfbd2a66811fe1be1f36a0a6f6` (дальнейшие handoff/log commits снова изменят head). Текущий diff относительно main: 45 commits / 45 files; все последующие изменения после `648c4d...` были документационными.
+- Точный PR #27 head не фиксируем статически: после handoff/log/README обновлений SHA изменился; смотри актуальный `head SHA` в [PR #27](https://github.com/HelterFall/Ramen/pull/27). В ходе этого аудита PR diff относительно main показывал 45 changed files; изменения после проверенного кодового snapshot `648c4d...` были документационными.
 - PR #27 основан на main и не содержит #26 как ancestor: branches разошлись от main.
-- Compare #26 → #27 на момент аудита: #27 ahead на 43 commits и behind на 6 commits; common base — main. После добавления двух корневых handoff/readme commits рабочая ветка стала на 45 commits ahead of main.
+- Compare #26 → #27 показал diverged branches: обе ветки основаны на main, #27 не содержит unique commits из #26 как ancestor. После этого в #27 добавлялись только handoff/readme/log commits. Всегда перепроверяй live graph before merge.
 - Compare #25 → #26: ветки тоже diverged; #26 не включает длинную 191-commit историю #25.
 - Все три PR меняют одни и те же resource/importer/detector файлы в разных комбинациях.
 
