@@ -128,6 +128,10 @@ class SystemNnnPlayerViewModelTest {
                 0xC5BAL to SystemNnnDecodedCommand.SceneUpdate(
                     nextCommandOffset = 0xC5BE,
                     backgroundResourceIndex = 3L
+                ),
+                0xC5BEL to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = 0xC5C2,
+                    textEntryOffset = 0x32B64
                 )
             )
         )
@@ -138,6 +142,36 @@ class SystemNnnPlayerViewModelTest {
 
         assertEquals(3L, assets.lastRequestedIndex)
         assertEquals(null, assets.lastRequestedName)
+    }
+
+    @Test
+    fun decodesOnlyTheLastSceneBackgroundBeforeTheVisibleDialogue() {
+        val assets = RecordingAssets
+        assets.requestedIndexes.clear()
+        val decoder = FakeDecoder(
+            mapOf(
+                0xC5BAL to SystemNnnDecodedCommand.SceneUpdate(
+                    nextCommandOffset = 0xC5BE,
+                    backgroundResourceIndex = 1L
+                ),
+                0xC5BEL to SystemNnnDecodedCommand.SceneUpdate(
+                    nextCommandOffset = 0xC5C2,
+                    backgroundResourceIndex = 2L
+                ),
+                0xC5C2L to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = 0xC5C6,
+                    textEntryOffset = 0x32B64
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, assets)
+
+        // The fake resolver returns null, so rendering fails at the final
+        // resource; earlier, superseded resources must never be decoded.
+        assertEquals(listOf(2L), assets.requestedIndexes)
+        assertTrue(viewModel.uiState.errorMessage!!.contains("index 2"))
     }
 
     @Test

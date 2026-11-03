@@ -293,6 +293,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
         try {
             var sceneBackground = uiState.backgroundBitmap
             var sceneSprites = uiState.sprites
+            var pendingBackgroundResourceId: String? = null
+            var pendingBackgroundResourceIndex: Long? = null
+            var pendingSpriteReferences: List<SystemNnnSpriteReference>? = null
             var commandsWithoutVisibleOutput = 0
 
             while (commandsWithoutVisibleOutput < MAX_SCENE_COMMANDS_PER_ADVANCE) {
@@ -306,18 +309,16 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
                         if (command.backgroundResourceIndex != null) {
-                            sceneBackground = loadBitmapByIndex(
-                                command.backgroundResourceIndex,
-                                resolver
-                            ) ?: throw IOException(
-                                "Background GTB resource index " +
-                                    command.backgroundResourceIndex + " was not found."
-                            )
+                            pendingBackgroundResourceIndex = command.backgroundResourceIndex
+                            pendingBackgroundResourceId = null
                         } else if (command.backgroundResourceId != null) {
-                            sceneBackground = loadBitmap(command.backgroundResourceId, resolver)
-                                ?: throw IOException("Background resource was not found.")
+                            pendingBackgroundResourceId = command.backgroundResourceId
+                            pendingBackgroundResourceIndex = null
                         }
-                        sceneSprites = resolveSprites(command.sprites, resolver)
+                        // Scene updates can be numerous before the next dialogue.
+                        // Keep only the final resource descriptors and decode them
+                        // once, immediately before publishing the visible frame.
+                        pendingSpriteReferences = command.sprites
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -336,11 +337,22 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         nextCommandOffset = command.nextCommandOffset
 
                         if (command.backgroundResourceId != null) {
-                            sceneBackground = loadBitmap(command.backgroundResourceId, resolver)
+                            pendingBackgroundResourceId = command.backgroundResourceId
+                            pendingBackgroundResourceIndex = null
+                        }
+                        if (pendingBackgroundResourceIndex != null) {
+                            val index = pendingBackgroundResourceIndex!!
+                            sceneBackground = loadBitmapByIndex(index, resolver)
+                                ?: throw IOException("Background GTB resource index " + index + " was not found.")
+                        } else if (pendingBackgroundResourceId != null) {
+                            sceneBackground = loadBitmap(pendingBackgroundResourceId!!, resolver)
                                 ?: throw IOException("Background resource was not found.")
                         }
                         if (command.sprites.isNotEmpty()) {
-                            sceneSprites = resolveSprites(command.sprites, resolver)
+                            pendingSpriteReferences = command.sprites
+                        }
+                        if (pendingSpriteReferences != null) {
+                            sceneSprites = resolveSprites(pendingSpriteReferences!!, resolver)
                         }
 
                         frameCounter += 1L
@@ -373,6 +385,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             if (!isValidCommandOffset(currentScript, option.targetCommandOffset)) {
                                 throw IOException("Choice target is outside the command region.")
                             }
+                        }
+
+                        if (pendingBackgroundResourceIndex != null) {
+                            val index = pendingBackgroundResourceIndex!!
+                            sceneBackground = loadBitmapByIndex(index, resolver)
+                                ?: throw IOException("Background GTB resource index " + index + " was not found.")
+                        } else if (pendingBackgroundResourceId != null) {
+                            sceneBackground = loadBitmap(pendingBackgroundResourceId!!, resolver)
+                                ?: throw IOException("Background resource was not found.")
+                        }
+                        if (pendingSpriteReferences != null) {
+                            sceneSprites = resolveSprites(pendingSpriteReferences!!, resolver)
                         }
 
                         frameCounter += 1L
@@ -408,10 +432,27 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
             throw IOException("Too many scene-only commands without a dialogue or choice.")
         } catch (error: Exception) {
+            releaseUnpublishedBitmaps()
             uiState = uiState.copy(
                 isLoading = false,
                 errorMessage = error.message ?: "Не удалось декодировать следующую команду."
             )
+        }
+    }
+
+    /**
+     * Releases resources decoded for a frame that was never published. The
+     * current UI state remains the owner of its displayed background/sprites.
+     */
+    private fun releaseUnpublishedBitmaps() {
+        val published = IdentityHashMap<Bitmap, Boolean>()
+        uiState.backgroundBitmap?.let { published[it] = true }
+        uiState.sprites.forEach { published[it.bitmap] = true }
+
+        bitmapOwners.keys.toList().forEach { bitmap ->
+            if (!published.containsKey(bitmap)) {
+                onBitmapDisposed(bitmap)
+            }
         }
     }
 
