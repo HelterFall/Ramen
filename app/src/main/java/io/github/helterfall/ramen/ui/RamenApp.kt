@@ -218,6 +218,8 @@ fun RamenApp() {
 
     val onImportHtmlClick: () -> Unit = {
         if (!isImporting) {
+            // Some providers label .html as text/plain or octet-stream,
+            // so accept the selection broadly and validate it in HtmlFileImporter.
             htmlFilePicker.launch(arrayOf("*/*"))
         }
     }
