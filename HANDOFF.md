@@ -405,7 +405,7 @@ Five little-endian DWORD values printed at `0x32B20`:
 |---|---|---|---|---|
 | [#25](https://github.com/HelterFall/Ramen/pull/25) | `research/gpk-vpk-readonly-parsers` | Open, not merged; 191 commits / 63 files | Run #219 success | GPK/GTB, VPK/VTB parsers and resource work; branch очень крупная |
 | [#26](https://github.com/HelterFall/Ramen/pull/26) | `feature/blackcyc-resource-preview` | Open, not merged; 6 commits / 20 files | Run #224 success | Black Cyc resource preview, DWQ, opaque SPT detection |
-| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; 48 commits / 45 changed files | **Run #270 success on exact head `4a400535...`** | Resource inspector + experimental System-NNN loader/player |
+| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; 53 commits / 46 changed files | Run #270 success on code snapshot `4a400535...`; run #275 queued for docs-only head `e0c33ae...` | Resource inspector + experimental System-NNN loader/player |
 
 Снимок Git:
 - `main` head в ходе аудита: `305f3f25c09c7f2d13c9d0ad7027f9124dcf7884`.
@@ -434,7 +434,7 @@ PR #27 на снимке был mergeable по metadata, но это не зам
 - Падающий тест: `HtmlInlineResourceExtractorTest > leavesUnsupportedDataUrisUntouched`.
 - Стек указывает на `HtmlInlineResourceExtractorTest.kt:54`, вызов extractor.
 - Задача `:app:testDebugUnitTest` упала; lint-анализ запускался, APK upload был пропущен.
-- Run #265: https://github.com/HelterFall/Ramen/actions/runs/41671391772 — **success**: assemble/build, unit tests, lint и debug APK upload завершились успешно. Проверенный commit snapshot — `648c4d6052dcd3a95d0ca9f14c210392c33eed70`; после него добавлялись только docs (`HANDOFF.md`, `README.md`), code changes не было. На точном docs head `87af...` отдельного workflow run не найдено.
+- Run #265: https://github.com/HelterFall/Ramen/actions/runs/41671391772 — **success** на промежуточном commit snapshot `648c4d6052dcd3a95d0ca9f14c210392c33eed70`.
 
 Причина старого test failure установлена по сравнению кода до/после. При записи временного `.index.html.rewritten`, который лежит в `gameDirectory`, старый код передавал `StorageSpaceGuard(assetsDirectory)`. В тесте с неподдерживаемым data URI папка `assets` не создаётся; проверка `assetsDirectory.usableSpace` возвращала ноль, и guard выдавал IOException. Исправлено на `StorageSpaceGuard(gameDirectory)`. После исправления run #265 прошёл. Для будущих storage tests всё равно предпочтительно использовать injected `availableSpaceBytes` / controlled fake, чтобы тесты не зависели от реального свободного места.
 
@@ -472,8 +472,8 @@ CI не заменяет реальный Android device acceptance для HTML5
 
 ### P0 — зафиксировать базу и CI
 1. Перепроверить branch/head PR #27, PR status и самый новый Android CI run.
-2. Исторический failure #230 исправлен изменением storage guard root; run #265 зелёный. При новых ошибках извлекать точную причину по логу, не гадать.
-3. Разобраться с `leavesUnsupportedDataUrisUntouched`; не скрывать проблему и не менять ожидания теста только ради зелёного CI.
+2. Исторический failure #230 исправлен изменением storage guard root; run #270 зелёный на code snapshot. Последующий run #275 относится только к docs-only изменениям. При новых code errors извлекать точную причину по логу, не гадать.
+3. Старый failure `leavesUnsupportedDataUrisUntouched` уже исправлен; возвращаться к нему только при повторном падении.
 4. Повторить `assembleDebug`, unit tests и lint.
 
 ### P1 — проверить SPT parser/decoder
