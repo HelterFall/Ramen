@@ -70,14 +70,14 @@ The current `feat/system-nnn-spt-loader` work already assumes:
 
 The existing decoder further assumes that the 1299 entries are four-byte little-endian values and applies a resource-index/dialogue classification rule. The supplied analysis output does **not** independently validate the four-byte entry interpretation, the value threshold, the dialogue ordering, or the relationship between the DWORDs at `0x32B20` and text markers. Keep those rules provisional until checked against the actual sample bytes and visible in-game scene order.
 
-The current loader's interpretation of all NUL-delimited data from `0x32B64) onward as Shift-JIS text likewise needs validation beyond the first detected printable run.
+The current loader's interpretation of all NUL-delimited data from `0x32B64` onward as Shift-JIS text likewise needs validation beyond the first detected printable run.
 
 ## Next validation tasks
 
 1. Preserve the original SPT sample and its SHA-256 outside the source repository; do not commit commercial game data.
 2. Extend the read-only dump to show bounded hex/byte windows around `0xC390`, `0xC5BA`, `0x16752`, `0x167F2`, `0x32B20`, and `0x32B64`.
 3. Decode the 1299-entry candidate table as both plausible-width alternatives where appropriate, then test which interpretation produces valid in-file targets / resource indices. Do not bake in UInt32 until evidence supports it.
-4. Determine whether the 1124-count descriptor and its target `0x167F2) describe a separate offset table, text index, or another structure.
+4. Determine whether the 1124-count descriptor and its target `0x167F2` describe a separate offset table, text index, or another structure.
 5. Determine the role of the 69-count descriptor at `0xC390`.
 6. Trace the five values at `0x32B20` and the six `text\0` markers to concrete record boundaries.
 7. Compare decoded strings and referenced GPK/GTB resources with the actual game scene order.
