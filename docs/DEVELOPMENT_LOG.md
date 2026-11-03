@@ -199,3 +199,38 @@ Make the binary inventory portable and comparable without requiring the original
 
 ### Next step
 - Recheck Actions after any code change. Do not treat a documentation-only commit as proof of a new code test; record the exact tested commit SHA.
+
+
+## 2026-11-04 — Build inclusion audit and current Actions verification
+
+### Branch contents confirmed from source
+- The checked main head (305f3f25...) has no ResourceInspectorActivity registration or Resource Inspector shortcut, and no System-NNN player Activity / launch path.
+- PR #25 branch has ResourceInspectorActivity registered and a global shortcut; it does not register SystemNnnPlayerActivity. Its Script v1 player is a synthetic fixture path, not the proprietary System-NNN player.
+- PR #26 branch has the Resource Inspector and Black Cyc resource preview, but no SystemNnnPlayerActivity. Its SPT boundary remains opaque rather than a decoded game runtime.
+- PR #27 registers ResourceInspectorActivity and SystemNnnPlayerActivity. The Inspector shortcut is always rendered on the home screen, and the per-game resource-inspection action opens the Inspector. The System-NNN launch path is wired when detection returns system-nnn-spt / PARSER_AVAILABLE.
+- Therefore the PR #27 debug APK includes and visibly exposes both Resource Inspector and experimental System-NNN player. No debug-only gate/product flavor currently excludes them.
+
+### Decoder wording / evidence warning
+- UI wording in GameCard says System-NNN launch with text/resource pointer decoding is available.
+- Detector evidence text still says the playback interpreter is not connected yet.
+- The current decoder compares table value with gtbResourceCount, then reads text entries sequentially. This differs from the PR description's value >= 0x32B64 dialogue-offset rule. It does not yet prove correct absolute text pointer resolution.
+- The decoder does not currently implement verified choice/branch/audio commands; audio lookup uses sequential dialogueStepIndex. Treat this as provisional, not a fully decoded SPT VM.
+- Full details are now in [BUILD_MATRIX.md](BUILD_MATRIX.md).
+
+### Actions comparison
+- PR #25 run #219: success on branch head b388d449..., debug APK artifact uploaded.
+- PR #26 run #224: success on branch head e6daf72f..., debug APK artifact uploaded.
+- PR #27 run #265: success on intermediate code snapshot 648c4d605...
+- PR #27 run #270: success on exact PR head 4a400535562667d5720f17beef3aa16d46b10def. The job completed assembleDebug, testDebugUnitTest, lintDebug, and debug APK upload.
+- Run #270 checked synthetic merge commit 247ad61 merging PR head 4a400535... into main 305f3f25...
+- Artifact: ramen-debug-apk, ID 13250265749, 11,642,988 bytes, SHA-256 616d1c121cb966627f3dcc39efb45429c1047e068e3eb988c1ce671362096615, expires 2026-11-10.
+- The five commits between the previously validated code snapshot #265 and #270 changed documentation only (HANDOFF.md, README.md, DEVELOPMENT_LOG.md); no app or test source changed.
+
+### CI delivery boundary
+- Android CI builds only assembleDebug, runs unit tests and lint, and uploads a debug APK with seven-day retention.
+- It does not run assembleRelease, perform release signing, or publish to Google Play.
+- A green PR check is a build/test result for the synthetic merge ref; it is not device acceptance and does not prove full game compatibility.
+
+### Durable continuation rule
+- Before every APK build, record branch, exact commit SHA, build type, Actions URL (if applicable), artifact digest, and intended feature set.
+- Use [HANDOFF.md](../HANDOFF.md) and [BUILD_MATRIX.md](BUILD_MATRIX.md) to choose the correct source. Do not assume that main and PR #27 produce equivalent apps.
