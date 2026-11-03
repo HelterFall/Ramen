@@ -51,14 +51,31 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
-    fun rejectsTextOffsetsThatDoNotPointToAnEntryStart() {
+    fun skipsUnmappedTextRangeValueAndContinuesToNextTextEntry() {
         val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
-        val script = scriptWithPointers(0x32B65)
+        val script = scriptWithPointers(0x32B65, 0x32B64)
 
-        assertTrue(
-            runCatching { decoder.decodeNext(script, TABLE_START) }
-                .exceptionOrNull() is IOException
-        )
+        val skipped = decoder.decodeNext(script, TABLE_START)
+        assertTrue(skipped is SystemNnnDecodedCommand.Skip)
+        assertEquals(TABLE_START + 4L, (skipped as SystemNnnDecodedCommand.Skip).nextCommandOffset)
+
+        val dialogue = decoder.decodeNext(script, skipped.nextCommandOffset)
+        assertTrue(dialogue is SystemNnnDecodedCommand.Dialogue)
+        assertEquals(0x32B64L, (dialogue as SystemNnnDecodedCommand.Dialogue).textEntryOffset)
+    }
+
+    @Test
+    fun skipsFfff0000SystemMarkerAndContinuesToDialoguePointer() {
+        val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
+        val script = scriptWithPointers(0xFFFF0000L, 0x32B64)
+
+        val skipped = decoder.decodeNext(script, TABLE_START)
+        assertTrue(skipped is SystemNnnDecodedCommand.Skip)
+        assertEquals(TABLE_START + 4L, (skipped as SystemNnnDecodedCommand.Skip).nextCommandOffset)
+
+        val dialogue = decoder.decodeNext(script, skipped.nextCommandOffset)
+        assertTrue(dialogue is SystemNnnDecodedCommand.Dialogue)
+        assertEquals(0x32B64L, (dialogue as SystemNnnDecodedCommand.Dialogue).textEntryOffset)
     }
 
     @Test

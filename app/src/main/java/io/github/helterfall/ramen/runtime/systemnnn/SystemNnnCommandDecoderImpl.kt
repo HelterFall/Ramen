@@ -66,16 +66,19 @@ class SystemNnnCommandDecoderImpl(
 
         return when {
             value >= script.textPoolOffset -> {
-                if (script.textEntryAtOffset(value) == null) {
-                    throw IOException(
-                        "SPT transition-table value 0x" + value.toString(16) +
-                            " is not the start of a validated Shift-JIS text entry."
+                val textEntry = script.textEntryAtOffset(value)
+                if (textEntry == null) {
+                    // Unmapped large values are engine markers/operands, not
+                    // dialogue pointers. Skip this UInt32 word and keep scanning.
+                    SystemNnnDecodedCommand.Skip(
+                        nextCommandOffset = nextCommandOffset
+                    )
+                } else {
+                    SystemNnnDecodedCommand.Dialogue(
+                        nextCommandOffset = nextCommandOffset,
+                        textEntryOffset = textEntry.offset
                     )
                 }
-                SystemNnnDecodedCommand.Dialogue(
-                    nextCommandOffset = nextCommandOffset,
-                    textEntryOffset = value
-                )
             }
 
             value < gtbResourceCount.toLong() -> {
