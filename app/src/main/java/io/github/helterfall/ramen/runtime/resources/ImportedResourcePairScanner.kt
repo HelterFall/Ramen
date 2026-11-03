@@ -76,14 +76,14 @@ class ImportedResourcePairScanner {
                 )
             }
 
-            val vpk = files["vpk"]
+            val audioArchive = files["vaw"] ?: files["vpk"]
             val vtb = files["vtb"]
-            if (vpk != null && vtb != null) {
+            if (audioArchive != null && vtb != null) {
                 result += DiscoveredResourceArchivePair(
                     family = ResourceArchiveFamily.AUDIO,
-                    archiveFile = vpk,
+                    archiveFile = audioArchive,
                     indexFile = vtb,
-                    relativePath = vpk.relativeTo(canonicalRoot).invariantSeparatorsPath
+                    relativePath = audioArchive.relativeTo(canonicalRoot).invariantSeparatorsPath
                 )
             }
         }
@@ -95,7 +95,7 @@ class ImportedResourcePairScanner {
     }
 
     companion object {
-        private val RESOURCE_EXTENSIONS = setOf("gpk", "gtb", "vpk", "vtb")
+        private val RESOURCE_EXTENSIONS = setOf("gpk", "gtb", "vpk", "vaw", "vtb")
         private val IGNORED_SCRIPT_CONFIGURATION_EXTENSIONS = setOf("xtx")
     }
 }

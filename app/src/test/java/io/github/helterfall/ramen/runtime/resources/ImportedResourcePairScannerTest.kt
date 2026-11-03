@@ -38,6 +38,26 @@ class ImportedResourcePairScannerTest {
     }
 
     @Test
+    fun prefersVawArchiveForMatchingVtbIndex() {
+        val root = Files.createTempDirectory("ramen-pair-scanner-vaw").toFile()
+        try {
+            val audio = File(root, "vaw").apply { mkdirs() }
+            File(audio, "voice.vaw").writeBytes(byteArrayOf(1))
+            File(audio, "voice.vpk").writeBytes(byteArrayOf(2))
+            File(audio, "voice.vtb").writeBytes(byteArrayOf(3))
+
+            val result = ImportedResourcePairScanner().scan(root)
+
+            assertEquals(1, result.size)
+            assertEquals(ResourceArchiveFamily.AUDIO, result.single().family)
+            assertEquals("voice.vaw", result.single().archiveFile.name)
+            assertEquals("voice.vtb", result.single().indexFile.name)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun doesNotPairFilesWithDifferentNamesOrDifferentParentFolders() {
         val root = Files.createTempDirectory("ramen-pair-scanner-unmatched").toFile()
         try {
