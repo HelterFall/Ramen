@@ -249,7 +249,8 @@ Make the binary inventory portable and comparable without requiring the original
 ### CI
 - [Run #278](https://github.com/HelterFall/Ramen/actions/runs/41674773614) completed successfully: assembleDebug, testDebugUnitTest, lintDebug, debug APK upload.
 - Artifact: `ramen-debug-apk`, ID `13250256957`, 11,642,991 bytes, SHA-256 `3e86f99170c5636246a142e353408f062a078e6309ce5af0196ae65d89edac67`, expires 2026-11-10.
-- The push to main started [run #279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) on merge commit `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`. Its status must be checked live; later documentation pushes can supersede it due to workflow concurrency.
+- The push to main started [run #279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) on merge commit `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5` and completed successfully: assembleDebug, testDebugUnitTest, lintDebug, and debug APK upload all passed.
+- Artifact: `ramen-debug-apk`, ID `13251016631`, 11,642,990 bytes, SHA-256 `f4d34352b983b46e583cd776e9dc3825d340632fafcfe28edfc96b2690701f99`, expires 2026-11-10 16:45:07 UTC.
 
 ### Branch status after consolidation
 - `main` is now the canonical working branch. New feature branches should be created from main.
