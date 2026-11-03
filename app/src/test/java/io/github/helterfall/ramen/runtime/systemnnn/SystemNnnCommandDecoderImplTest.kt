@@ -3,7 +3,6 @@ package io.github.helterfall.ramen.runtime.systemnnn
 import io.github.helterfall.ramen.parser.SystemNnnOffsetTable
 import io.github.helterfall.ramen.parser.SystemNnnScript
 import io.github.helterfall.ramen.parser.SystemNnnTextEntry
-import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,8 +10,8 @@ import org.junit.Test
 class SystemNnnCommandDecoderImplTest {
 
     @Test
-    fun mapsGtbIndexesAndAbsoluteTextOffsetsUsingTheTextPoolBoundary() {
-        val script = scriptWithPointers(7, 0x32B64, 0x32B70)
+    fun mapsGtbIndexesToSceneUpdatesAndOtherWordsToSequentialDialogue() {
+        val script = scriptWithPointers(7, 0x40000, 9)
         val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
 
         val scene = decoder.decodeNext(script, TABLE_START) as SystemNnnDecodedCommand.SceneUpdate
@@ -33,64 +32,34 @@ class SystemNnnCommandDecoderImplTest {
         assertEquals(TABLE_START + 12L, secondLine.nextCommandOffset)
         assertEquals(0x32B70L, secondLine.textEntryOffset)
 
-        assertTrue(decoder.decodeNext(script, COMMAND_END) is SystemNnnDecodedCommand.End)
+        assertTrue(decoder.decodeNext(script, TABLE_END) is SystemNnnDecodedCommand.End)
     }
 
     @Test
-    fun skipsOutOfCatalogServiceWordAndContinuesToDialoguePointer() {
+    fun sceneDialogueAndSkipAlwaysAdvanceByOneUInt32Word() {
+        val script = scriptWithPointers(7, 0x40000, 9, 0x40000)
         val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
-        val script = scriptWithPointers(144_179, 0x32B64)
 
-        val skipped = decoder.decodeNext(script, TABLE_START)
-        assertTrue(skipped is SystemNnnDecodedCommand.Skip)
-        assertEquals(TABLE_START + 4L, (skipped as SystemNnnDecodedCommand.Skip).nextCommandOffset)
+        val scene = decoder.decodeNext(script, TABLE_START) as SystemNnnDecodedCommand.SceneUpdate
+        assertEquals(TABLE_START + 4L, scene.nextCommandOffset)
 
-        val dialogue = decoder.decodeNext(script, skipped.nextCommandOffset)
-        assertTrue(dialogue is SystemNnnDecodedCommand.Dialogue)
-        assertEquals(0x32B64L, (dialogue as SystemNnnDecodedCommand.Dialogue).textEntryOffset)
-    }
+        val firstDialogue = decoder.decodeNext(
+            script,
+            scene.nextCommandOffset
+        ) as SystemNnnDecodedCommand.Dialogue
+        assertEquals(TABLE_START + 8L, firstDialogue.nextCommandOffset)
 
-    @Test
-    fun skipsUnmappedTextRangeValueAndContinuesToNextTextEntry() {
-        val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
-        val script = scriptWithPointers(0x32B65, 0x32B64)
+        val secondDialogue = decoder.decodeNext(
+            script,
+            firstDialogue.nextCommandOffset
+        ) as SystemNnnDecodedCommand.Dialogue
+        assertEquals(TABLE_START + 12L, secondDialogue.nextCommandOffset)
 
-        val skipped = decoder.decodeNext(script, TABLE_START)
-        assertTrue(skipped is SystemNnnDecodedCommand.Skip)
-        assertEquals(TABLE_START + 4L, (skipped as SystemNnnDecodedCommand.Skip).nextCommandOffset)
-
-        val dialogue = decoder.decodeNext(script, skipped.nextCommandOffset)
-        assertTrue(dialogue is SystemNnnDecodedCommand.Dialogue)
-        assertEquals(0x32B64L, (dialogue as SystemNnnDecodedCommand.Dialogue).textEntryOffset)
-    }
-
-    @Test
-    fun skipsFfff0000SystemMarkerAndContinuesToDialoguePointer() {
-        val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
-        val script = scriptWithPointers(0xFFFF0000L, 0x32B64)
-
-        val skipped = decoder.decodeNext(script, TABLE_START)
-        assertTrue(skipped is SystemNnnDecodedCommand.Skip)
-        assertEquals(TABLE_START + 4L, (skipped as SystemNnnDecodedCommand.Skip).nextCommandOffset)
-
-        val dialogue = decoder.decodeNext(script, skipped.nextCommandOffset)
-        assertTrue(dialogue is SystemNnnDecodedCommand.Dialogue)
-        assertEquals(0x32B64L, (dialogue as SystemNnnDecodedCommand.Dialogue).textEntryOffset)
-    }
-
-    @Test
-    fun continuesPastHeaderEntryCountToTheValidatedCommandRegionEnd() {
-        val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
-        val dialogueOffset = TABLE_START + 1_300L * 4L
-        val script = scriptWithPointerAt(dialogueOffset, 0x32B64)
-
-        val dialogue = decoder.decodeNext(script, dialogueOffset)
-        assertTrue(dialogue is SystemNnnDecodedCommand.Dialogue)
-        assertEquals(
-            dialogueOffset + 4L,
-            (dialogue as SystemNnnDecodedCommand.Dialogue).nextCommandOffset
-        )
-        assertTrue(decoder.decodeNext(script, COMMAND_END) is SystemNnnDecodedCommand.End)
+        val skip = decoder.decodeNext(
+            script,
+            secondDialogue.nextCommandOffset
+        ) as SystemNnnDecodedCommand.Skip
+        assertEquals(TABLE_START + 16L, skip.nextCommandOffset)
     }
 
     @Test
@@ -103,32 +72,21 @@ class SystemNnnCommandDecoderImplTest {
         }.exceptionOrNull() is java.io.IOException)
 
         assertTrue(runCatching {
-            decoder.decodeNext(script, COMMAND_END + 4L)
+            decoder.decodeNext(script, TABLE_END + 4L)
         }.exceptionOrNull() is java.io.IOException)
     }
 
     private fun scriptWithPointers(vararg pointers: Long): SystemNnnScript {
-        val commandBytes = ByteArray((COMMAND_END - TABLE_START).toInt())
+        val commandEnd = 0x32B20L
+        val commandBytes = ByteArray((commandEnd - TABLE_START).toInt())
         pointers.forEachIndexed { index, value ->
             val offset = index * 4
             repeat(4) { byteIndex ->
                 commandBytes[offset + byteIndex] = (value ushr (byteIndex * 8)).toByte()
             }
         }
-        return createScript(commandBytes)
-    }
 
-    private fun scriptWithPointerAt(absoluteOffset: Long, value: Long): SystemNnnScript {
-        val commandBytes = ByteArray((COMMAND_END - TABLE_START).toInt())
-        val offset = (absoluteOffset - TABLE_START).toInt()
-        repeat(4) { byteIndex ->
-            commandBytes[offset + byteIndex] = (value ushr (byteIndex * 8)).toByte()
-        }
-        return createScript(commandBytes)
-    }
-
-    private fun createScript(commandBytes: ByteArray): SystemNnnScript =
-        SystemNnnScript(
+        return SystemNnnScript(
             fileSizeBytes = 0x32B64L + 64L,
             firstHeaderWord = 20u,
             offsetTables = listOf(
@@ -138,7 +96,7 @@ class SystemNnnCommandDecoderImplTest {
                 SystemNnnOffsetTable("auxiliary", 2u, 0u)
             ),
             commandStartOffset = TABLE_START,
-            commandEndOffset = COMMAND_END,
+            commandEndOffset = commandEnd,
             textPoolOffset = 0x32B64L,
             textPool = listOf(
                 SystemNnnTextEntry(0x32B64L, "First line"),
@@ -146,9 +104,10 @@ class SystemNnnCommandDecoderImplTest {
             ),
             commandBytes = commandBytes
         )
+    }
 
     companion object {
         private const val TABLE_START = 0xC5BAL
-        private const val COMMAND_END = 0x32B1EL
+        private const val TABLE_END = TABLE_START + 1_299L * 4L
     }
 }

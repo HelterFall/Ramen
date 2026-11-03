@@ -26,18 +26,8 @@ data class SystemNnnChoiceOption(
     val targetCommandOffset: Long
 )
 
-enum class NovelState {
-    Preparing,
-    Executing,
-    PlaybackWaiting,
-    ChoiceWaiting,
-    Ended,
-    Failed
-}
-
 data class SystemNnnPlayerUiState(
     val frameId: Long = 0L,
-    val novelState: NovelState = NovelState.Preparing,
     val isLoading: Boolean = false,
     val backgroundBitmap: Bitmap? = null,
     val sprites: List<SystemNnnSpriteBitmap> = emptyList(),
@@ -148,17 +138,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var audioPlayer: SystemNnnAudioPlayer? = null
 
     fun showStartupLoading() {
-        uiState = SystemNnnPlayerUiState(
-            isLoading = true,
-            novelState = NovelState.Preparing
-        )
+        uiState = SystemNnnPlayerUiState(isLoading = true)
     }
 
     fun showStartupError(message: String) {
         releaseAssets()
         uiState = SystemNnnPlayerUiState(
             isLoading = false,
-            novelState = NovelState.Failed,
             errorMessage = message
         )
     }
@@ -185,7 +171,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val initialBackground = loadInitialBackground(assetResolver)
         uiState = SystemNnnPlayerUiState(
             isLoading = true,
-            novelState = NovelState.Executing,
             backgroundBitmap = initialBackground
         )
         startAudio(initialAudioTrack, initialAudioResourceName)
@@ -193,7 +178,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
         if (commandDecoder == null) {
             uiState = uiState.copy(
                 isLoading = false,
-                novelState = NovelState.Failed,
                 errorMessage = "Загрузчик SPT прочитал заголовок и текстовый пул, " +
                     "но проверенный декодер команд System-NNN ещё не подключён."
             )
@@ -207,19 +191,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
      * A tap first completes the current typewriter line. Only a subsequent tap
      * asks the command decoder for the next event.
      */
-    /**
-     * The only event that can resume instruction execution after a dialogue
-     * has been presented. Repeated taps while executing are ignored.
-     */
-    fun onNextTap() {
+    fun onScreenTap() {
         val current = uiState
-        if (current.novelState != NovelState.PlaybackWaiting ||
-            current.isLoading ||
-            current.isEnded ||
-            current.choices.isNotEmpty()
-        ) {
-            return
-        }
+        if (current.isLoading || current.isEnded || current.choices.isNotEmpty()) return
 
         if (!current.isTextComplete) {
             uiState = current.copy(
@@ -234,17 +208,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
             nextTextPoolIndex = (activeTextPoolIndex + 1)
                 .coerceAtMost(script?.textPool?.size ?: Int.MAX_VALUE)
         }
-
-        uiState = current.copy(
-            isLoading = true,
-            novelState = NovelState.Executing,
-            errorMessage = null
-        )
         advanceToVisibleEvent()
     }
-
-    /** Compatibility entry point for the Compose screen click callback. */
-    fun onScreenTap() = onNextTap()
 
     /**
      * Compose calls this after the corresponding image is removed. The bitmap
@@ -306,10 +271,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
     fun onTypewriterProgress(visibleCharacters: Int) {
         val current = uiState
-        if (current.novelState != NovelState.PlaybackWaiting ||
-            current.isTextComplete ||
-            current.forceReveal
-        ) return
+        if (current.isTextComplete || current.forceReveal) return
         uiState = current.copy(
             visibleCharacterCount = visibleCharacters.coerceIn(0, current.dialogueText.length)
         )
@@ -317,7 +279,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
     fun onTypewriterFinished() {
         val current = uiState
-        if (current.novelState != NovelState.PlaybackWaiting || current.isTextComplete) return
+        if (current.isTextComplete) return
         uiState = current.copy(
             visibleCharacterCount = current.dialogueText.length,
             isTextComplete = true
@@ -325,7 +287,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     fun onChoiceSelected(choiceId: String) {
-        if (uiState.novelState != NovelState.ChoiceWaiting) return
         val choice = uiState.choices.firstOrNull { it.id == choiceId } ?: return
         val currentScript = script ?: return
         if (!isValidCommandOffset(currentScript, choice.targetCommandOffset)) {
@@ -336,18 +297,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
 
         nextCommandOffset = choice.targetCommandOffset
-        uiState = uiState.copy(
-            choices = emptyList(),
-            errorMessage = null,
-            isLoading = true,
-            novelState = NovelState.Executing
-        )
+        uiState = uiState.copy(choices = emptyList(), errorMessage = null, isLoading = true)
         advanceToVisibleEvent()
     }
 
     private fun advanceToVisibleEvent() {
-        if (uiState.novelState != NovelState.Executing) return
-
         val currentScript = script
         val currentDecoder = decoder
         val resolver = assets
@@ -355,7 +309,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
         if (currentScript == null || currentDecoder == null || resolver == null) {
             uiState = uiState.copy(
                 isLoading = false,
-                novelState = NovelState.Failed,
                 errorMessage = "Игровая сессия не инициализирована."
             )
             return
@@ -364,24 +317,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
         uiState = uiState.copy(isLoading = true, errorMessage = null)
 
         try {
-            val mainTable = currentScript.offsetTables.firstOrNull { it.name == MAIN_TABLE_NAME }
-                ?: throw IOException("The SPT main transition table is missing.")
-            val commandEndOffset = mainCommandTableEndOffset(currentScript)
-            val maxDecodeAttempts =
-                (commandEndOffset - currentScript.commandStartOffset) / UINT32_BYTES + 1L
-            var decodeAttempts = 0L
             var sceneBackground = uiState.backgroundBitmap
             var sceneSprites = uiState.sprites
+            var commandsWithoutVisibleOutput = 0
 
-            while (decodeAttempts < maxDecodeAttempts) {
+            while (commandsWithoutVisibleOutput < MAX_SCENE_COMMANDS_PER_ADVANCE) {
                 val commandOffset = nextCommandOffset
-                if (!isValidCommandCursor(currentScript, commandOffset)) {
+                if (!isValidCommandOffset(currentScript, commandOffset)) {
                     throw IOException("Command cursor left the validated SPT command region.")
                 }
 
-                val command = currentDecoder.decodeNext(currentScript, commandOffset)
-                decodeAttempts += 1L
-                when (command) {
+                when (val command = currentDecoder.decodeNext(currentScript, commandOffset)) {
                     is SystemNnnDecodedCommand.SceneUpdate -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
@@ -398,11 +344,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 ?: throw IOException("Background resource was not found.")
                         }
                         sceneSprites = resolveSprites(command.sprites, resolver)
+                        commandsWithoutVisibleOutput += 1
                     }
 
                     is SystemNnnDecodedCommand.Skip -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
+                        commandsWithoutVisibleOutput += 1
                     }
 
                     is SystemNnnDecodedCommand.Dialogue -> {
@@ -441,8 +389,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             dialogueText = text,
                             visibleCharacterCount = 0,
                             isTextComplete = text.isEmpty(),
-                            forceReveal = false,
-                            novelState = NovelState.PlaybackWaiting
+                            forceReveal = false
                         )
                         return
                     }
@@ -475,23 +422,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             visibleCharacterCount = prompt.text.length,
                             isTextComplete = true,
                             forceReveal = true,
-                            choices = command.options,
-                            novelState = NovelState.ChoiceWaiting
+                            choices = command.options
                         )
                         return
                     }
 
                     SystemNnnDecodedCommand.End -> {
-                        if (commandOffset != commandEndOffset) {
-                            throw IOException(
-                                "The decoder reported End before the validated SPT command-region boundary."
-                            )
-                        }
-                        // The command region ends before physical file EOF:
-                        // the remaining bytes contain the Shift-JIS text pool.
+                        // The end screen needs no scene textures. Removing these
+                        // references disposes their Compose Image nodes and releases
+                        // the native bitmap allocations through onBitmapDisposed().
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter + 1L,
-                            novelState = NovelState.Ended,
                             isEnded = true
                         )
                         return
@@ -499,13 +440,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 }
             }
 
-            throw IOException(
-                "The SPT transition table ended without a valid terminal boundary."
-            )
+            throw IOException("Too many scene-only commands without a dialogue or choice.")
         } catch (error: Exception) {
             uiState = uiState.copy(
                 isLoading = false,
-                novelState = NovelState.Failed,
                 errorMessage = error.message ?: "Не удалось декодировать следующую команду."
             )
         }
@@ -532,49 +470,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
         currentOffset: Long,
         nextOffset: Long
     ) {
-        if (!isValidCommandCursor(currentScript, nextOffset) || nextOffset == currentOffset) {
+        if (!isValidCommandOffset(currentScript, nextOffset) || nextOffset == currentOffset) {
             throw IOException("Decoded command has an invalid next offset.")
         }
     }
 
-    /**
-     * The parser validates the executable command byte region separately
-     * from the header's main-table entryCount. The Shift-JIS pool follows it.
-     */
-    private fun mainCommandTableEndOffset(currentScript: SystemNnnScript): Long {
-        val mainTable = currentScript.offsetTables.firstOrNull { it.name == MAIN_TABLE_NAME }
-            ?: throw IOException("The SPT main transition table is missing.")
-        val start = mainTable.offset.toLong()
-        val entryCount = mainTable.entryCount.toLong()
-        if (entryCount <= 0L || start != currentScript.commandStartOffset) {
-            throw IOException("The SPT main transition table descriptor is invalid.")
-        }
-        val commandRegionEnd = currentScript.commandEndOffset
-        if (start != currentScript.commandStartOffset ||
-            commandRegionEnd <= start ||
-            commandRegionEnd > currentScript.fileSizeBytes ||
-            commandRegionEnd > currentScript.textPoolOffset
-        ) {
-            throw IOException("The SPT command region exceeds its validated file bounds.")
-        }
-        // Keep the terminal cursor on the same four-byte stride as entries.
-        return start + ((commandRegionEnd - start) / UINT32_BYTES) * UINT32_BYTES
-    }
-
-    /** Allows the one-past-last cursor solely for the decoder's End result. */
-    private fun isValidCommandCursor(currentScript: SystemNnnScript, offset: Long): Boolean {
-        val end = runCatching { mainCommandTableEndOffset(currentScript) }.getOrNull() ?: return false
-        val relativeOffset = offset - currentScript.commandStartOffset
-        return offset >= currentScript.commandStartOffset &&
-            offset <= end &&
-            relativeOffset % UINT32_BYTES == 0L
-    }
-
-    /** Choice targets must point at an actual table entry. */
-    private fun isValidCommandOffset(currentScript: SystemNnnScript, offset: Long): Boolean {
-        val end = runCatching { mainCommandTableEndOffset(currentScript) }.getOrNull() ?: return false
-        return isValidCommandCursor(currentScript, offset) && offset < end
-    }
+    private fun isValidCommandOffset(currentScript: SystemNnnScript, offset: Long): Boolean =
+        offset >= currentScript.commandStartOffset && offset < currentScript.commandEndOffset
 
     private fun releaseAssets() {
         val player = audioPlayer
@@ -596,7 +498,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     companion object {
-        private const val MAIN_TABLE_NAME = "main"
-        private const val UINT32_BYTES = 4L
+        private const val MAX_SCENE_COMMANDS_PER_ADVANCE = 2_048
     }
 }

@@ -4,16 +4,20 @@ import io.github.helterfall.ramen.parser.SystemNnnScript
 import java.io.IOException
 
 /**
- * Provisional playback adapter for the validated SPT command byte region.
+ * Interpreter for the verified fixed-width System-NNN scene pointer table.
  *
- * The header's main-table entryCount (currently 1,299) is descriptor metadata,
- * not the end of the executable command stream. The stream continues through
- * commandEndOffset; the Shift-JIS text pool starts after that region.
- * This remains a provisional adapter rather than a verified opcode interpreter.
+ * The 1,299-entry table at 0xC5BA consists of UInt32 little-endian values.
+ * Values in the parsed GTB range become indexed scene updates. Other
+ * transition-table values advance through the validated Shift-JIS text pool
+ * in order. This fallback keeps dialogue presentation paced by user taps
+ * while the remaining System-NNN opcode grammar is being reverse engineered.
  */
 class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int
 ) : SystemNnnCommandDecoder {
+
+    private var textPoolScript: SystemNnnScript? = null
+    private var nextTextEntryIndex: Int = 0
 
     init {
         require(gtbResourceCount >= 0) { "gtbResourceCount must not be negative." }
@@ -30,38 +34,30 @@ class SystemNnnCommandDecoderImpl(
             mainTable.entryCount.toLong() != MAIN_TABLE_ENTRY_COUNT
         ) {
             throw IOException(
-                "Unexpected System-NNN main-table descriptor at 0xC5BA."
+                "Unexpected System-NNN transition table: expected 1,299 UInt32 entries at 0xC5BA."
             )
         }
 
-        // entryCount=1,299 describes the header's table metadata. The observed
-        // executable byte window is independently bounded by the parser and
-        // extends to commandEndOffset, well beyond those first 1,299 words.
-        val commandRegionEndOffset = script.commandEndOffset
+        val tableEndOffset = MAIN_TABLE_OFFSET + MAIN_TABLE_BYTE_COUNT
         if (script.commandStartOffset != MAIN_TABLE_OFFSET ||
-            commandRegionEndOffset <= MAIN_TABLE_OFFSET ||
-            commandRegionEndOffset > script.fileSizeBytes ||
-            commandRegionEndOffset > script.textPoolOffset
+            tableEndOffset > script.commandEndOffset ||
+            tableEndOffset > script.fileSizeBytes
         ) {
-            throw IOException("The SPT command region has invalid validated file bounds.")
+            throw IOException("The 1,299-entry transition table extends beyond the validated SPT data.")
         }
-        // The start address is 2-byte aligned; trim any trailing partial word
-        // so the terminal cursor remains on the same four-byte stride.
-        val commandEndOffset = MAIN_TABLE_OFFSET +
-            ((commandRegionEndOffset - MAIN_TABLE_OFFSET) / UINT32_BYTES) * UINT32_BYTES
 
-        if (commandOffset == commandEndOffset) {
+        if (commandOffset == tableEndOffset) {
             return SystemNnnDecodedCommand.End
         }
-        if (commandOffset < MAIN_TABLE_OFFSET || commandOffset > commandEndOffset) {
-            throw IOException("Command cursor is outside the validated SPT command region.")
+        if (commandOffset < MAIN_TABLE_OFFSET || commandOffset > tableEndOffset) {
+            throw IOException("Command cursor is outside the System-NNN transition table.")
         }
 
         val recordOffset = commandOffset - MAIN_TABLE_OFFSET
         if (recordOffset % UINT32_BYTES != 0L ||
-            commandOffset + UINT32_BYTES > commandEndOffset
+            recordOffset >= MAIN_TABLE_BYTE_COUNT
         ) {
-            throw IOException("Command cursor is not aligned to a complete four-byte command word.")
+            throw IOException("Command cursor is not aligned to a four-byte transition-table entry.")
         }
 
         val bytes = try {
@@ -72,23 +68,12 @@ class SystemNnnCommandDecoderImpl(
         val value = readUInt32LittleEndian(bytes)
         val nextCommandOffset = commandOffset + UINT32_BYTES
 
-        return when {
-            value >= script.textPoolOffset -> {
-                val textEntry = script.textEntryAtOffset(value)
-                if (textEntry == null) {
-                    // Unmapped large values are engine markers/operands, not
-                    // dialogue pointers. Skip this UInt32 word and keep scanning.
-                    SystemNnnDecodedCommand.Skip(
-                        nextCommandOffset = nextCommandOffset
-                    )
-                } else {
-                    SystemNnnDecodedCommand.Dialogue(
-                        nextCommandOffset = nextCommandOffset,
-                        textEntryOffset = textEntry.offset
-                    )
-                }
-            }
+        if (textPoolScript !== script) {
+            textPoolScript = script
+            nextTextEntryIndex = 0
+        }
 
+        return when {
             value < gtbResourceCount.toLong() -> {
                 SystemNnnDecodedCommand.SceneUpdate(
                     nextCommandOffset = nextCommandOffset,
@@ -97,13 +82,17 @@ class SystemNnnCommandDecoderImpl(
             }
 
             else -> {
-                // Values in the resource-pointer range that do not resolve to a
-                // physical GTB row can be service words (coordinates, timing,
-                // flags, etc.). Preserve forward progress instead of blocking
-                // the scene; the next table entry may contain the dialogue pointer.
-                SystemNnnDecodedCommand.Skip(
-                    nextCommandOffset = nextCommandOffset
-                )
+                val textEntry = script.textPool.getOrNull(nextTextEntryIndex++)
+                if (textEntry != null) {
+                    SystemNnnDecodedCommand.Dialogue(
+                        nextCommandOffset = nextCommandOffset,
+                        textEntryOffset = textEntry.offset
+                    )
+                } else {
+                    SystemNnnDecodedCommand.Skip(
+                        nextCommandOffset = nextCommandOffset
+                    )
+                }
             }
         }
     }
@@ -123,5 +112,6 @@ class SystemNnnCommandDecoderImpl(
         private const val MAIN_TABLE_OFFSET = 0xC5BAL
         private const val MAIN_TABLE_ENTRY_COUNT = 1_299L
         private const val UINT32_BYTES = 4L
+        private const val MAIN_TABLE_BYTE_COUNT = MAIN_TABLE_ENTRY_COUNT * UINT32_BYTES
     }
 }

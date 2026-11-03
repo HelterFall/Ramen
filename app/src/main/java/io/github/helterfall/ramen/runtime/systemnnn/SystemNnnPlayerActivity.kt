@@ -42,7 +42,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             MaterialTheme {
                 SystemNnnPlayerScreen(
                     state = playerViewModel.uiState,
-                    onScreenTap = playerViewModel::onNextTap,
+                    onScreenTap = playerViewModel::onScreenTap,
                     onChoiceSelected = playerViewModel::onChoiceSelected,
                     onTypewriterProgress = playerViewModel::onTypewriterProgress,
                     onTypewriterFinished = playerViewModel::onTypewriterFinished,
