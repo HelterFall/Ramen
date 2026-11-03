@@ -155,3 +155,29 @@ Make the binary inventory portable and comparable without requiring the original
 1. Add a user-facing save/share flow using the Storage Access Framework.
 2. Add a positional source implementation for SAF-selected documents where supported, or bounded staging when seeking is unavailable.
 3. Continue PE metadata coverage and container probes only where evidence supports them.
+
+
+## 2026-11-04 — Preserve System-NNN SPT sample observations
+
+### Source and project-status clarification
+- The user clarified that GPK/GTB and VPK/VTB are already readable in the current project. Treat those resource readers as implemented for the user's current sample set; do not describe them as wholly unimplemented. Exact variant coverage remains unspecified.
+- Added [System-NNN SPT Format Notes](SYSTEM_NNN_SPT_FORMAT_NOTES.md) from the supplied `hu.txt` analysis script and `ho.txt` output.
+
+### Recorded SPT observations
+- Sample output reports 389,500 bytes (`0x5F17C`), an XOR-`0xFF`-demasked `SPTHEADER0` signature at `0x30), and first DWORD `0x14`.
+- Candidate count/target pairs: 1299 at `0xC5BA`, 1124 at `0x167F2`, 69 at `0xC390`, and 2 at offset zero.
+- A printable Shift-JIS run was found at `0x32B64` (`0x32BC9` end, 101 bytes, strict Shift-JIS decode succeeds).
+- The byte marker `text\0` was found at `0x32B34`, `0x32B3C`, `0x32B44`, `0x32B4C`, `0x32B54`, and `0x32B5C`.
+- Five DWORDs printed at `0x32B20`: `0x16752`, `0x16791`, `0x167A3`, `0x167C6`, `0x167D9`.
+
+### Evidence limits and handoff
+- The uploaded materials are the analysis script and its textual output, not the original SPT binary. Preserve the values as reported observations, not independently re-parsed binary facts.
+- The 1299-entry descriptor is a strong lead, but the output does not prove UInt32 entry width or the current decoder's resource/dialogue classification rule.
+- The five DWORDs and six `text\0` markers at `0x32B20`–`0x32B5C` need structural interpretation.
+- The first Shift-JIS run does not prove that every NUL-delimited string from `0x32B64` to EOF belongs to one text pool.
+- Reconcile these observations with `SystemNnnScriptLoader` and `SystemNnnCommandDecoderImpl` before claiming the SPT format is fully decoded.
+
+### Next steps
+1. Inspect bounded byte windows around `0xC390`, `0xC5BA`, `0x16752`, `0x167F2`, `0x32B20`, and `0x32B64` from the original SPT.
+2. Validate the main-table entry width and target semantics against actual resources and in-game scene order.
+3. Determine the roles of the 1124-entry and 69-entry descriptors, the marker records, and the DWORDs at `0x32B20`.
