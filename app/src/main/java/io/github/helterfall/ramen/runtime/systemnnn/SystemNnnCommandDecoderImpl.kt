@@ -6,17 +6,14 @@ import java.io.IOException
 /**
  * Provisional playback adapter for the observed 1,299-entry UInt32 table.
  *
- * Values in the parsed GTB range are treated as indexed scene updates. Other
- * values consume Shift-JIS entries sequentially. This fallback is useful for
- * validating the image/text presentation bridge, but it is not a verified
- * implementation of the complete System-NNN SPT opcode grammar.
+ * Values below the SPT text-pool start are GTB resource indexes. Values at
+ * or above that boundary are absolute offsets to exact Shift-JIS text entries.
+ * The table mapping is bounded and validated, but this remains a provisional
+ * adapter rather than a complete verified SPT opcode interpreter.
  */
 class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int
 ) : SystemNnnCommandDecoder {
-
-    private var textPoolScript: SystemNnnScript? = null
-    private var nextTextEntryIndex: Int = 0
 
     init {
         require(gtbResourceCount >= 0) { "gtbResourceCount must not be negative." }
@@ -67,12 +64,20 @@ class SystemNnnCommandDecoderImpl(
         val value = readUInt32LittleEndian(bytes)
         val nextCommandOffset = commandOffset + UINT32_BYTES
 
-        if (textPoolScript !== script) {
-            textPoolScript = script
-            nextTextEntryIndex = 0
-        }
-
         return when {
+            value >= script.textPoolOffset -> {
+                if (script.textEntryAtOffset(value) == null) {
+                    throw IOException(
+                        "SPT transition-table value 0x" + value.toString(16) +
+                            " is not the start of a validated Shift-JIS text entry."
+                    )
+                }
+                SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = nextCommandOffset,
+                    textEntryOffset = value
+                )
+            }
+
             value < gtbResourceCount.toLong() -> {
                 SystemNnnDecodedCommand.SceneUpdate(
                     nextCommandOffset = nextCommandOffset,
@@ -81,17 +86,10 @@ class SystemNnnCommandDecoderImpl(
             }
 
             else -> {
-                val textEntry = script.textPool.getOrNull(nextTextEntryIndex++)
-                if (textEntry != null) {
-                    SystemNnnDecodedCommand.Dialogue(
-                        nextCommandOffset = nextCommandOffset,
-                        textEntryOffset = textEntry.offset
-                    )
-                } else {
-                    SystemNnnDecodedCommand.Skip(
-                        nextCommandOffset = nextCommandOffset
-                    )
-                }
+                throw IOException(
+                    "SPT transition-table GTB index " + value +
+                        " is outside the parsed resource catalog."
+                )
             }
         }
     }

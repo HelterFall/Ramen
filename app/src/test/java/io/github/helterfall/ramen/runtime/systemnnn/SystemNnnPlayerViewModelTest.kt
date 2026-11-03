@@ -126,7 +126,7 @@ class SystemNnnPlayerViewModelTest {
                 ),
                 0xC5BCL to SystemNnnDecodedCommand.End
             ),
-            sequentialTextPool = true
+            usesSequentialTextPool = true
         )
         val viewModel = SystemNnnPlayerViewModel()
 

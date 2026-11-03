@@ -3,6 +3,7 @@ package io.github.helterfall.ramen.runtime.systemnnn
 import io.github.helterfall.ramen.parser.SystemNnnOffsetTable
 import io.github.helterfall.ramen.parser.SystemNnnScript
 import io.github.helterfall.ramen.parser.SystemNnnTextEntry
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -10,8 +11,8 @@ import org.junit.Test
 class SystemNnnCommandDecoderImplTest {
 
     @Test
-    fun mapsGtbIndexesToSceneUpdatesAndOtherWordsToSequentialDialogue() {
-        val script = scriptWithPointers(7, 0x40000, 9)
+    fun mapsGtbIndexesAndAbsoluteTextOffsetsUsingTheTextPoolBoundary() {
+        val script = scriptWithPointers(7, 0x32B64, 0x32B70)
         val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
 
         val scene = decoder.decodeNext(script, TABLE_START) as SystemNnnDecodedCommand.SceneUpdate
@@ -33,6 +34,28 @@ class SystemNnnCommandDecoderImplTest {
         assertEquals(0x32B70L, secondLine.textEntryOffset)
 
         assertTrue(decoder.decodeNext(script, TABLE_END) is SystemNnnDecodedCommand.End)
+    }
+
+    @Test
+    fun rejectsGtbIndexesOutsideTheParsedCatalog() {
+        val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
+        val script = scriptWithPointers(8)
+
+        assertTrue(
+            runCatching { decoder.decodeNext(script, TABLE_START) }
+                .exceptionOrNull() is IOException
+        )
+    }
+
+    @Test
+    fun rejectsTextOffsetsThatDoNotPointToAnEntryStart() {
+        val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
+        val script = scriptWithPointers(0x32B65)
+
+        assertTrue(
+            runCatching { decoder.decodeNext(script, TABLE_START) }
+                .exceptionOrNull() is IOException
+        )
     }
 
     @Test
