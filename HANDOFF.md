@@ -17,6 +17,7 @@
 - Основной PR с System-NNN: https://github.com/HelterFall/Ramen/pull/27
 - SPT-заметки: [docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md](docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md)
 - Хронологический журнал: [docs/DEVELOPMENT_LOG.md](docs/DEVELOPMENT_LOG.md)
+- Матрица веток и сборок: [docs/BUILD_MATRIX.md](docs/BUILD_MATRIX.md) — какие функции реально попадают в APK и какие Actions их проверяли
 
 **Важно:** на дату снимка System-NNN находится в незлитой ветке и PR #27. Корневой `main` отстаёт от этой реализации. Не делай вывод, что код уже в main, и не переключайся туда автоматически.
 
@@ -404,7 +405,7 @@ Five little-endian DWORD values printed at `0x32B20`:
 |---|---|---|---|---|
 | [#25](https://github.com/HelterFall/Ramen/pull/25) | `research/gpk-vpk-readonly-parsers` | Open, not merged; 191 commits / 63 files | Run #219 success | GPK/GTB, VPK/VTB parsers and resource work; branch очень крупная |
 | [#26](https://github.com/HelterFall/Ramen/pull/26) | `feature/blackcyc-resource-preview` | Open, not merged; 6 commits / 20 files | Run #224 success | Black Cyc resource preview, DWQ, opaque SPT detection |
-| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; 45 changed files | Run #265 passed on the code snapshot before docs-only commits | System-NNN loader/player plus resource code and storage changes |
+| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; 48 commits / 45 changed files | **Run #270 success on exact head `4a400535...`** | Resource inspector + experimental System-NNN loader/player |
 
 Снимок Git:
 - `main` head в ходе аудита: `305f3f25c09c7f2d13c9d0ad7027f9124dcf7884`.
@@ -437,9 +438,11 @@ PR #27 на снимке был mergeable по metadata, но это не зам
 
 Причина старого test failure установлена по сравнению кода до/после. При записи временного `.index.html.rewritten`, который лежит в `gameDirectory`, старый код передавал `StorageSpaceGuard(assetsDirectory)`. В тесте с неподдерживаемым data URI папка `assets` не создаётся; проверка `assetsDirectory.usableSpace` возвращала ноль, и guard выдавал IOException. Исправлено на `StorageSpaceGuard(gameDirectory)`. После исправления run #265 прошёл. Для будущих storage tests всё равно предпочтительно использовать injected `availableSpaceBytes` / controlled fake, чтобы тесты не зависели от реального свободного места.
 
-### Ранее подтверждённые CI
-- PR #25 run #219 — success.
-- PR #26 run #224 — success.
+### Сопоставление последних PR builds
+- PR #25 run #219 — success, head `b388d449...`, branch `research/gpk-vpk-readonly-parsers`.
+- PR #26 run #224 — success, head `e6daf72f...`, branch `feature/blackcyc-resource-preview`.
+- PR #27 run #265 — success, intermediate head `648c4d...`.
+- PR #27 run #270 — success на текущем head `4a400535...`; это последняя проверенная сборка.
 - PR #19, #20, #22, #23, #24 имели успешные CI по development log; ссылки записаны в `docs/DEVELOPMENT_LOG.md`.
 
 ### Обязательная последовательность после правок
@@ -523,3 +526,15 @@ CI не заменяет реальный Android device acceptance для HTML5
 - краткий результат на устройстве.
 
 **Главная цель ближайшего этапа:** не начинать новые движки, а довести текущий System-NNN путь от импортированной игры до корректного воспроизведения сцен, опираясь на проверенные SPT offsets и уже читаемые GPK/GTB/VPK/VTB.
+
+
+## Дополнение 2026-11-04 — контроль включённых функций в APK
+
+Подробная матрица: [docs/BUILD_MATRIX.md](docs/BUILD_MATRIX.md).
+
+- Сборка из main на проверенном head 305f3f25... не содержит ResourceInspectorActivity / shortcut и не содержит System-NNN player.
+- Сборка из PR #27 включает Inspector намеренно: Activity зарегистрирована в Manifest, shortcut показывается всегда, карточки импортированных игр имеют действие просмотра пар ресурсов.
+- Сборка из PR #27 также включает System-NNN Activity и экспериментальный decoder; запуск доступен для SPT, который loader классифицирует как PARSER_AVAILABLE.
+- У decoder пока есть подтверждённые расхождения с исследовательскими SPT notes; это не production-ready interpreter.
+- CI workflow собирает только debug APK, запускает unit tests и lint, затем загружает артефакт на 7 дней. Release signing / Play Store publish отсутствуют.
+- PR #27 run #270 прошёл на exact head 4a400535...; его APK — debug artifact. Для выбора правильной ветки и проверки комплектации APK сначала сверяй BUILD_MATRIX.md.
