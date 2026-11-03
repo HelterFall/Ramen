@@ -234,3 +234,25 @@ Make the binary inventory portable and comparable without requiring the original
 ### Durable continuation rule
 - Before every APK build, record branch, exact commit SHA, build type, Actions URL (if applicable), artifact digest, and intended feature set.
 - Use [HANDOFF.md](../HANDOFF.md) and [BUILD_MATRIX.md](BUILD_MATRIX.md) to choose the correct source. Do not assume that main and PR #27 produce equivalent apps.
+
+
+## 2026-11-04 — Promote the #278-tested source state into main
+
+### Branch consolidation
+- The user chose to make the complete source state represented by successful Actions run #278 the new canonical project state, rather than copying the APK artifact.
+- PR [#27](https://github.com/HelterFall/Ramen/pull/27), from `feat/system-nnn-spt-loader`, was merged into `main` using a merge commit.
+- Merge commit: `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`.
+- Exact source head tested by run #278: `75675e3302439bc31f5bc1961bc82b1233ec34b7`.
+- The merge brings the Resource Inspector, GPK/GTB and VPK/VTB parsers, experimental System-NNN loader/player path, import improvements, unit tests, and handoff documentation into main.
+- The Resource Inspector remains included intentionally, at the user's request. No debug-only gate was added.
+
+### CI
+- [Run #278](https://github.com/HelterFall/Ramen/actions/runs/41674773614) completed successfully: assembleDebug, testDebugUnitTest, lintDebug, debug APK upload.
+- Artifact: `ramen-debug-apk`, ID `13250256957`, 11,642,991 bytes, SHA-256 `3e86f99170c5636246a142e353408f062a078e6309ce5af0196ae65d89edac67`, expires 2026-11-10.
+- The push to main started [run #279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) on merge commit `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`. Its status must be checked live; later documentation pushes can supersede it due to workflow concurrency.
+
+### Branch status after consolidation
+- `main` is now the canonical working branch. New feature branches should be created from main.
+- `feat/system-nnn-spt-loader` is historical after PR #27 merge.
+- PR #25 and #26 remain unmerged and divergent. Their unique changes must be audited against main before any further integration.
+- System-NNN remains experimental; the decoder's assumptions and complete game playback are not proven by CI.

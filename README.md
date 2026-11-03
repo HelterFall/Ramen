@@ -2,9 +2,9 @@
 
 **Ramen** — Android-first библиотека и плеер визуальных новелл. Приложение импортирует игру, определяет доступные данные/движок и передаёт запуск отдельному runtime-адаптеру.
 
-> **Нужно восстановить контекст или продолжить после перерыва? Начинай с [HANDOFF.md](HANDOFF.md).** Это единый актуальный handoff: карта репозитория, архитектура, статусы, история, PR/ветки, SPT observations, CI и план. На текущем снимке рабочая ветка — `feat/system-nnn-spt-loader`; System-NNN находится в незлитом [PR #27](https://github.com/HelterFall/Ramen/pull/27), поэтому его реализация ещё не находится в `main`.
+> **Нужно восстановить контекст или продолжить после перерыва? Начинай с [HANDOFF.md](HANDOFF.md).** Каноническая ветка — `main`; PR #27 с Resource Inspector и экспериментальным System-NNN уже влит. Новую работу начинай от актуального `main` и сверяй его SHA/CI.
 
-> **Текущий статус:** Android shell, ZIP/folder/HTML import, ограниченный HTML5 WebView runtime и read-only binary inventory реализованы как прототипы. Пользователь подтвердил, что GPK/GTB и VPK/VTB читаются. В PR #27 добавлен экспериментальный System-NNN SPT loader и player; формат SPT и воспроизведение реальной игры ещё требуют проверки. Нельзя путать parser available с полной совместимостью.
+> **Текущий статус:** Android shell, ZIP/folder/HTML import, ограниченный HTML5 WebView runtime, read-only inventory, Resource Inspector и GPK/GTB + VPK/VTB parsers входят в `main`. System-NNN loader/player также интегрирован, но SPT semantics и воспроизведение реальной игры ещё требуют проверки. Нельзя путать parser available с полной совместимостью.
 
 ## Принципы проекта
 
@@ -25,8 +25,8 @@ Ramen не является универсальным Windows-эмулятор�
 - Ограниченный HTML5 WebView runtime с локальным origin, изоляцией browser profile и offline policy.
 - Read-only PE/ELF/common signature inspection, стандартные PE32/PE32+ imported DLL names.
 - Детерминированный ограниченный directory inventory, streaming SHA-256 и JSON schema v1 writer.
-- GPK/GTB и VPK/VTB resource parsers в текущей рабочей ветке; пользователь подтвердил, что эти данные читаются.
-- Экспериментальные System-NNN SPT loader, command decoder, Compose player и audio/image adapters в незлитом PR #27.
+- GPK/GTB и VPK/VTB resource parsers и Resource Inspector входят в `main`.
+- Экспериментальные System-NNN SPT loader, command decoder, Compose player и audio/image adapters интегрированы в `main` через merged PR #27.
 - Room ещё не интегрирован: библиотека использует SharedPreferences.
 
 ## Куда смотреть
@@ -43,7 +43,7 @@ Ramen не является универсальным Windows-эмулятор�
 - [Inventory JSON schema](docs/INVENTORY_REPORT_SCHEMA.md) — схема JSON-отчёта.
 - [Roadmap](docs/ROADMAP.md) — историческая дорожная карта; актуальный приоритет см. в HANDOFF.
 - [Build setup](docs/BUILD_SETUP.md) — Android toolchain и команды.
-- [ZIP import](docs/ZIP_IMPORT.md), [folder import](docs/FOLDER_IMPORT.md), [HTML5 runtime](docs/HTML5_RUNTIME.md) — поведение и ограничения (часть старых byte-size limits устарела на рабочей ветке).
+- [ZIP import](docs/ZIP_IMPORT.md), [folder import](docs/FOLDER_IMPORT.md), [HTML5 runtime](docs/HTML5_RUNTIME.md) — поведение и ограничения.
 - [Contributing](CONTRIBUTING.md) — правила работы и test data.
 
 ## Сборка
@@ -62,5 +62,5 @@ Debug APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
 ## Ближайший приоритет
 
-Не начинать новый движок. Сначала довести текущий System-NNN path: актуальный CI → исправление тестов → подтверждение SPT pointer/table semantics на реальном sample → проверка сцен, изображений, аудио и Android lifecycle. Перед merge внимательно свести незлитые PR #25/#26/#27, так как их ветки расходятся и меняют пересекающиеся файлы.
+Не начинать новый движок. Сначала довести текущий System-NNN path: актуальный CI → исправление тестов → подтверждение SPT pointer/table semantics на реальном sample → проверка сцен, изображений, аудио и Android lifecycle. Продолжать работу из main; PR #27 уже влит. Уникальные изменения в оставшихся PR #25/#26 оценивать отдельно, не сливать их целиком без reconciliation.
 

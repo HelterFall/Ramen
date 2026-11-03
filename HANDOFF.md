@@ -1,25 +1,35 @@
 # Ramen — единый handoff проекта
 
-> **Это главный файл для восстановления контекста между сессиями.** Перед любыми изменениями сначала прочитай его целиком, затем проверь актуальное состояние GitHub. Здесь сведены карта репозитория, архитектура, статус функций, хронология, ветки/PR, результаты аудита и открытые вопросы.
->
-> Снимок подготовлен **2026-11-04** по доступному репозиторию и материалам текущей сессии. Статусы GitHub и CI изменяются; перед продолжением всегда перепроверь их.
+> **Каноническое состояние на 2026-11-04:** рабочая и базовая ветка проекта теперь `main`. PR #27 (`feat/system-nnn-spt-loader`) успешно влит merge-коммитом `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`. Это состояние соответствует исходникам, проверенным успешным Actions run #278 до слияния. Не начинай новую работу со старой ветки `feat/system-nnn-spt-loader`: создавай новые feature-ветки от актуального `main`.
+
+> Этот документ — единая точка восстановления контекста. Перед изменениями прочитай его и [docs/BUILD_MATRIX.md](docs/BUILD_MATRIX.md), затем проверь актуальный head `main` и самый новый CI. Исторические снимки ниже помечены отдельно и не должны подменять текущий статус.
 
 ## Как возобновить работу в новом чате
 
-Передай следующему чату одну фразу:
+Передай следующему чату:
 
-> **Продолжаем Ramen. Репозиторий `HelterFall/Ramen`. Сначала прочитай корневой `HANDOFF.md` в ветке `feat/system-nnn-spt-loader`, затем проверь актуальный PR #27 и CI. Не начинай работу с main, пока не сравнишь ветки и не проверишь статус.**
+> **Продолжаем Ramen. Репозиторий `HelterFall/Ramen`. Каноническая ветка — `main`. Сначала прочитай корневой `HANDOFF.md` и `docs/BUILD_MATRIX.md` именно из main, проверь текущий SHA и последний Android CI. Не возвращайся на feat/system-nnn-spt-loader: PR #27 уже влит.**
 
 Важные ссылки:
 - Репозиторий: https://github.com/HelterFall/Ramen
-- Этот файл: https://github.com/HelterFall/Ramen/blob/feat/system-nnn-spt-loader/HANDOFF.md
-- Текущая рабочая ветка: https://github.com/HelterFall/Ramen/tree/feat/system-nnn-spt-loader
-- Основной PR с System-NNN: https://github.com/HelterFall/Ramen/pull/27
+- Основная ветка: https://github.com/HelterFall/Ramen/tree/main
+- Этот файл: https://github.com/HelterFall/Ramen/blob/main/HANDOFF.md
+- Слияние PR #27: https://github.com/HelterFall/Ramen/pull/27
 - SPT-заметки: [docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md](docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md)
 - Хронологический журнал: [docs/DEVELOPMENT_LOG.md](docs/DEVELOPMENT_LOG.md)
-- Матрица веток и сборок: [docs/BUILD_MATRIX.md](docs/BUILD_MATRIX.md) — какие функции реально попадают в APK и какие Actions их проверяли
+- Матрица веток и сборок: [docs/BUILD_MATRIX.md](docs/BUILD_MATRIX.md)
 
-**Важно:** на дату снимка System-NNN находится в незлитой ветке и PR #27. Корневой `main` отстаёт от этой реализации. Не делай вывод, что код уже в main, и не переключайся туда автоматически.
+## Текущий статус интеграции
+
+- **Каноническая ветка:** `main`.
+- **Merge commit:** `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`.
+- **Исходная ветка PR #27:** `feat/system-nnn-spt-loader`, проверенный head `75675e3302439bc31f5bc1961bc82b1233ec34b7`; PR #27 закрыт как merged.
+- **Проверка до merge:** Actions run [#278](https://github.com/HelterFall/Ramen/actions/runs/41674773614) завершился успешно на точном исходном SHA PR #27. Он выполнил `assembleDebug`, `testDebugUnitTest`, `lintDebug` и загрузил debug APK.
+- **Проверка после merge:** push-run [#279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) стартовал на merge commit в `main`; при последней проверке job ещё выполнял build/test/lint. После последующих документационных коммитов ориентируйся на самый новый run в Actions, а не на устаревший статус #279.
+- **Resource Inspector:** входит в `main`. Activity зарегистрирована в Manifest; shortcut доступен на главном экране, а карточки игр позволяют открыть Inspector для ресурсов игры. Пользователь подтвердил, что Inspector пока нужен.
+- **GPK/GTB и VPK/VTB:** парсеры и просмотр ресурсов включены в текущее состояние `main`.
+- **System-NNN:** loader, player и путь запуска включены, но трактовка SPT-таблицы остаётся экспериментальной. Успешный CI не доказывает правильность полного SPT VM или совместимость реальной игры.
+- **PR #25 и #26:** остаются отдельными незлитыми ветками. PR #27 содержит собственные реализации пересекающихся ресурсных компонентов, но не всю историю этих веток. Не сливай #25/#26 автоматически; сначала проверь, есть ли там уникальные исправления, которых нет в main.
 
 ---
 
@@ -397,82 +407,51 @@ Five little-endian DWORD values printed at `0x32B20`:
 - PR #27: System-NNN SPT loader, command decoder, runtime Activity/Compose UI, image and audio repositories/player; также сняты arbitrary byte ceilings в importer в пользу storage guard.
 - 4 ноября: SPT observations сохранены в `docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md` и `docs/DEVELOPMENT_LOG.md`; подготовлен этот единый handoff.
 
-## 10. Ветки и PR — критически важно
+## 10. Ветки и PR — актуальный статус после merge PR #27
 
-На момент аудита три PR открыты и не merged:
+- `main` — единственная каноническая ветка для дальнейшей разработки.
+- PR [#27](https://github.com/HelterFall/Ramen/pull/27), ветка `feat/system-nnn-spt-loader`, влит 2026-11-03 merge-коммитом `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`.
+- Проверенный исходный head PR #27: `75675e3302439bc31f5bc1961bc82b1233ec34b7`; именно он указан в метаданных успешного run #278.
+- PR [#25](https://github.com/HelterFall/Ramen/pull/25) (`research/gpk-vpk-readonly-parsers`) и PR [#26](https://github.com/HelterFall/Ramen/pull/26) (`feature/blackcyc-resource-preview`) на момент обновления остаются открытыми и не влитыми.
+- #25 и #26 расходятся с main и между собой. PR #27 уже интегрировал собственную версию парсеров и Inspector, но это не означает, что каждая уникальная правка из #25/#26 попала в main.
+- До дополнительного merge нужно сравнивать уникальные изменения #25/#26 с текущим main по файлам и тестам. В частности, крупный inventory JSON из #25 требует отдельной проверки на приватные пути и локальные данные.
+- Ветка `feat/system-nnn-spt-loader` теперь историческая исходная ветка PR #27. Новую работу создавай от main; не продолжай коммиты в старой ветке.
 
-| PR | Ветка | Статус на снимке | CI, известный при проверке | Содержание |
-|---|---|---|---|---|
-| [#25](https://github.com/HelterFall/Ramen/pull/25) | `research/gpk-vpk-readonly-parsers` | Open, not merged; 191 commits / 63 files | Run #219 success | GPK/GTB, VPK/VTB parsers and resource work; branch очень крупная |
-| [#26](https://github.com/HelterFall/Ramen/pull/26) | `feature/blackcyc-resource-preview` | Open, not merged; 6 commits / 20 files | Run #224 success | Black Cyc resource preview, DWQ, opaque SPT detection |
-| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; see live PR for current count/head; 46 changed files at audit | Run #270 success on code snapshot `4a400535...`; later branch changes are docs-only | Resource inspector + experimental System-NNN loader/player |
+## 11. CI и известные проблемы — текущая запись
 
-Снимок Git:
-- `main` head в ходе аудита: `305f3f25c09c7f2d13c9d0ad7027f9124dcf7884`.
-- Точный PR #27 head не фиксируем статически: после handoff/log/README обновлений SHA изменился; смотри актуальный `head SHA` в [PR #27](https://github.com/HelterFall/Ramen/pull/27). В ходе этого аудита PR diff относительно main показывал 45 changed files; изменения после проверенного кодового snapshot `648c4d...` были документационными.
-- PR #27 основан на main и не содержит #26 как ancestor: branches разошлись от main.
-- Compare #26 → #27 показал diverged branches: обе ветки основаны на main, #27 не содержит unique commits из #26 как ancestor. После этого в #27 добавлялись только handoff/readme/log commits. Всегда перепроверяй live graph before merge.
-- Compare #25 → #26: ветки тоже diverged; #26 не включает длинную 191-commit историю #25.
-- Все три PR меняют одни и те же resource/importer/detector файлы в разных комбинациях.
+### Успешная проверка исходного состояния PR #27
 
-**Не сливать PR #25, #26 и #27 по очереди без reconciliation.** Сначала решить, какая ветка становится канонической, затем сравнить diff и перенести необходимые изменения так, чтобы не потерять fixes и не получить повторные/конфликтующие реализации.
+- [Actions run #278](https://github.com/HelterFall/Ramen/actions/runs/41674773614) завершился со статусом success.
+- Проверенный branch/head: `feat/system-nnn-spt-loader` / `75675e3302439bc31f5bc1961bc82b1233ec34b7`.
+- Job выполнил `assembleDebug`, `testDebugUnitTest`, `lintDebug`, затем загрузил артефакт.
+- Артефакт: `ramen-debug-apk`, ID `13250256957`, размер 11,642,991 байт, SHA-256 `3e86f99170c5636246a142e353408f062a078e6309ce5af0196ae65d89edac67`, срок хранения до 2026-11-10.
+- Этот run проверил исходный код PR #27 перед merge. Это не release build и не тест на физическом Android-устройстве.
 
-Дополнительный риск PR #25:
-- среди его файлов есть `ramen-inventory-d9c1071b.json` размером около 12 451 строк;
-- inventory reports могут включать названия локальных файлов и структуру каталогов;
-- перед merge надо проверить этот JSON на приватные пути/данные и понять, нужен ли он в репозитории вообще.
+### Проверка merge-коммита в main
 
-PR #27 на снимке был mergeable по metadata, но это не заменяет проверку тестов, code review и проверку конфликтующих веток. Не делай merge без явного решения пользователя.
+- После merge GitHub запустил push-run [#279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) на commit `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`.
+- При проверке run #279 был `in_progress` на шаге assemble/test/lint. Документальные коммиты после этого могут запустить следующий run и отменить предыдущий из-за `concurrency.cancel-in-progress`.
+- Перед следующей сборкой смотри самый новый run для ветки `main`; не считай статус #278 эквивалентом проверки merge-коммита.
 
-## 11. CI и известные проблемы
+### Историческая CI-проблема, уже исправленная
 
-### PR #27 — текущий CI
+Старый PR #27 run #230 падал в `HtmlInlineResourceExtractorTest.leavesUnsupportedDataUrisUntouched`. Причина установлена: временный переписанный HTML-файл находится в `gameDirectory`, но guard проверял свободное место в ещё не созданном `assetsDirectory`. Проверка переписанного HTML теперь использует `StorageSpaceGuard(gameDirectory)`; поток extracted payload по-прежнему использует guard каталога assets после его создания. Последующие проверки #265, #270 и #278 прошли. Возвращаться к этому failure нужно только при новом воспроизведении.
 
-- Старый run #230: https://github.com/HelterFall/Ramen/actions/runs/41605660823
-- Build и `assembleDebug` прошли.
-- Unit tests: 85 завершено, 1 failure.
-- Падающий тест: `HtmlInlineResourceExtractorTest > leavesUnsupportedDataUrisUntouched`.
-- Стек указывает на `HtmlInlineResourceExtractorTest.kt:54`, вызов extractor.
-- Задача `:app:testDebugUnitTest` упала; lint-анализ запускался, APK upload был пропущен.
-- Run #265: https://github.com/HelterFall/Ramen/actions/runs/41671391772 — **success** на промежуточном commit snapshot `648c4d6052dcd3a95d0ca9f14c210392c33eed70`.
+### Что именно означает зелёный CI
 
-Причина старого test failure установлена по сравнению кода до/после. При записи временного `.index.html.rewritten`, который лежит в `gameDirectory`, старый код передавал `StorageSpaceGuard(assetsDirectory)`. В тесте с неподдерживаемым data URI папка `assets` не создаётся; проверка `assetsDirectory.usableSpace` возвращала ноль, и guard выдавал IOException. Исправлено на `StorageSpaceGuard(gameDirectory)`. После исправления run #265 прошёл. Для будущих storage tests всё равно предпочтительно использовать injected `availableSpaceBytes` / controlled fake, чтобы тесты не зависели от реального свободного места.
-
-### Сопоставление последних PR builds
-- PR #25 run #219 — success, head `b388d449...`, branch `research/gpk-vpk-readonly-parsers`.
-- PR #26 run #224 — success, head `e6daf72f...`, branch `feature/blackcyc-resource-preview`.
-- PR #27 run #265 — success, intermediate head `648c4d...`.
-- PR #27 run #270 — success на текущем head `4a400535...`; это последняя проверенная сборка.
-- PR #19, #20, #22, #23, #24 имели успешные CI по development log; ссылки записаны в `docs/DEVELOPMENT_LOG.md`.
-
-### Обязательная последовательность после правок
-Из корня проекта:
+Workflow `.github/workflows/android-ci.yml` запускает только:
 
 ```bash
-./gradlew --version
-./gradlew assembleDebug
-./gradlew testDebugUnitTest
-./gradlew lintDebug
+./gradlew --no-daemon --stacktrace assembleDebug testDebugUnitTest lintDebug
 ```
 
-Windows:
-
-```powershell
-.\gradlew.bat --version
-.\gradlew.bat assembleDebug
-.\gradlew.bat testDebugUnitTest
-.\gradlew.bat lintDebug
-```
-
-APK debug: `app/build/outputs/apk/debug/app-debug.apk`.
-
-CI не заменяет реальный Android device acceptance для HTML5, System-NNN, orientation, audio, memory и lifecycle.
+Он не запускает `assembleRelease`, не выполняет production signing и не публикует приложение в Google Play. Успешная сборка не доказывает физическое устройство, полный SPT VM, корректность каждого формата ресурсов или прохождение реальной игры от начала до конца.
 
 ## 12. Приоритетный план продолжения
 
 ### P0 — зафиксировать базу и CI
-1. Перепроверить branch/head PR #27, PR status и самый новый Android CI run.
-2. Исторический failure #230 исправлен изменением storage guard root; run #270 зелёный на code snapshot. Последующий run #275 относится только к docs-only изменениям. При новых code errors извлекать точную причину по логу, не гадать.
+1. Проверить актуальный head main и самый новый Android CI run перед любыми изменениями.
+2. PR #27 уже влит; run #278 успешен на исходном head, после merge запущена проверка main. При новых code errors извлекать точную причину по логу, не гадать.
 3. Старый failure `leavesUnsupportedDataUrisUntouched` уже исправлен; возвращаться к нему только при повторном падении.
 4. Повторить `assembleDebug`, unit tests и lint.
 
@@ -491,7 +470,7 @@ CI не заменяет реальный Android device acceptance для HTML5
 6. Записать результат, устройство, Android version, app commit и ограничения.
 
 ### P3 — привести ветки и документацию в порядок
-1. Решить, какие commits из #25/#26 нужны в #27 или наоборот.
+1. Проверить, нужны ли уникальные изменения из незлитых #25/#26 сверх уже интегрированного main; не сливать их целиком без reconciliation.
 2. Проверить inventory JSON в PR #25 на приватные metadata.
 3. Синхронизировать `README.md`, `ROADMAP.md`, `FORMAT_REGISTRY.md`, `ENGINE_COMPATIBILITY.md`, `ENGINE_RESEARCH.md`, ZIP/FOLDER/HTML docs с реальным кодом.
 4. Оставить этот HANDOFF каноническим стартовым документом; новые важные решения заносить сюда и в development log.
@@ -528,13 +507,13 @@ CI не заменяет реальный Android device acceptance для HTML5
 **Главная цель ближайшего этапа:** не начинать новые движки, а довести текущий System-NNN путь от импортированной игры до корректного воспроизведения сцен, опираясь на проверенные SPT offsets и уже читаемые GPK/GTB/VPK/VTB.
 
 
-## Дополнение 2026-11-04 — контроль включённых функций в APK
+## Дополнение 2026-11-04 — состояние после продвижения PR #27 в main
 
-Подробная матрица: [docs/BUILD_MATRIX.md](docs/BUILD_MATRIX.md).
+- `main` теперь содержит полное дерево исходников PR #27, включая Resource Inspector, System-NNN player path, GPK/GTB и VPK/VTB resource parsers, import improvements, тесты и handoff-документы.
+- Merge commit: `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`.
+- Исходный PR #27 head `75675e3302439bc31f5bc1961bc82b1233ec34b7` проверен успешным run #278; артефакт и digest записаны в разделе 11.
+- Новый канонический источник для разработки и сборок — `main`. Старую ветку `feat/system-nnn-spt-loader` не использовать как рабочую.
+- Inspector оставлен включённым по прямому решению пользователя. Не удалять и не прятать его в debug-only flavor без отдельного запроса.
+- System-NNN остаётся экспериментальным: запуск подключён, но semantics SPT decoder и end-to-end совместимость требуют дальнейшего исследования.
+- PR #25/#26 по-прежнему нуждаются в отдельном аудите; не считай их целиком интегрированными.
 
-- Сборка из main на проверенном head 305f3f25... не содержит ResourceInspectorActivity / shortcut и не содержит System-NNN player.
-- Сборка из PR #27 включает Inspector намеренно: Activity зарегистрирована в Manifest, shortcut показывается всегда, карточки импортированных игр имеют действие просмотра пар ресурсов.
-- Сборка из PR #27 также включает System-NNN Activity и экспериментальный decoder; запуск доступен для SPT, который loader классифицирует как PARSER_AVAILABLE.
-- У decoder пока есть подтверждённые расхождения с исследовательскими SPT notes; это не production-ready interpreter.
-- CI workflow собирает только debug APK, запускает unit tests и lint, затем загружает артефакт на 7 дней. Release signing / Play Store publish отсутствуют.
-- PR #27 run #270 прошёл на exact head 4a400535...; его APK — debug artifact. Для выбора правильной ветки и проверки комплектации APK сначала сверяй BUILD_MATRIX.md.

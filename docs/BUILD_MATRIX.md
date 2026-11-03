@@ -1,7 +1,8 @@
 # Ramen — build matrix and feature inclusion audit
 
-**Audit date:** 2026-11-04  
-**Purpose:** Prevent building or handing off the wrong branch/APK. This file supplements the canonical [HANDOFF](../HANDOFF.md).
+**Audit date:** 2026-11-04 (post-merge refresh)  
+**Purpose:** Prevent building or handing off the wrong branch/APK. This file supplements the canonical [HANDOFF](../HANDOFF.md).  
+**Canonical source:** `main`, merge commit `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5` (PR #27 merged).
 
 ## 1. Which branch contains which feature?
 
@@ -9,12 +10,12 @@ This is based on direct inspection of each branch's AndroidManifest.xml, RamenAp
 
 | Source | Resource Inspector | System-NNN player | Meaning |
 |---|---|---|---|
-| main — 305f3f25... | No Activity and no shortcut | No Activity or launch wiring | Baseline branch; only HTML5 player is registered |
+| main — 026ef6cd... | Included and visibly reachable | Included, with conditional game-card launch | Current integration; exact source state promoted from PR #27 and validated by run #278 before merge |
 | PR #25 — research/gpk-vpk-readonly-parsers | Activity registered; global shortcut present | No SystemNnnPlayerActivity | Resource parsers/inspector; also a synthetic Script v1 player for its own fixture, not real System-NNN |
 | PR #26 — feature/blackcyc-resource-preview | Activity registered; global shortcut present | No SystemNnnPlayerActivity | Black Cyc resource preview; SPT remains opaque/unsupported |
-| PR #27 — feat/system-nnn-spt-loader | Included and visibly reachable | Included, with conditional game-card launch | Inspector + experimental System-NNN loader/decoder/player |
+| PR #27 — merged into main | Included in main | Included in main | Source branch merged by commit 026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5; do not use the old branch for new work |
 
-### PR #27: inspector inclusion is explicit
+### Resource Inspector: included in current main
 
 In PR #27:
 - ResourceInspectorActivity is registered in app/src/main/AndroidManifest.xml (exported=false).
@@ -24,7 +25,7 @@ In PR #27:
 
 Therefore **every APK built from PR #27 contains the Resource Inspector and exposes it in the UI**. This is not an accidentally packaged unused class; it is wired as an app feature. There is currently no debug-only gate or separate product flavor to remove it from a release.
 
-### PR #27: System-NNN launch is wired, but decoder is provisional
+### System-NNN launch is wired, but decoder is provisional
 
 - SystemNnnPlayerActivity is registered in the manifest.
 - VisualNovelDetector returns engineId=system-nnn-spt and PARSER_AVAILABLE if the SPT loader passes its current structural checks.
@@ -67,7 +68,7 @@ It does **not**:
 
 A successful Actions run means the specified debug build, unit tests, and lint passed for the checked source tree. It is not a physical-device acceptance test.
 
-For pull requests, actions/checkout checks out GitHub's synthetic merge ref refs/pull/<number>/merge. This tests the PR merged with its current base, rather than just compiling a locally selected branch in isolation. Run #270's log explicitly shows synthetic commit 247ad61 merging PR head 4a400535... into main 305f3f25....
+For pull requests, actions/checkout checks out GitHub's synthetic merge ref refs/pull/<number>/merge. Run #278 completed successfully for the exact PR #27 source head 75675e3302439bc31f5bc1961bc82b1233ec34b7 before merge. After merge, push-run #279 started directly on main commit 026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5; always consult the latest main run.
 
 ## 3. Recent build comparison
 
@@ -76,7 +77,7 @@ For pull requests, actions/checkout checks out GitHub's synthetic merge ref refs
 | PR #25 / [run #219](https://github.com/HelterFall/Ramen/actions/runs/41503698179) | b388d449... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, about 11.67 MB |
 | PR #26 / [run #224](https://github.com/HelterFall/Ramen/actions/runs/41580168158) | e6daf72f... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, about 11.54 MB |
 | PR #27 / [run #265](https://github.com/HelterFall/Ramen/actions/runs/41671391772) | 648c4d605... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, about 11.64 MB |
-| PR #27 / [run #270](https://github.com/HelterFall/Ramen/actions/runs/41673052449) | **4a400535... code head checked by run #270** | **Success**: assemble, unit tests, lint, APK upload | ramen-debug-apk, 11,642,988 bytes |
+| PR #27 / [run #270](https://github.com/HelterFall/Ramen/actions/runs/41673052449) | 4a400535... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, historical artifact |\n| PR #27 / [run #278](https://github.com/HelterFall/Ramen/actions/runs/41674773614) | **75675e3302439bc31f5bc1961bc82b1233ec34b7** | **Success**: assemble, unit tests, lint, APK upload | ramen-debug-apk, 11,642,991 bytes |\n| main / [run #279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) | **026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5** | Started after merge; in progress at last check | Push validation for canonical main |
 
 Run #270 artifact metadata:
 - Artifact ID: 13250265749
@@ -85,38 +86,40 @@ Run #270 artifact metadata:
 - Expiry: 2026-11-10 16:24:37 UTC
 - Workflow: Android CI, run #270
 
+Run #278 artifact metadata:
+- Artifact ID: 13250256957
+- SHA-256: 3e86f99170c5636246a142e353408f062a078e6309ce5af0196ae65d89edac67
+- Size: 11,642,991 bytes
+- Created: 2026-11-03 16:33:33 UTC
+- Expiry: 2026-11-10 16:33:30 UTC
+- Workflow: Android CI, run #278
+- Tested source: `feat/system-nnn-spt-loader` at `75675e3302439bc31f5bc1961bc82b1233ec34b7`
+
+The code from this run was promoted into `main` by merge commit `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`. Run #279 is the post-merge push validation; consult Actions for its latest state.
+
 Compare between PR #27 run #265 code snapshot 648c4d605... and current head 4a400535... shows only documentation files changed: root HANDOFF.md, root README.md, and docs/DEVELOPMENT_LOG.md. No app source or test source changed between those two heads. Run #270 then passed against the exact current PR head.
 
-## 4. Branch / PR separation
+## 4. Branch / PR separation — current status
 
-At audit time all three PRs were open and unmerged, each targeting main. For current branch head and commit count, always open the live [PR #27](https://github.com/HelterFall/Ramen/pull/27); do not use the snapshot SHA below as the latest docs head:
+PR #27 has been merged into main. The old branch `feat/system-nnn-spt-loader` is the historical source branch and should not receive new development commits.
 
-| PR | Branch | Head | PR size |
-|---|---|---|---|
-| #25 | research/gpk-vpk-readonly-parsers | b388d449... | 191 commits / 63 files |
-| #26 | feature/blackcyc-resource-preview | e6daf72f... | 6 commits / 20 files |
-| #27 | feat/system-nnn-spt-loader | 4a400535... (code head validated by run #270; later branch commits are docs-only) | live count in PR #27 |
+PR #25 (`research/gpk-vpk-readonly-parsers`) and PR #26 (`feature/blackcyc-resource-preview`) remain separate and unmerged. Their work overlaps with files now present in main. Neither is an automatic follow-up merge: compare unique changes against main first, inspect tests, and avoid duplicating or reverting the parser/Inspector implementations already integrated by PR #27.
 
-These branches are not interchangeable:
-- #25 and #27 are divergent. #27 does not contain the 191-commit history of #25, even though it contains its own implementations of overlapping resource-parser files.
-- #26 and #27 are also divergent. #27 does not contain every unique commit from #26.
-- Their diffs overlap in manifest, importer, detector, resource parsers, resource inspector, and UI.
-
-Do not merge #25, #26, and #27 in sequence without a deliberate branch reconciliation. Check per-file diffs and preserve fixes manually. PR #25 also includes a large ramen-inventory-d9c1071b.json; review it for private paths and local filenames before considering a merge.
+PR #25 contains a large `ramen-inventory-d9c1071b.json`; review it for private paths and local filenames before considering any parts of that PR.
 
 ## 5. Safe build-selection protocol
 
 Before generating an APK, record:
-1. the intended source (main, PR #25, #26, or #27);
+1. the intended source (normally main; use PR #25/#26 only for isolated comparison or targeted cherry-picks);
 2. the branch name;
 3. the exact commit SHA;
 4. the build type (debug or release);
 5. the Actions run URL if CI-produced;
 6. which experimental features are deliberately included.
 
-For the current experimental app with Inspector and System-NNN, the intended source is PR #27 branch feat/system-nnn-spt-loader, not main. Resolve its latest head SHA from the live PR before building.
+For the current integrated app with Inspector and experimental System-NNN, the intended source is main. Record its latest exact commit SHA before building; do not build from the old feat/system-nnn-spt-loader branch.
 
-For a baseline build without the Inspector and System-NNN, use main and verify its latest head. Do not assume a developer's current IDE branch is the intended source.
+The pre-integration baseline is historical commit 305f3f25c09c7f2d13c9d0ad7027f9124dcf7884, not current main. Use it only when deliberately reproducing the old baseline; ordinary development and current builds should use main.
 
 A local clean debug validation should run:
 - assembleDebug;
@@ -134,4 +137,4 @@ Decide whether Resource Inspector should be:
 
 If debug-only is desired, implement a dedicated product flavor/build config and UI gating, then verify the release manifest and APK do not contain or expose the Inspector. Make a separate decision for the unfinished System-NNN player.
 
-**Current audit recommendation:** keep PR #27 as the working research build for now, because it is the newest integration with SPT player wiring and a green CI on its exact head. Do not call it a release candidate until SPT semantics, device playback, and the intended Inspector inclusion are explicitly accepted.
+**Current audit recommendation:** use main as the canonical development base. Resource Inspector remains included by the user's explicit choice. Do not call the app a release candidate until SPT semantics and real-device playback are validated; CI #278 is a debug build/test/lint result, not release or device acceptance.
