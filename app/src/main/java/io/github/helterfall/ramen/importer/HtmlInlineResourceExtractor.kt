@@ -40,7 +40,7 @@ class HtmlInlineResourceExtractor {
                     OutputStreamWriter(
                         StorageGuardedOutputStream(
                             delegate = FileOutputStream(rewrittenFile),
-                            guard = StorageSpaceGuard(assetsDirectory)
+                            guard = StorageSpaceGuard(gameDirectory)
                         ),
                         StandardCharsets.UTF_8
                     )
