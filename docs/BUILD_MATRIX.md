@@ -76,7 +76,7 @@ For pull requests, actions/checkout checks out GitHub's synthetic merge ref refs
 | PR #25 / [run #219](https://github.com/HelterFall/Ramen/actions/runs/41503698179) | b388d449... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, about 11.67 MB |
 | PR #26 / [run #224](https://github.com/HelterFall/Ramen/actions/runs/41580168158) | e6daf72f... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, about 11.54 MB |
 | PR #27 / [run #265](https://github.com/HelterFall/Ramen/actions/runs/41671391772) | 648c4d605... | Success: assemble, unit tests, lint, APK upload | ramen-debug-apk, about 11.64 MB |
-| PR #27 / [run #270](https://github.com/HelterFall/Ramen/actions/runs/41673052449) | **4a400535... current PR head** | **Success**: assemble, unit tests, lint, APK upload | ramen-debug-apk, 11,642,988 bytes |
+| PR #27 / [run #270](https://github.com/HelterFall/Ramen/actions/runs/41673052449) | **4a400535... code head checked by run #270** | **Success**: assemble, unit tests, lint, APK upload | ramen-debug-apk, 11,642,988 bytes |
 
 Run #270 artifact metadata:
 - Artifact ID: 13250265749
@@ -89,13 +89,13 @@ Compare between PR #27 run #265 code snapshot 648c4d605... and current head 4a40
 
 ## 4. Branch / PR separation
 
-At audit time all three PRs were open and unmerged, each targeting main:
+At audit time all three PRs were open and unmerged, each targeting main. For current branch head and commit count, always open the live [PR #27](https://github.com/HelterFall/Ramen/pull/27); do not use the snapshot SHA below as the latest docs head:
 
 | PR | Branch | Head | PR size |
 |---|---|---|---|
 | #25 | research/gpk-vpk-readonly-parsers | b388d449... | 191 commits / 63 files |
 | #26 | feature/blackcyc-resource-preview | e6daf72f... | 6 commits / 20 files |
-| #27 | feat/system-nnn-spt-loader | 4a400535... | 48 commits / 45 files |
+| #27 | feat/system-nnn-spt-loader | 4a400535... (code head validated by run #270; later branch commits are docs-only) | live count in PR #27 |
 
 These branches are not interchangeable:
 - #25 and #27 are divergent. #27 does not contain the 191-commit history of #25, even though it contains its own implementations of overlapping resource-parser files.
@@ -114,7 +114,7 @@ Before generating an APK, record:
 5. the Actions run URL if CI-produced;
 6. which experimental features are deliberately included.
 
-For the current experimental app with Inspector and System-NNN, the intended source is PR #27 branch feat/system-nnn-spt-loader, not main.
+For the current experimental app with Inspector and System-NNN, the intended source is PR #27 branch feat/system-nnn-spt-loader, not main. Resolve its latest head SHA from the live PR before building.
 
 For a baseline build without the Inspector and System-NNN, use main and verify its latest head. Do not assume a developer's current IDE branch is the intended source.
 
