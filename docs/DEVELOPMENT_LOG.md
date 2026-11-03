@@ -181,3 +181,21 @@ Make the binary inventory portable and comparable without requiring the original
 1. Inspect bounded byte windows around `0xC390`, `0xC5BA`, `0x16752`, `0x167F2`, `0x32B20`, and `0x32B64` from the original SPT.
 2. Validate the main-table entry width and target semantics against actual resources and in-game scene order.
 3. Determine the roles of the 1124-entry and 69-entry descriptors, the marker records, and the DWORDs at `0x32B20`.
+
+
+## 2026-11-04 — Canonical handoff and import storage-guard CI fix
+
+### Project handoff
+- Added root [HANDOFF.md](../HANDOFF.md) as the single entry point for new sessions. It contains repository map, architecture, feature statuses, branch/PR topology, CI findings, SPT observations, open questions, and continuation priorities.
+- Updated root README to point to HANDOFF first and clarify that System-NNN is in an unmerged prototype PR.
+
+### CI failure diagnosis and resolution
+- Historical PR #27 run #230 failed `HtmlInlineResourceExtractorTest.leavesUnsupportedDataUrisUntouched` with IOException at the extractor call.
+- The temporary rewritten HTML file is written inside `gameDirectory`, but the older code passed `StorageSpaceGuard(assetsDirectory)` for that output stream.
+- For an unsupported data URI, `assetsDirectory` is not created. Its `usableSpace` check returned zero, so the guard rejected the temporary HTML rewrite.
+- The current code uses `StorageSpaceGuard(gameDirectory)` for the rewrite file. The separate extracted payload stream still uses `StorageSpaceGuard(assetsDirectory)`, after that directory is created.
+- Later CI run #265 [41671391772](https://github.com/HelterFall/Ramen/actions/runs/41671391772) passed build, unit tests, lint, and debug APK upload.
+- Run #265 tested code snapshot `648c4d6052dcd3a95d0ca9f14c210392c33eed70`. Subsequent changes to the branch in this session were documentation-only (`HANDOFF.md`, `README.md`, this log).
+
+### Next step
+- Recheck Actions after any code change. Do not treat a documentation-only commit as proof of a new code test; record the exact tested commit SHA.
