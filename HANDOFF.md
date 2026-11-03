@@ -405,7 +405,7 @@ Five little-endian DWORD values printed at `0x32B20`:
 |---|---|---|---|---|
 | [#25](https://github.com/HelterFall/Ramen/pull/25) | `research/gpk-vpk-readonly-parsers` | Open, not merged; 191 commits / 63 files | Run #219 success | GPK/GTB, VPK/VTB parsers and resource work; branch очень крупная |
 | [#26](https://github.com/HelterFall/Ramen/pull/26) | `feature/blackcyc-resource-preview` | Open, not merged; 6 commits / 20 files | Run #224 success | Black Cyc resource preview, DWQ, opaque SPT detection |
-| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; 53 commits / 46 changed files | Run #270 success on code snapshot `4a400535...`; run #275 queued for docs-only head `e0c33ae...` | Resource inspector + experimental System-NNN loader/player |
+| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; see live PR for current count/head; 46 changed files at audit | Run #270 success on code snapshot `4a400535...`; later branch changes are docs-only | Resource inspector + experimental System-NNN loader/player |
 
 Снимок Git:
 - `main` head в ходе аудита: `305f3f25c09c7f2d13c9d0ad7027f9124dcf7884`.
