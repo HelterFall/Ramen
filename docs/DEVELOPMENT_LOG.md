@@ -155,3 +155,82 @@ Make the binary inventory portable and comparable without requiring the original
 1. Add a user-facing save/share flow using the Storage Access Framework.
 2. Add a positional source implementation for SAF-selected documents where supported, or bounded staging when seeking is unavailable.
 3. Continue PE metadata coverage and container probes only where evidence supports them.
+
+
+## 2026-11-04 — Preserve System-NNN SPT sample observations
+
+### Source and project-status clarification
+- The user clarified that GPK/GTB and VPK/VTB are already readable in the current project. Treat those resource readers as implemented for the user's current sample set; do not describe them as wholly unimplemented. Exact variant coverage remains unspecified.
+- Added [System-NNN SPT Format Notes](SYSTEM_NNN_SPT_FORMAT_NOTES.md) from the supplied `hu.txt` analysis script and `ho.txt` output.
+
+### Recorded SPT observations
+- Sample output reports 389,500 bytes (`0x5F17C`), an XOR-`0xFF`-demasked `SPTHEADER0` signature at `0x30`, and first DWORD `0x14`.
+- Candidate count/target pairs: 1299 at `0xC5BA`, 1124 at `0x167F2`, 69 at `0xC390`, and 2 at offset zero.
+- A printable Shift-JIS run was found at `0x32B64` (`0x32BC9` end, 101 bytes, strict Shift-JIS decode succeeds).
+- The byte marker `text\0` was found at `0x32B34`, `0x32B3C`, `0x32B44`, `0x32B4C`, `0x32B54`, and `0x32B5C`.
+- Five DWORDs printed at `0x32B20`: `0x16752`, `0x16791`, `0x167A3`, `0x167C6`, `0x167D9`.
+
+### Evidence limits and handoff
+- The uploaded materials are the analysis script and its textual output, not the original SPT binary. Preserve the values as reported observations, not independently re-parsed binary facts.
+- The 1299-entry descriptor is a strong lead, but the output does not prove UInt32 entry width or the current decoder's resource/dialogue classification rule.
+- The five DWORDs and six `text\0` markers at `0x32B20`–`0x32B5C` need structural interpretation.
+- The first Shift-JIS run does not prove that every NUL-delimited string from `0x32B64` to EOF belongs to one text pool.
+- Reconcile these observations with `SystemNnnScriptLoader` and `SystemNnnCommandDecoderImpl` before claiming the SPT format is fully decoded.
+
+### Next steps
+1. Inspect bounded byte windows around `0xC390`, `0xC5BA`, `0x16752`, `0x167F2`, `0x32B20`, and `0x32B64` from the original SPT.
+2. Validate the main-table entry width and target semantics against actual resources and in-game scene order.
+3. Determine the roles of the 1124-entry and 69-entry descriptors, the marker records, and the DWORDs at `0x32B20`.
+
+
+## 2026-11-04 — Canonical handoff and import storage-guard CI fix
+
+### Project handoff
+- Added root [HANDOFF.md](../HANDOFF.md) as the single entry point for new sessions. It contains repository map, architecture, feature statuses, branch/PR topology, CI findings, SPT observations, open questions, and continuation priorities.
+- Updated root README to point to HANDOFF first and clarify that System-NNN is in an unmerged prototype PR.
+
+### CI failure diagnosis and resolution
+- Historical PR #27 run #230 failed `HtmlInlineResourceExtractorTest.leavesUnsupportedDataUrisUntouched` with IOException at the extractor call.
+- The temporary rewritten HTML file is written inside `gameDirectory`, but the older code passed `StorageSpaceGuard(assetsDirectory)` for that output stream.
+- For an unsupported data URI, `assetsDirectory` is not created. Its `usableSpace` check returned zero, so the guard rejected the temporary HTML rewrite.
+- The current code uses `StorageSpaceGuard(gameDirectory)` for the rewrite file. The separate extracted payload stream still uses `StorageSpaceGuard(assetsDirectory)`, after that directory is created.
+- Later CI run #265 [41671391772](https://github.com/HelterFall/Ramen/actions/runs/41671391772) passed build, unit tests, lint, and debug APK upload.
+- Run #265 tested code snapshot `648c4d6052dcd3a95d0ca9f14c210392c33eed70`. Subsequent changes to the branch in this session were documentation-only (`HANDOFF.md`, `README.md`, this log).
+
+### Next step
+- Recheck Actions after any code change. Do not treat a documentation-only commit as proof of a new code test; record the exact tested commit SHA.
+
+
+## 2026-11-04 — Build inclusion audit and current Actions verification
+
+### Branch contents confirmed from source
+- The checked main head (305f3f25...) has no ResourceInspectorActivity registration or Resource Inspector shortcut, and no System-NNN player Activity / launch path.
+- PR #25 branch has ResourceInspectorActivity registered and a global shortcut; it does not register SystemNnnPlayerActivity. Its Script v1 player is a synthetic fixture path, not the proprietary System-NNN player.
+- PR #26 branch has the Resource Inspector and Black Cyc resource preview, but no SystemNnnPlayerActivity. Its SPT boundary remains opaque rather than a decoded game runtime.
+- PR #27 registers ResourceInspectorActivity and SystemNnnPlayerActivity. The Inspector shortcut is always rendered on the home screen, and the per-game resource-inspection action opens the Inspector. The System-NNN launch path is wired when detection returns system-nnn-spt / PARSER_AVAILABLE.
+- Therefore the PR #27 debug APK includes and visibly exposes both Resource Inspector and experimental System-NNN player. No debug-only gate/product flavor currently excludes them.
+
+### Decoder wording / evidence warning
+- UI wording in GameCard says System-NNN launch with text/resource pointer decoding is available.
+- Detector evidence text still says the playback interpreter is not connected yet.
+- The current decoder compares table value with gtbResourceCount, then reads text entries sequentially. This differs from the PR description's value >= 0x32B64 dialogue-offset rule. It does not yet prove correct absolute text pointer resolution.
+- The decoder does not currently implement verified choice/branch/audio commands; audio lookup uses sequential dialogueStepIndex. Treat this as provisional, not a fully decoded SPT VM.
+- Full details are now in [BUILD_MATRIX.md](BUILD_MATRIX.md).
+
+### Actions comparison
+- PR #25 run #219: success on branch head b388d449..., debug APK artifact uploaded.
+- PR #26 run #224: success on branch head e6daf72f..., debug APK artifact uploaded.
+- PR #27 run #265: success on intermediate code snapshot 648c4d605...
+- PR #27 run #270: success on exact PR head 4a400535562667d5720f17beef3aa16d46b10def. The job completed assembleDebug, testDebugUnitTest, lintDebug, and debug APK upload.
+- Run #270 checked synthetic merge commit 247ad61 merging PR head 4a400535... into main 305f3f25...
+- Artifact: ramen-debug-apk, ID 13250265749, 11,642,988 bytes, SHA-256 616d1c121cb966627f3dcc39efb45429c1047e068e3eb988c1ce671362096615, expires 2026-11-10.
+- The five commits between the previously validated code snapshot #265 and #270 changed documentation only (HANDOFF.md, README.md, DEVELOPMENT_LOG.md); no app or test source changed.
+
+### CI delivery boundary
+- Android CI builds only assembleDebug, runs unit tests and lint, and uploads a debug APK with seven-day retention.
+- It does not run assembleRelease, perform release signing, or publish to Google Play.
+- A green PR check is a build/test result for the synthetic merge ref; it is not device acceptance and does not prove full game compatibility.
+
+### Durable continuation rule
+- Before every APK build, record branch, exact commit SHA, build type, Actions URL (if applicable), artifact digest, and intended feature set.
+- Use [HANDOFF.md](../HANDOFF.md) and [BUILD_MATRIX.md](BUILD_MATRIX.md) to choose the correct source. Do not assume that main and PR #27 produce equivalent apps.

@@ -62,19 +62,20 @@ class SafeZipExtractorTest {
     }
 
     @Test
-    fun enforcesTotalExpandedSizeLimit() {
+    fun streamsExpandedFilesWithoutAnArbitraryTotalByteCeiling() {
         val temporaryRoot = Files.createTempDirectory("ramen-zip-size-test").toFile()
 
         try {
-            val archive = zipOf("story.txt" to "123456789")
-            val extractor = SafeZipExtractor(maxTotalBytes = 8L)
+            val contents = "large-original-game-data-".repeat(80_000)
+            val archive = zipOf("assets/data.bin" to contents, "story.txt" to "next")
+            val summary = SafeZipExtractor().extract(
+                ByteArrayInputStream(archive),
+                File(temporaryRoot, "game")
+            )
 
-            org.junit.Assert.assertThrows(IOException::class.java) {
-                extractor.extract(
-                    ByteArrayInputStream(archive),
-                    File(temporaryRoot, "game")
-                )
-            }
+            assertEquals(contents, File(temporaryRoot, "game/assets/data.bin").readText())
+            assertEquals(contents.toByteArray(Charsets.UTF_8).size.toLong() + 4L, summary.totalBytes)
+            assertEquals(2, summary.fileCount)
         } finally {
             temporaryRoot.deleteRecursively()
         }

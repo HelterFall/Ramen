@@ -10,6 +10,8 @@ import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
 import java.util.UUID
+import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
+import io.github.helterfall.ramen.storage.StorageSpaceGuard
 
 class HtmlFileImporter(
     private val context: Context,
@@ -33,14 +35,6 @@ class HtmlFileImporter(
             throw IOException("Выбери файл .html или .htm. Для игры с картинками, CSS и JS выбери всю папку.")
         }
 
-        metadata.sizeBytes
-            ?.takeIf { it >= 0L }
-            ?.let { declaredSize ->
-                if (declaredSize > SafeHtmlStreamCopier.MAX_BYTES) {
-                    throw IOException("HTML-файл превышает лимит 512 МиБ.")
-                }
-            }
-
         val id = UUID.randomUUID().toString()
         val gamesDirectory = File(context.filesDir, "games")
         if (!gamesDirectory.mkdirs() && !gamesDirectory.isDirectory) {
@@ -60,7 +54,10 @@ class HtmlFileImporter(
 
             val outputFile = File(stagingDirectory, "index.html")
             val copiedBytes = input.use { source ->
-                FileOutputStream(outputFile).use { target ->
+                StorageGuardedOutputStream(
+                    delegate = FileOutputStream(outputFile),
+                    guard = StorageSpaceGuard(stagingDirectory)
+                ).use { target ->
                     streamCopier.copy(
                         input = source,
                         output = target,
@@ -149,22 +146,12 @@ class HtmlFileImporter(
     }
 }
 
-class SafeHtmlStreamCopier(
-    private val maxBytes: Long = MAX_BYTES
-) {
-    init {
-        require(maxBytes > 0L) { "The HTML file size limit must be positive." }
-    }
-
+class SafeHtmlStreamCopier {
     fun copy(
         input: InputStream,
         output: OutputStream,
         declaredSizeBytes: Long? = null
     ): Long {
-        if (declaredSizeBytes != null && declaredSizeBytes > maxBytes) {
-            throw IOException("The HTML file exceeds the import size limit.")
-        }
-
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         var copiedBytes = 0L
 
@@ -172,12 +159,12 @@ class SafeHtmlStreamCopier(
             val bytesRead = input.read(buffer)
             if (bytesRead < 0) break
 
-            if (bytesRead.toLong() > maxBytes - copiedBytes) {
-                throw IOException("The HTML file exceeds the import size limit.")
-            }
-
             output.write(buffer, 0, bytesRead)
-            copiedBytes += bytesRead
+            try {
+                copiedBytes = Math.addExact(copiedBytes, bytesRead.toLong())
+            } catch (overflow: ArithmeticException) {
+                throw IOException("HTML file size exceeds the supported counter range.", overflow)
+            }
         }
 
         if (declaredSizeBytes != null && declaredSizeBytes > 0L &&
@@ -189,7 +176,4 @@ class SafeHtmlStreamCopier(
         return copiedBytes
     }
 
-    companion object {
-        const val MAX_BYTES = 512L * 1024L * 1024L
-    }
 }

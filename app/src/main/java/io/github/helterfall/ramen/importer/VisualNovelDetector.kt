@@ -1,5 +1,6 @@
 package io.github.helterfall.ramen.importer
 
+import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
 import java.io.File
 
 data class GameDetection(
@@ -15,15 +16,41 @@ class VisualNovelDetector {
             return unknown("The imported directory is unavailable.")
         }
 
-        val files = gameDirectory
+        val scannedFiles = gameDirectory
             .walkTopDown()
             .maxDepth(MAX_SCAN_DEPTH)
             .filter { it.isFile }
             .take(MAX_SCANNED_FILES)
-            .map { file ->
-                file.relativeTo(gameDirectory).invariantSeparatorsPath.lowercase()
-            }
             .toList()
+
+        val files = scannedFiles.map { file ->
+            file.relativeTo(gameDirectory).invariantSeparatorsPath.lowercase()
+        }
+
+        // Parse valid SPT candidates before assigning a parser-available status.
+        // A signature alone is used for fast filtering; load() validates bounds.
+        val sptScript = scannedFiles.asSequence()
+            .filter { file ->
+                file.extension.equals("spt", ignoreCase = true) &&
+                    SystemNnnScriptLoader.hasValidHeader(file)
+            }
+            .mapNotNull { file ->
+                runCatching { SystemNnnScriptLoader().load(file) }.getOrNull()
+            }
+            .firstOrNull()
+
+        if (sptScript != null) {
+            return GameDetection(
+                engineId = "system-nnn-spt",
+                engineLabel = "System-NNN SPT (парсер доступен)",
+                compatibilityStatus = "PARSER_AVAILABLE",
+                evidence = "Validated XOR-masked SPTHEADER[0-9] at 0x30; " +
+                    "${sptScript.offsetTables.size} table descriptors, " +
+                    "${sptScript.commandByteCount} raw command-region bytes and " +
+                    "${sptScript.textPool.size} Shift-JIS text/resource entries parsed. " +
+                    "The playback interpreter is not connected yet."
+            )
+        }
 
         val renpyScript = files.firstOrNull { path ->
             path.endsWith(".rpy") &&

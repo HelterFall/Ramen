@@ -67,23 +67,19 @@ class SafeFolderCopierTest {
     }
 
     @Test
-    fun enforcesTotalBytesWhileStreaming() {
+    fun copiesExpandedFilesWithoutAnArbitraryTotalByteCeiling() {
+        val payload = "large-original-game-data-".repeat(80_000).toByteArray()
         val root = FakeNode(
             name = "root",
             directory = true,
-            children = listOf(
-                FakeNode("large.bin", bytes = "123456789".toByteArray())
-            )
+            children = listOf(FakeNode("large.bin", bytes = payload))
         )
         val destination = Files.createTempDirectory("ramen-folder-size").toFile()
 
         try {
-            org.junit.Assert.assertThrows(IOException::class.java) {
-                SafeFolderCopier(maxTotalBytes = 8L).copyContents(
-                    root,
-                    File(destination, "game")
-                )
-            }
+            val summary = SafeFolderCopier().copyContents(root, File(destination, "game"))
+            assertEquals(payload.size.toLong(), summary.totalBytes)
+            assertTrue(File(destination, "game/large.bin").readBytes().contentEquals(payload))
         } finally {
             destination.deleteRecursively()
         }
