@@ -10,6 +10,53 @@ import org.junit.Test
 
 class SystemNnnGpkBitmapRepositoryTest {
     @Test
+    fun rootWgqFolderTakesPriorityAndExposesStandaloneDwqFilesByIndex() {
+        val root = Files.createTempDirectory("ramen-systemnnn-wgq-priority").toFile()
+        try {
+            val wgqDirectory = File(root, "wgq").apply { mkdirs() }
+            val first = createPackedDwqBlock()
+            val second = createPackedDwqBlock().also { bytes ->
+                // Different pixel value to ensure this is a distinct fixture resource.
+                bytes[0x40 + 0x36] = 9
+            }
+            File(wgqDirectory, "0001.wgq").writeBytes(first)
+            File(wgqDirectory, "0002.WGQ").writeBytes(second)
+            File(wgqDirectory, "script.xtx").writeText("ignored")
+
+            // A valid GPK pair in the root must not shadow the explicitly selected WGQ directory.
+            val gpkBlock = ByteArray(64) { ' '.code.toByte() } + createJpegWithSof(1, 1)
+            File(root, "scene.gpk").writeBytes(gpkBlock)
+            File(root, "scene.gtb").writeBytes(createGtbIndex("background", gpkBlock.size))
+
+            SystemNnnGpkBitmapRepository.forGameDirectory(root).use { repository ->
+                assertEquals(2, repository.resourceCount)
+                val error = assertThrows(IOException::class.java) {
+                    repository.loadBitmapByIndex(1L)
+                }
+                assertEquals("Could not allocate the decoded WGQ bitmap.", error.message)
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    private fun createPackedDwqBlock(): ByteArray {
+        val bmp = ByteArray(0x36 + 3)
+        putU32(bmp, 10, 0x36)
+        putU32(bmp, 18, 1)
+        putU32(bmp, 22, 1)
+        putU16(bmp, 28, 24)
+        byteArrayOf(1, 2, 3).copyInto(bmp, 0x36)
+
+        val header = ByteArray(0x40) { ' '.code.toByte() }
+        "IF PACKTYPE==".toByteArray(Charsets.US_ASCII).copyInto(header, 0)
+        "0 ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x0D)
+        "BMP ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x2C)
+        "PACKTYPE=1      ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x30)
+        return header + bmp
+    }
+
+    @Test
     fun exposesValidatedGtbEntriesForNameAndOffsetLookup() {
         val directory = Files.createTempDirectory("ramen-systemnnn-gpk").toFile()
         try {
