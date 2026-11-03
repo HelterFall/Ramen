@@ -62,23 +62,23 @@ class HtmlInlineResourceExtractorTest {
     }
 
     @Test
-    fun rejectsResourcesAboveConfiguredLimit() {
-        val directory = Files.createTempDirectory("ramen-inline-limit").toFile()
+    fun extractsLargeInlineResourcesWithoutAnArbitraryByteCeiling() {
+        val directory = Files.createTempDirectory("ramen-inline-large").toFile()
         try {
             val html = File(directory, "index.html")
-            val encoded = Base64.getEncoder().encodeToString("too-large".toByteArray())
+            val payload = ByteArray(2 * 1024 * 1024 + 17) { (it % 251).toByte() }
+            val encoded = Base64.getEncoder().encodeToString(payload)
             html.writeText(
                 """<img src="data:image/png;base64,$encoded">""",
                 StandardCharsets.UTF_8
             )
 
-            val error = runCatching {
-                HtmlInlineResourceExtractor(maxResourceBytes = 2L).extract(html, directory)
-            }.exceptionOrNull()
+            val result = HtmlInlineResourceExtractor().extract(html, directory)
 
-            assertTrue(error is IOException)
-            assertTrue(html.readText(StandardCharsets.UTF_8).contains("data:image/png;base64"))
-            assertFalse(File(directory, "assets/inline-0001.png").exists())
+            assertEquals(1, result.extractedCount)
+            assertEquals(payload.size.toLong(), result.extractedBytes)
+            assertTrue(File(directory, "assets/inline-0001.png").readBytes().contentEquals(payload))
+            assertTrue(html.readText(StandardCharsets.UTF_8).contains("/game/assets/inline-0001.png"))
         } finally {
             directory.deleteRecursively()
         }

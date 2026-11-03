@@ -9,50 +9,24 @@ import org.junit.Test
 
 class SafeHtmlStreamCopierTest {
     @Test
-    fun copiesHtmlWithinLimit() {
+    fun streamsHtmlWithoutAnArbitraryByteCeiling() {
+        val contents = "<p>original project data</p>".repeat(50_000)
+        val input = contents.toByteArray()
         val output = ByteArrayOutputStream()
-        val copied = SafeHtmlStreamCopier(maxBytes = 64).copy(
-            input = ByteArrayInputStream("<h1>Hello</h1>".toByteArray()),
+        val copied = SafeHtmlStreamCopier().copy(
+            input = ByteArrayInputStream(input),
             output = output,
-            declaredSizeBytes = 14L
+            declaredSizeBytes = input.size.toLong()
         )
 
-        assertEquals(14L, copied)
-        assertEquals("<h1>Hello</h1>", output.toString("UTF-8"))
-    }
-
-    @Test
-    fun rejectsStreamThatExceedsLimitEvenWhenProviderDoesNotDeclareSize() {
-        val output = ByteArrayOutputStream()
-
-        assertThrows(IOException::class.java) {
-            SafeHtmlStreamCopier(maxBytes = 4).copy(
-                input = ByteArrayInputStream("12345".toByteArray()),
-                output = output,
-                declaredSizeBytes = null
-            )
-        }
-    }
-
-    @Test
-    fun rejectsDeclaredSizeAboveLimitBeforeCopying() {
-        val output = ByteArrayOutputStream()
-
-        assertThrows(IOException::class.java) {
-            SafeHtmlStreamCopier(maxBytes = 4).copy(
-                input = ByteArrayInputStream("1".toByteArray()),
-                output = output,
-                declaredSizeBytes = 5L
-            )
-        }
-
-        assertEquals(0, output.size())
+        assertEquals(input.size.toLong(), copied)
+        assertEquals(contents, output.toString("UTF-8"))
     }
 
     @Test
     fun rejectsMismatchBetweenDeclaredAndActualSize() {
         assertThrows(IOException::class.java) {
-            SafeHtmlStreamCopier(maxBytes = 16).copy(
+            SafeHtmlStreamCopier().copy(
                 input = ByteArrayInputStream("abc".toByteArray()),
                 output = ByteArrayOutputStream(),
                 declaredSizeBytes = 4L
