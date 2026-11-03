@@ -7,6 +7,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
+import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
+import io.github.helterfall.ramen.storage.StorageSpaceGuard
 
 interface FolderEntryNode {
     val name: String?
@@ -27,19 +29,15 @@ data class FolderCopySummary(
 /**
  * Copies a selected tree into a fresh app-private directory.
  *
- * Names are treated as single path segments, and size / depth / entry-count
- * limits are enforced while streaming data rather than trusting provider metadata.
+ * Names are treated as single path segments. Files stream without arbitrary
+ * byte ceilings; actual free storage is checked while data is written.
  */
 class SafeFolderCopier(
     private val maxEntries: Int = 10_000,
-    private val maxEntryBytes: Long = 512L * 1024L * 1024L,
-    private val maxTotalBytes: Long = 1024L * 1024L * 1024L,
     private val maxPathDepth: Int = 64
 ) {
     fun copyContents(root: FolderEntryNode, destination: File): FolderCopySummary {
         require(maxEntries > 0) { "maxEntries must be positive." }
-        require(maxEntryBytes > 0L) { "maxEntryBytes must be positive." }
-        require(maxTotalBytes > 0L) { "maxTotalBytes must be positive." }
         require(maxPathDepth > 0) { "maxPathDepth must be positive." }
 
         if (!root.isDirectory) {
@@ -112,14 +110,12 @@ class SafeFolderCopier(
                 return
             }
 
-            val declaredSize = node.declaredSizeBytes
-            if (declaredSize != null && declaredSize > maxEntryBytes) {
-                throw IOException("A selected file exceeds the size limit.")
-            }
-
             var entryBytes = 0L
             BufferedInputStream(node.openInputStream()).use { input ->
-                BufferedOutputStream(FileOutputStream(output, false)).use { stream ->
+                StorageGuardedOutputStream(
+                    delegate = BufferedOutputStream(FileOutputStream(output, false)),
+                    guard = StorageSpaceGuard(canonicalRoot)
+                ).use { stream ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
 
                     while (true) {
@@ -128,15 +124,12 @@ class SafeFolderCopier(
                         if (read == 0) continue
 
                         val bytesRead = read.toLong()
-                        if (bytesRead > maxEntryBytes - entryBytes) {
-                            throw IOException("A selected file expands beyond the size limit.")
+                        try {
+                            entryBytes = Math.addExact(entryBytes, bytesRead)
+                            totalBytes = Math.addExact(totalBytes, bytesRead)
+                        } catch (overflow: ArithmeticException) {
+                            throw IOException("Imported folder size exceeds the supported counter range.", overflow)
                         }
-                        if (bytesRead > maxTotalBytes - totalBytes) {
-                            throw IOException("The selected folder exceeds the total size limit.")
-                        }
-
-                        entryBytes += bytesRead
-                        totalBytes += bytesRead
                         stream.write(buffer, 0, read)
                     }
                 }

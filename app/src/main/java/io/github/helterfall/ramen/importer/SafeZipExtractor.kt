@@ -8,6 +8,8 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
 import java.util.zip.ZipInputStream
+import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
+import io.github.helterfall.ramen.storage.StorageSpaceGuard
 
 data class ExtractionSummary(
     val fileCount: Int,
@@ -16,18 +18,15 @@ data class ExtractionSummary(
 
 /**
  * Extracts ZIP entries into a fresh app-private directory.
- * Limits apply to expanded data, not only the compressed archive size.
+ * Files are streamed without arbitrary byte ceilings; available storage is
+ * checked during writes and headroom is preserved for the OS.
  */
 class SafeZipExtractor(
     private val maxEntries: Int = 10_000,
-    private val maxEntryBytes: Long = 512L * 1024L * 1024L,
-    private val maxTotalBytes: Long = 1024L * 1024L * 1024L,
     private val maxPathDepth: Int = 64
 ) {
     fun extract(input: InputStream, destination: File): ExtractionSummary {
         require(maxEntries > 0) { "maxEntries must be positive." }
-        require(maxEntryBytes > 0L) { "maxEntryBytes must be positive." }
-        require(maxTotalBytes > 0L) { "maxTotalBytes must be positive." }
         require(maxPathDepth > 0) { "maxPathDepth must be positive." }
 
         if (destination.exists() && !destination.deleteRecursively()) {
@@ -73,10 +72,6 @@ class SafeZipExtractor(
                     continue
                 }
 
-                if (entry.size > maxEntryBytes) {
-                    throw IOException("An archive entry exceeds the size limit.")
-                }
-
                 val parent = outputFile.parentFile
                     ?: throw IOException("An archive entry has no parent directory.")
 
@@ -85,7 +80,10 @@ class SafeZipExtractor(
                 }
 
                 var entryBytes = 0L
-                BufferedOutputStream(FileOutputStream(outputFile, false)).use { output ->
+                StorageGuardedOutputStream(
+                    delegate = BufferedOutputStream(FileOutputStream(outputFile, false)),
+                    guard = StorageSpaceGuard(canonicalRoot)
+                ).use { output ->
                     val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
 
                     while (true) {
@@ -94,15 +92,12 @@ class SafeZipExtractor(
                         if (read == 0) continue
 
                         val bytesRead = read.toLong()
-                        if (bytesRead > maxEntryBytes - entryBytes) {
-                            throw IOException("An archive entry expands beyond the size limit.")
+                        try {
+                            entryBytes = Math.addExact(entryBytes, bytesRead)
+                            totalBytes = Math.addExact(totalBytes, bytesRead)
+                        } catch (overflow: ArithmeticException) {
+                            throw IOException("Expanded archive size exceeds the supported counter range.", overflow)
                         }
-                        if (bytesRead > maxTotalBytes - totalBytes) {
-                            throw IOException("The archive expands beyond the total size limit.")
-                        }
-
-                        entryBytes += bytesRead
-                        totalBytes += bytesRead
                         output.write(buffer, 0, read)
                     }
                 }

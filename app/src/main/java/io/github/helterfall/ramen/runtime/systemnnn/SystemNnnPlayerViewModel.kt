@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import io.github.helterfall.ramen.parser.SystemNnnScript
 import java.io.Closeable
 import java.io.IOException
+import java.util.IdentityHashMap
 
 data class SystemNnnSpriteBitmap(
     val resourceId: String,
@@ -46,6 +47,11 @@ data class SystemNnnPlayerUiState(
 fun interface SystemNnnSceneAssetResolver : Closeable {
     @Throws(IOException::class)
     fun loadBitmap(resourceId: String): Bitmap?
+
+    /** Called only after the matching Compose Image node has left composition. */
+    fun releaseBitmap(bitmap: Bitmap) {
+        if (!bitmap.isRecycled) bitmap.recycle()
+    }
 
     override fun close() = Unit
 }
@@ -109,6 +115,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var script: SystemNnnScript? = null
     private var decoder: SystemNnnCommandDecoder? = null
     private var assets: SystemNnnSceneAssetResolver? = null
+    private val bitmapOwners = IdentityHashMap<Bitmap, SystemNnnSceneAssetResolver>()
     private var nextCommandOffset: Long = 0L
     private var frameCounter: Long = 0L
 
@@ -157,6 +164,25 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
 
         advanceToVisibleEvent()
+    }
+
+    /**
+     * Compose calls this after the corresponding image is removed. The bitmap
+     * can then be recycled without leaving a live Image node pointing at it.
+     */
+    fun onBitmapDisposed(bitmap: Bitmap) {
+        val owner = bitmapOwners.remove(bitmap)
+        runCatching {
+            if (owner != null) owner.releaseBitmap(bitmap)
+            else if (!bitmap.isRecycled) bitmap.recycle()
+        }
+    }
+
+    private fun loadBitmap(
+        resourceId: String,
+        resolver: SystemNnnSceneAssetResolver
+    ): Bitmap? = resolver.loadBitmap(resourceId)?.also { bitmap ->
+        bitmapOwners[bitmap] = resolver
     }
 
     fun onTypewriterProgress(visibleCharacters: Int) {
@@ -221,10 +247,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     is SystemNnnDecodedCommand.SceneUpdate -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
-                        sceneBackground = command.backgroundResourceId?.let(resolver::loadBitmap)
-                            ?: if (command.backgroundResourceId == null) sceneBackground else {
-                                throw IOException("Background resource was not found.")
-                            }
+                        if (command.backgroundResourceId != null) {
+                            sceneBackground = loadBitmap(command.backgroundResourceId, resolver)
+                                ?: throw IOException("Background resource was not found.")
+                        }
                         sceneSprites = resolveSprites(command.sprites, resolver)
                         commandsWithoutVisibleOutput += 1
                     }
@@ -238,7 +264,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         nextCommandOffset = command.nextCommandOffset
 
                         if (command.backgroundResourceId != null) {
-                            sceneBackground = resolver.loadBitmap(command.backgroundResourceId)
+                            sceneBackground = loadBitmap(command.backgroundResourceId, resolver)
                                 ?: throw IOException("Background resource was not found.")
                         }
                         if (command.sprites.isNotEmpty()) {
@@ -294,11 +320,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     SystemNnnDecodedCommand.End -> {
-                        uiState = uiState.copy(
-                            isLoading = false,
-                            isEnded = true,
-                            choices = emptyList(),
-                            errorMessage = null
+                        // The end screen needs no scene textures. Removing these
+                        // references disposes their Compose Image nodes and releases
+                        // the native bitmap allocations through onBitmapDisposed().
+                        uiState = SystemNnnPlayerUiState(
+                            frameId = frameCounter + 1L,
+                            isEnded = true
                         )
                         return
                     }
@@ -318,7 +345,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         references: List<SystemNnnSpriteReference>,
         resolver: SystemNnnSceneAssetResolver
     ): List<SystemNnnSpriteBitmap> = references.map { reference ->
-        val bitmap = resolver.loadBitmap(reference.resourceId)
+        val bitmap = loadBitmap(reference.resourceId, resolver)
             ?: throw IOException("Character sprite resource was not found.")
         SystemNnnSpriteBitmap(
             resourceId = reference.resourceId,
@@ -349,6 +376,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     override fun onCleared() {
+        uiState = SystemNnnPlayerUiState()
         releaseAssets()
         super.onCleared()
     }

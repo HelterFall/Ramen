@@ -22,7 +22,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -46,6 +48,7 @@ fun SystemNnnPlayerScreen(
     onChoiceSelected: (String) -> Unit,
     onTypewriterProgress: (Int) -> Unit,
     onTypewriterFinished: () -> Unit,
+    onBitmapDisposed: (Bitmap) -> Unit,
     modifier: Modifier = Modifier
 ) {
     LaunchedEffect(state.frameId, state.forceReveal) {
@@ -73,6 +76,9 @@ fun SystemNnnPlayerScreen(
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             state.backgroundBitmap?.let { background ->
+                DisposableEffect(background) {
+                    onDispose { onBitmapDisposed(background) }
+                }
                 Image(
                     bitmap = background.asImageBitmap(),
                     contentDescription = "Scene background",
@@ -82,6 +88,9 @@ fun SystemNnnPlayerScreen(
             }
 
             state.sprites.forEach { sprite ->
+                DisposableEffect(sprite.bitmap) {
+                    onDispose { onBitmapDisposed(sprite.bitmap) }
+                }
                 val widthFraction = sprite.widthFraction.coerceIn(0.1f, 1.0f)
                 val heightFraction = sprite.heightFraction.coerceIn(0.1f, 1.0f)
                 Image(
