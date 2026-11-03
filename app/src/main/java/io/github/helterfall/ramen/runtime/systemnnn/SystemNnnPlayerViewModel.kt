@@ -1,6 +1,8 @@
 package io.github.helterfall.ramen.runtime.systemnnn
 
 import android.graphics.Bitmap
+import android.os.Handler
+import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -10,6 +12,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.util.IdentityHashMap
+import java.util.concurrent.Executors
 
 data class SystemNnnSpriteBitmap(
     val resourceId: String,
@@ -82,7 +85,9 @@ sealed interface SystemNnnDecodedCommand {
         val textEntryOffset: Long,
         val speakerName: String? = null,
         val backgroundResourceId: String? = null,
-        val sprites: List<SystemNnnSpriteReference> = emptyList()
+        val sprites: List<SystemNnnSpriteReference> = emptyList(),
+        val backgroundResourceIndex: Long? = null,
+        val dialogueStepIndex: Long? = null
     ) : SystemNnnDecodedCommand
 
     data class SceneUpdate(
@@ -131,6 +136,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var frameCounter: Long = 0L
     private var audioRepository: SystemNnnVpkAudioRepository? = null
     private var audioPlayer: SystemNnnAudioPlayer? = null
+    private var fallbackDialogueStepIndex: Long = 0L
+    private var audioRequestId: Long = 0L
+    private val voiceExecutor = Executors.newSingleThreadExecutor()
+    private val mainHandler by lazy(LazyThreadSafetyMode.NONE) {
+        Handler(Looper.getMainLooper())
+    }
 
     fun showStartupLoading() {
         uiState = SystemNnnPlayerUiState(isLoading = true)
@@ -160,6 +171,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         this.audioRepository = audioRepository
         this.nextCommandOffset = initialCommandOffset
         this.frameCounter = 0L
+        this.fallbackDialogueStepIndex = 0L
+        this.audioRequestId += 1L
 
         uiState = SystemNnnPlayerUiState(isLoading = true)
         startAudio(initialAudioTrack, initialAudioResourceName)
@@ -175,6 +188,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
         advanceToVisibleEvent()
     }
+
+    /** Alias used by the player screen to advance to the next frame. */
+    fun onNextTap() = onScreenTap()
 
     /**
      * A tap first completes the current typewriter line. Only a subsequent tap
@@ -241,6 +257,59 @@ class SystemNnnPlayerViewModel : ViewModel() {
         resolver: SystemNnnSceneAssetResolver
     ): Bitmap? = resolver.loadBitmapByIndex(index)?.also { bitmap ->
         bitmapOwners[bitmap] = resolver
+    }
+
+    /**
+     * Replaces the previous voice for every visible dialogue. File extraction runs
+     * off the UI thread; stale extraction results are discarded before playback.
+     */
+    private fun playVoice(dialogueStepIndex: Long?) {
+        val repository = audioRepository ?: return
+        val player = audioPlayer ?: return
+
+        val requestId = ++audioRequestId
+        player.stop()
+
+        if (dialogueStepIndex == null ||
+            dialogueStepIndex < 0L ||
+            dialogueStepIndex > Int.MAX_VALUE.toLong()
+        ) {
+            uiState = uiState.copy(audioWarning = "Для текущей строки не задан индекс голосового ресурса.")
+            return
+        }
+
+        val resource = repository.entries.getOrNull(dialogueStepIndex.toInt())
+        if (resource == null) {
+            uiState = uiState.copy(
+                audioWarning = "Для диалога №" + (dialogueStepIndex + 1L) +
+                    " нет соответствующей записи VAW/VTB."
+            )
+            return
+        }
+
+        voiceExecutor.execute {
+            val staged = runCatching { repository.materialize(resource.name) }
+            mainHandler.post {
+                if (requestId != audioRequestId) {
+                    staged.getOrNull()?.delete()
+                    return@post
+                }
+                staged.onSuccess { file ->
+                    runCatching { player.play(file, resource.name) }
+                        .onFailure { error ->
+                            uiState = uiState.copy(
+                                audioWarning = "Не удалось запустить голосовую дорожку: " +
+                                    (error.message ?: "ошибка воспроизведения.")
+                            )
+                        }
+                }.onFailure { error ->
+                    uiState = uiState.copy(
+                        audioWarning = "Не удалось подготовить голосовую дорожку: " +
+                            (error.message ?: "ошибка чтения архива.")
+                    )
+                }
+            }
+        }
     }
 
     fun onTypewriterProgress(visibleCharacters: Int) {
@@ -340,13 +409,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             pendingBackgroundResourceId = command.backgroundResourceId
                             pendingBackgroundResourceIndex = null
                         }
-                        if (pendingBackgroundResourceIndex != null) {
-                            val index = pendingBackgroundResourceIndex!!
-                            sceneBackground = loadBitmapByIndex(index, resolver)
-                                ?: throw IOException("Background GTB resource index " + index + " was not found.")
-                        } else if (pendingBackgroundResourceId != null) {
+                        if (pendingBackgroundResourceId != null) {
                             sceneBackground = loadBitmap(pendingBackgroundResourceId!!, resolver)
                                 ?: throw IOException("Background resource was not found.")
+                        } else {
+                            val backgroundIndex =
+                                pendingBackgroundResourceIndex ?: command.backgroundResourceIndex
+                            if (backgroundIndex != null) {
+                                sceneBackground = loadBitmapByIndex(backgroundIndex, resolver)
+                                    ?: throw IOException(
+                                        "Background GTB resource index " + backgroundIndex + " was not found."
+                                    )
+                            }
                         }
                         if (command.sprites.isNotEmpty()) {
                             pendingSpriteReferences = command.sprites
@@ -355,6 +429,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             sceneSprites = resolveSprites(pendingSpriteReferences!!, resolver)
                         }
 
+                        val dialogueStepIndex =
+                            command.dialogueStepIndex ?: fallbackDialogueStepIndex
+                        fallbackDialogueStepIndex = maxOf(
+                            fallbackDialogueStepIndex,
+                            dialogueStepIndex + 1L
+                        )
                         frameCounter += 1L
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter,
@@ -367,6 +447,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             isTextComplete = text.isEmpty(),
                             forceReveal = false
                         )
+                        playVoice(dialogueStepIndex)
                         return
                     }
 
@@ -416,6 +497,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     SystemNnnDecodedCommand.End -> {
+                        audioPlayer?.stop()
                         if (commandOffset != mainTableEndOffset(currentScript)) {
                             throw IOException(
                                 "The decoder reported End before the declared 1,299-entry table boundary."
@@ -521,6 +603,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     private fun releaseAssets() {
+        audioRequestId += 1L
         val player = audioPlayer
         audioPlayer = null
         runCatching { player?.close() }
@@ -536,6 +619,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     override fun onCleared() {
         uiState = SystemNnnPlayerUiState()
         releaseAssets()
+        voiceExecutor.shutdownNow()
         super.onCleared()
     }
 

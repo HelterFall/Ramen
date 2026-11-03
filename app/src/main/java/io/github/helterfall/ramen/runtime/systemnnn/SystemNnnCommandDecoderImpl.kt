@@ -82,11 +82,16 @@ class SystemNnnCommandDecoderImpl(
             }
 
             else -> {
+                val dialogueStepIndex = nextTextEntryIndex.toLong()
                 val textEntry = script.textPool.getOrNull(nextTextEntryIndex++)
                 if (textEntry != null) {
                     SystemNnnDecodedCommand.Dialogue(
                         nextCommandOffset = nextCommandOffset,
-                        textEntryOffset = textEntry.offset
+                        textEntryOffset = textEntry.offset,
+                        backgroundResourceIndex = dialogueStepIndex.takeIf {
+                            it < gtbResourceCount.toLong()
+                        },
+                        dialogueStepIndex = dialogueStepIndex
                     )
                 } else {
                     SystemNnnDecodedCommand.Skip(

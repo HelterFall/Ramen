@@ -48,12 +48,21 @@ class SystemNnnVpkAudioRepository(
     fun materialize(resourceId: String): File {
         checkOpen()
         val resource = findResource(resourceId)
-            ?: throw IOException("VPK audio resource was not found: " + resourceId)
+            ?: throw IOException("VPK/VAW audio resource was not found: " + resourceId)
         return VpkOggCacheMaterializer().materialize(
             source = archiveSource,
             resource = resource,
             cacheDirectory = cacheDirectory
         ).also(stagedFiles::add)
+    }
+
+    /** Resolves the zero-based VTB row synchronized with a dialogue step. */
+    fun materializeByIndex(index: Long): File {
+        checkOpen()
+        if (index < 0L || index >= entries.size.toLong()) {
+            throw IOException("VAW/VTB voice index is outside the audio catalog: " + index)
+        }
+        return materialize(entries[index.toInt()].name)
     }
 
     private fun checkOpen() {
