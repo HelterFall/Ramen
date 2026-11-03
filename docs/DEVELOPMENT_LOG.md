@@ -164,7 +164,7 @@ Make the binary inventory portable and comparable without requiring the original
 - Added [System-NNN SPT Format Notes](SYSTEM_NNN_SPT_FORMAT_NOTES.md) from the supplied `hu.txt` analysis script and `ho.txt` output.
 
 ### Recorded SPT observations
-- Sample output reports 389,500 bytes (`0x5F17C`), an XOR-`0xFF`-demasked `SPTHEADER0` signature at `0x30), and first DWORD `0x14`.
+- Sample output reports 389,500 bytes (`0x5F17C`), an XOR-`0xFF`-demasked `SPTHEADER0` signature at `0x30`, and first DWORD `0x14`.
 - Candidate count/target pairs: 1299 at `0xC5BA`, 1124 at `0x167F2`, 69 at `0xC390`, and 2 at offset zero.
 - A printable Shift-JIS run was found at `0x32B64` (`0x32BC9` end, 101 bytes, strict Shift-JIS decode succeeds).
 - The byte marker `text\0` was found at `0x32B34`, `0x32B3C`, `0x32B44`, `0x32B4C`, `0x32B54`, and `0x32B5C`.
