@@ -32,6 +32,7 @@ Ramen не является универсальным Windows-эмулятор�
 ## Куда смотреть
 
 - **[HANDOFF.md](HANDOFF.md)** — главный документ для возобновления работы.
+- **[Build matrix](docs/BUILD_MATRIX.md)** — проверка, какие функции попадают в APK из каждой ветки, и сверка последних Actions.
 - [Development log](docs/DEVELOPMENT_LOG.md) — хронология и записи о решениях.
 - [System-NNN SPT format notes](docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md) — байтовые наблюдения и гипотезы по SPT.
 - [Project scope](docs/PROJECT_SCOPE.md) — продуктовая цель и MVP.
