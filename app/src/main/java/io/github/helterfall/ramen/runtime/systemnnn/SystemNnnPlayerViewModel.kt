@@ -397,13 +397,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 ?: throw IOException("Background resource was not found.")
                         }
                         sceneSprites = resolveSprites(command.sprites, resolver)
-                        commandsWithoutVisibleOutput += 1
                     }
 
                     is SystemNnnDecodedCommand.Skip -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
-                        commandsWithoutVisibleOutput += 1
                     }
 
                     is SystemNnnDecodedCommand.Dialogue -> {
