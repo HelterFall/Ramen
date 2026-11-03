@@ -65,6 +65,34 @@ class SystemNnnScript internal constructor(
         get() = commandBytes.size
 
     /**
+     * Reads a bounded command slice using an absolute file offset. A future
+     * verified opcode decoder should use this instead of reading outside the
+     * command region or treating every byte as an instruction.
+     */
+    fun readCommandBytes(absoluteOffset: Long, length: Int): ByteArray {
+        require(length >= 0) { "length must not be negative" }
+        require(absoluteOffset >= commandStartOffset) {
+            "command offset is before the validated command region"
+        }
+        val relativeOffset = absoluteOffset - commandStartOffset
+        require(relativeOffset <= commandBytes.size.toLong()) {
+            "command offset is after the validated command region"
+        }
+        require(length.toLong() <= commandBytes.size.toLong() - relativeOffset) {
+            "requested command bytes exceed the validated command region"
+        }
+        val start = relativeOffset.toInt()
+        return commandBytes.copyOfRange(start, start + length)
+    }
+
+    fun commandByteAt(absoluteOffset: Long): Int? {
+        if (absoluteOffset < commandStartOffset || absoluteOffset >= commandEndOffset) {
+            return null
+        }
+        return commandBytes[(absoluteOffset - commandStartOffset).toInt()].toInt() and 0xFF
+    }
+
+    /**
      * Iterates bytes from the bounded command window only. Header and offset
      * table bytes before commandStartOffset are never exposed by this iterator.
      */
