@@ -404,13 +404,13 @@ Five little-endian DWORD values printed at `0x32B20`:
 |---|---|---|---|---|
 | [#25](https://github.com/HelterFall/Ramen/pull/25) | `research/gpk-vpk-readonly-parsers` | Open, not merged; 191 commits / 63 files | Run #219 success | GPK/GTB, VPK/VTB parsers and resource work; branch очень крупная |
 | [#26](https://github.com/HelterFall/Ramen/pull/26) | `feature/blackcyc-resource-preview` | Open, not merged; 6 commits / 20 files | Run #224 success | Black Cyc resource preview, DWQ, opaque SPT detection |
-| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; 43 commits / 43 files | Run #265 was in progress at last check | System-NNN loader/player plus resource code and storage changes |
+| [#27](https://github.com/HelterFall/Ramen/pull/27) | `feat/system-nnn-spt-loader` | Open, not merged; 45 commits / 45 files | Run #265 passed on the code snapshot before docs-only commits | System-NNN loader/player plus resource code and storage changes |
 
 Снимок Git:
 - `main` head в ходе аудита: `305f3f25c09c7f2d13c9d0ad7027f9124dcf7884`.
-- PR #27 head на момент последней записи перед этим документом: `648c4d6052dcd3a95d0ca9f14c210392c33eed70`; последующие коммиты handoff/README поменяют head.
+- PR #27 head после добавления HANDOFF и обновления README: `87afbae17c257fdfbd2a66811fe1be1f36a0a6f6` (дальнейшие handoff/log commits снова изменят head). Текущий diff относительно main: 45 commits / 45 files; все последующие изменения после `648c4d...` были документационными.
 - PR #27 основан на main и не содержит #26 как ancestor: branches разошлись от main.
-- Compare #26 → #27: #27 ahead на 43 commits и behind на 6 commits; common base — main.
+- Compare #26 → #27 на момент аудита: #27 ahead на 43 commits и behind на 6 commits; common base — main. После добавления двух корневых handoff/readme commits рабочая ветка стала на 45 commits ahead of main.
 - Compare #25 → #26: ветки тоже diverged; #26 не включает длинную 191-commit историю #25.
 - Все три PR меняют одни и те же resource/importer/detector файлы в разных комбинациях.
 
@@ -433,9 +433,9 @@ PR #27 на снимке был mergeable по metadata, но это не зам
 - Падающий тест: `HtmlInlineResourceExtractorTest > leavesUnsupportedDataUrisUntouched`.
 - Стек указывает на `HtmlInlineResourceExtractorTest.kt:54`, вызов extractor.
 - Задача `:app:testDebugUnitTest` упала; lint-анализ запускался, APK upload был пропущен.
-- Новый run #265 для актуального head после документационных коммитов: https://github.com/HelterFall/Ramen/actions/runs/41671391772 — был **in progress** при последней проверке.
+- Run #265: https://github.com/HelterFall/Ramen/actions/runs/41671391772 — **success**: assemble/build, unit tests, lint и debug APK upload завершились успешно. Проверенный commit snapshot — `648c4d6052dcd3a95d0ca9f14c210392c33eed70`; после него добавлялись только docs (`HANDOFF.md`, `README.md`), code changes не было. На точном docs head `87af...` отдельного workflow run не найдено.
 
-Причина старого test failure пока не установлена. Одна рабочая гипотеза: новый `StorageSpaceGuard` делает unit test зависимым от доступного места/резерва на CI. Но точное exception message из лога не было извлечено; не фиксировать эту гипотезу как доказанный root cause. Следующее действие — посмотреть результат run #265, затем получить конкретный stack/exception и сделать storage guard тестируемым через injected `availableSpaceBytes` / controlled fake, а не полагаться на реальную файловую систему CI.
+Причина старого test failure установлена по сравнению кода до/после. При записи временного `.index.html.rewritten`, который лежит в `gameDirectory`, старый код передавал `StorageSpaceGuard(assetsDirectory)`. В тесте с неподдерживаемым data URI папка `assets` не создаётся; проверка `assetsDirectory.usableSpace` возвращала ноль, и guard выдавал IOException. Исправлено на `StorageSpaceGuard(gameDirectory)`. После исправления run #265 прошёл. Для будущих storage tests всё равно предпочтительно использовать injected `availableSpaceBytes` / controlled fake, чтобы тесты не зависели от реального свободного места.
 
 ### Ранее подтверждённые CI
 - PR #25 run #219 — success.
@@ -469,7 +469,7 @@ CI не заменяет реальный Android device acceptance для HTML5
 
 ### P0 — зафиксировать базу и CI
 1. Перепроверить branch/head PR #27, PR status и самый новый Android CI run.
-2. Если run #265 не зелёный — извлечь точную причину.
+2. Исторический failure #230 исправлен изменением storage guard root; run #265 зелёный. При новых ошибках извлекать точную причину по логу, не гадать.
 3. Разобраться с `leavesUnsupportedDataUrisUntouched`; не скрывать проблему и не менять ожидания теста только ради зелёного CI.
 4. Повторить `assembleDebug`, unit tests и lint.
 
