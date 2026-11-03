@@ -33,7 +33,7 @@ class SystemNnnCommandDecoderImplTest {
         assertEquals(TABLE_START + 12L, secondLine.nextCommandOffset)
         assertEquals(0x32B70L, secondLine.textEntryOffset)
 
-        assertTrue(decoder.decodeNext(script, TABLE_END) is SystemNnnDecodedCommand.End)
+        assertTrue(decoder.decodeNext(script, COMMAND_END) is SystemNnnDecodedCommand.End)
     }
 
     @Test
@@ -79,6 +79,21 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun continuesPastHeaderEntryCountToTheValidatedCommandRegionEnd() {
+        val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
+        val dialogueOffset = TABLE_START + 1_300L * 4L
+        val script = scriptWithPointerAt(dialogueOffset, 0x32B64)
+
+        val dialogue = decoder.decodeNext(script, dialogueOffset)
+        assertTrue(dialogue is SystemNnnDecodedCommand.Dialogue)
+        assertEquals(
+            dialogueOffset + 4L,
+            (dialogue as SystemNnnDecodedCommand.Dialogue).nextCommandOffset
+        )
+        assertTrue(decoder.decodeNext(script, COMMAND_END) is SystemNnnDecodedCommand.End)
+    }
+
+    @Test
     fun rejectsUnalignedOrOutOfRangeTableCursors() {
         val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
         val script = scriptWithPointers(0x32B64, 0)
@@ -88,21 +103,32 @@ class SystemNnnCommandDecoderImplTest {
         }.exceptionOrNull() is java.io.IOException)
 
         assertTrue(runCatching {
-            decoder.decodeNext(script, TABLE_END + 4L)
+            decoder.decodeNext(script, COMMAND_END + 4L)
         }.exceptionOrNull() is java.io.IOException)
     }
 
     private fun scriptWithPointers(vararg pointers: Long): SystemNnnScript {
-        val commandEnd = 0x32B20L
-        val commandBytes = ByteArray((commandEnd - TABLE_START).toInt())
+        val commandBytes = ByteArray((COMMAND_END - TABLE_START).toInt())
         pointers.forEachIndexed { index, value ->
             val offset = index * 4
             repeat(4) { byteIndex ->
                 commandBytes[offset + byteIndex] = (value ushr (byteIndex * 8)).toByte()
             }
         }
+        return createScript(commandBytes)
+    }
 
-        return SystemNnnScript(
+    private fun scriptWithPointerAt(absoluteOffset: Long, value: Long): SystemNnnScript {
+        val commandBytes = ByteArray((COMMAND_END - TABLE_START).toInt())
+        val offset = (absoluteOffset - TABLE_START).toInt()
+        repeat(4) { byteIndex ->
+            commandBytes[offset + byteIndex] = (value ushr (byteIndex * 8)).toByte()
+        }
+        return createScript(commandBytes)
+    }
+
+    private fun createScript(commandBytes: ByteArray): SystemNnnScript =
+        SystemNnnScript(
             fileSizeBytes = 0x32B64L + 64L,
             firstHeaderWord = 20u,
             offsetTables = listOf(
@@ -112,7 +138,7 @@ class SystemNnnCommandDecoderImplTest {
                 SystemNnnOffsetTable("auxiliary", 2u, 0u)
             ),
             commandStartOffset = TABLE_START,
-            commandEndOffset = commandEnd,
+            commandEndOffset = COMMAND_END,
             textPoolOffset = 0x32B64L,
             textPool = listOf(
                 SystemNnnTextEntry(0x32B64L, "First line"),
@@ -124,6 +150,6 @@ class SystemNnnCommandDecoderImplTest {
 
     companion object {
         private const val TABLE_START = 0xC5BAL
-        private const val TABLE_END = TABLE_START + 1_299L * 4L
+        private const val COMMAND_END = 0x32B20L
     }
 }

@@ -78,40 +78,50 @@ class SystemNnnPlayerViewModelTest {
 
     @Test
     fun pausesOnDialogueAfterSkipAndResumesOnlyAfterExplicitNextTap() {
-        val tableEnd = 0xC5BAL + 1_299L * 4L
-        val decoder = FakeDecoder(
-            mapOf(
-                0xC5BAL to SystemNnnDecodedCommand.Skip(nextCommandOffset = 0xC5BE),
-                0xC5BEL to SystemNnnDecodedCommand.Dialogue(
-                    nextCommandOffset = tableEnd,
+        val dialogueOffset = 0xC5BAL + 1_300L * 4L
+        val commandEnd = 0x32B20L
+        val commands = buildMap<Long, SystemNnnDecodedCommand> {
+            var offset = 0xC5BAL
+            while (offset < dialogueOffset) {
+                put(offset, SystemNnnDecodedCommand.Skip(nextCommandOffset = offset + 4L))
+                offset += 4L
+            }
+            put(
+                dialogueOffset,
+                SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = commandEnd,
                     textEntryOffset = 0x32B64
-                ),
-                tableEnd to SystemNnnDecodedCommand.End
+                )
             )
-        )
+            put(commandEnd, SystemNnnDecodedCommand.End)
+        }
+        val decoder = FakeDecoder(commands)
         val viewModel = SystemNnnPlayerViewModel()
 
         viewModel.start(testScript(), decoder, EmptyAssets)
 
         assertEquals("First line", viewModel.uiState.dialogueText)
         assertEquals(NovelState.PlaybackWaiting, viewModel.uiState.novelState)
-        assertEquals(listOf(0xC5BAL, 0xC5BEL), decoder.requestedOffsets)
+        assertEquals(1_301, decoder.requestedOffsets.size)
+        assertEquals(dialogueOffset, decoder.requestedOffsets.last())
 
         // First tap completes the typewriter line without advancing bytecode.
         viewModel.onNextTap()
         assertTrue(viewModel.uiState.isTextComplete)
         assertEquals(NovelState.PlaybackWaiting, viewModel.uiState.novelState)
-        assertEquals(listOf(0xC5BAL, 0xC5BEL), decoder.requestedOffsets)
+        assertEquals(1_301, decoder.requestedOffsets.size)
+        assertEquals(dialogueOffset, decoder.requestedOffsets.last())
 
         // Only the next explicit tap resumes command execution.
         viewModel.onNextTap()
-        assertEquals(listOf(0xC5BAL, 0xC5BEL, tableEnd), decoder.requestedOffsets)
+        assertEquals(1_302, decoder.requestedOffsets.size)
+        assertEquals(commandEnd, decoder.requestedOffsets.last())
         assertEquals(NovelState.Ended, viewModel.uiState.novelState)
         assertTrue(viewModel.uiState.isEnded)
     }
 
     @Test
-    fun rejectsDecoderEndBeforeTheDeclaredTransitionTableBoundary() {
+    fun rejectsDecoderEndBeforeTheDeclaredCommandRegionBoundary() {
         val decoder = FakeDecoder(
             mapOf(0xC5BAL to SystemNnnDecodedCommand.End)
         )

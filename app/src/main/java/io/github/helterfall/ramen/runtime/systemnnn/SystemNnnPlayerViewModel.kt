@@ -366,8 +366,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
         try {
             val mainTable = currentScript.offsetTables.firstOrNull { it.name == MAIN_TABLE_NAME }
                 ?: throw IOException("The SPT main transition table is missing.")
-            val tableEndOffset = mainCommandTableEndOffset(currentScript)
-            val maxDecodeAttempts = mainTable.entryCount.toLong() + 1L
+            val commandEndOffset = mainCommandTableEndOffset(currentScript)
+            val maxDecodeAttempts =
+                (commandEndOffset - currentScript.commandStartOffset) / UINT32_BYTES + 1L
             var decodeAttempts = 0L
             var sceneBackground = uiState.backgroundBitmap
             var sceneSprites = uiState.sprites
@@ -375,7 +376,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
             while (decodeAttempts < maxDecodeAttempts) {
                 val commandOffset = nextCommandOffset
                 if (!isValidCommandCursor(currentScript, commandOffset)) {
-                    throw IOException("Command cursor left the declared SPT transition table.")
+                    throw IOException("Command cursor left the validated SPT command region.")
                 }
 
                 val command = currentDecoder.decodeNext(currentScript, commandOffset)
@@ -481,12 +482,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     SystemNnnDecodedCommand.End -> {
-                        if (commandOffset != tableEndOffset) {
+                        if (commandOffset != commandEndOffset) {
                             throw IOException(
-                                "The decoder reported End before the declared SPT transition-table boundary."
+                                "The decoder reported End before the validated SPT command-region boundary."
                             )
                         }
-                        // The command table ends before the SPT file itself:
+                        // The command region ends before physical file EOF:
                         // the remaining bytes contain the Shift-JIS text pool.
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter + 1L,
@@ -537,8 +538,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     /**
-     * The SPT header declares a UInt32 transition table. Its logical end is
-     * distinct from physical EOF because the text pool follows the table.
+     * The parser validates the executable command byte region separately
+     * from the header's main-table entryCount. The Shift-JIS pool follows it.
      */
     private fun mainCommandTableEndOffset(currentScript: SystemNnnScript): Long {
         val mainTable = currentScript.offsetTables.firstOrNull { it.name == MAIN_TABLE_NAME }
@@ -548,12 +549,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
         if (entryCount <= 0L || start != currentScript.commandStartOffset) {
             throw IOException("The SPT main transition table descriptor is invalid.")
         }
-        val end = start + entryCount * UINT32_BYTES
-        if (end < start ||
-            end > currentScript.commandEndOffset ||
-            end > currentScript.fileSizeBytes
+        val end = currentScript.commandEndOffset
+        if (entryCount <= 0L ||
+            start != currentScript.commandStartOffset ||
+            end <= start ||
+            end > currentScript.fileSizeBytes ||
+            end > currentScript.textPoolOffset
         ) {
-            throw IOException("The SPT main transition table exceeds its validated file bounds.")
+            throw IOException("The SPT command region exceeds its validated file bounds.")
         }
         return end
     }

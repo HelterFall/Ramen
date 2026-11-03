@@ -4,12 +4,12 @@ import io.github.helterfall.ramen.parser.SystemNnnScript
 import java.io.IOException
 
 /**
- * Provisional playback adapter for the observed 1,299-entry UInt32 table.
+ * Provisional playback adapter for the validated SPT command byte region.
  *
- * Values below the SPT text-pool start are GTB resource indexes. Values at
- * or above that boundary are absolute offsets to exact Shift-JIS text entries.
- * The table mapping is bounded and validated, but this remains a provisional
- * adapter rather than a complete verified SPT opcode interpreter.
+ * The header's main-table entryCount (currently 1,299) is descriptor metadata,
+ * not the end of the executable command stream. The stream continues through
+ * commandEndOffset; the Shift-JIS text pool starts after that region.
+ * This remains a provisional adapter rather than a verified opcode interpreter.
  */
 class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int
@@ -30,30 +30,34 @@ class SystemNnnCommandDecoderImpl(
             mainTable.entryCount.toLong() != MAIN_TABLE_ENTRY_COUNT
         ) {
             throw IOException(
-                "Unexpected System-NNN transition table: expected 1,299 UInt32 entries at 0xC5BA."
+                "Unexpected System-NNN main-table descriptor at 0xC5BA."
             )
         }
 
-        val tableEndOffset = MAIN_TABLE_OFFSET + MAIN_TABLE_BYTE_COUNT
+        // entryCount=1,299 describes the header's table metadata. The observed
+        // executable byte window is independently bounded by the parser and
+        // extends to commandEndOffset, well beyond those first 1,299 words.
+        val commandEndOffset = script.commandEndOffset
         if (script.commandStartOffset != MAIN_TABLE_OFFSET ||
-            tableEndOffset > script.commandEndOffset ||
-            tableEndOffset > script.fileSizeBytes
+            commandEndOffset <= MAIN_TABLE_OFFSET ||
+            commandEndOffset > script.fileSizeBytes ||
+            commandEndOffset > script.textPoolOffset
         ) {
-            throw IOException("The 1,299-entry transition table extends beyond the validated SPT data.")
+            throw IOException("The SPT command region has invalid validated file bounds.")
         }
 
-        if (commandOffset == tableEndOffset) {
+        if (commandOffset == commandEndOffset) {
             return SystemNnnDecodedCommand.End
         }
-        if (commandOffset < MAIN_TABLE_OFFSET || commandOffset > tableEndOffset) {
-            throw IOException("Command cursor is outside the System-NNN transition table.")
+        if (commandOffset < MAIN_TABLE_OFFSET || commandOffset > commandEndOffset) {
+            throw IOException("Command cursor is outside the validated SPT command region.")
         }
 
         val recordOffset = commandOffset - MAIN_TABLE_OFFSET
         if (recordOffset % UINT32_BYTES != 0L ||
-            recordOffset >= MAIN_TABLE_BYTE_COUNT
+            commandOffset + UINT32_BYTES > commandEndOffset
         ) {
-            throw IOException("Command cursor is not aligned to a four-byte transition-table entry.")
+            throw IOException("Command cursor is not aligned to a complete four-byte command word.")
         }
 
         val bytes = try {
@@ -115,6 +119,5 @@ class SystemNnnCommandDecoderImpl(
         private const val MAIN_TABLE_OFFSET = 0xC5BAL
         private const val MAIN_TABLE_ENTRY_COUNT = 1_299L
         private const val UINT32_BYTES = 4L
-        private const val MAIN_TABLE_BYTE_COUNT = MAIN_TABLE_ENTRY_COUNT * UINT32_BYTES
     }
 }
