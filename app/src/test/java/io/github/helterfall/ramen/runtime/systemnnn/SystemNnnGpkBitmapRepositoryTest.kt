@@ -93,6 +93,11 @@ class SystemNnnGpkBitmapRepositoryTest {
             0xFF.toByte(), 0xD9.toByte()
         )
 
+    private fun putU16(bytes: ByteArray, offset: Int, value: Int) {
+        bytes[offset] = value.toByte()
+        bytes[offset + 1] = (value ushr 8).toByte()
+    }
+
     private fun putU32(bytes: ByteArray, offset: Int, value: Int) {
         repeat(4) { index ->
             bytes[offset + index] = (value ushr (index * 8)).toByte()
