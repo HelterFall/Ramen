@@ -37,14 +37,17 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
-    fun rejectsGtbIndexesOutsideTheParsedCatalog() {
+    fun skipsOutOfCatalogServiceWordAndContinuesToDialoguePointer() {
         val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
-        val script = scriptWithPointers(8)
+        val script = scriptWithPointers(144_179, 0x32B64)
 
-        assertTrue(
-            runCatching { decoder.decodeNext(script, TABLE_START) }
-                .exceptionOrNull() is IOException
-        )
+        val skipped = decoder.decodeNext(script, TABLE_START)
+        assertTrue(skipped is SystemNnnDecodedCommand.Skip)
+        assertEquals(TABLE_START + 4L, (skipped as SystemNnnDecodedCommand.Skip).nextCommandOffset)
+
+        val dialogue = decoder.decodeNext(script, skipped.nextCommandOffset)
+        assertTrue(dialogue is SystemNnnDecodedCommand.Dialogue)
+        assertEquals(0x32B64L, (dialogue as SystemNnnDecodedCommand.Dialogue).textEntryOffset)
     }
 
     @Test

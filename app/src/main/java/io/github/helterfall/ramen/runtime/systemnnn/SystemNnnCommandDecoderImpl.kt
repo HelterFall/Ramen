@@ -86,9 +86,12 @@ class SystemNnnCommandDecoderImpl(
             }
 
             else -> {
-                throw IOException(
-                    "SPT transition-table GTB index " + value +
-                        " is outside the parsed resource catalog."
+                // Values in the resource-pointer range that do not resolve to a
+                // physical GTB row can be service words (coordinates, timing,
+                // flags, etc.). Preserve forward progress instead of blocking
+                // the scene; the next table entry may contain the dialogue pointer.
+                SystemNnnDecodedCommand.Skip(
+                    nextCommandOffset = nextCommandOffset
                 )
             }
         }
