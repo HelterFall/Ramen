@@ -22,10 +22,8 @@ import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
  */
 class SystemNnnPlayerActivity : ComponentActivity() {
 
-    private data class PreparedAudioTrack(
-        val repository: SystemNnnVpkAudioRepository,
-        val file: File,
-        val resourceName: String
+    private data class PreparedAudioRepository(
+        val repository: SystemNnnVpkAudioRepository
     )
 
     private lateinit var playerViewModel: SystemNnnPlayerViewModel
@@ -42,7 +40,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             MaterialTheme {
                 SystemNnnPlayerScreen(
                     state = playerViewModel.uiState,
-                    onScreenTap = playerViewModel::onScreenTap,
+                    onScreenTap = playerViewModel::onNextTap,
                     onChoiceSelected = playerViewModel::onChoiceSelected,
                     onTypewriterProgress = playerViewModel::onTypewriterProgress,
                     onTypewriterFinished = playerViewModel::onTypewriterFinished,
@@ -60,18 +58,14 @@ class SystemNnnPlayerActivity : ComponentActivity() {
 
         startupExecutor.execute {
             var assetResolver: SystemNnnGpkBitmapRepository? = null
-            var preparedAudio: PreparedAudioTrack? = null
+            var preparedAudio: PreparedAudioRepository? = null
             try {
                 val gameDirectory = resolvePrivateGameDirectory(gameId)
                 val scriptFile = findSystemNnnScript(gameDirectory)
                 val script = SystemNnnScriptLoader().load(scriptFile)
-                val resourcePair = findGpkGtbPair(gameDirectory)
-                val resolverToTransfer = SystemNnnGpkBitmapRepository(
-                    indexFile = resourcePair.first,
-                    archiveFile = resourcePair.second
-                )
+                val resolverToTransfer = SystemNnnGpkBitmapRepository.forGameDirectory(gameDirectory)
                 assetResolver = resolverToTransfer
-                preparedAudio = prepareFirstAudioTrack(gameDirectory)
+                preparedAudio = prepareAudioRepository(gameDirectory)
 
                 mainHandler.post {
                     if (isFinishing || isDestroyed) {
@@ -81,12 +75,10 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                         playerViewModel.start(
                             script = script,
                             commandDecoder = SystemNnnCommandDecoderImpl(
-                                gtbResourceCount = resolverToTransfer.entries.size
+                                gtbResourceCount = resolverToTransfer.resourceCount
                             ),
                             assetResolver = resolverToTransfer,
-                            audioRepository = preparedAudio?.repository,
-                            initialAudioTrack = preparedAudio?.file,
-                            initialAudioResourceName = preparedAudio?.resourceName
+                            audioRepository = preparedAudio?.repository
                         )
                     }
                 }
@@ -137,11 +129,10 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     }
 
     /**
-     * Looks for the existing VPK/VTB audio format anywhere in the imported tree.
-     * Pairs inside vaw/ or wgq/ are preferred, then paths are searched
-     * deterministically. Parsing and Ogg staging happen on the startup executor.
+     * Opens the indexed VTB catalog and its matching VAW (preferred) or VPK archive.
+     * Individual voice tracks are staged when their dialogue step becomes active.
      */
-    private fun prepareFirstAudioTrack(gameDirectory: File): PreparedAudioTrack? {
+    private fun prepareAudioRepository(gameDirectory: File): PreparedAudioRepository? {
         val indexFiles = gameDirectory.walkTopDown()
             .maxDepth(MAX_GAME_SCAN_DEPTH)
             .filter { file ->
@@ -151,85 +142,46 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             .toList()
             .sortedWith(
                 compareBy<File> {
-                    val segments = it.relativeTo(gameDirectory).invariantSeparatorsPath
-                        .split("/")
-                    if (segments.any { segment ->
-                            segment.equals("vaw", ignoreCase = true) ||
-                                segment.equals("wgq", ignoreCase = true)
+                    val path = it.relativeTo(gameDirectory).invariantSeparatorsPath
+                    if (path.split("/").any { segment ->
+                            segment.equals("vaw", ignoreCase = true)
                         }
                     ) 0 else 1
                 }.thenBy { it.relativeTo(gameDirectory).invariantSeparatorsPath }
             )
 
         for (indexFile in indexFiles) {
-            val archiveFile = indexFile.parentFile
+            val archiveFiles = indexFile.parentFile
                 ?.listFiles()
-                ?.firstOrNull { candidate ->
+                ?.filter { candidate ->
                     candidate.isFile &&
-                        candidate.extension.equals("vpk", ignoreCase = true) &&
+                        candidate.extension.lowercase() in AUDIO_ARCHIVE_EXTENSIONS &&
                         candidate.nameWithoutExtension.equals(
                             indexFile.nameWithoutExtension,
                             ignoreCase = true
                         )
-                } ?: continue
+                }
+                ?.sortedBy { if (it.extension.equals("vaw", ignoreCase = true)) 0 else 1 }
+                .orEmpty()
 
-            val repository = try {
-                SystemNnnVpkAudioRepository(
-                    indexFile = indexFile,
-                    archiveFile = archiveFile,
-                    cacheDirectory = File(cacheDir, "systemnnn-audio")
-                )
-            } catch (_: Exception) {
-                continue
-            }
-
-            try {
-                val firstTrack = repository.entries.firstOrNull()
-                if (firstTrack == null) {
-                    repository.close()
+            for (archiveFile in archiveFiles) {
+                val repository = try {
+                    SystemNnnVpkAudioRepository(
+                        indexFile = indexFile,
+                        archiveFile = archiveFile,
+                        cacheDirectory = File(cacheDir, "systemnnn-audio")
+                    )
+                } catch (_: Exception) {
                     continue
                 }
-                val stagedFile = repository.materialize(firstTrack.name)
-                return PreparedAudioTrack(
-                    repository = repository,
-                    file = stagedFile,
-                    resourceName = firstTrack.name
-                )
-            } catch (_: Exception) {
+
+                if (repository.entries.isNotEmpty()) {
+                    return PreparedAudioRepository(repository)
+                }
                 repository.close()
             }
         }
-
-        // No supported audio pair is a normal fallback, not a startup failure.
         return null
-    }
-
-    /** Returns the matching pair in parser argument order: GTB index, GPK archive. */
-    private fun findGpkGtbPair(gameDirectory: File): Pair<File, File> {
-        val indexes = gameDirectory.walkTopDown()
-            .maxDepth(MAX_GAME_SCAN_DEPTH)
-            .filter { file ->
-                file.isFile && file.extension.equals("gtb", ignoreCase = true)
-            }
-            .take(MAX_DISCOVERED_FILES)
-            .sortedBy { it.relativeTo(gameDirectory).invariantSeparatorsPath }
-            .toList()
-
-        for (indexFile in indexes) {
-            val archiveFile = indexFile.parentFile
-                ?.listFiles()
-                ?.firstOrNull { candidate ->
-                    candidate.isFile &&
-                        candidate.extension.equals("gpk", ignoreCase = true) &&
-                        candidate.nameWithoutExtension.equals(
-                            indexFile.nameWithoutExtension,
-                            ignoreCase = true
-                        )
-                }
-            if (archiveFile != null) return indexFile to archiveFile
-        }
-
-        throw IOException("Не найдена пара файлов .gtb/.gpk с одинаковым именем для ресурсов сцены.")
     }
 
     override fun onDestroy() {
@@ -243,5 +195,6 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         const val EXTRA_GAME_ID = "io.github.helterfall.ramen.extra.SYSTEM_NNN_GAME_ID"
         private const val MAX_GAME_SCAN_DEPTH = 12
         private const val MAX_DISCOVERED_FILES = 10_000
+        private val AUDIO_ARCHIVE_EXTENSIONS = setOf("vaw", "vpk")
     }
 }
