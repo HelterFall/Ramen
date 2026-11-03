@@ -40,7 +40,7 @@ class SystemNnnCommandDecoderImplTest {
 
     @Test
     fun rejectsUnalignedOrOutOfRangeTableCursors() {
-        val decoder = SystemNnnCommandDecoderImpl()
+        val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
         val script = scriptWithPointers(0x32B64, 0)
 
         assertTrue(runCatching {
