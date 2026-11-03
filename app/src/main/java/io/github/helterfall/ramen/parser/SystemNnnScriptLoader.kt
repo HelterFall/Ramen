@@ -64,6 +64,14 @@ class SystemNnnScript internal constructor(
     val commandByteCount: Int
         get() = commandBytes.size
 
+    // Text references are absolute offsets in the demasked SPT file.
+    // Resolve them only at the exact start of a validated NUL-delimited entry.
+    private val textEntriesByOffset: Map<Long, SystemNnnTextEntry> =
+        textPool.associateBy(SystemNnnTextEntry::offset)
+
+    fun textEntryAtOffset(absoluteOffset: Long): SystemNnnTextEntry? =
+        textEntriesByOffset[absoluteOffset]
+
     /**
      * Reads a bounded command slice using an absolute file offset. A future
      * verified opcode decoder should use this instead of reading outside the

@@ -6,6 +6,7 @@ import java.nio.charset.Charset
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -49,6 +50,8 @@ class SystemNnnScriptLoaderTest {
                 script.textPool[0].utf8Bytes.toList()
             )
             assertEquals(0x32B64L, script.textPool[0].offset)
+            assertEquals("テスト", script.textEntryAtOffset(0x32B64L)?.text)
+            assertNull("An interior byte is not a valid text-entry pointer.", script.textEntryAtOffset(0x32B65L))
         } finally {
             directory.deleteRecursively()
         }

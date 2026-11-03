@@ -231,9 +231,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
                     is SystemNnnDecodedCommand.Dialogue -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
-                        val text = currentScript.textPool.firstOrNull {
-                            it.offset == command.textEntryOffset
-                        } ?: throw IOException(
+                        val text = currentScript.textEntryAtOffset(command.textEntryOffset)
+                            ?: throw IOException(
                             "Dialogue points to an unknown Shift-JIS text-pool offset."
                         )
                         nextCommandOffset = command.nextCommandOffset
@@ -262,9 +261,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     is SystemNnnDecodedCommand.Choice -> {
-                        val prompt = currentScript.textPool.firstOrNull {
-                            it.offset == command.promptTextEntryOffset
-                        } ?: throw IOException(
+                        val prompt = currentScript.textEntryAtOffset(command.promptTextEntryOffset)
+                            ?: throw IOException(
                             "Choice prompt points to an unknown Shift-JIS text-pool offset."
                         )
                         if (command.options.isEmpty()) {
