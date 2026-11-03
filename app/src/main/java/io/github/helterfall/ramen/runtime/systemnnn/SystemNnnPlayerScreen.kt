@@ -134,7 +134,7 @@ fun SystemNnnPlayerScreen(
             }
         }
 
-        state.errorMessage?.let { message ->
+        (state.errorMessage ?: state.audioWarning)?.let { message ->
             Surface(
                 color = Color(0xE62A1717),
                 contentColor = Color.White,

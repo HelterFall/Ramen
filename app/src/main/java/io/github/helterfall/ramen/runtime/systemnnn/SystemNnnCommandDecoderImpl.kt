@@ -4,13 +4,12 @@ import io.github.helterfall.ramen.parser.SystemNnnScript
 import java.io.IOException
 
 /**
- * Interpreter for the verified fixed-width System-NNN scene pointer table.
+ * Provisional playback adapter for the observed 1,299-entry UInt32 table.
  *
- * The 1,299-entry table at 0xC5BA consists of UInt32 little-endian values.
- * Values in the parsed GTB range become indexed scene updates. Other
- * transition-table values advance through the validated Shift-JIS text pool
- * in order. This fallback keeps dialogue presentation paced by user taps
- * while the remaining System-NNN opcode grammar is being reverse engineered.
+ * Values in the parsed GTB range are treated as indexed scene updates. Other
+ * values consume Shift-JIS entries sequentially. This fallback is useful for
+ * validating the image/text presentation bridge, but it is not a verified
+ * implementation of the complete System-NNN SPT opcode grammar.
  */
 class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int

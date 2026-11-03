@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import io.github.helterfall.ramen.parser.SystemNnnScript
 import java.io.Closeable
+import java.io.File
 import java.io.IOException
 import java.util.IdentityHashMap
 
@@ -37,7 +38,8 @@ data class SystemNnnPlayerUiState(
     val forceReveal: Boolean = false,
     val choices: List<SystemNnnChoiceOption> = emptyList(),
     val isEnded: Boolean = false,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val audioWarning: String? = null
 )
 
 /**
@@ -67,6 +69,9 @@ fun interface SystemNnnSceneAssetResolver : Closeable {
  * command boundary, rather than treating each byte as an independent opcode.
  */
 fun interface SystemNnnCommandDecoder {
+    val usesSequentialTextPool: Boolean
+        get() = false
+
     @Throws(IOException::class)
     fun decodeNext(
         script: SystemNnnScript,
@@ -127,6 +132,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private val bitmapOwners = IdentityHashMap<Bitmap, SystemNnnSceneAssetResolver>()
     private var nextCommandOffset: Long = 0L
     private var frameCounter: Long = 0L
+    private var nextTextPoolIndex: Int = 0
+    private var activeTextPoolIndex: Int = -1
+    private var audioRepository: SystemNnnVpkAudioRepository? = null
+    private var audioPlayer: SystemNnnAudioPlayer? = null
 
     fun showStartupLoading() {
         uiState = SystemNnnPlayerUiState(isLoading = true)
@@ -144,16 +153,27 @@ class SystemNnnPlayerViewModel : ViewModel() {
         script: SystemNnnScript,
         commandDecoder: SystemNnnCommandDecoder?,
         assetResolver: SystemNnnSceneAssetResolver,
-        initialCommandOffset: Long = script.commandStartOffset
+        initialCommandOffset: Long = script.commandStartOffset,
+        audioRepository: SystemNnnVpkAudioRepository? = null,
+        initialAudioTrack: File? = null,
+        initialAudioResourceName: String? = null
     ) {
         releaseAssets()
         this.script = script
         this.decoder = commandDecoder
         this.assets = assetResolver
+        this.audioRepository = audioRepository
         this.nextCommandOffset = initialCommandOffset
         this.frameCounter = 0L
+        this.nextTextPoolIndex = 0
+        this.activeTextPoolIndex = -1
 
-        uiState = SystemNnnPlayerUiState(isLoading = true)
+        val initialBackground = loadInitialBackground(assetResolver)
+        uiState = SystemNnnPlayerUiState(
+            isLoading = true,
+            backgroundBitmap = initialBackground
+        )
+        startAudio(initialAudioTrack, initialAudioResourceName)
 
         if (commandDecoder == null) {
             uiState = uiState.copy(
@@ -184,6 +204,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
             return
         }
 
+        if (decoder?.usesSequentialTextPool == true && activeTextPoolIndex >= 0) {
+            nextTextPoolIndex = (activeTextPoolIndex + 1)
+                .coerceAtMost(script?.textPool?.size ?: Int.MAX_VALUE)
+        }
         advanceToVisibleEvent()
     }
 
@@ -204,6 +228,38 @@ class SystemNnnPlayerViewModel : ViewModel() {
         resolver: SystemNnnSceneAssetResolver
     ): Bitmap? = resolver.loadBitmap(resourceId)?.also { bitmap ->
         bitmapOwners[bitmap] = resolver
+    }
+
+    private fun loadInitialBackground(resolver: SystemNnnSceneAssetResolver): Bitmap? {
+        for (index in 0L..1L) {
+            try {
+                loadBitmapByIndex(index, resolver)?.let { return it }
+            } catch (_: Exception) {
+                // One bad first row must not prevent trying the next GTB row.
+            }
+        }
+        return null
+    }
+
+    private fun startAudio(track: File?, resourceName: String?) {
+        audioPlayer = SystemNnnAudioPlayer { status ->
+            if (status.state == SystemNnnAudioPlaybackState.ERROR) {
+                uiState = uiState.copy(
+                    audioWarning = "Не удалось запустить фоновый трек: " +
+                        (status.message ?: "ошибка воспроизведения.")
+                )
+            }
+        }
+        if (track != null) {
+            runCatching {
+                audioPlayer?.play(track, resourceName ?: track.name)
+            }.onFailure { error ->
+                uiState = uiState.copy(
+                    audioWarning = "Не удалось запустить фоновый трек: " +
+                        (error.message ?: "ошибка подготовки.")
+                )
+            }
+        }
     }
 
     private fun loadBitmapByIndex(
@@ -299,10 +355,20 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
                     is SystemNnnDecodedCommand.Dialogue -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
-                        val text = currentScript.textEntryAtOffset(command.textEntryOffset)
-                            ?: throw IOException(
-                            "Dialogue points to an unknown Shift-JIS text-pool offset."
-                        )
+                        val textEntry = if (currentDecoder.usesSequentialTextPool) {
+                            val selectedIndex = nextTextPoolIndex
+                            currentScript.textPool.getOrNull(selectedIndex)?.also {
+                                activeTextPoolIndex = selectedIndex
+                            } ?: throw IOException("The sequential Shift-JIS text-pool cursor is exhausted.")
+                        } else {
+                            currentScript.textEntryAtOffset(command.textEntryOffset)?.also { entry ->
+                                activeTextPoolIndex = currentScript.textPool.indexOf(entry)
+                                if (activeTextPoolIndex >= 0) nextTextPoolIndex = activeTextPoolIndex + 1
+                            } ?: throw IOException(
+                                "Dialogue points to an unknown Shift-JIS text-pool offset."
+                            )
+                        }
+                        val text = textEntry.text
                         nextCommandOffset = command.nextCommandOffset
 
                         if (command.backgroundResourceId != null) {
@@ -413,6 +479,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
         offset >= currentScript.commandStartOffset && offset < currentScript.commandEndOffset
 
     private fun releaseAssets() {
+        val player = audioPlayer
+        audioPlayer = null
+        runCatching { player?.close() }
+
+        val audio = audioRepository
+        audioRepository = null
+        runCatching { audio?.close() }
+
         runCatching { assets?.close() }
         assets = null
     }

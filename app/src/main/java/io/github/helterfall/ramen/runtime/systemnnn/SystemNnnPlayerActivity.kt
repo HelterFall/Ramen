@@ -22,6 +22,12 @@ import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
  */
 class SystemNnnPlayerActivity : ComponentActivity() {
 
+    private data class PreparedAudioTrack(
+        val repository: SystemNnnVpkAudioRepository,
+        val file: File,
+        val resourceName: String
+    )
+
     private lateinit var playerViewModel: SystemNnnPlayerViewModel
     private lateinit var startupExecutor: ExecutorService
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -54,6 +60,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
 
         startupExecutor.execute {
             var assetResolver: SystemNnnGpkBitmapRepository? = null
+            var preparedAudio: PreparedAudioTrack? = null
             try {
                 val gameDirectory = resolvePrivateGameDirectory(gameId)
                 val scriptFile = findSystemNnnScript(gameDirectory)
@@ -64,22 +71,28 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     archiveFile = resourcePair.second
                 )
                 assetResolver = resolverToTransfer
+                preparedAudio = prepareFirstAudioTrack(gameDirectory)
 
                 mainHandler.post {
                     if (isFinishing || isDestroyed) {
                         resolverToTransfer.close()
+                        preparedAudio?.repository?.close()
                     } else {
                         playerViewModel.start(
                             script = script,
                             commandDecoder = SystemNnnCommandDecoderImpl(
                                 gtbResourceCount = resolverToTransfer.entries.size
                             ),
-                            assetResolver = resolverToTransfer
+                            assetResolver = resolverToTransfer,
+                            audioRepository = preparedAudio?.repository,
+                            initialAudioTrack = preparedAudio?.file,
+                            initialAudioResourceName = preparedAudio?.resourceName
                         )
                     }
                 }
             } catch (error: Exception) {
                 assetResolver?.close()
+                preparedAudio?.repository?.close()
                 mainHandler.post {
                     if (!isFinishing && !isDestroyed) {
                         playerViewModel.showStartupError(
@@ -121,6 +134,74 @@ class SystemNnnPlayerActivity : ComponentActivity() {
 
         return candidates.firstOrNull { candidate -> SystemNnnScriptLoader.hasValidHeader(candidate) }
             ?: throw IOException("В импортированной папке не найден корректный System-NNN .spt сценарий.")
+    }
+
+    /**
+     * Looks for the existing VPK/VTB audio format anywhere in the imported tree.
+     * Pairs inside vaw/ or wgq/ are preferred, then paths are searched
+     * deterministically. Parsing and Ogg staging happen on the startup executor.
+     */
+    private fun prepareFirstAudioTrack(gameDirectory: File): PreparedAudioTrack? {
+        val indexFiles = gameDirectory.walkTopDown()
+            .maxDepth(MAX_GAME_SCAN_DEPTH)
+            .filter { file ->
+                file.isFile && file.extension.equals("vtb", ignoreCase = true)
+            }
+            .take(MAX_DISCOVERED_FILES)
+            .toList()
+            .sortedWith(
+                compareBy<File> {
+                    val segments = it.relativeTo(gameDirectory).invariantSeparatorsPath
+                        .split("/")
+                    if (segments.any { segment ->
+                            segment.equals("vaw", ignoreCase = true) ||
+                                segment.equals("wgq", ignoreCase = true)
+                        }
+                    ) 0 else 1
+                }.thenBy { it.relativeTo(gameDirectory).invariantSeparatorsPath }
+            )
+
+        for (indexFile in indexFiles) {
+            val archiveFile = indexFile.parentFile
+                ?.listFiles()
+                ?.firstOrNull { candidate ->
+                    candidate.isFile &&
+                        candidate.extension.equals("vpk", ignoreCase = true) &&
+                        candidate.nameWithoutExtension.equals(
+                            indexFile.nameWithoutExtension,
+                            ignoreCase = true
+                        )
+                } ?: continue
+
+            val repository = try {
+                SystemNnnVpkAudioRepository(
+                    indexFile = indexFile,
+                    archiveFile = archiveFile,
+                    cacheDirectory = File(cacheDir, "systemnnn-audio")
+                )
+            } catch (_: Exception) {
+                continue
+            }
+
+            try {
+                val firstTrack = repository.entries.firstOrNull()
+                if (firstTrack == null) {
+                    repository.close()
+                    continue
+                }
+                val stagedFile = repository.materialize(firstTrack.name)
+                return PreparedAudioTrack(
+                    repository = repository,
+                    file = stagedFile,
+                    resourceName = firstTrack.name
+                )
+            } catch (_: Exception) {
+                repository.close()
+            }
+        }
+
+        // No supported audio pair is a normal fallback, not a startup failure.
+        return null
     }
 
     /** Returns the matching pair in parser argument order: GTB index, GPK archive. */

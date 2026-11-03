@@ -96,6 +96,52 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun startupTriesFirstTwoGtbRowsBeforeAnySceneCommand() {
+        val assets = RecordingAssets
+        val decoder = FakeDecoder(
+            mapOf(
+                0xC5BAL to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = 0xC5BB,
+                    textEntryOffset = 0x32B64
+                )
+            )
+        )
+
+        SystemNnnPlayerViewModel().start(testScript(), decoder, assets)
+
+        assertEquals(listOf(0L, 1L), assets.requestedIndexes)
+    }
+
+    @Test
+    fun sequentialTextPoolAdvancesOnlyAfterTheVisibleLineIsCompletedAndTappedAgain() {
+        val decoder = FakeDecoder(
+            commands = mapOf(
+                0xC5BAL to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = 0xC5BB,
+                    textEntryOffset = 0x32B64
+                ),
+                0xC5BBL to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = 0xC5BC,
+                    textEntryOffset = 0x32B70
+                ),
+                0xC5BCL to SystemNnnDecodedCommand.End
+            ),
+            sequentialTextPool = true
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+        assertEquals("First line", viewModel.uiState.dialogueText)
+
+        viewModel.onScreenTap()
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertTrue(viewModel.uiState.isTextComplete)
+
+        viewModel.onScreenTap()
+        assertEquals("Choose a path", viewModel.uiState.dialogueText)
+    }
+
+    @Test
     fun missingDecoderDoesNotPretendToInterpretRawBytesAsOpcodes() {
         val viewModel = SystemNnnPlayerViewModel()
 
@@ -145,7 +191,8 @@ class SystemNnnPlayerViewModelTest {
     )
 
     private class FakeDecoder(
-        private val commands: Map<Long, SystemNnnDecodedCommand>
+        private val commands: Map<Long, SystemNnnDecodedCommand>,
+        override val usesSequentialTextPool: Boolean = false
     ) : SystemNnnCommandDecoder {
         var lastRequestedBranch: String? = null
 
@@ -160,6 +207,19 @@ class SystemNnnPlayerViewModelTest {
 
     private object EmptyAssets : SystemNnnSceneAssetResolver {
         override fun loadBitmap(resourceId: String) = null
+        override fun close() = Unit
+    }
+
+    private object RecordingAssets : SystemNnnSceneAssetResolver {
+        val requestedIndexes = mutableListOf<Long>()
+
+        override fun loadBitmap(resourceId: String): android.graphics.Bitmap? = null
+
+        override fun loadBitmapByIndex(index: Long): android.graphics.Bitmap? {
+            requestedIndexes += index
+            return null
+        }
+
         override fun close() = Unit
     }
 
