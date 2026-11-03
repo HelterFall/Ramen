@@ -146,7 +146,6 @@ class SystemNnnCommandDecoderImplTest {
             ),
             commandBytes = commandBytes
         )
-    }
 
     companion object {
         private const val TABLE_START = 0xC5BAL
