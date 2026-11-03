@@ -386,9 +386,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             backgroundBitmap = sceneBackground,
                             sprites = sceneSprites,
                             speakerName = command.speakerName,
-                            dialogueText = text.text,
+                            dialogueText = text,
                             visibleCharacterCount = 0,
-                            isTextComplete = text.text.isEmpty(),
+                            isTextComplete = text.isEmpty(),
                             forceReveal = false
                         )
                         return
