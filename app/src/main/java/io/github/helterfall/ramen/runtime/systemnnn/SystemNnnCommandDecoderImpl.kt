@@ -7,12 +7,17 @@ import java.io.IOException
  * Interpreter for the verified fixed-width System-NNN scene pointer table.
  *
  * The 1,299-entry table at 0xC5BA consists of UInt32 little-endian values.
- * Exact text-pool offsets become dialogue commands; values within the parsed
- * GTB catalog become indexed scene updates. Unknown values are safely skipped.
+ * Values in the parsed GTB range become indexed scene updates. Other
+ * transition-table values advance through the validated Shift-JIS text pool
+ * in order. This fallback keeps dialogue presentation paced by user taps
+ * while the remaining System-NNN opcode grammar is being reverse engineered.
  */
 class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int
 ) : SystemNnnCommandDecoder {
+
+    private var textPoolScript: SystemNnnScript? = null
+    private var nextTextEntryIndex: Int = 0
 
     init {
         require(gtbResourceCount >= 0) { "gtbResourceCount must not be negative." }
@@ -63,14 +68,12 @@ class SystemNnnCommandDecoderImpl(
         val value = readUInt32LittleEndian(bytes)
         val nextCommandOffset = commandOffset + UINT32_BYTES
 
-        return when {
-            script.textEntryAtOffset(value) != null -> {
-                SystemNnnDecodedCommand.Dialogue(
-                    nextCommandOffset = nextCommandOffset,
-                    textEntryOffset = value
-                )
-            }
+        if (textPoolScript !== script) {
+            textPoolScript = script
+            nextTextEntryIndex = 0
+        }
 
+        return when {
             value < gtbResourceCount.toLong() -> {
                 SystemNnnDecodedCommand.SceneUpdate(
                     nextCommandOffset = nextCommandOffset,
@@ -79,9 +82,17 @@ class SystemNnnCommandDecoderImpl(
             }
 
             else -> {
-                SystemNnnDecodedCommand.Skip(
-                    nextCommandOffset = nextCommandOffset
-                )
+                val textEntry = script.textPool.getOrNull(nextTextEntryIndex++)
+                if (textEntry != null) {
+                    SystemNnnDecodedCommand.Dialogue(
+                        nextCommandOffset = nextCommandOffset,
+                        textEntryOffset = textEntry.offset
+                    )
+                } else {
+                    SystemNnnDecodedCommand.Skip(
+                        nextCommandOffset = nextCommandOffset
+                    )
+                }
             }
         }
     }

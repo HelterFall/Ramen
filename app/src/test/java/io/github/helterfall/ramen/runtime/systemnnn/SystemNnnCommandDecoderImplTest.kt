@@ -10,30 +10,27 @@ import org.junit.Test
 class SystemNnnCommandDecoderImplTest {
 
     @Test
-    fun mapsExactTextOffsetsAndValidGtbIndexesAndSkipsUnknownValues() {
-        val script = scriptWithPointers(0x32B64, 7, 0x40000, 9)
+    fun mapsGtbIndexesToSceneUpdatesAndOtherWordsToSequentialDialogue() {
+        val script = scriptWithPointers(7, 0x40000, 9)
         val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
 
-        val dialogue = decoder.decodeNext(script, TABLE_START) as SystemNnnDecodedCommand.Dialogue
-        assertEquals(TABLE_START + 4L, dialogue.nextCommandOffset)
-        assertEquals(0x32B64L, dialogue.textEntryOffset)
-
-        val scene = decoder.decodeNext(script, TABLE_START + 4L) as SystemNnnDecodedCommand.SceneUpdate
-        assertEquals(TABLE_START + 8L, scene.nextCommandOffset)
+        val scene = decoder.decodeNext(script, TABLE_START) as SystemNnnDecodedCommand.SceneUpdate
+        assertEquals(TABLE_START + 4L, scene.nextCommandOffset)
         assertEquals(7L, scene.backgroundResourceIndex)
-        assertEquals(null, scene.backgroundResourceId)
 
-        val skippedHighValue = decoder.decodeNext(
+        val firstLine = decoder.decodeNext(
+            script,
+            TABLE_START + 4L
+        ) as SystemNnnDecodedCommand.Dialogue
+        assertEquals(TABLE_START + 8L, firstLine.nextCommandOffset)
+        assertEquals(0x32B64L, firstLine.textEntryOffset)
+
+        val secondLine = decoder.decodeNext(
             script,
             TABLE_START + 8L
-        ) as SystemNnnDecodedCommand.Skip
-        assertEquals(TABLE_START + 12L, skippedHighValue.nextCommandOffset)
-
-        val skippedOutOfRangeIndex = decoder.decodeNext(
-            script,
-            TABLE_START + 12L
-        ) as SystemNnnDecodedCommand.Skip
-        assertEquals(TABLE_START + 16L, skippedOutOfRangeIndex.nextCommandOffset)
+        ) as SystemNnnDecodedCommand.Dialogue
+        assertEquals(TABLE_START + 12L, secondLine.nextCommandOffset)
+        assertEquals(0x32B70L, secondLine.textEntryOffset)
 
         assertTrue(decoder.decodeNext(script, TABLE_END) is SystemNnnDecodedCommand.End)
     }
@@ -74,7 +71,10 @@ class SystemNnnCommandDecoderImplTest {
             commandStartOffset = TABLE_START,
             commandEndOffset = commandEnd,
             textPoolOffset = 0x32B64L,
-            textPool = listOf(SystemNnnTextEntry(0x32B64L, "First line")),
+            textPool = listOf(
+                SystemNnnTextEntry(0x32B64L, "First line"),
+                SystemNnnTextEntry(0x32B70L, "Second line")
+            ),
             commandBytes = commandBytes
         )
     }
