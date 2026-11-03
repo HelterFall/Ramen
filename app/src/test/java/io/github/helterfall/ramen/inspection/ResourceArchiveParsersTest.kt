@@ -152,7 +152,7 @@ class ResourceArchiveParsersTest {
     }
 
     @Test
-    fun parsesCompressedBmpRle4AndRle8WithoutExpectingExpandedPixelRowsInGpk() {
+    fun parsesOpaqueBmpRle4AndRle8WithoutExpectingExpandedPixelRowsInGpk() {
         val width = 32
         val height = 8
         val rle8Data = ByteArrayOutputStream().apply {
@@ -178,8 +178,11 @@ class ResourceArchiveParsersTest {
 
         val rle8Payload = createRleBmp(width, height, 8, 1, rle8Data)
         val rle4Payload = createRleBmp(width, height, 4, 2, rle4Data)
-        val rle8Block = createGpkBlock("BMP", rle8Payload)
-        val rle4Block = createGpkBlock("BMP", rle4Payload)
+        // These are ordinary BMP/RLE payloads behind an opaque GPK preamble,
+        // not Black Cyc DWQ PACKTYPE=0 images (which use uncompressed scanlines).
+        val opaquePreamble = ByteArray(64) { SPACE }
+        val rle8Block = opaquePreamble + rle8Payload
+        val rle4Block = opaquePreamble + rle4Payload
         val index = createGtbIndex(
             names = listOf("compressed-rle8", "compressed-rle4"),
             blockSizes = listOf(rle8Block.size, rle4Block.size)
@@ -263,17 +266,18 @@ class ResourceArchiveParsersTest {
     }
 
     @Test
-    fun rejectsJpegPayloadSizeThatEscapesItsIndexedBlock() {
+    fun marksDwqJpegMaskPayloadSizeThatEscapesItsIndexedBlockAsInvalid() {
         val jpegPayload = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0x01)
-        val block = createGpkBlock("JPEG", jpegPayload, width = 2, height = 2)
+        val block = createGpkBlock("JPEG", jpegPayload, width = 2, height = 2).also { bytes ->
+            "PACKTYPE=7      ".toByteArray(Charsets.US_ASCII).copyInto(bytes, 48)
+        }
         putU32(block, 32, (jpegPayload.size + 1).toLong())
         val index = createGtbIndex(listOf("image001"), listOf(block.size))
 
         withSources(index, block) { indexSource, archiveSource ->
-            val result = runCatching {
-                GpkGtbArchiveParser().parse(indexSource, archiveSource)
-            }
-            assertTrue(result.exceptionOrNull() is IOException)
+            val entry = GpkGtbArchiveParser().parse(indexSource, archiveSource).entries.single()
+            assertFalse(entry.isValid)
+            assertTrue(entry.validationError.orEmpty().contains("packed image size"))
         }
     }
 
@@ -697,7 +701,7 @@ class ResourceArchiveParsersTest {
     fun invalidGpkEntryDoesNotHideFollowingValidEntries() {
         val validFirst = createGpkBlock("JPEG", createJpegWithSof(1, 1))
         val broken = createGpkBlock("BMP", ByteArray(12))
-        val validLast = createGpkBlock("JPEG", createJpegWithSof(2, 2))
+        val validLast = createGpkBlock("JPEG", createJpegWithSof(2, 2), width = 2, height = 2)
         val blocks = validFirst + broken + validLast
         val index = createGtbIndex(
             listOf("first", "broken", "last"),
