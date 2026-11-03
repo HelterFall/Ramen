@@ -25,14 +25,14 @@ class SystemNnnPlayerViewModelTest {
                     promptTextEntryOffset = 0x32B70,
                     options = listOf(
                         SystemNnnChoiceOption("left", "Take the left path", 0xC5C2),
-                        SystemNnnChoiceOption("right", "Take the right path", 0xC5BE)
+                        SystemNnnChoiceOption("right", "Take the right path", 0xC5C6)
                     )
                 ),
                 0xC5C2L to SystemNnnDecodedCommand.Dialogue(
                     nextCommandOffset = 0xC5C6,
                     textEntryOffset = 0x32B7F
                 ),
-                0xC5BEL to SystemNnnDecodedCommand.End
+                0xC5C6L to SystemNnnDecodedCommand.End
             )
         )
         val viewModel = SystemNnnPlayerViewModel()
@@ -177,6 +177,7 @@ class SystemNnnPlayerViewModelTest {
     @Test
     fun startupDoesNotLoadUnreferencedGtbRows() {
         val assets = RecordingAssets
+        assets.requestedIndexes.clear()
         val decoder = FakeDecoder(
             mapOf(
                 0xC5BAL to SystemNnnDecodedCommand.Dialogue(
