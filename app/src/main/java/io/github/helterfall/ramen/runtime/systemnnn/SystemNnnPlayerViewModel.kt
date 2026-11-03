@@ -119,6 +119,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var nextCommandOffset: Long = 0L
     private var frameCounter: Long = 0L
 
+    fun showStartupLoading() {
+        uiState = SystemNnnPlayerUiState(isLoading = true)
+    }
+
+    fun showStartupError(message: String) {
+        releaseAssets()
+        uiState = SystemNnnPlayerUiState(
+            isLoading = false,
+            errorMessage = message
+        )
+    }
+
     fun start(
         script: SystemNnnScript,
         commandDecoder: SystemNnnCommandDecoder?,

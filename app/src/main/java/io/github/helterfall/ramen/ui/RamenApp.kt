@@ -52,6 +52,7 @@ import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
+import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
 import java.io.File
@@ -275,9 +276,21 @@ fun RamenApp() {
                     item { SectionHeading("ТВОЯ БИБЛИОТЕКА") }
                     items(games, key = { it.id }) { game ->
                         GameCard(game) {
-                            val intent = Intent(context, Html5PlayerActivity::class.java)
-                                .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
-                            context.startActivity(intent)
+                            when (game.engineId) {
+                                "system-nnn-spt" -> {
+                                    val intent = Intent(context, SystemNnnPlayerActivity::class.java)
+                                        .putExtra(SystemNnnPlayerActivity.EXTRA_GAME_ID, game.id)
+                                    context.startActivity(intent)
+                                }
+                                "html5" -> {
+                                    val intent = Intent(context, Html5PlayerActivity::class.java)
+                                        .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
+                                    context.startActivity(intent)
+                                }
+                                else -> {
+                                    statusMessage = "Для этого формата запуск пока не подключён."
+                                }
+                            }
                         }
                     }
                 }
@@ -578,7 +591,11 @@ private fun GameCard(
             Text(
                 text = when (game.compatibilityStatus) {
                     "PARSER_AVAILABLE" ->
-                        "Формат сценария распознан и доступен для разбора; игровой интерпретатор ещё не подключён."
+                        if (game.engineId == "system-nnn-spt") {
+                            "Доступен запуск System-NNN с декодированием указателей текста и ресурсов."
+                        } else {
+                            "Формат сценария распознан; запуск пока не подключён."
+                        }
                     "SUPPORTED_LIMITED" ->
                         "Доступен ограниченный автономный HTML5-запуск."
                     "UNKNOWN" ->
@@ -596,7 +613,9 @@ private fun GameCard(
                 fontSize = 10.sp,
                 lineHeight = 14.sp
             )
-            if (game.compatibilityStatus == "SUPPORTED_LIMITED") {
+            if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
+                (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE")
+            ) {
                 Button(
                     onClick = onLaunch,
                     modifier = Modifier.fillMaxWidth(),

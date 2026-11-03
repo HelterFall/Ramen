@@ -40,7 +40,7 @@ class HtmlInlineResourceExtractor {
                     OutputStreamWriter(
                         StorageGuardedOutputStream(
                             delegate = FileOutputStream(rewrittenFile),
-                            guard = StorageSpaceGuard(gameDirectory)
+                            guard = StorageSpaceGuard(assetsDirectory)
                         ),
                         StandardCharsets.UTF_8
                     )
@@ -174,7 +174,7 @@ class HtmlInlineResourceExtractor {
             val decodedInput = Base64.getMimeDecoder().wrap(encodedInput)
             StorageGuardedOutputStream(
                 delegate = FileOutputStream(targetFile),
-                guard = StorageSpaceGuard(gameDirectory)
+                guard = StorageSpaceGuard(assetsDirectory)
             ).use { output ->
                 val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
                 while (true) {
