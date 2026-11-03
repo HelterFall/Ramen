@@ -25,7 +25,7 @@
 - **Merge commit:** `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`.
 - **Исходная ветка PR #27:** `feat/system-nnn-spt-loader`, проверенный head `75675e3302439bc31f5bc1961bc82b1233ec34b7`; PR #27 закрыт как merged.
 - **Проверка до merge:** Actions run [#278](https://github.com/HelterFall/Ramen/actions/runs/41674773614) завершился успешно на точном исходном SHA PR #27. Он выполнил `assembleDebug`, `testDebugUnitTest`, `lintDebug` и загрузил debug APK.
-- **Проверка после merge:** push-run [#279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) стартовал на merge commit в `main`; при последней проверке job ещё выполнял build/test/lint. После последующих документационных коммитов ориентируйся на самый новый run в Actions, а не на устаревший статус #279.
+- **Проверка после merge:** push-run [#279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) завершился успешно на merge commit в `main`: build, unit tests, lint и загрузка debug APK прошли.
 - **Resource Inspector:** входит в `main`. Activity зарегистрирована в Manifest; shortcut доступен на главном экране, а карточки игр позволяют открыть Inspector для ресурсов игры. Пользователь подтвердил, что Inspector пока нужен.
 - **GPK/GTB и VPK/VTB:** парсеры и просмотр ресурсов включены в текущее состояние `main`.
 - **System-NNN:** loader, player и путь запуска включены, но трактовка SPT-таблицы остаётся экспериментальной. Успешный CI не доказывает правильность полного SPT VM или совместимость реальной игры.
@@ -430,8 +430,9 @@ Five little-endian DWORD values printed at `0x32B20`:
 ### Проверка merge-коммита в main
 
 - После merge GitHub запустил push-run [#279](https://github.com/HelterFall/Ramen/actions/runs/41676851845) на commit `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`.
-- При проверке run #279 был `in_progress` на шаге assemble/test/lint. Документальные коммиты после этого могут запустить следующий run и отменить предыдущий из-за `concurrency.cancel-in-progress`.
-- Перед следующей сборкой смотри самый новый run для ветки `main`; не считай статус #278 эквивалентом проверки merge-коммита.
+- Run #279 завершился `completed / success`: `Assemble, test, and lint` и `Upload debug APK` — success.
+- Артефакт: `ramen-debug-apk`, ID `13251016631`, 11,642,990 байт, SHA-256 `f4d34352b983b46e583cd776e9dc3825d340632fafcfe28edfc96b2690701f99`, создан 2026-11-03 16:45:09 UTC, истекает 2026-11-10 16:45:07 UTC.
+- В отличие от #278, run #279 проверил уже сам merge commit в `main`. Это по-прежнему debug CI, а не release или физический device acceptance.
 
 ### Историческая CI-проблема, уже исправленная
 
