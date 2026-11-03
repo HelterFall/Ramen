@@ -33,8 +33,15 @@ class AndroidGpkImageDecoder(
         resource.validationError?.let { message ->
             throw IOException("GPK resource is marked invalid: " + message)
         }
-        if (resource.dwqPackedBmp) {
+        // PACKTYPE is the authoritative discriminator. Do not let a missing parser
+        // convenience flag route packed rows through BitmapFactory.
+        if (resource.packType == DWQ_PACKTYPE_1 || resource.packType == DWQ_PACKTYPE_3) {
             return decodePackedDwqBmp(source, resource)
+        }
+        if (resource.dwqPackedBmp) {
+            throw IOException(
+                "Packed DWQ metadata is set for unsupported PACKTYPE=" + resource.packType + "."
+            )
         }
         if (resource.payloadSizeBytes <= 0L ||
             resource.payloadOffset < 0L ||
@@ -359,6 +366,8 @@ class AndroidGpkImageDecoder(
 
     companion object {
         private const val DEFAULT_MAX_DECODED_PIXELS = Long.MAX_VALUE
+        private const val DWQ_PACKTYPE_1 = 1
+        private const val DWQ_PACKTYPE_3 = 3
         private const val BI_RGB = 0L
         private const val BI_RLE8 = 1L
         private const val BI_RLE4 = 2L

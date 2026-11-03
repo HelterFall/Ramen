@@ -86,6 +86,10 @@ class SystemNnnGpkBitmapRepository(
                     (entry.validationError ?: "unknown validation error")
             )
         }
+        // Keep all GPK pixel decoding behind the shared decoder. It dispatches
+        // PACKTYPE=1/3 to decodeBlackCycDwqPackedBmp using the complete block
+        // (DWQ header, packed rows, and the optional alpha plane); this repository
+        // must never send those payloads directly to BitmapFactory.
         return imageDecoder.decode(archiveSource, entry)
     }
 

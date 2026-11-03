@@ -1,8 +1,10 @@
 package io.github.helterfall.ramen.runtime.systemnnn
 
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,6 +25,44 @@ class SystemNnnGpkBitmapRepositoryTest {
                 assertEquals("background", repository.entries.single().name)
                 assertTrue(repository.entries.single().isValid)
                 assertEquals(0L, repository.entries.single().blockOffset)
+            }
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun sendsPackedDwqBlocksThroughTheXorDecoderInsteadOfBitmapFactory() {
+        val directory = Files.createTempDirectory("ramen-systemnnn-dwq").toFile()
+        try {
+            val bmp = ByteArray(0x36 + 3)
+            putU32(bmp, 10, 0x36)
+            putU32(bmp, 18, 1)
+            putU32(bmp, 22, 1)
+            putU16(bmp, 28, 24)
+            bmp[0x36] = 1
+            bmp[0x37] = 2
+            bmp[0x38] = 3
+
+            val header = ByteArray(0x40) { ' '.code.toByte() }
+            "IF PACKTYPE==".toByteArray(Charsets.US_ASCII).copyInto(header, 0)
+            "0 ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x0D)
+            "BMP ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x2C)
+            "PACKTYPE=1      ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x30)
+            val dwqBlock = header + bmp
+
+            val gpk = File(directory, "scene.gpk").apply { writeBytes(dwqBlock) }
+            val gtb = File(directory, "scene.gtb").apply {
+                writeBytes(createGtbIndex("packed-background", dwqBlock.size))
+            }
+
+            SystemNnnGpkBitmapRepository(gtb, gpk).use { repository ->
+                val error = assertThrows(IOException::class.java) {
+                    repository.loadBitmapByIndex(0L)
+                }
+                // The local Android JVM stub fails only at Bitmap allocation. Reaching
+                // this error proves the DWQ payload decoded before BitmapFactory fallback.
+                assertEquals("Could not allocate the decoded DWQ bitmap.", error.message)
             }
         } finally {
             directory.deleteRecursively()

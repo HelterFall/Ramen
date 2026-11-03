@@ -656,6 +656,67 @@ class ResourceArchiveParsersTest {
         assertEquals(0xFF030201.toInt(), result.argbPixels.single())
     }
 
+
+    @Test
+    fun blackCycPackedBmpXorsEachDecodedRowWithThePreviousRow() {
+        val dwq = ByteArray(0x40 + 0x36 + 6)
+        "IF PACKTYPE==".toByteArray(Charsets.US_ASCII).copyInto(dwq, 0)
+        "0 ".toByteArray(Charsets.US_ASCII).copyInto(dwq, 0x0D)
+        "BMP ".toByteArray(Charsets.US_ASCII).copyInto(dwq, 0x2C)
+        "PACKTYPE=1      ".toByteArray(Charsets.US_ASCII).copyInto(dwq, 0x30)
+
+        val bmp = 0x40
+        writeI32Le(dwq, bmp + 0x0A, 0x36)
+        writeI32Le(dwq, bmp + 0x12, 1)
+        writeI32Le(dwq, bmp + 0x16, 2)
+        writeU16Le(dwq, bmp + 0x1C, 24)
+
+        // Row 0 is stored literally. Row 1 stores (new byte XOR decoded row 0).
+        byteArrayOf(1, 2, 3, 5, 7, 5).copyInto(dwq, bmp + 0x36)
+
+        val decoded = ResourceArchiveParsers.decodeBlackCycDwqPackedBmp(dwq)
+        assertEquals(1, decoded.width)
+        assertEquals(2, decoded.height)
+        assertTrue(decoded.argbPixels.contentEquals(
+            intArrayOf(0xFF030201.toInt(), 0xFF060504.toInt())
+        ))
+    }
+
+    @Test
+    fun blackCycPacktypeThreeAppliesTheFollowingEightBitAlphaPlane() {
+        val image = ByteArray(0x36 + 6)
+        putU32(image, 10, 0x36)
+        putU32(image, 18, 1)
+        putU32(image, 22, 2)
+        putU16(image, 28, 24)
+        byteArrayOf(1, 2, 3, 5, 7, 5).copyInto(image, 0x36)
+
+        val mask = ByteArray(0x3E + 3)
+        putU32(mask, 10, 0x3E)
+        putU32(mask, 18, 1)
+        putU32(mask, 22, 2)
+        putU16(mask, 28, 8)
+        putU32(mask, 46, 2)
+        // Two grayscale palette entries: transparent black and opaque white.
+        byteArrayOf(0, 0, 0, 0, -1, -1, -1, 0).copyInto(mask, 0x36)
+        // First row is a one-byte zero run; second row is palette index 1.
+        byteArrayOf(0, 1, 1).copyInto(mask, 0x3E)
+
+        val dwq = ByteArray(0x40 + image.size + mask.size)
+        "PACKTYPE=3      ".toByteArray(Charsets.US_ASCII).copyInto(dwq, 0x30)
+        writeI32Le(dwq, 0x20, image.size)
+        writeI32Le(dwq, 0x24, 1)
+        writeI32Le(dwq, 0x28, 2)
+        image.copyInto(dwq, 0x40)
+        mask.copyInto(dwq, 0x40 + image.size)
+
+        val decoded = ResourceArchiveParsers.decodeBlackCycDwqPackedBmp(dwq)
+        assertEquals(3, decoded.packType)
+        assertTrue(decoded.argbPixels.contentEquals(
+            intArrayOf(0x00030201, 0xFF060504.toInt())
+        ))
+    }
+
     private fun writeI32Le(destination: ByteArray, offset: Int, value: Int) {
         destination[offset] = value.toByte()
         destination[offset + 1] = (value ushr 8).toByte()
