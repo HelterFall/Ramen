@@ -78,6 +78,40 @@ class VisualNovelDetectorTest {
     }
 
     @Test
+    fun detectsBlackCycOpaqueScriptWhenMatchingArchivesExist() {
+        val root = Files.createTempDirectory("ramen-blackcyc-detect").toFile()
+
+        try {
+            File(root, "scenario.spt").writeBytes(byteArrayOf(0x01))
+            File(root, "graphics.gpk").writeBytes(byteArrayOf(0x02))
+            File(root, "graphics.gtb").writeBytes(byteArrayOf(0x03))
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("blackcyc", result.engineId)
+            assertEquals("DETECTED_RESOURCE_PREVIEW", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun sptWithoutMatchingArchivesDoesNotIdentifyBlackCyc() {
+        val root = Files.createTempDirectory("ramen-spt-only-detect").toFile()
+
+        try {
+            File(root, "scenario.spt").writeBytes(byteArrayOf(0x01))
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("unknown", result.engineId)
+            assertEquals("UNKNOWN", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun unknownContentStaysUnknown() {
         val root = Files.createTempDirectory("ramen-unknown-detect").toFile()
 

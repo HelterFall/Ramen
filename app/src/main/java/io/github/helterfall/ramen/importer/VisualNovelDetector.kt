@@ -1,5 +1,6 @@
 package io.github.helterfall.ramen.importer
 
+import io.github.helterfall.ramen.inspection.BlackCycScriptLoader
 import java.io.File
 
 data class GameDetection(
@@ -9,7 +10,9 @@ data class GameDetection(
     val evidence: String
 )
 
-class VisualNovelDetector {
+class VisualNovelDetector(
+    private val blackCycScriptLoader: BlackCycScriptLoader = BlackCycScriptLoader()
+) {
     fun detect(gameDirectory: File): GameDetection {
         if (!gameDirectory.isDirectory) {
             return unknown("The imported directory is unavailable.")
@@ -33,7 +36,7 @@ class VisualNovelDetector {
             return unsupported(
                 engineId = "renpy",
                 engineLabel = "Ren'Py",
-                evidence = "Found a Ren'Py script: $renpyScript"
+                evidence = "Found a Ren'Py script: " + renpyScript
             )
         }
 
@@ -48,8 +51,47 @@ class VisualNovelDetector {
             return unsupported(
                 engineId = "kirikiri",
                 engineLabel = "KiriKiri",
-                evidence = "Found a TJS or XP3 marker: $kirikiriMarker"
+                evidence = "Found a TJS or XP3 marker: " + kirikiriMarker
             )
+        }
+
+        // Black Cyc GPK indexes the matching GPK data file by basename.
+        // Treat .spt as opaque only when this archive pair is present.
+        val gpkBases = files
+            .filter { it.endsWith(".gpk") }
+            .map { it.removeSuffix(".gpk") }
+            .toSet()
+
+        val gtbBases = files
+            .filter { it.endsWith(".gtb") }
+            .map { it.removeSuffix(".gtb") }
+            .toSet()
+
+        val hasMatchingGpkGtbPair =
+            gpkBases.intersect(gtbBases).isNotEmpty()
+
+        if (hasMatchingGpkGtbPair) {
+            val blackCycScript = files.firstNotNullOfOrNull { path ->
+                blackCycScriptLoader.inspect(
+                    entryName = path,
+                    hasMatchingGpkGtbPair = true
+                )
+            }
+
+            if (blackCycScript != null &&
+                blackCycScriptLoader.shouldBypassCommandParser(blackCycScript)
+            ) {
+                return GameDetection(
+                    engineId = "blackcyc",
+                    engineLabel = "Black Cyc",
+                    compatibilityStatus = "DETECTED_RESOURCE_PREVIEW",
+                    evidence =
+                        "Found a .spt entry and a matching-basename GPK/GTB archive pair. " +
+                        "The SPT entry is classified as opaque; application bytecode parsing " +
+                        "is intentionally skipped. Resource preview is available only for " +
+                        "implemented resource formats."
+                )
+            }
         }
 
         val indexHtml = files.firstOrNull { it == "index.html" }
@@ -64,7 +106,7 @@ class VisualNovelDetector {
                 return unsupported(
                     engineId = "tyranoscript",
                     engineLabel = "TyranoScript / HTML5",
-                    evidence = "Found $indexHtml and $tyranoMarker"
+                    evidence = "Found " + indexHtml + " and " + tyranoMarker
                 )
             }
 
