@@ -300,8 +300,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
             while (commandsWithoutVisibleOutput < MAX_SCENE_COMMANDS_PER_ADVANCE) {
                 val commandOffset = nextCommandOffset
-                if (!isValidCommandOffset(currentScript, commandOffset)) {
-                    throw IOException("Command cursor left the validated SPT command region.")
+                if (!isValidCommandCursor(currentScript, commandOffset)) {
+                    throw IOException("Command cursor left the declared SPT main table.")
                 }
 
                 when (val command = currentDecoder.decodeNext(currentScript, commandOffset)) {
