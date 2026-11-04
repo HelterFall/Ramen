@@ -1,3 +1,13 @@
+## 2026-11-05 — Reference-kind comparison and opaque marker diagnostics
+
+- Pool 1 reference kinds 1/2/3 all address the same string-record format. Counts: 37,008 / 125 / 250. Kind 2/3 are clustered in seven modules; simple length and CRLF statistics do not establish their semantics.
+- 0x3333 pattern: 7/6666 → parameter/3333 → [N,0]. Candidate next cell at start + (N+4)*4 contains 0x6666 in 122,992/136,349 cases (90.21%).
+- 0x5556 pattern: 2/6666 → parameter/5556 → raw UInt32. Immediate next cell contains 0x6666 in 10,757/12,300 cases (87.46%).
+- Added read-only scanOpaqueMarkerPatterns(); it reports candidate positions without executing or skipping bytes. Meanings and full command boundaries remain unverified.
+- Synthetic tests cover exact prefixes, candidate offsets, out-of-range N, and the 5556 successor position. CI for this code change is pending.
+
+---
+
 ## 2026-11-05 — Pool 1 references mapped and read-only scanner implemented
 
 - Across all 16 modules with non-empty Pool 1, the three-cell pattern `(6,0x6666) → (kind=1..3,0x2222) → (u32 index)` yields exactly the indices `0..Pool1Count-1` in code-area order, with no gap, duplicate or descent.
