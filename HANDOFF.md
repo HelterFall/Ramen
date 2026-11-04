@@ -16,6 +16,7 @@
 - Этот файл: https://github.com/HelterFall/Ramen/blob/main/HANDOFF.md
 - Слияние PR #27: https://github.com/HelterFall/Ramen/pull/27
 - SPT-заметки: [docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md](docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md)
+- Карта запуска System-NNN и журнал этой работы: [docs/SYSTEM_NNN_LAUNCH_ROADMAP.md](docs/SYSTEM_NNN_LAUNCH_ROADMAP.md)
 - Хронологический журнал: [docs/DEVELOPMENT_LOG.md](docs/DEVELOPMENT_LOG.md)
 - Матрица веток и сборок: [docs/BUILD_MATRIX.md](docs/BUILD_MATRIX.md)
 
@@ -149,6 +150,7 @@ Ramen — Android-first библиотека и плеер визуальных 
 | `docs/INVENTORY_REPORT_SCHEMA.md` | JSON schema v1 для directory inventory |
 | `docs/DEVELOPMENT_LOG.md` | Хронология и долговременные handoff-записи |
 | `docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md` | Наблюдения из присланного SPT анализа |
+| `docs/SYSTEM_NNN_LAUNCH_ROADMAP.md` | Пошаговый план запуска System-NNN, риски, критерии готовности и журнал работ |
 | `docs/ROADMAP.md` | Историческая roadmap; статусы M0–M4 частично устарели |
 
 **При конфликте старых статусов в документах используй этот HANDOFF и проверяй код соответствующей ветки.** Следующий документальный проход должен синхронизировать перечисленные устаревшие страницы.
