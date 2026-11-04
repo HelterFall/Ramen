@@ -190,12 +190,12 @@ class SystemNnnScriptLoaderTest {
         val directory = Files.createTempDirectory("ramen-system-nnn-invalid-signature").toFile()
         try {
             val file = File(directory, "invalid.spt")
-            val decoded = createFixture(
+            val masked = createFixture(
                 primaryRecords = listOf("one".toByteArray(Charsets.US_ASCII)),
                 secondaryRecords = listOf("two".toByteArray(Charsets.US_ASCII))
             )
-            decoded[0x30] = 'X'.code.toByte()
-            file.writeBytes(mask(decoded))
+            masked[0x30] = ('X'.code xor 0xFF).toByte()
+            file.writeBytes(masked)
 
             val failure = runCatching {
                 SystemNnnScriptLoader().load(file)
@@ -213,11 +213,9 @@ class SystemNnnScriptLoaderTest {
         try {
             val file = File(directory, "probe.spt")
             file.writeBytes(
-                mask(
-                    createFixture(
-                        primaryRecords = listOf("one".toByteArray(Charsets.US_ASCII)),
-                        secondaryRecords = listOf("two".toByteArray(Charsets.US_ASCII))
-                    )
+                createFixture(
+                    primaryRecords = listOf("one".toByteArray(Charsets.US_ASCII)),
+                    secondaryRecords = listOf("two".toByteArray(Charsets.US_ASCII))
                 )
             )
 
