@@ -241,6 +241,42 @@ The Kotlin API scanOpaqueMarkerPatterns() now reports only exact-prefix matches 
 
 It does not execute, skip, or decode the surrounding bytes. The 0x3333 continuation offset is reported only when the raw N value is within the observed range 0–20 and its upper word is zero. The 0x5556 scanner inspects the cell immediately after its three-cell shape. Synthetic tests cover both patterns, candidate offsets, an out-of-range 0x3333 value, and rejection of a wrong prefix.
 
+## Third/fourth header descriptors and scene.dat cross-check
+
+### scene.dat structure observed directly
+
+The supplied archive contains a 1,164-byte scene.dat file. Its header fields are:
+- DWORD 0: 1,164 (file size);
+- DWORD 1: version 1;
+- DWORD 2: 69 records.
+
+All 69 records parse exactly to EOF as:
+~~~ 
+[u32 type][u32 valueCount][valueCount × u32 values]
+~~~
+
+Observed type counts: type 10 = 4; 11 = 15; 12 = 14; 13 = 16; 14 = 2; 15 = 14; 18 = 2; type 4 = 2. Observed valueCount distribution: 1 = 28; 2 = 10; 3 = 26; 4 = 1; 5 = 4. No text values were extracted or reproduced.
+
+### Descriptor 3
+
+- Descriptor 3 has different count/base pairs in all 20 SPT files; its count is 69 only in 01.spt.
+- In every one of the 20 samples, the first decoded DWORD at physical file offset 0x40 equals descriptor3.logicalBase + descriptor3.entryCount.
+- The next DWORD at 0x44 varies by module and is not yet mapped.
+- Searching the files for a 4-byte-aligned, strictly increasing UInt32 table beginning with descriptor3.logicalBase + descriptor3.entryCount found **no valid table in any of the 20 files** under the same rule that successfully locates Pool 1 and Pool 2.
+- The fact that 01.spt descriptor 3 count equals scene.dat record count (69) is an interesting one-file correlation, not proof that the descriptor points to scene.dat. The other 19 descriptor counts differ.
+
+This is a new exact cross-field invariant, but descriptor 3 is not yet understood as a third string pool or an address table.
+
+### Descriptor 4
+
+- Descriptor 4 has base 0 in all 20 files; its count ranges from 1 to 20.
+- Because those tables would be very short, searching for short monotonic DWORD sequences produces many incidental matches. No unique descriptor-4 table location was established.
+- No relationship between descriptor 4 and the 0x5555/0x4444 marker pair has been proven.
+
+### No direct scene.dat-to-marker mapping yet
+
+A simple equality comparison between scene.dat record type/valueCount fields and the 0x3333/0x5556 marker parameters does not establish a one-to-one mapping. Keep the structures separate until an offset/index path is shown at the byte level.
+
 ## What this proves — and what it does not
 
 **Supported by the supplied bytes:**
