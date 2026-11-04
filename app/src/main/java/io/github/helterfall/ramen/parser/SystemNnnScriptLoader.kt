@@ -234,10 +234,17 @@ class SystemNnnScript internal constructor(
             val markerParameter = secondCell.toInt() and 0xFFFF
             val familyMarker = (secondCell shr 16).toInt() and 0xFFFF
 
-            val candidateCellOffset = when {
+            val matches3333 =
                 firstParameter == OPAQUE_3333_PREFIX_PARAMETER &&
                     firstMarker == POOL1_REFERENCE_PREFIX_MARKER &&
-                    familyMarker == OPAQUE_3333_MARKER -> {
+                    familyMarker == OPAQUE_3333_MARKER
+            val matches5556 =
+                firstParameter == OPAQUE_5556_PREFIX_PARAMETER &&
+                    firstMarker == POOL1_REFERENCE_PREFIX_MARKER &&
+                    familyMarker == OPAQUE_5556_MARKER
+
+            val candidateCellOffset = when {
+                matches3333 -> {
                     val extent = followingWord.toInt() and 0xFFFF
                     val upperWord = (followingWord shr 16).toInt() and 0xFFFF
                     if (upperWord == 0 && extent in MIN_OPAQUE_3333_EXTENT..MAX_OPAQUE_3333_EXTENT) {
@@ -247,16 +254,11 @@ class SystemNnnScript internal constructor(
                     }
                 }
 
-                firstParameter == OPAQUE_5556_PREFIX_PARAMETER &&
-                    firstMarker == POOL1_REFERENCE_PREFIX_MARKER &&
-                    familyMarker == OPAQUE_5556_MARKER -> {
-                    cellOffset + OPAQUE_5556_NEXT_CELL_BIAS * COMMAND_CELL_BYTES
-                }
-
+                matches5556 -> cellOffset + OPAQUE_5556_NEXT_CELL_BIAS * COMMAND_CELL_BYTES
                 else -> null
             }
 
-            if (familyMarker == OPAQUE_3333_MARKER || familyMarker == OPAQUE_5556_MARKER) {
+            if (matches3333 || matches5556) {
                 val absoluteCandidateOffset = candidateCellOffset
                     ?.takeIf { it <= commandBytes.size - COMMAND_CELL_BYTES }
                 val candidateMarker = absoluteCandidateOffset?.let {
