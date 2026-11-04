@@ -654,4 +654,13 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - The 01.spt count match (69 == scene.dat record count 69) is one sample correlation only.
 - A direct mapping from scene.dat types/value counts to 0x3333/0x5556 parameters was not established.
 - Next: investigate the repeated DWORD at 0x40 and the second DWORD at 0x44 as a pair, and test any proposed target against the physical bytes before assigning descriptor 3 semantics.
+## 2026-11-05 — WGQ image gating, partial-runtime status and CI #351
 
+- Target remains *Gore Screaming Show*, cleaned Steam build only. No NSFW materials or extracted commercial game data were added.
+- Added a bounded header-only probe for standalone WGQ files. The probe checks the supported Black Cyc packed-BMP header and basic BMP dimensions/ranges; full pixel decoding remains deferred until display.
+- SystemNnnGpkBitmapRepository still supports indexed WGQ + GTB pairs and valid standalone Black Cyc WGQ images. If a WGQ folder contains no supported image candidates, it no longer blocks discovery of GPK/GTB pairs elsewhere (including a sibling dwq/ folder).
+- Added a regression test with an OggS-like payload behind a 64-byte prefix and a valid sibling GPK/GTB pair. Existing valid standalone-WGQ coverage remains in place.
+- Updated System-NNN compatibility wording: the player is experimental and only a subset of commands is implemented; unknown commands continue to fail explicitly.
+- Android CI [#351](https://github.com/HelterFall/Ramen/actions/runs/41902266343) passed on f0287ab6411429aca0f0c7a62d07304aeaf88f29: assembleDebug, unit tests, lint and debug APK upload. Artifact ID 13359326663, 11,690,600 bytes, SHA-256 c82df8279fde8ac99fd3de8331aa5babad91bc19cc2e00580c639b307c8151a6.
+- Remaining: validate WGQ classification against actual headers from the user's cleaned package; multi-GPK/GTB and multi-VPK/VTB routing; real SPT entrypoint and module transitions; voice/BGM mapping; physical Android playback.
+- No change to main and no merge. CI is not a device-compatibility claim.
