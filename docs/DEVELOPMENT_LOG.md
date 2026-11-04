@@ -599,3 +599,11 @@ At the individual-record level, compare the data words after each `0x2222` pair 
 ### Next
 Determine whether reference kinds 1/2/3 distinguish record classes by structural metadata only, without rendering/extracting scenario text. In parallel, examine the next confirmed reference family without enabling execution.
 
+## 2026-11-05 — CI #312 validates the Pool 1 reference scanner
+
+- Android CI run [#312](https://github.com/HelterFall/Ramen/actions/runs/41853132716) completed successfully on code-bearing head `102e81f53c867d4d43a9dadb5d2d447dd6d98db4`.
+- `assembleDebug`, `testDebugUnitTest`, `lintDebug`, and debug APK artifact upload all passed.
+- Artifact `ramen-debug-apk`: 11,649,256 bytes; SHA-256 `e5f9fd923b20ee8f2906d1b897ed198244304738b2ac7d4db060a5b838f782b7`.
+- This run includes the Kotlin Pool 1 reference scanner and its synthetic unit tests. Later documentation-only updates do not change that code.
+- No physical-device installation or game-playback test has been performed.
+
