@@ -265,7 +265,7 @@ fun RamenApp() {
                             context = context,
                             relativeDirectory = game.relativeDirectory
                         )
-                        val report = DirectoryInventoryScanner().scanStructure(root)
+                        val report = DirectoryInventoryScanner().scanStructure(root).copy(rootName = game.title)
                         val output = context.contentResolver.openOutputStream(uri)
                             ?: throw IOException("Android could not open the selected report file.")
                         output.use {
