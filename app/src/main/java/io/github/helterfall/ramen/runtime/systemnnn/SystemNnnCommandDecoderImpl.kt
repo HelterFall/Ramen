@@ -110,7 +110,8 @@ class SystemNnnCommandDecoderImpl(
             CODE_CONTROL_ENDKOMA,
             CODE_CONTROL_ENDIF -> SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
 
-            CODE_CONTROL_END -> SystemNnnDecodedCommand.End
+            CODE_CONTROL_END,
+            CODE_CONTROL_ENDFILM -> SystemNnnDecodedCommand.End
 
             else -> throw unsupportedRecord(record)
         }
