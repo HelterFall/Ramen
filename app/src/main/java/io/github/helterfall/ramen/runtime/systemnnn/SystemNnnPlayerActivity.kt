@@ -72,11 +72,12 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                         resolverToTransfer.close()
                         preparedAudio?.repository?.close()
                     } else {
+                        // The SPT pools are now parsed from their real address tables,
+                        // but VM command semantics are not verified yet. Do not run the old
+                        // UInt32/sequential-dialogue guess as if it were a real interpreter.
                         playerViewModel.start(
                             script = script,
-                            commandDecoder = SystemNnnCommandDecoderImpl(
-                                gtbResourceCount = resolverToTransfer.resourceCount
-                            ),
+                            commandDecoder = null,
                             assetResolver = resolverToTransfer,
                             audioRepository = preparedAudio?.repository
                         )
