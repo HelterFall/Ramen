@@ -307,3 +307,22 @@ The `dwq`, `cdvaw`, and `wgq` folders are at the same root level. Do not treat t
 
 ### Next user input
 Open `Download/Gore Screaming Show/spt/` and send a screenshot of the filenames and sizes. The directory contains 30 objects, and we need to identify the candidate scripts before altering the SPT loader or choosing the startup script.
+
+
+## 2026-11-04 — SPT directory screenshot inventory
+
+User screenshots show the path `Download/Gore Screaming Show/spt/` in the breadcrumb on all three images.
+
+Visible SPT files and sizes:
+`_staff.spt` 5.88 KB; `01.spt` 390 KB; `02.spt` 327 KB; `03.spt` 812 KB; `04.spt` 268 KB; `05.spt` 237 KB; `06.spt` 52.37 KB; `07.spt` 245 KB; `08.spt` 90.73 KB; `082.spt` 449 KB; `akane.spt` 1.54 MB; `aoi.spt` 1.30 MB; `backspt.spt` 147 KB; `day.spt` 23.49 KB; `kiika.spt` 1.52 MB; `op1.spt` 90.12 KB; `sys.spt` 1.88 KB; `yamiko.spt` 1.11 MB; `yuka.spt` 1.00 MB; `yuka2.spt` 184 KB.
+
+Visible sidecar/configuration files:
+`bgmlist.xtx` 1.51 KB; `cglist01.xtx` 5.43 KB; `charaname.xtx` 0.96 KB; `command.xtx` 4 B; `function.xtx` 79 B; `namecol.xtx` 0 B; `project.xtx` 109 B; `scene.dat` 1.16 KB; `selist.xtx` 5.27 KB; `var.fxf` 3.47 KB.
+
+The folder UI reports 30 objects. The list above is the set of readable names from the screenshots; it may not include rows hidden between screenshots or outside the captured area.
+
+Key observation: 01.spt is shown as 390 KB, close to the previously analysed sample reported as 389,500 bytes. This is a strong candidate match, but no checksum or binary comparison has established identity.
+
+The presence of multiple numbered and named SPT files means the runtime must not assume that the whole game is represented by 01.spt alone. The small XTX/DAT files may hold project tables or configuration, but their roles are not proven from filenames alone.
+
+No code changed. Next diagnostic sample should be spt/01.spt plus the small sidecar files project.xtx, command.xtx, bgmlist.xtx, cglist01.xtx, charaname.xtx, selist.xtx, and scene.dat. Start with headers, tables and references; do not infer command meanings from names.
