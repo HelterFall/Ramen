@@ -4,6 +4,7 @@
 
 - **Тестовая цель:** Gore Screaming Show, только очищенная сборка с вырезанным NSFW-контентом. Не добавлять в репозиторий бинарники игры или извлечённые тексты.
 - **Текущая рабочая ветка:** `docs/system-nnn-launch-roadmap`; [PR #28](https://github.com/HelterFall/Ramen/pull/28) открыт как draft, не слит в `main`.
+- **Latest code validation:** [Android CI #312](https://github.com/HelterFall/Ramen/actions/runs/41853132716) passed on code-bearing PR head `102e81f53c867d4d43a9dadb5d2d447dd6d98db4`: assembleDebug, unit tests, lint and APK upload all succeeded. Artifact `ramen-debug-apk`: 11,649,256 bytes; SHA-256 `e5f9fd923b20ee8f2906d1b897ed198244304738b2ac7d4db060a5b838f782b7`. No physical-device gameplay test has been performed.
 - **Последний кодовый CI:** [#301](https://github.com/HelterFall/Ramen/actions/runs/41847591081) — сборка, unit tests, lint и APK artifact прошли. Физическая проверка игры не выполнялась.
 - **SPT loader:** PR #28 содержит валидацию двух индексированных пулов по 20 пользовательским модулям; Pool 1 может быть пустым; прежний спекулятивный декодер отключён.
 - **Новое исследование командной области:** см. [SYSTEM_NNN_COMMAND_MAP_NOTES.md](docs/SYSTEM_NNN_COMMAND_MAP_NOTES.md). Подтверждены четыре точные соседние пары маркеров на всех 20 модулях и равенство Pool 1 count числу `0x2222` ячеек с параметром 1–3. Это структурные инварианты, не семантика команд.
