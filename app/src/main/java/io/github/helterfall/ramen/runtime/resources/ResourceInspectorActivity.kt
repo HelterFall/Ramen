@@ -58,6 +58,7 @@ import io.github.helterfall.ramen.inspection.VpkAudioResource
 import io.github.helterfall.ramen.inspection.VpkOggCacheMaterializer
 import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
 import io.github.helterfall.ramen.storage.StorageSpaceGuard
+import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
 
 import io.github.helterfall.ramen.inspection.VpkVtbArchiveParser
 import java.io.File
@@ -85,7 +86,8 @@ private enum class ResourcePairKind(
 
 private enum class ResourceTab {
     IMAGES,
-    AUDIO
+    AUDIO,
+    TEXT
 }
 
 private data class SelectedDocument(
@@ -127,6 +129,29 @@ private data class AudioInspectorState(
     val archiveName: String? = null
 )
 
+private data class TextPoolMetadata(
+    val name: String,
+    val recordCount: Int,
+    val decodingErrorCount: Int,
+    val rawBytes: Long,
+    val addressTableOffset: Long?,
+    val dataOffset: Long?,
+    val endOffset: Long?
+)
+
+private data class TextModuleMetadata(
+    val name: String,
+    val fileSizeBytes: Long,
+    val commandBytes: Int,
+    val pools: List<TextPoolMetadata>,
+    val scanError: String? = null
+)
+
+private data class TextInspectorState(
+    val modules: List<TextModuleMetadata> = emptyList(),
+    val message: String = "Открой инспектор из импортированной игры, чтобы просмотреть структуру SPT."
+)
+
 /**
  * Diagnostic resource browser for the sample-backed GPK/GTB and VPK/VTB formats.
  *
@@ -143,6 +168,7 @@ class ResourceInspectorActivity : ComponentActivity() {
 
     private val imageState = mutableStateOf(ImageInspectorState())
     private val audioState = mutableStateOf(AudioInspectorState())
+    private val textState = mutableStateOf(TextInspectorState())
     private val discoveredPairsState = mutableStateOf<List<ResourceArchivePair>>(emptyList())
     private val sourceFolderMessageState = mutableStateOf<String?>(null)
 
@@ -153,6 +179,7 @@ class ResourceInspectorActivity : ComponentActivity() {
             ResourceInspectorScreen(
                 imageState = imageState.value,
                 audioState = audioState.value,
+                textState = textState.value,
                 discoveredPairs = discoveredPairsState.value,
                 sourceFolderMessage = sourceFolderMessageState.value,
                 onBack = { finish() },
@@ -246,17 +273,34 @@ class ResourceInspectorActivity : ComponentActivity() {
                 }
 
                 val pairs = discoverResourcePairs(gameRoot)
+                val textModules = discoverScriptModules(gameRoot)
                 runOnUiThread {
                     discoveredPairsState.value = pairs
-                    sourceFolderMessageState.value = if (pairs.isEmpty()) {
-                        "В импортированной папке не найдены пары GPK/GTB или VPK/VTB."
-                    } else {
-                        "Найдено пар ресурсов: ${pairs.size}. Выбери нужную пару ниже."
+                    textState.value = TextInspectorState(
+                        modules = textModules,
+                        message = if (textModules.isEmpty()) {
+                            "В импортированной папке не найдены корректные SPT-модули."
+                        } else {
+                            "Найдено SPT-модулей: ${textModules.size}. Ниже показана структура пулов без текста сценария."
+                        }
+                    )
+                    sourceFolderMessageState.value = when {
+                        pairs.isNotEmpty() && textModules.isNotEmpty() ->
+                            "Найдено пар ресурсов: ${pairs.size}; SPT-модулей: ${textModules.size}."
+                        pairs.isNotEmpty() ->
+                            "Найдено пар ресурсов: ${pairs.size}. Выбери нужную пару ниже."
+                        textModules.isNotEmpty() ->
+                            "Пары GPK/GTB и VPK/VTB не найдены; SPT-модулей: ${textModules.size}."
+                        else ->
+                            "В импортированной папке не найдены пары ресурсов или корректные SPT-модули."
                     }
                 }
             } catch (error: Exception) {
                 runOnUiThread {
                     discoveredPairsState.value = emptyList()
+                    textState.value = TextInspectorState(
+                        message = error.message ?: "Не удалось просканировать SPT-модули."
+                    )
                     sourceFolderMessageState.value =
                         error.message ?: "Не удалось просканировать папку игры."
                 }
@@ -276,6 +320,50 @@ class ResourceInspectorActivity : ComponentActivity() {
                 displayName = discovered.relativePath
             )
         }
+
+    /**
+     * Builds a metadata-only inventory of the SPT pools for the Text Data tab.
+     * Scenario strings are not copied into UI state or rendered.
+     */
+    private fun discoverScriptModules(root: File): List<TextModuleMetadata> =
+        root.walkTopDown()
+            .maxDepth(MAX_SCRIPT_SCAN_DEPTH)
+            .filter { file ->
+                file.isFile && file.extension.equals("spt", ignoreCase = true)
+            }
+            .take(MAX_DISCOVERED_SCRIPTS)
+            .map { file ->
+                val relativeName = file.relativeTo(root).invariantSeparatorsPath
+                try {
+                    val script = SystemNnnScriptLoader().load(file)
+                    TextModuleMetadata(
+                        name = relativeName,
+                        fileSizeBytes = script.fileSizeBytes,
+                        commandBytes = script.commandByteCount,
+                        pools = script.stringPools.map { pool ->
+                            TextPoolMetadata(
+                                name = pool.name,
+                                recordCount = pool.entries.size,
+                                decodingErrorCount = pool.entries.count { it.hasDecodingErrors },
+                                rawBytes = pool.entries.sumOf { it.rawBytes.size.toLong() },
+                                addressTableOffset = pool.addressTableOffset,
+                                dataOffset = pool.dataOffset,
+                                endOffset = pool.endOffset
+                            )
+                        }
+                    )
+                } catch (error: Exception) {
+                    TextModuleMetadata(
+                        name = relativeName,
+                        fileSizeBytes = file.length(),
+                        commandBytes = 0,
+                        pools = emptyList(),
+                        scanError = error.message ?: "Не удалось прочитать SPT."
+                    )
+                }
+            }
+            .toList()
+            .sortedBy(TextModuleMetadata::name)
 
     private fun loadImportedPair(pair: ResourceArchivePair) {
         if (pair.kind == ResourcePairKind.AUDIO) stopPlayback()
@@ -749,6 +837,8 @@ class ResourceInspectorActivity : ComponentActivity() {
             "io.github.helterfall.ramen.extra.GAME_RELATIVE_DIRECTORY"
 
         private const val COPY_BUFFER_BYTES = 64 * 1024
+        private const val MAX_SCRIPT_SCAN_DEPTH = 12
+        private const val MAX_DISCOVERED_SCRIPTS = 10_000
     }
 }
 
@@ -756,6 +846,7 @@ class ResourceInspectorActivity : ComponentActivity() {
 private fun ResourceInspectorScreen(
     imageState: ImageInspectorState,
     audioState: AudioInspectorState,
+    textState: TextInspectorState,
     discoveredPairs: List<ResourceArchivePair>,
     sourceFolderMessage: String?,
     onBack: () -> Unit,
@@ -820,7 +911,7 @@ private fun ResourceInspectorScreen(
                         letterSpacing = 1.sp
                     )
                     Text(
-                        "GPK · GTB · VPK · VTB",
+                        "GPK · GTB · VPK · VTB · SPT",
                         color = InspectorMuted,
                         fontSize = 10.sp
                     )
@@ -922,6 +1013,22 @@ private fun ResourceInspectorScreen(
                     }
                 }
             }
+            Spacer(Modifier.height(7.dp))
+            if (selectedTab == ResourceTab.TEXT) {
+                Button(
+                    onClick = { selectedTab = ResourceTab.TEXT },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Текстовые данные · ${textState.modules.size}")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { selectedTab = ResourceTab.TEXT },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Текстовые данные · ${textState.modules.size}")
+                }
+            }
 
             Spacer(Modifier.height(10.dp))
             when (selectedTab) {
@@ -970,6 +1077,102 @@ private fun ResourceInspectorScreen(
                                 subtitle = "${item.sampleRateHz} Гц · ${item.channels} ch · ${item.bitsPerSample} bit · ${item.oggPageCount} Ogg-стр.",
                                 selected = audioState.selected?.name == item.name,
                                 onClick = { onPlayAudio(item) }
+                            )
+                        }
+                    }
+                }
+                ResourceTab.TEXT -> TextMetadataPanel(textState)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TextMetadataPanel(state: TextInspectorState) {
+    val poolCount = state.modules.sumOf { it.pools.size }
+    val recordCount = state.modules.sumOf { module -> module.pools.sumOf { it.recordCount } }
+    val decodingErrors = state.modules.sumOf { module ->
+        module.pools.sumOf { it.decodingErrorCount }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = InspectorSurface),
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    "СТРУКТУРА ТЕКСТОВЫХ ДАННЫХ",
+                    color = InspectorAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    state.message,
+                    color = InspectorText,
+                    fontSize = 12.sp
+                )
+                Text(
+                    "Модулей: ${state.modules.size} · пулов: $poolCount · записей: $recordCount · ошибок кодировки: $decodingErrors",
+                    color = InspectorMuted,
+                    fontSize = 10.sp
+                )
+                Text(
+                    "Показываются смещения, размеры и статус кодировки. Содержимое сценарных строк не выводится.",
+                    color = InspectorMuted,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp
+                )
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            itemsIndexed(state.modules, key = { _, module -> module.name }) { _, module ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = InspectorSurface),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            module.name,
+                            color = InspectorText,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            "Файл: ${formatBytes(module.fileSizeBytes)} · область команд: ${formatBytes(module.commandBytes.toLong())}",
+                            color = InspectorMuted,
+                            fontSize = 10.sp
+                        )
+                        if (module.scanError != null) {
+                            Text(
+                                "Ошибка разбора: ${module.scanError}",
+                                color = Color(0xFFFF8A80),
+                                fontSize = 10.sp
+                            )
+                        }
+                        module.pools.forEach { pool ->
+                            Text(
+                                "${pool.name}: ${pool.recordCount} записей · ${formatBytes(pool.rawBytes)} · ошибок кодировки: ${pool.decodingErrorCount}",
+                                color = InspectorText,
+                                fontSize = 10.sp
+                            )
+                            Text(
+                                "Таблица ${pool.addressTableOffset?.let { "0x" + it.toString(16).uppercase(Locale.ROOT) } ?: "—"} · данные ${pool.dataOffset?.let { "0x" + it.toString(16).uppercase(Locale.ROOT) } ?: "—"} · конец ${pool.endOffset?.let { "0x" + it.toString(16).uppercase(Locale.ROOT) } ?: "—"}",
+                                color = InspectorMuted,
+                                fontSize = 9.sp
                             )
                         }
                     }
