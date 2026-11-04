@@ -510,3 +510,22 @@ Map instruction boundaries and opcode/operand semantics using the real SPT sampl
 
 ### Next
 Create a read-only command map for SPT code regions and their references to both logical string pools and other modules. Identify opcode/operand layout across multiple scenarios before implementing VM execution.
+
+
+## 2026-11-04 — Initial candidate-command map across all SPT modules
+
+Scanned the candidate code region in all 20 user-supplied SPT files: from physical offset 0x40 to the first physical pool address table (Pool 2 table for scripts with empty Pool 1). Viewed 4-byte-aligned cells as `UInt16 parameter + UInt16 candidate opcode`, using the candidate marker set from independent NNNLib notes: 0x6666, 0x5555, 0x5556, 0x3333, 0x2222, 0x4444, 0x8000, 0x9000, 0xA000 and 0xA500.
+
+Important universal pattern:
+- In all 20 modules, every `(parameter=7, secondUInt16=0x6666)` cell is immediately followed by a cell whose second UInt16 is `0x3333`.
+- The number of these adjacent pairs exactly equals the total number of `0x3333` cells in each file.
+- This holds in ordinary modules and in sys/day/_staff/backspt.
+
+Partial correlation:
+- `(parameter=1, secondUInt16=0x2222)` count equals Pool 1 entryCount in 9 of the 16 scripts with nonempty Pool 1: 01, 03, 06, 08, 082, kiika, op1, yuka, yuka2.
+- The seven nonempty Pool 1 exceptions are 02, 04, 05, 07, akane, aoi, yamiko. Empty Pool 1 modules also have zero such cells.
+- This is not universal enough to be an implementation rule.
+
+Candidate marker hits in the scanned 4-byte cells range from 26.7% to 58.1% by module. In 01.spt, 17,078 of 50,602 cells (33.7%) have one of the candidate marker values; in sys.spt, 240 of 413 (58.1%). Therefore, the whole region cannot be treated as a proven flat instruction array. Some cells may be operands, embedded data, padding or other structures.
+
+No opcode meanings were assigned, and the VM decoder remains disabled. This session made no interpreter code changes. Next diagnostic: export per-cell offsets/params/candidate markers internally, map repeated 0x6666/7 → 0x3333 groups, correlate 0x2222/1 with Pool 1 address tables, and compare across sys/backspt/numbered/character modules before implementing execution.
