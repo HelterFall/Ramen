@@ -1,10 +1,18 @@
+## 2026-11-05 — module-name reference negative control
+
+- Refined the 511 module-name hits: all seven record codes that reference module-name strings also reference ordinary non-module Pool 2 entries in much greater numbers (33,348 other targets vs 511 module-name targets). Counts by code are now in SYSTEM_NNN_COMMAND_MAP_NOTES.md.
+- The 15 same-index 0x3333/0x1A and 0x3333/0x1B references in each source script are never in the same film interval. In 13 cases id1B is physically earlier and in two cases later; therefore do not describe them as local pairs or a paired call sequence.
+- For code 0x3333/0x1A, all 948 records (module-name and non-module targets alike) are followed by 0x5556/0x000C. The shared context is not a unique module-dispatch signature.
+- Updated wording to preserve the result as exact module-name cross-references only. No opcode semantics, module calls, or boot transitions were inferred or implemented.
+
+---
 ## 2026-11-05 — film interval envelope and candidate module-name references
 
 - Reused the already documented project catalog, descriptor-3 vector validation, Pool 1 scan, and command record map; no earlier scans were repeated.
 - Across the 19 modules with ordinary films, all 948 film intervals show an exact structural envelope: 0x3333/0x50 at the descriptor-3 target, one adjacent 0x3333/0x52 record exactly +20 bytes later, one 0x3333/0x1A near the end of the interval, then 0x5556/0x0C immediately after it.
 - All three function records have length 5 DWORDs. The preceding record before 0x3333/0x1A is 0x5556/0x0E in 884/948 cases; the remaining 64 cases have other raw record codes.
 - A bounded [1, Pool2Index] scan found 511 references to strings that exactly match a module name from project.xtx. Counts and source/target pairs are in SYSTEM_NNN_COMMAND_MAP_NOTES.md.
-- All 15 0x3333/0x1A references to module-name tokens have exactly one matching 0x3333/0x1B reference to the same Pool 2 indices in the same source module. The 123 0x2222/0x0004 module-name references are repeated within several story modules.
+- Each of the 15 0x3333/0x1A module-name references has one same-index 0x3333/0x1B reference in the same source module, but these records are never in the same film interval (13 id1B records occur earlier; 2 later). They are not adjacent or proven call pairs. All seven opcodes also reference many non-module Pool 2 strings; see the negative-control table in SYSTEM_NNN_COMMAND_MAP_NOTES.md.
 - Another public NNNLib analysis from different titles describes Pool 2 as including script jump-target names and calls out sys/backscript as system UI there. This is supporting family-level evidence only, not an opcode specification for this title.
 - Updated filmStartOffset() to require each ordinary film pointer target to be a five-DWORD 0x3333/0x50 record followed immediately by a five-DWORD 0x3333/0x52 record. CI #362 passed on the exact code commit before this documentation refresh.
 - No semantics are assigned to 0x3333/0x1A, 0x3333/0x1B, 0x3333/0x52, or 0x2222/0x0004; no transitions are implemented. The next step is to compare these references with non-module Pool 2 targets and prove the system boot dispatch.

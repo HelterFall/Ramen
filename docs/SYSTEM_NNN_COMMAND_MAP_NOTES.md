@@ -389,7 +389,7 @@ It found **511** candidate module-name references:
 | type 7, 0x3333/0x0053 | 13 |
 | **Total** | **511** |
 
-The 15 0x3333/0x001A references to module-name tokens are paired one-to-one with 15 0x3333/0x001B records in the same source module using the same Pool 2 index. The distinct source-to-target pairs are:
+For each of the 15 0x3333/0x001A references to a module-name token, exactly one 0x3333/0x001B record in the same source module references the same Pool 2 index. These are not local or adjacent pairs: all 15 corresponding 0x001B records lie in a different ordinary-film interval; in 13 cases 0x001B occurs earlier in the file and in two cases it occurs later. The relation is a repeated same-index reference, not evidence of a paired call. The distinct source-to-target pairs are:
 
 - 01 → yuka
 - 03 → yamiko and _staff
@@ -416,3 +416,26 @@ Those are different games and extraction tools, not an opcode specification for 
 ### Next validation
 
 Compare the payload and control-flow context of module-name references against the same opcodes that point to ordinary Pool 2 labels. Resolve the sys/backspt system UI path only when a concrete dispatch target is proven. No module-navigation behavior is enabled by these findings.
+
+### Module-name references versus ordinary Pool 2 references — negative control
+
+The same exact [1, Pool2Index] payload shape under every one of the seven record codes above also references many Pool 2 entries that are not project module names. The split is:
+
+| Record identifier | Module-name targets | Other Pool 2 targets |
+|---|---:|---:|
+| type 6, 0x2222/0x0001 | 1 | 15 |
+| type 6, 0x2222/0x0004 | 123 | 1,983 |
+| type 7, 0x3333/0x0007 | 34 | 452 |
+| type 7, 0x3333/0x0014 | 310 | 5,149 |
+| type 7, 0x3333/0x001A | 15 | 933 |
+| type 7, 0x3333/0x001B | 15 | 24,779 |
+| type 7, 0x3333/0x0053 | 13 | 37 |
+| **Total** | **511** | **33,348** |
+
+This is a useful negative control: none of these record codes is exclusive to module-name targets. For example, 0x3333/0x001A occurs once per ordinary film interval and is followed by 0x5556/0x000C whether its Pool 2 target is a module name or any other Pool 2 entry. The 15 module-name targets are therefore not enough to call that record a module transfer.
+
+The record-neighbour distributions also overlap for module-name and other Pool 2 targets. For 0x2222/0x0004, the next record is 0x5556/0x000E in 74/123 module-name cases and 1,544/1,983 other-target cases; 0x3333/0x001B likewise has ordinary 0x2222 and 0x3333 successors among both categories. No unique control-flow signature was established.
+
+Finally, the 15 same-index 0x001B references are all in a different ordinary-film interval from their matching 0x001A reference. Their relative order is 13 earlier and 2 later. This explicitly rules out describing the pair as an adjacent command sequence in the current evidence.
+
+Conclusion: retain these as exact Pool 2 cross-references to module-name strings. Until a branch/dispatch target is resolved from the VM's actual control-flow fields, do not enable module navigation or classify these opcodes as calls.
