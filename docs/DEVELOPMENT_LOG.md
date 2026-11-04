@@ -540,3 +540,40 @@ No opcode meanings were assigned, and the VM decoder remains disabled. This sess
 - Не потерять пользовательские требования: сохранить Resource Inspector и рабочие GPK+GTB / VPK+VTB проверки; не возвращать искусственный лимит 512; не ломать импорт ZIP/папки; перед реальной проверкой выдавать APK из Actions. Пользователь тестирует на Android-телефоне и не работает с полноценной desktop-средой.
 - PR #28 не сливать без отдельного решения пользователя. Успешный CI не равен подтверждённому запуску игры.
 
+## 2026-11-05 — SPT command-area map across all 20 modules
+
+### Reproducible input
+- Analyzed user-provided `hui(1).zip`: 1,969,339 bytes, SHA-256 `20a06b948bfb7d5c0fb5b2fc6a02396161c29e8959d1743599f81de3fea93509`; ZIP CRC check passed.
+- 20 SPT modules were demasked with XOR 0xFF. The command scan ended at the first physical address table located by the validated two-pool parser.
+- Scan used 4-byte aligned cells, shown diagnostically as `[u16 parameter][u16 candidate marker]`. No strings/dialogue text were exported or copied.
+- Independent System-NNN reference for a different title supports this 4-byte cell shape and the candidate marker set, but its game-specific semantics were not assumed for this title.
+
+### Aggregate observations
+- 1,172,604 aligned cells scanned.
+- 395,677 cells had one of ten candidate marker values (33.74% overall); per-module density ranged 26.69%–58.11%.
+- Marker totals: 0x6666=196,525; 0x3333=136,349; 0x2222=46,324; 0x5556=12,300; 0xA000=2,099; 0x8000=921; 0x9000=560; 0xA500=431; 0x5555=84; 0x4444=84.
+
+### Exact adjacent-cell families found in every module
+- `(7, 0x6666) -> (*, 0x3333)`: 136,349 pairs; equals every 0x3333 cell.
+- `(6, 0x6666) -> (*, 0x2222)`: 46,324 pairs; equals every 0x2222 cell.
+- `(2, 0x6666) -> (*, 0x5556)`: 12,300 pairs; equals every 0x5556 cell.
+- `(1, 0x6666) -> (2, 0x5555)`: 84 pairs; equals every 0x5555 cell. Each is followed by a 0x4444 cell.
+- Secondary observation: `(2, 0x6666) -> (*, 0xA000)` occurs 1,188 times; the second cell parameter is 123 in 594 cases and 125 in 594 cases. No meaning assigned.
+
+### New Pool 1 correlation
+For **all 20 modules**, including empty-Pool-1 modules:
+- Pool 1 record count = count of 0x2222 cells with parameter 1, 2 or 3.
+- Both totals are exactly **37,383** across the package.
+- The remaining 8,941 0x2222 cells have parameters 4, 5 or 6 and are not included in this equality.
+
+This is an unusually strong structural correlation and a lead for resolving Pool 1 references. It does not yet prove individual command-to-record mapping or command semantics.
+
+### Code / CI state
+- No Kotlin code or tests changed; this pass is read-only analysis/documentation.
+- No new CI was run because the changes are documentation-only.
+- Command semantics, operand widths, branching, resource/audio mapping and entrypoint remain unknown. The VM decoder stays disabled.
+- Detailed per-module offsets and counts are in [SYSTEM_NNN_COMMAND_MAP_NOTES.md](SYSTEM_NNN_COMMAND_MAP_NOTES.md).
+
+### Next
+At the individual-record level, compare the data words after each `0x2222` pair with Pool 1 logical addresses and indexes across all 20 modules. Keep this as a read-only diagnostic until a deterministic mapping is proven.
+
