@@ -147,6 +147,69 @@ class SystemNnnCommandStreamReaderTest {
         assertEquals(null, SystemNnnCodeFamily.fromCode(0x12340001u))
     }
 
+
+    @Test
+    fun resolvesFilmEntryThroughTheThirdAndFourthHeaderDescriptors() {
+        val script = filmTableScript(
+            targetWordOffsets = listOf(0x1Au, 0x1Du)
+        )
+
+        val reader = SystemNnnCommandStreamReader()
+
+        assertEquals(0x68L, reader.filmStartOffset(script, 0))
+        assertEquals(0x74L, reader.filmStartOffset(script, 1))
+    }
+
+    @Test
+    fun rejectsFilmEntriesOutsideTheDeclaredFilmTable() {
+        val script = filmTableScript(
+            targetWordOffsets = listOf(0x1Au, 0x1Du)
+        )
+
+        assertThrows(IOException::class.java) {
+            SystemNnnCommandStreamReader().filmStartOffset(script, 2)
+        }
+    }
+
+    @Test
+    fun rejectsFilmEntriesThatPointIntoARecordPayload() {
+        val script = filmTableScript(
+            targetWordOffsets = listOf(0x19u, 0x1Du)
+        )
+
+        assertThrows(IOException::class.java) {
+            SystemNnnCommandStreamReader().filmStartOffset(script, 0)
+        }
+    }
+
+    private fun filmTableScript(targetWordOffsets: List<UInt>): SystemNnnScript {
+        val payload = listOf(0xFFFFFFFFu) + targetWordOffsets
+        val dataRecord = listOf(6u, 0x66660001u, 0x55550002u) + payload
+        val firstCommand = listOf(3u, 0x66660002u, 0x55560001u)
+        val secondCommand = listOf(3u, 0x66660002u, 0x55560001u)
+        val words = listOf(0u, 0u, 0u, 0u) +
+            dataRecord + firstCommand + secondCommand +
+            listOf(0u, 0u, 0u, 0u)
+        val bytes = ByteArray(words.size * 4)
+        words.forEachIndexed { index, word -> putUInt32(bytes, index * 4, word) }
+
+        return SystemNnnScript(
+            fileSizeBytes = 0x40L + bytes.size,
+            firstHeaderWord = 0u,
+            offsetTables = listOf(
+                SystemNnnOffsetTable("main", 0u, 0u),
+                SystemNnnOffsetTable("secondary", 0u, 0u),
+                SystemNnnOffsetTable("tertiary", 3u, 0x17u),
+                SystemNnnOffsetTable("auxiliary", 1u, 0u)
+            ),
+            commandStartOffset = 0x40L,
+            commandEndOffset = 0x40L + bytes.size,
+            textPoolOffset = 0x40L + bytes.size,
+            textPool = emptyList(),
+            commandBytes = bytes
+        )
+    }
+
     private fun scriptOf(
         preamble: List<UInt> = listOf(0u, 0u, 0u, 0u),
         records: List<List<UInt>>,
