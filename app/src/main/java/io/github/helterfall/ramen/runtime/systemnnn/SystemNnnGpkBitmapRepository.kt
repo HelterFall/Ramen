@@ -177,12 +177,11 @@ class SystemNnnGpkBitmapRepository private constructor(
 
             val wgqDirectory = File(gameDirectory, "wgq")
             if (wgqDirectory.exists()) {
-                val wgqFiles = ResourceArchiveParsers.findBlackCycWgqFiles(wgqDirectory)
-                if (wgqFiles.isEmpty()) {
-                    throw IOException("The wgq folder exists but contains no supported .wgq resources.")
-                }
+                val discoveredWgqFiles =
+                    ResourceArchiveParsers.findBlackCycWgqFiles(wgqDirectory)
 
-                // Prefer an indexed .wgq archive if a matching GTB is present.
+                // Preserve support for indexed Black Cyc WGQ archives when an adjacent
+                // GTB proves that the folder contains an indexed resource pair.
                 val gtbFiles = wgqDirectory.walkTopDown()
                     .maxDepth(MAX_GAME_SCAN_DEPTH)
                     .filter { file -> file.isFile && file.extension.equals("gtb", ignoreCase = true) }
@@ -208,8 +207,17 @@ class SystemNnnGpkBitmapRepository private constructor(
                     }
                 }
 
-                // Otherwise each standalone .wgq file is one complete packed DWQ image.
-                return SystemNnnGpkBitmapRepository(wgqFiles, imageDecoder)
+                // A .wgq suffix is shared by unrelated resource types. Only standalone
+                // files with a supported Black Cyc packed-BMP header enter this catalog.
+                val standaloneWgqImages = discoveredWgqFiles.filter { file ->
+                    ResourceArchiveParsers.isBlackCycWgqImageCandidate(file)
+                }
+                if (standaloneWgqImages.isNotEmpty()) {
+                    return SystemNnnGpkBitmapRepository(standaloneWgqImages, imageDecoder)
+                }
+
+                // Do not let an unrelated/unsupported WGQ folder shadow valid GPK/GTB
+                // pairs elsewhere in the game directory (for example, a sibling dwq/).
             }
 
             val indexFiles = gameDirectory.walkTopDown()
