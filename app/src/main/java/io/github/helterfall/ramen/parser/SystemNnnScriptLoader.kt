@@ -34,6 +34,22 @@ data class SystemNnnInstruction(
     val opcode: Int
 )
 
+/** A structurally identified reference from the code area to one Pool 1 record. */
+data class SystemNnnPool1Reference(
+    val codeOffset: Long,
+    val referenceKind: Int,
+    val poolEntryIndex: UInt
+)
+
+/**
+ * Result of scanning the code area for the confirmed Pool 1 reference shape.
+ * This is a structural diagnostic, not a decoded VM command stream.
+ */
+data class SystemNnnPool1ReferenceScan(
+    val references: List<SystemNnnPool1Reference>,
+    val matchesPool1EntriesInOrder: Boolean
+)
+
 /**
  * One NUL-terminated record from an indexed SPT pool.
  *
@@ -124,6 +140,63 @@ class SystemNnnScript internal constructor(
         return commandBytes[(absoluteOffset - commandStartOffset).toInt()].toInt() and 0xFF
     }
 
+    /**
+     * Finds the observed three-cell Pool 1 reference shape:
+     * [parameter=6, marker=0x6666], [kind=1..3, marker=0x2222], [u32 Pool 1 index].
+     *
+     * The reference kind is preserved as an opaque tag. The scanner deliberately
+     * does not execute the surrounding VM instruction or interpret that tag.
+     */
+    fun scanPool1References(): SystemNnnPool1ReferenceScan {
+        val references = ArrayList<SystemNnnPool1Reference>()
+        var cellOffset = 0
+
+        while (cellOffset <= commandBytes.size - 12) {
+            val firstCell = readCommandUInt32LE(cellOffset)
+            val secondCell = readCommandUInt32LE(cellOffset + 4)
+
+            val firstParameter = firstCell.toInt() and 0xFFFF
+            val firstMarker = (firstCell shr 16).toInt() and 0xFFFF
+            val referenceKind = secondCell.toInt() and 0xFFFF
+            val secondMarker = (secondCell shr 16).toInt() and 0xFFFF
+
+            if (
+                firstParameter == POOL1_REFERENCE_PREFIX_PARAMETER &&
+                firstMarker == POOL1_REFERENCE_PREFIX_MARKER &&
+                secondMarker == POOL1_REFERENCE_MARKER &&
+                referenceKind in MIN_POOL1_REFERENCE_KIND..MAX_POOL1_REFERENCE_KIND
+            ) {
+                references += SystemNnnPool1Reference(
+                    codeOffset = commandStartOffset + cellOffset,
+                    referenceKind = referenceKind,
+                    poolEntryIndex = readCommandUInt32LE(cellOffset + 8)
+                )
+                cellOffset += POOL1_REFERENCE_PATTERN_BYTES
+            } else {
+                cellOffset += COMMAND_CELL_BYTES
+            }
+        }
+
+        val matchesPoolOrder =
+            references.size == textPool.size &&
+                references.indices.all { index ->
+                    references[index].poolEntryIndex == index.toUInt()
+                }
+
+        return SystemNnnPool1ReferenceScan(
+            references = references,
+            matchesPool1EntriesInOrder = matchesPoolOrder
+        )
+    }
+
+    private fun readCommandUInt32LE(offset: Int): UInt {
+        val value = (commandBytes[offset].toInt() and 0xFF) or
+            ((commandBytes[offset + 1].toInt() and 0xFF) shl 8) or
+            ((commandBytes[offset + 2].toInt() and 0xFF) shl 16) or
+            ((commandBytes[offset + 3].toInt() and 0xFF) shl 24)
+        return value.toUInt()
+    }
+
     /** Iterates raw bytes for diagnostics; these are not VM instructions. */
     fun instructions(): Sequence<SystemNnnInstruction> = sequence {
         var index = 0
@@ -136,6 +209,16 @@ class SystemNnnScript internal constructor(
             )
             index += 1
         }
+    }
+
+    private companion object {
+        const val COMMAND_CELL_BYTES = 4
+        const val POOL1_REFERENCE_PATTERN_BYTES = 12
+        const val POOL1_REFERENCE_PREFIX_PARAMETER = 6
+        const val POOL1_REFERENCE_PREFIX_MARKER = 0x6666
+        const val POOL1_REFERENCE_MARKER = 0x2222
+        const val MIN_POOL1_REFERENCE_KIND = 1
+        const val MAX_POOL1_REFERENCE_KIND = 3
     }
 }
 
