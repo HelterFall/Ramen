@@ -652,7 +652,7 @@ private fun GameCard(
                 text = when (game.compatibilityStatus) {
                     "PARSER_AVAILABLE" ->
                         if (game.engineId == "system-nnn-spt") {
-                            "Доступен запуск System-NNN с декодированием указателей текста и ресурсов."
+                            "Экспериментальный запуск System-NNN: поддерживается только часть команд, полная совместимость не подтверждена."
                         } else {
                             "Формат сценария распознан; запуск пока не подключён."
                         }
@@ -692,7 +692,10 @@ private fun GameCard(
                         contentColor = Color(0xFF24190B)
                     )
                 ) {
-                    Text("Запустить", fontWeight = FontWeight.Bold)
+                    Text(
+                        if (game.engineId == "system-nnn-spt") "Пробный запуск" else "Запустить",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }
