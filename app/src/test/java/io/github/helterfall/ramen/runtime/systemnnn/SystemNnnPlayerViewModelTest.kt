@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class SystemNnnPlayerViewModelTest {
@@ -241,14 +242,25 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
-    fun missingDecoderDoesNotPretendToInterpretRawBytesAsOpcodes() {
+    fun missingDecoderShowsAnInformationalStatusInsteadOfAnError() {
         val viewModel = SystemNnnPlayerViewModel()
 
         viewModel.start(testScript(), null, EmptyAssets)
 
-        assertNotNull(viewModel.uiState.errorMessage)
-        assertTrue(viewModel.uiState.errorMessage!!.contains("декодер команд"))
+        assertNotNull(viewModel.uiState.statusMessage)
+        assertTrue(viewModel.uiState.statusMessage!!.contains("декодер команд"))
+        assertNull(viewModel.uiState.errorMessage)
         assertFalse(viewModel.uiState.isLoading)
+    }
+
+    @Test
+    fun startupFailuresRemainErrorsRatherThanInformationalStatuses() {
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.showStartupError("Не удалось открыть папку игры.")
+
+        assertEquals("Не удалось открыть папку игры.", viewModel.uiState.errorMessage)
+        assertNull(viewModel.uiState.statusMessage)
     }
 
     @Test
