@@ -46,7 +46,7 @@ class SystemNnnGpkBitmapRepositoryTest {
         try {
             val wgqDirectory = File(root, "wgq").apply { mkdirs() }
             val audioLikeWgq = ByteArray(256)
-            "OggS".toByteArray(Charsets.US_ASCII).copyInto(audioLikeWgq)
+            "OggS".toByteArray(Charsets.US_ASCII).copyInto(audioLikeWgq, destinationOffset = 0x40)
             File(wgqDirectory, "bgm.wgq").writeBytes(audioLikeWgq)
 
             val dwqDirectory = File(root, "dwq").apply { mkdirs() }
