@@ -111,6 +111,42 @@ class SystemNnnCommandStreamReaderTest {
         }
     }
 
+
+    @Test
+    fun classifiesObservedRecordIdentifiersAndCodeFamilies() {
+        val systemCommand = SystemNnnCommandRecord(
+            offset = 0x50L,
+            endOffsetExclusive = 0x60L,
+            lengthWords = 4u,
+            identifier = 0x66660006u,
+            code = 0x22220003u
+        )
+        val systemFunction = SystemNnnCommandRecord(
+            offset = 0x60L,
+            endOffsetExclusive = 0x70L,
+            lengthWords = 4u,
+            identifier = 0x66660007u,
+            code = 0x33330051u
+        )
+        val controlExpression = SystemNnnCommandRecord(
+            offset = 0x70L,
+            endOffsetExclusive = 0x80L,
+            lengthWords = 4u,
+            identifier = 0x66660002u,
+            code = 0xA000007Bu
+        )
+
+        assertEquals(SystemNnnRecordKind.SYSTEM_COMMAND, systemCommand.recordKind)
+        assertEquals(SystemNnnCodeFamily.SYSTEM_COMMAND, systemCommand.knownCodeFamily)
+        assertEquals(SystemNnnRecordKind.SYSTEM_FUNCTION, systemFunction.recordKind)
+        assertEquals(SystemNnnCodeFamily.SYSTEM_FUNCTION, systemFunction.knownCodeFamily)
+        assertEquals(SystemNnnRecordKind.CONTROL, controlExpression.recordKind)
+        assertEquals(SystemNnnCodeFamily.EXPRESSION, controlExpression.knownCodeFamily)
+
+        assertEquals(null, SystemNnnRecordKind.fromIdentifier(0x12340006u))
+        assertEquals(null, SystemNnnCodeFamily.fromCode(0x12340001u))
+    }
+
     private fun scriptOf(
         preamble: List<UInt> = listOf(0u, 0u, 0u, 0u),
         records: List<List<UInt>>,
