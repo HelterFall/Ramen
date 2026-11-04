@@ -278,3 +278,32 @@ Create a durable, evidence-based checklist for taking the experimental System-NN
 
 ### Next action
 Start with a reproducible inventory of the selected test package. Use actual header bytes to classify WGQ and verify resource pairs before changing the parsers.
+
+
+## 2026-11-04 — Inventory screenshots and resource-selection bug
+
+### User-provided folder layout
+The screenshots explicitly show the root as `Download/Gore Screaming Show/`. The following are sibling folders:
+- `dwq/` — 12 objects; visible matching GPK/GTB pairs: bg0, ev0, sc0, sm0, sys0, ta0.
+- `cdvaw/` — 166 objects; visible VPK/VTB pairs aa through ff and the beginning of gg.vpk.
+- `wgq/` — 111 objects; visible individual .wgq files such as gss01_1.wgq, gss01_2.wgq, gss02_1.wgq, gss02_2.wgq, gss02a_1.wgq, gss02a_2.wgq, etc.
+- `spt/` — 30 objects.
+- `vaw/` — 2 objects.
+- `init/` — 31 objects.
+Other root folders shown: `!eng files/`, `movie/`, `nya/`, and `sav/`. Root files shown include gss.exe, ddraw.dll, ogg.dll, vorbis.dll, Neuton.ttf and sjis_ext.bin.
+The `dwq`, `cdvaw`, and `wgq` folders are at the same root level. Do not treat them as nested.
+
+### Code re-check against that layout
+- `SystemNnnGpkBitmapRepository.forGameDirectory()` checks the root `wgq/` first. If it exists and contains at least one .wgq file, it returns a WGQ-backed image repository (or an indexed GTB/WGQ pair inside that same folder). It only searches the tree for ordinary GPK/GTB if the root `wgq/` folder is absent.
+- `ResourceArchiveParsers.findBlackCycWgqFiles()` only filters by the `.wgq` extension; it does not inspect file headers to establish that the candidates are images.
+- In the user's layout, `wgq/` exists alongside `dwq/`, where the visible GPK/GTB pairs are located. Thus the current resource-selection logic can bypass the visible GPK/GTB catalog. This is a code-confirmed selection flaw; whether it causes the exact launch failure still requires reading sample headers and collecting the runtime error.
+- Current VPK/VTB parser supports one specific 12-byte-index / 64-byte preamble / 44-byte RIFF descriptor / Ogg-at-offset-108 layout. It does not prove coverage of the other audio layouts documented for the family.
+- SPT loader and command decoder remain experimental; no new SPT semantics were inferred from folder names.
+
+### What was not changed
+- No app code or tests were modified.
+- No parser fixes were pushed.
+- This is screenshot-based directory inventory and source-code revalidation only.
+
+### Next user input
+Open `Download/Gore Screaming Show/spt/` and send a screenshot of the filenames and sizes. The directory contains 30 objects, and we need to identify the candidate scripts before altering the SPT loader or choosing the startup script.
