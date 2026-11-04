@@ -482,3 +482,31 @@ Implement the dynamically located Pool 1/Pool 2 tables and aligned string-record
 
 ### Next
 Map instruction boundaries and opcode/operand semantics using the real SPT samples, correlate module links with `project.xtx`, and only then implement the VM runtime.
+
+
+## 2026-11-04 — Final SPT pool validation and CI #301
+
+### Extra code changes after CI #298
+- Parser now requires Pool 2 to end exactly at physical EOF. This invariant was observed in all 20 supplied SPT modules.
+- VisualNovelDetector diagnostic now counts records from both indexed pools instead of only Pool 1, so empty-first-pool modules report their parsed secondary records correctly.
+- Added a negative test that appends a trailing byte after Pool 2 and expects the loader to reject it.
+- Updated both detector tests to verify that their valid minimal SPT fixture reports two records across the two pools.
+
+### Final CI result
+- [Android CI run #301](https://github.com/HelterFall/Ramen/actions/runs/41847591081) completed successfully.
+- `assembleDebug`: success.
+- `testDebugUnitTest`: success.
+- `lintDebug`: success.
+- Debug APK artifact upload: success.
+- Log reports `BUILD SUCCESSFUL in 1m 23s`.
+- Artifact `ramen-debug-apk`: 11,647,505 bytes.
+- CI #301 validates the latest code including EOF validation and the updated detector. Earlier CI #298 passed the preceding implementation.
+
+### Limitations remain
+- No physical-device installation/launch was performed.
+- No actual game scene playback is claimed.
+- The SPT command/VM instruction grammar is still unknown; the speculative UInt32/sequential-text decoder remains disabled.
+- WGQ/DWQ classification, multiple GPK/GTB archives, multiple VPK/VTB banks, voice mapping, and BGM integration are outstanding.
+
+### Next
+Create a read-only command map for SPT code regions and their references to both logical string pools and other modules. Identify opcode/operand layout across multiple scenarios before implementing VM execution.
