@@ -1404,6 +1404,113 @@ object ResourceArchiveParsers {
             .toList()
     }
 
+    /**
+     * Performs a bounded header-only probe before a standalone WGQ is treated as a
+     * Black Cyc packed-BMP image. This intentionally does not decode pixels: full
+     * payload validation still happens in [decodeBlackCycWgqFile] at display time.
+     *
+     * Other engines also use the .wgq extension (including audio resources), so the
+     * suffix alone is not sufficient evidence that a file belongs in an image catalog.
+     */
+    fun isBlackCycWgqImageCandidate(file: File): Boolean {
+        if (!file.isFile || java.nio.file.Files.isSymbolicLink(file.toPath())) {
+            return false
+        }
+
+        val fileSize = file.length()
+        val headerSize = DWQ_HEADER_SIZE + BMP_HEADER_SIZE
+        if (fileSize < headerSize.toLong()) return false
+
+        return runCatching {
+            val header = ByteArray(headerSize)
+            FileInputStream(file).use { input ->
+                var offset = 0
+                while (offset < header.size) {
+                    val read = input.read(header, offset, header.size - offset)
+                    if (read < 0) return@runCatching false
+                    if (read > 0) offset += read
+                }
+            }
+
+            val packTypeText = String(
+                header,
+                0x30,
+                0x10,
+                Charsets.US_ASCII
+            ).trimEnd(' ')
+            val match = PACKTYPE_PATTERN.matchEntire(packTypeText)
+                ?: return@runCatching false
+            val packType = match.groupValues[1].toIntOrNull()
+                ?: return@runCatching false
+
+            val packedSize = when (packType) {
+                1 -> {
+                    if (!asciiAt(header, 0, "IF PACKTYPE==") ||
+                        !asciiAt(header, 0x0D, "0 ") ||
+                        !asciiAt(header, 0x2C, "BMP ")
+                    ) {
+                        return@runCatching false
+                    }
+                    fileSize - DWQ_HEADER_SIZE.toLong()
+                }
+
+                3 -> readI32Le(header, 0x20)
+                    .toLong()
+                    .takeIf { it >= 0L }
+                    ?: return@runCatching false
+
+                else -> return@runCatching false
+            }
+
+            if (packedSize < BMP_HEADER_SIZE.toLong() ||
+                packedSize > fileSize - DWQ_HEADER_SIZE.toLong()
+            ) {
+                return@runCatching false
+            }
+
+            val bmpOffset = DWQ_HEADER_SIZE
+            val dataOffset = readU32Le(header, bmpOffset + 0x0A)
+            val width = readI32Le(header, bmpOffset + 0x12)
+            val signedHeight = readI32Le(header, bmpOffset + 0x16)
+            val height = kotlin.math.abs(signedHeight.toLong())
+            val bytesPerPixel = when (readU16Le(header, bmpOffset + 0x1C)) {
+                8 -> 1L
+                16 -> 2L
+                24 -> 3L
+                32 -> 4L
+                else -> return@runCatching false
+            }
+
+            if (width <= 0 ||
+                height <= 0L ||
+                height > Int.MAX_VALUE.toLong() ||
+                dataOffset < BMP_HEADER_SIZE.toLong() ||
+                dataOffset > packedSize
+            ) {
+                return@runCatching false
+            }
+
+            val pixelCount = width.toLong() * height
+            val stride = width.toLong() * bytesPerPixel
+            if (pixelCount > Int.MAX_VALUE.toLong() ||
+                stride > Int.MAX_VALUE.toLong() ||
+                height > Int.MAX_VALUE.toLong() / stride
+            ) {
+                return@runCatching false
+            }
+
+            if (packType == 3) {
+                val declaredWidth = readU32Le(header, 0x24)
+                val declaredHeight = readU32Le(header, 0x28)
+                if (declaredWidth != width.toLong() || declaredHeight != height) {
+                    return@runCatching false
+                }
+            }
+
+            true
+        }.getOrDefault(false)
+    }
+
     /** Reads one complete DWQ block from a standalone .wgq resource. */
     @Throws(IOException::class)
     fun decodeBlackCycWgqFile(file: File): DecodedDwqBitmap {
