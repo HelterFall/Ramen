@@ -675,3 +675,13 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Updated the player discovery path to consume `project.xtx` and to fail closed for multi-module projects until an entrypoint is proven. Removed the unconditional `01.spt` preference. A project with exactly one declared module, or a folder with exactly one valid SPT and no manifest, remains eligible for the current player path.
 - No claim of module navigation or full game compatibility is made. Next: read-only trace across `sys`, `backspt`, `01`, and scene records.
 
+
+
+## 2026-11-05 — read-only boot-path evidence from project SPTs
+
+- Across the 20 SPT files listed by `project.xtx`, all headers validated as `SPTHEADER0` and all structural record streams parsed using the current bounded reader.
+- Under the current table interpretation, `sys.spt` has no ordinary film-0 slot (table count 3, reserved count 3). The other 19 modules do have a film-0 slot and each slot points to a parsed record boundary.
+- Both `backspt.spt` (first film target `0x884`) and `01.spt` (first film target `0x20C4`) are valid record-boundary candidates; the table does not uniquely select either as game startup.
+- `sys.spt` secondary Pool 2 contains 17 records, including 14 strings equal to module names from `project.xtx` and three system/menu labels. Three `SYSTEM_FUNCTION` records (`0x3333/81`) refer to Pool 2 indices 0, 14, and 15.
+- This is structural evidence of a distinct `sys` path and a module-name catalog. It is not yet a validated module dispatch or a startup rule. Strings that match module names are not automatically transitions.
+- No game assets, SPT files, scene dialogue, or audio/image payloads were added to Git. The uploaded package was inspected read-only.

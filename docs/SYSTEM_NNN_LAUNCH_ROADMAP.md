@@ -1,3 +1,15 @@
+## 2026-11-05 — sys module and film-0 entry candidates cross-checked
+
+- Parsed the current length-prefixed record stream for all 20 SPT modules from the uploaded cleaned Steam package, without copying any game files into Git.
+- Under the current descriptor-3/descriptor-4 interpretation, `sys.spt` has 3 film-table entries and 3 reserved entries, so it has no ordinary `film 0` slot.
+- Each of the other 19 modules has a `film 0` table slot whose DWORD target resolves to a parsed command-record boundary. This includes both `backspt.spt` (target `0x884`) and `01.spt` (target `0x20C4`); neither is uniquely identified as the startup module.
+- `sys.spt` secondary Pool 2 has 17 records. Fourteen are exact module-name tokens (`op1`, `01`–`08`, `082`, `akane`, `aoi`, `kiika`, `day`); the other three are short system/menu labels.
+- Three `SYSTEM_FUNCTION` records in `sys.spt` use code `0x3333/81` with payload pairs `[1,0]`, `[1,14]`, and `[1,15]`, which index those three non-module Pool 2 labels. This is evidence of a separate system/UI path, not proof of its full execution semantics.
+- These findings support treating `sys` specially and explain why a normal film-0 player cannot simply start it. They do not establish whether `sys` enters `backspt`, a story module, or another route.
+- Next: decode the referenced `SYSTEM_FUNCTION`/system-command behavior and trace any actual module dispatch value. Do not turn raw module-name strings into transitions without reference-use evidence.
+
+---
+
 ## 2026-11-05 — project.xtx inspected and module catalog wired
 
 - Inspected the user-provided cleaned Steam folder archive in-place; only `project.xtx` and bounded SPT headers were read. No game files were added to Git.
