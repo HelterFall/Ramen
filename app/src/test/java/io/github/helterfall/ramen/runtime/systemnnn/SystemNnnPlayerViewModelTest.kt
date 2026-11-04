@@ -264,7 +264,16 @@ class SystemNnnPlayerViewModelTest {
 
     @Test
     fun malformedCommandStreamIsReportedAsAStartupError() {
-        val malformed = testScript().copy(commandBytes = ByteArray(8))
+        val malformed = SystemNnnScript(
+            fileSizeBytes = 0x60L,
+            firstHeaderWord = 0u,
+            offsetTables = emptyList(),
+            commandStartOffset = 0x40L,
+            commandEndOffset = 0x48L,
+            textPoolOffset = 0x48L,
+            textPool = emptyList(),
+            commandBytes = ByteArray(8)
+        )
         val viewModel = SystemNnnPlayerViewModel()
 
         viewModel.start(malformed, null, EmptyAssets)
