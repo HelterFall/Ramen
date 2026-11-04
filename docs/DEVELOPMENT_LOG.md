@@ -337,3 +337,58 @@ The first bytes at 0xC5BA after XOR are `33 33 02 00 00 00 FF FF FF FF ...`. Thi
 `project.xtx` is a 20-line text list of scenario/module names (including sys, backspt, 01–08, 082, character-named scripts and _staff), confirming that the project is multi-script. `bgmlist.xtx`, `cglist01.xtx`, `charaname.xtx`, `selist.xtx` are Shift-JIS/compatible CRLF text tables; structural line counts: 46, 540, 85 (84 nonempty), and 195 (190 nonempty), respectively. Their user-facing strings were not copied into the log. `command.xtx` is only 4 bytes/two blank CRLF lines. `scene.dat` is 1,164 bytes; a naive LE uint32 view gives 291 words, first word equals file size, but format is not yet established.
 
 No app code changed. Do not implement the earlier sequential-text fallback as confirmed behavior. Next: map all four SPT tables and their internal references; correlate with XTX tables and scene.dat; avoid hard-coded offsets across different scripts. A second compact sample such as sys.spt or day.spt will help distinguish shared format from script-specific layout.
+
+
+## 2026-11-04 — Full SPT package analysis (`hui(1).zip`)
+
+### Archive integrity and contents
+- SHA-256: `20a06b948bfb7d5c0fb5b2fc6a02396161c29e8959d1743599f81de3fea93509`.
+- ZIP size: 1,969,339 bytes; expanded file size: 9,815,703 bytes.
+- CRC integrity check passed.
+- Contains folder `hui/`, 30 files: 20 SPT scripts and 10 sidecar/configuration files.
+- This is the complete uploaded SPT-folder subset, not the large DWQ/VAW/WGQ game resources.
+
+### Project/module mapping
+- `project.xtx` contains 20 module names.
+- Its 20 names exactly match the basename set of all 20 supplied `.spt` files.
+- The project list order starts with `sys`, `backspt`, then `01`; this is not proof of execution order or entrypoint.
+- Current Ramen `SystemNnnPlayerActivity` still selects `01.spt` by filename preference and does not load `project.xtx` or resolve inter-module links.
+
+### SPT header cross-sample results
+All 20 files share XOR-`0xFF` demasking, `SPTHEADER0` at offset `0x30`, and first LE DWORD 20. Four count/offset descriptor pairs are present at header positions 0x10/0x14, 0x18/0x1C, 0x20/0x24, 0x28/0x2C. Their values vary substantially. The per-file matrix and raw values are recorded in [SYSTEM_NNN_LAUNCH_ROADMAP.md](SYSTEM_NNN_LAUNCH_ROADMAP.md).
+
+Current loader constraints accept only 12/20 scripts:
+- 4 with primary count zero: `_staff`, `backspt`, `day`, `sys`;
+- 4 below fixed size boundary 0x32B65: `06`, `08`, `op1`, `yuka2`.
+These are not proven corrupt; they are part of the module list. Parser must distinguish empty primary descriptor from malformed file.
+
+For `01.spt`, main region begins with mixed two-byte marker patterns such as `0x3333`, `0x6666`, `0x2222`, and `0x5556`. Reading the region as a plain list of 1,299 UInt32 image/dialogue IDs is not validated. Exact record width and grammar remain unknown.
+
+Text markers `text\0` were found at six offsets in `01.spt` near 0x32B34 and one offset in `02.spt` near 0x28350; no exact marker in the other 18 SPTs. The fixed 0x32B64 text start is therefore not a proven universal boundary.
+
+### Independent text-candidate heuristic
+Reviewed the public VNTools `SPTScript` implementation. It XOR-demasks SPT and heuristically scans for NUL/control-byte plus Shift-JIS patterns; it does not decode the SPT VM instruction grammar. A local, non-outputting reproduction counted 4,568 candidate strings across 20 files:
+`01` 131; `_staff` 2; `02` 229; `03` 560; `04` 280; `05` 186; `06` 27; `07` 120; `08` 40; `082` 381; `akane` 656; `aoi` 454; `backspt` 66; `day` 13; `kiika` 473; `op1` 48; `sys` 0; `yamiko` 432; `yuka` 396; `yuka2` 74.
+These are heuristic candidates, not confirmed dialogue lines. No scenario text was copied into the report. The same file's current Ramen NUL splitter yields 2,502 Shift-JIS-decodable segments after its fixed start, which demonstrates that "decodes as Shift-JIS" is not enough to establish a real dialogue string.
+
+### Sidecar observations
+- `project.xtx`: 20 module entries, exact one-to-one match to SPT set.
+- `bgmlist.xtx`: 46 CRLF lines; `cglist01.xtx`: 540; `charaname.xtx`: 85; `selist.xtx`: 195; `function.xtx`: 3.
+- `command.xtx`: two blank CRLF lines; `namecol.xtx`: empty.
+- `var.fxf`: 3,468 bytes; XOR 0xFF makes its beginning ASCII-like.
+- `scene.dat`: 1,164 bytes, first LE DWORD equals total file size; remainder remains structurally unresolved.
+- Text contents were not copied into the work log; only structural counts and sizes were recorded.
+
+### Conclusions and next steps
+1. Do not apply the fixed 0x32B20/0x32B64 boundaries to every module.
+2. Do not interpret main-table values as simple UInt32 image/dialogue IDs without evidence.
+3. Build a read-only diagnostic for all four descriptors and candidate references per script.
+4. Correlate `project.xtx`, `scene.dat`, and SPT cross-references to discover module entrypoints and transitions.
+5. Use VNTools-style text candidates only as an offset-finding hint, not as an interpreter.
+6. Return to WGQ/DWQ selection after examining one actual resource header.
+
+### What was not changed
+- No Kotlin source or test file changed.
+- No CI was run for this documentation-only analysis.
+- No script text was exported or reproduced.
+- No entrypoint or playable runtime has been proven.
