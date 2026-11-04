@@ -163,7 +163,7 @@ class SystemNnnCommandStreamReaderTest {
     @Test
     fun rejectsFilmEntriesOutsideTheDeclaredFilmTable() {
         val script = filmTableScript(
-            targetWordOffsets = listOf(0x1Au, 0x1Du)
+            targetWordOffsets = listOf(0x1Au, 0x1Fu, 0x22u)
         )
 
         assertThrows(IOException::class.java) {
