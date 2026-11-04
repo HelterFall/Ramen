@@ -199,6 +199,10 @@ class SystemNnnScriptLoader(
         val primaryPool = locatePool(decoded, descriptors[0])
         val secondaryPool = locatePool(decoded, descriptors[1])
 
+        if (secondaryPool.endOffset != sourceSize) {
+            throw IOException("The secondary SPT string pool does not end at the file boundary.")
+        }
+
         if (!primaryPool.isEmpty) {
             validateInterPoolStub(decoded, primaryPool, secondaryPool)
         }
