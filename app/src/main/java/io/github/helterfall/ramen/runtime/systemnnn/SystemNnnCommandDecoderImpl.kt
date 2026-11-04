@@ -166,6 +166,7 @@ class SystemNnnCommandDecoderImpl(
 
         const val CODE_CONTROL_NOP = 0x0001
         const val CODE_CONTROL_END = 0x0005
+        const val CODE_CONTROL_ENDFILM = 0x000C
         const val CODE_CONTROL_ENDKOMA = 0x000E
         const val CODE_CONTROL_ENDIF = 0x0013
 
