@@ -14,6 +14,106 @@ import org.junit.Test
 class SystemNnnScriptLoaderTest {
 
     @Test
+    fun scansSequentialPool1ReferencesAcrossAllThreeObservedKinds() {
+        val commandBytes = ByteArray(36)
+        val kinds = listOf(1, 2, 3)
+        kinds.forEachIndexed { index, kind ->
+            val offset = index * 12
+            putUInt32(commandBytes, offset, 0x66660006)
+            putUInt32(commandBytes, offset + 4, 0x22220000 or kind)
+            putUInt32(commandBytes, offset + 8, index)
+        }
+        val entries = List(3) { index ->
+            SystemNnnTextEntry(
+                offset = 0x80L + index * 4L,
+                text = "record-$index",
+                rawBytes = byteArrayOf(index.toByte()),
+                logicalAddress = (0xC5BA + index).toUInt()
+            )
+        }
+        val script = SystemNnnScript(
+            fileSizeBytes = 0xC0L,
+            firstHeaderWord = 20u,
+            offsetTables = emptyList(),
+            commandStartOffset = 0x40L,
+            commandEndOffset = 0x40L + commandBytes.size,
+            textPoolOffset = 0x80L,
+            textPool = entries,
+            commandBytes = commandBytes
+        )
+
+        val scan = script.scanPool1References()
+
+        assertEquals(listOf(1, 2, 3), scan.references.map { it.referenceKind })
+        assertEquals(listOf(0u, 1u, 2u), scan.references.map { it.poolEntryIndex })
+        assertEquals(listOf(0x40L, 0x4CL, 0x58L), scan.references.map { it.codeOffset })
+        assertTrue(scan.matchesPool1EntriesInOrder)
+    }
+
+    @Test
+    fun pool1ReferenceScanReportsOrderingMismatchWithoutExecutingAnything() {
+        val commandBytes = ByteArray(24)
+        putUInt32(commandBytes, 0, 0x66660006)
+        putUInt32(commandBytes, 4, 0x22220001)
+        putUInt32(commandBytes, 8, 1)
+        putUInt32(commandBytes, 12, 0x66660006)
+        putUInt32(commandBytes, 16, 0x22220002)
+        putUInt32(commandBytes, 20, 0)
+        val entries = List(2) { index ->
+            SystemNnnTextEntry(
+                offset = 0x80L + index * 4L,
+                text = "record-$index"
+            )
+        }
+        val script = SystemNnnScript(
+            fileSizeBytes = 0xA0L,
+            firstHeaderWord = 20u,
+            offsetTables = emptyList(),
+            commandStartOffset = 0x40L,
+            commandEndOffset = 0x40L + commandBytes.size,
+            textPoolOffset = 0x80L,
+            textPool = entries,
+            commandBytes = commandBytes
+        )
+
+        val scan = script.scanPool1References()
+
+        assertEquals(listOf(1u, 0u), scan.references.map { it.poolEntryIndex })
+        assertFalse(scan.matchesPool1EntriesInOrder)
+    }
+
+    @Test
+    fun pool1ReferenceScanIgnoresUnsupportedKindsWrongPrefixesAndTruncatedRows() {
+        val commandBytes = ByteArray(32)
+        // Wrong first-cell parameter.
+        putUInt32(commandBytes, 0, 0x66660005)
+        putUInt32(commandBytes, 4, 0x22220001)
+        putUInt32(commandBytes, 8, 0)
+        // Unsupported reference kind.
+        putUInt32(commandBytes, 12, 0x66660006)
+        putUInt32(commandBytes, 16, 0x22220004)
+        putUInt32(commandBytes, 20, 0)
+        // A matching 8-byte prefix with no complete third cell.
+        putUInt32(commandBytes, 24, 0x66660006)
+        putUInt32(commandBytes, 28, 0x22220001)
+        val script = SystemNnnScript(
+            fileSizeBytes = 0xA0L,
+            firstHeaderWord = 20u,
+            offsetTables = emptyList(),
+            commandStartOffset = 0x40L,
+            commandEndOffset = 0x40L + commandBytes.size,
+            textPoolOffset = 0x80L,
+            textPool = listOf(SystemNnnTextEntry(offset = 0x80L, text = "record")),
+            commandBytes = commandBytes
+        )
+
+        val scan = script.scanPool1References()
+
+        assertTrue(scan.references.isEmpty())
+        assertFalse(scan.matchesPool1EntriesInOrder)
+    }
+
+    @Test
     fun parsesBothPoolsFromLogicalAddressTablesAndPreservesRawRecords() {
         val directory = Files.createTempDirectory("ramen-system-nnn-pools").toFile()
         try {
