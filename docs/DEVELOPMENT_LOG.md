@@ -685,3 +685,16 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - `sys.spt` secondary Pool 2 contains 17 records, including 14 strings equal to module names from `project.xtx` and three system/menu labels. Three `SYSTEM_FUNCTION` records (`0x3333/81`) refer to Pool 2 indices 0, 14, and 15.
 - This is structural evidence of a distinct `sys` path and a module-name catalog. It is not yet a validated module dispatch or a startup rule. Strings that match module names are not automatically transitions.
 - No game assets, SPT files, scene dialogue, or audio/image payloads were added to Git. The uploaded package was inspected read-only.
+
+
+## 2026-11-05 — descriptor 3/4 pointer targets validated against SystemFunction records
+
+- Avoided repeating the existing marker scans, Pool 1 reference scan, `project.xtx` mapping, `scene.dat` parsing, and `var.fxf` decode; those are already recorded in `SYSTEM_NNN_COMMAND_MAP_NOTES.md` and `SYSTEM_NNN_LAUNCH_ROADMAP.md`.
+- New bounded check: interpret descriptor 3 as a DWORD pointer vector at `(logicalBase + index) * 4`, and multiply each target DWORD by four.
+- All 1,028 entries across 20 SPT modules resolve to exact command-record boundaries. The first descriptor-4-count slots point to type-7 `SYSTEM_FUNCTION 0x3333/0x51`; the remainder point to type-7 `SYSTEM_FUNCTION 0x3333/0x50`. Aggregate: 80 reserved + 948 ordinary film slots.
+- Per-module equality: descriptor 4 count equals code `0x3333/0x51` count; descriptor 3 minus descriptor 4 equals code `0x3333/0x50` count. Code `0x3333/0x52` also matches the ordinary film-slot count, but its role remains unknown.
+- Updated `SystemNnnCommandStreamReader.filmStartOffset()` to validate the entire pointer vector and the record class expected in each prefix/film slot. Synthetic tests cover valid targets, payload pointers, and wrong record classes.
+- Cross-checked `function.xtx`: four CP932 name/label rows; no direct match from its names to the 80 `0x3333/0x51` Pool 2 references. The 22 type-4 FUNCTION records share one code/payload shape and do not establish a mapping to that sidecar.
+- No SPT binary, sidecar, scenario text, or game asset was added to Git. The upload was inspected read-only.
+- This validates film-table structure, not the game's startup module, dispatch, or full VM.
+

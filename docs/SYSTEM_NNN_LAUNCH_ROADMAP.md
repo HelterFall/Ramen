@@ -1,3 +1,15 @@
+## 2026-11-05 — descriptor 3/4 pointer-vector semantics confirmed
+
+- Re-read the already parsed descriptor 3 vector as DWORD pointers at `(logicalBase + index) * 4`; this is distinct from searching for a monotonic logical-address table.
+- Across all 20 supplied SPT modules, every vector target lands on an exact command-record boundary.
+- The first `descriptor4.count` targets are type-7 `SYSTEM_FUNCTION 0x3333/0x51`; every later target is type-7 `SYSTEM_FUNCTION 0x3333/0x50`. The counts match per module and in aggregate: 80 reserved records + 948 ordinary film records = 1,028 pointer entries.
+- `sys.spt` has three reserved targets and zero ordinary film targets. `backspt.spt` has four reserved targets plus 19 ordinary film targets; `01.spt` has two plus 67.
+- This confirms the descriptor 4 reserved-prefix interpretation in the current reader for all supplied modules. Updated `filmStartOffset()` to validate the full vector and reject targets with the wrong record class. Tests now cover this classification.
+- The `function.xtx` sidecar was cross-checked: its four name/label rows do not directly map to the 80 `0x3333/0x51` records or their Pool 2 references. No function semantics or module transition was inferred.
+- The next unresolved question remains the actual project boot path: determine how the special `sys` sequence hands off to `backspt` or another module. Do not choose the first project-list entry or the first ordinary film as a substitute for that dispatch.
+
+---
+
 ## 2026-11-05 — sys module and film-0 entry candidates cross-checked
 
 - Parsed the current length-prefixed record stream for all 20 SPT modules from the uploaded cleaned Steam package, without copying any game files into Git.

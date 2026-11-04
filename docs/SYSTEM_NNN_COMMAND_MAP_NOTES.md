@@ -297,3 +297,59 @@ No Kotlin code or tests were changed during this analysis. The VM decoder remain
 ## Next diagnostic step
 
 Use the exact Pool 1 logical-address table to test the 37,383-count relation at the **individual-record level**: inspect bounded words following each `0x2222` pair, determine whether they encode a pool index/address, and check the mapping against all 20 modules. Keep the result as a read-only scanner until the reference rule is proven. Then investigate the `0x3333` and `0x5556` families, followed by module transitions.
+
+
+## Third-descriptor pointer vector — record-kind cross-check across all 20 modules
+
+A second pass tested the third descriptor as a **DWORD-indexed pointer vector**, rather than as another monotonic logical-address table. For each table index `i`, the pointer cell is read at:
+
+```
+physical_pointer_cell = (descriptor3.logicalBase + i) * 4
+target_record_offset  = read_u32_le(physical_pointer_cell) * 4
+```
+
+Every pointer cell is inside the validated command region, and every target resolves to an exact length-prefixed record boundary.
+
+**The target record type is exact in all 20 modules:**
+- The first `descriptor4.entryCount` entries all target a type-7 `SYSTEM_FUNCTION` record with code family `0x3333`, code ID `0x51` (decimal 81).
+- Every remaining entry targets a type-7 `SYSTEM_FUNCTION` record with code family `0x3333`, code ID `0x50` (decimal 80).
+- The counts match exactly for each module: `descriptor4.entryCount == count(0x3333/0x51)`; `descriptor3.entryCount - descriptor4.entryCount == count(0x3333/0x50)`.
+- There are **1,028** table entries across the package: **80** reserved-prefix targets of `0x3333/0x51` and **948** ordinary film-entry targets of `0x3333/0x50`.
+- As a separate count correlation, `0x3333/0x52` (decimal 82) occurs exactly as often as `0x3333/0x50` in every module (948 total). Its role is not assigned here.
+
+| Module | Descriptor 3 | Descriptor 4 | `0x3333/0x51` | `0x3333/0x50` | All targets and roles exact |
+|---|---:|---:|---:|---:|---|
+| `01` | 69 | 2 | 2 | 67 | yes |
+| `02` | 53 | 3 | 3 | 50 | yes |
+| `03` | 178 | 20 | 20 | 158 | yes |
+| `04` | 56 | 2 | 2 | 54 | yes |
+| `05` | 37 | 6 | 6 | 31 | yes |
+| `06` | 10 | 2 | 2 | 8 | yes |
+| `07` | 27 | 2 | 2 | 25 | yes |
+| `08` | 15 | 3 | 3 | 12 | yes |
+| `082` | 55 | 8 | 8 | 47 | yes |
+| `_staff` | 3 | 1 | 1 | 2 | yes |
+| `akane` | 103 | 3 | 3 | 100 | yes |
+| `aoi` | 86 | 4 | 4 | 82 | yes |
+| `backspt` | 23 | 4 | 4 | 19 | yes |
+| `day` | 5 | 2 | 2 | 3 | yes |
+| `kiika` | 112 | 5 | 5 | 107 | yes |
+| `op1` | 23 | 3 | 3 | 20 | yes |
+| `sys` | 3 | 3 | 3 | 0 | yes |
+| `yamiko` | 59 | 4 | 4 | 55 | yes |
+| `yuka` | 96 | 2 | 2 | 94 | yes |
+| `yuka2` | 15 | 1 | 1 | 14 | yes |
+
+This confirms the previously documented **reserved-prefix** interpretation of descriptor 4 and the ordinary film-entry portion of descriptor 3 for this sample set. It also explains why `sys.spt` has no ordinary film 0: all three descriptor-3 slots are reserved-function targets.
+
+### Function sidecar cross-check (negative result)
+
+- `function.xtx` is a 79-byte CP932/CRLF file with four name/label rows.
+- All 80 `0x3333/0x51` records across the 20 SPTs have two payload DWORDs; the first is 1 and the second is an in-range Pool 2 record index.
+- None of these 80 Pool 2 targets is a `project.xtx` module name or a name token from `function.xtx`. The sidecar therefore does not currently identify these records as module transitions or map them to its four named entries.
+- The 22 type-4 `FUNCTION` records observed across the package all have code `0x00000002` and one zero payload DWORD. No direct name/ID mapping to `function.xtx` was established.
+- Do not assign a system-function meaning from the record code or label file alone.
+
+The Kotlin `filmStartOffset()` reader now validates **every** descriptor-3 pointer and its expected reserved/film record class before returning a requested film target. Synthetic tests cover valid mixed tables, a pointer into a record payload, a reserved slot with the wrong record class, and a film slot that points to a reserved record.
+
+This validates the table structure, not which project module is launched first or what an individual system function does.
