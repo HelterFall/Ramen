@@ -85,6 +85,60 @@ This is a strong structural correlation and a useful lead for mapping Pool 1 ref
 | `yuka` | 4068 | 4068 | 882 |
 | `yuka2` | 609 | 609 | 261 |
 
+## Individual Pool 1 reference mapping — exact across all modules
+
+The third 32-bit little-endian cell after the pattern
+
+```
+[parameter=6, marker=0x6666]
+[referenceKind=1..3, marker=0x2222]
+[u32 Pool 1 record index]
+```
+
+was tested as a zero-based Pool 1 record index.
+
+**Result: exact for every supplied module.**
+- Across the 16 modules with non-empty Pool 1, references in increasing code-area offset order are exactly `0, 1, 2, ..., Pool1Count-1`.
+- There are no missing indices, duplicate indices, or descents in any of the 16 modules.
+- The four modules whose Pool 1 is empty (`_staff`, `backspt`, `day`, `sys`) contain zero references of these three kinds.
+- Package total: **37,383** references for **37,383** Pool 1 records.
+- Opaque reference-kind totals: kind 1 = **37,008**, kind 2 = **125**, kind 3 = **250**.
+
+| Module | Pool 1 records | Kind 1 | Kind 2 | Kind 3 | Sequence check |
+|---|---:|---:|---:|---:|---|
+| `01` | 1299 | 1299 | 0 | 0 | exact 0–1298 |
+| `_staff` | 0 | 0 | 0 | 0 | empty / exact |
+| `02` | 1074 | 1012 | 19 | 43 | exact 0–1073 |
+| `03` | 2606 | 2606 | 0 | 0 | exact 0–2605 |
+| `04` | 816 | 812 | 2 | 2 | exact 0–815 |
+| `05` | 900 | 839 | 20 | 41 | exact 0–899 |
+| `06` | 191 | 191 | 0 | 0 | exact 0–190 |
+| `07` | 924 | 866 | 20 | 38 | exact 0–923 |
+| `08` | 302 | 302 | 0 | 0 | exact 0–301 |
+| `082` | 2088 | 2088 | 0 | 0 | exact 0–2087 |
+| `akane` | 6063 | 6051 | 5 | 7 | exact 0–6062 |
+| `aoi` | 5571 | 5567 | 2 | 2 | exact 0–5570 |
+| `backspt` | 0 | 0 | 0 | 0 | empty / exact |
+| `day` | 0 | 0 | 0 | 0 | empty / exact |
+| `kiika` | 6416 | 6416 | 0 | 0 | exact 0–6415 |
+| `op1` | 32 | 32 | 0 | 0 | exact 0–31 |
+| `sys` | 0 | 0 | 0 | 0 | empty / exact |
+| `yamiko` | 4424 | 4250 | 57 | 117 | exact 0–4423 |
+| `yuka` | 4068 | 4068 | 0 | 0 | exact 0–4067 |
+| `yuka2` | 609 | 609 | 0 | 0 | exact 0–608 |
+| **Total** | **37,383** | **37,008** | **125** | **250** | **exact** |
+
+This supports treating the third cell as a direct Pool 1 index for this observed reference shape. The 1/2/3 kind values remain opaque: no semantics are assigned to them. This also does not decode the rest of the VM or prove which UI action a referenced string should trigger.
+
+## Read-only scanner added to Ramen
+
+The Kotlin parser now exposes:
+- `SystemNnnPool1Reference`: code-area offset, opaque kind, and Pool 1 index.
+- `SystemNnnPool1ReferenceScan`: all matches plus a boolean that is true only when the references cover Pool 1 in exact ascending order.
+- `SystemNnnScript.scanPool1References()`: bounded 4-byte scan for the exact three-cell reference shape.
+
+The scanner does **not** execute commands, display strings, infer the kind's meaning, or alter player behavior. Synthetic unit tests cover all three kinds, ordering mismatch, unsupported kinds, wrong prefixes and truncated rows. The commercial SPT binaries remain outside Git, so the all-20 sample result is preserved in this report rather than as a committed binary fixture.
+
 ## Per-module command-area map
 
 The pair counts below are counts of adjacent cells, not counts of confirmed semantic commands.
