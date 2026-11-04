@@ -223,7 +223,7 @@ fun RamenApp() {
         if (uri == null) {
             statusMessage = "Выбор папки отменён."
         } else if (isBusy) {
-            statusMessage = "Дождись окончания текущего импорта."
+            statusMessage = "Дождись окончания текущей операции."
         } else {
             val permissionTaken = runCatching {
                 context.contentResolver.takePersistableUriPermission(
@@ -310,13 +310,13 @@ fun RamenApp() {
     }
 
     val onImportFolderClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isBusy) {
             folderPicker.launch(null)
         }
     }
 
     val onImportHtmlClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isBusy) {
             // Some providers label .html as text/plain or octet-stream,
             // so accept the selection broadly and validate it in HtmlFileImporter.
             htmlFilePicker.launch(arrayOf("*/*"))
