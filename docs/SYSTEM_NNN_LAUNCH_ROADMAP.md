@@ -1,3 +1,16 @@
+## 2026-11-05 — project.xtx inspected and module catalog wired
+
+- Inspected the user-provided cleaned Steam folder archive in-place; only `project.xtx` and bounded SPT headers were read. No game files were added to Git.
+- `project.xtx` is 109 bytes of ASCII with CRLF line endings and declares 20 modules, in this order: `sys`, `backspt`, `01`, `02`, `03`, `04`, `05`, `06`, `07`, `08`, `082`, `akane`, `aoi`, `kiika`, `yamiko`, `yuka`, `day`, `op1`, `yuka2`, `_staff`.
+- All 20 declared modules have exactly one matching sibling `.spt` file in the supplied archive; there are no unlisted SPT files. ZIP entry order differs from project order.
+- All 20 headers carry the demasked `SPTHEADER0` signature. The manifest contains no explicit entrypoint field.
+- Under the current film-table reader, `sys.spt` has 3 film entries and 3 reserved entries, while both `backspt.spt` (23/4) and `01.spt` (69/2) have a candidate film-0 entry. This does not establish which module starts the game or how the system scripts transfer control.
+- Added a bounded, ASCII-only `SystemNnnProjectCatalog` parser that validates module names, rejects duplicates/path-like values, and resolves sibling SPT files. Added synthetic tests.
+- `SystemNnnPlayerActivity` no longer prefers `01.spt`. With a multi-module `project.xtx`, it now stops with an explicit unresolved-entrypoint message rather than launching an arbitrary module. Single-module manifests and unambiguous one-SPT imports remain eligible.
+- Next investigation: trace the launch/transfer references in `sys`, `backspt`, and `01`, then confirm against scene records. Do not infer boot semantics from the manifest order or file names.
+
+---
+
 ## 2026-11-05 — Header descriptor 3/4 and scene.dat cross-check
 
 - scene.dat is 1,164 bytes, version 1, with 69 variable-length records of the form [u32 type][u32 valueCount][u32 values...]; all records end exactly at EOF.

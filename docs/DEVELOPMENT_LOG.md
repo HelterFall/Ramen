@@ -664,3 +664,14 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Android CI [#351](https://github.com/HelterFall/Ramen/actions/runs/41902266343) passed on f0287ab6411429aca0f0c7a62d07304aeaf88f29: assembleDebug, unit tests, lint and debug APK upload. Artifact ID 13359326663, 11,690,600 bytes, SHA-256 c82df8279fde8ac99fd3de8331aa5babad91bc19cc2e00580c639b307c8151a6.
 - Remaining: validate WGQ classification against actual headers from the user's cleaned package; multi-GPK/GTB and multi-VPK/VTB routing; real SPT entrypoint and module transitions; voice/BGM mapping; physical Android playback.
 - No change to main and no merge. CI is not a device-compatibility claim.
+
+
+## 2026-11-05 — project.xtx catalog and fail-closed entrypoint handling
+
+- Inspected only the user-provided `project.xtx` bytes and the fixed 0x40-byte SPT headers in the uploaded cleaned Steam package. No SPT payload, image, audio, or other commercial game data was copied into the repository.
+- Confirmed a 20-line ASCII/CRLF module list. Every name maps one-to-one to a sibling SPT file; the ZIP archive ordering is different.
+- The manifest has no explicit startup-module field. The current film-table interpretation yields possible film-0 starts in both `backspt.spt` and `01.spt`, so choosing either from order or filename would be speculative.
+- Added `SystemNnnProjectCatalog` with bounded strict-ASCII parsing, identifier validation, case-insensitive duplicate detection, sibling-file resolution, and path/symlink checks. Tests cover ordering, case-insensitive resolution, duplicates, path traversal, non-ASCII bytes, and missing module files.
+- Updated the player discovery path to consume `project.xtx` and to fail closed for multi-module projects until an entrypoint is proven. Removed the unconditional `01.spt` preference. A project with exactly one declared module, or a folder with exactly one valid SPT and no manifest, remains eligible for the current player path.
+- No claim of module navigation or full game compatibility is made. Next: read-only trace across `sys`, `backspt`, `01`, and scene records.
+

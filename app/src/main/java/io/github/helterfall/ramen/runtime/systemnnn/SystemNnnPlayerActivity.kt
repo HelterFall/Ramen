@@ -12,6 +12,7 @@ import java.io.IOException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
+import io.github.helterfall.ramen.parser.SystemNnnProjectCatalog
 import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
 
 /**
@@ -117,20 +118,57 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     }
 
     private fun findSystemNnnScript(gameDirectory: File): File {
-        val candidates = gameDirectory.walkTopDown()
+        val projectFiles = gameDirectory.walkTopDown()
             .maxDepth(MAX_GAME_SCAN_DEPTH)
             .filter { file ->
-                file.isFile && file.extension.equals("spt", ignoreCase = true)
+                file.isFile && file.name.equals("project.xtx", ignoreCase = true)
             }
             .take(MAX_DISCOVERED_FILES)
             .toList()
-            .sortedWith(
-                compareBy<File> { if (it.name.equals("01.spt", ignoreCase = true)) 0 else 1 }
-                    .thenBy { it.relativeTo(gameDirectory).invariantSeparatorsPath }
-            )
 
-        return candidates.firstOrNull { candidate -> SystemNnnScriptLoader.hasValidHeader(candidate) }
-            ?: throw IOException("В импортированной папке не найден корректный System-NNN .spt сценарий.")
+        if (projectFiles.size > 1) {
+            throw IOException("В импортированной папке найдено несколько project.xtx; проект неоднозначен.")
+        }
+
+        if (projectFiles.size == 1) {
+            val projectFile = projectFiles.single()
+            val modules = SystemNnnProjectCatalog.load(projectFile).resolveModules(projectFile)
+            val invalidModules = modules.filterNot { module ->
+                SystemNnnScriptLoader.hasValidHeader(module.scriptFile)
+            }
+            if (invalidModules.isNotEmpty()) {
+                val names = invalidModules.joinToString(", ") { it.name }
+                throw IOException("В project.xtx есть модули без корректного SPT-заголовка: $names.")
+            }
+            if (modules.size != 1) {
+                throw IOException(
+                    "Проект System-NNN содержит ${modules.size} модулей. " +
+                        "Стартовый модуль пока не подтверждён, поэтому произвольный сценарий не выбран."
+                )
+            }
+            return modules.single().scriptFile
+        }
+
+        val validCandidates = gameDirectory.walkTopDown()
+            .maxDepth(MAX_GAME_SCAN_DEPTH)
+            .filter { file ->
+                file.isFile &&
+                    file.extension.equals("spt", ignoreCase = true) &&
+                    SystemNnnScriptLoader.hasValidHeader(file)
+            }
+            .take(MAX_DISCOVERED_FILES)
+            .toList()
+
+        return when (validCandidates.size) {
+            1 -> validCandidates.single()
+            0 -> throw IOException(
+                "Не найден корректный System-NNN .spt сценарий или project.xtx."
+            )
+            else -> throw IOException(
+                "Найдено несколько System-NNN .spt сценариев без project.xtx; " +
+                    "стартовый модуль не может быть выбран автоматически."
+            )
+        }
     }
 
     /**
