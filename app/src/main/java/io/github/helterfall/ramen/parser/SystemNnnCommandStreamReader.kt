@@ -190,6 +190,53 @@ class SystemNnnCommandStreamReader(
         )
     }
 
+    /**
+     * Resolves the entry point for a zero-based film index.
+     *
+     * The third header descriptor identifies a DWORD-indexed table embedded in
+     * the SPT code region. The fourth descriptor's count is the reserved-entry
+     * prefix used by the reference runtime; film zero follows that prefix.
+     * The table value itself is a DWORD offset to a command record.
+     */
+    @Throws(IOException::class)
+    fun filmStartOffset(script: SystemNnnScript, filmNumber: Int): Long {
+        if (filmNumber < 0) {
+            throw IOException("The SPT film number cannot be negative.")
+        }
+        val filmTable = script.offsetTables.getOrNull(FILM_TABLE_DESCRIPTOR_INDEX)
+            ?: throw IOException("The SPT film-entry descriptor is missing.")
+        val reservedEntries = script.offsetTables
+            .getOrNull(RESERVED_FILM_ENTRIES_DESCRIPTOR_INDEX)
+            ?.entryCount
+            ?.toLong()
+            ?: 0L
+        val entryIndex = reservedEntries + filmNumber.toLong()
+        if (filmTable.entryCount == 0u || entryIndex >= filmTable.entryCount.toLong()) {
+            throw IOException("The requested film number is outside the SPT film-entry table.")
+        }
+
+        val logicalWordIndex = filmTable.logicalBase.toLong() + entryIndex
+        if (logicalWordIndex > Long.MAX_VALUE / DWORD_BYTES) {
+            throw IOException("The SPT film-entry address overflows the file offset range.")
+        }
+        val tableEntryOffset = logicalWordIndex * DWORD_BYTES
+        val pointerBytes = try {
+            script.readCommandBytes(tableEntryOffset, DWORD_BYTES.toInt())
+        } catch (failure: IllegalArgumentException) {
+            throw IOException("The SPT film-entry table is outside the validated code region.", failure)
+        }
+        val targetWordOffset = readUInt32LE(pointerBytes, 0).toLong()
+        if (targetWordOffset > Long.MAX_VALUE / DWORD_BYTES) {
+            throw IOException("The SPT film entry points beyond the supported file range.")
+        }
+        val targetOffset = targetWordOffset * DWORD_BYTES
+        val stream = read(script)
+        if (stream.records.binarySearchBy(targetOffset) { it.offset } < 0) {
+            throw IOException("The SPT film entry does not point to a command record boundary.")
+        }
+        return targetOffset
+    }
+
     private fun readWords(bytes: ByteArray, startOffset: Int, count: Int): List<UInt> =
         List(count) { index -> readUInt32LE(bytes, startOffset + index * DWORD_BYTES.toInt()) }
 
@@ -210,5 +257,7 @@ class SystemNnnCommandStreamReader(
         const val MAX_IDENTIFIER_TYPE = 7
         const val DEFAULT_PREAMBLE_WORD_COUNT = 4
         const val DEFAULT_TRAILER_WORD_COUNT = 4
+        const val FILM_TABLE_DESCRIPTOR_INDEX = 2
+        const val RESERVED_FILM_ENTRIES_DESCRIPTOR_INDEX = 3
     }
 }
