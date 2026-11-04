@@ -65,3 +65,15 @@ Ramen can serialize a bounded `DirectoryInventoryReport` as UTF-8 JSON. The repo
 - The report contains no file payloads, credentials, or execution capability, but it may include local relative filenames. Review before sharing.
 
 A breaking change to field meaning or structure requires a new schema version. Additive fields may be introduced while retaining the current version if old consumers can safely ignore them.
+
+
+## Readable text structure report
+
+The library can also export a human-readable UTF-8 `.txt` tree via `DirectoryInventoryTextWriter`.
+
+- The report lists the selected game's root, nested directories (including empty folders), file names and exact/human-readable sizes.
+- Folder totals are calculated from the files represented in the report.
+- It records file-count, folder-count, depth and traversal warnings, and marks the report as limited if any scan bound was reached.
+- The structure-only scan uses `DirectoryInventoryScanner.scanStructure()`: it reads filesystem metadata only and does not open file contents for binary inspection or SHA-256 hashing.
+- It does not include file bytes, scenario dialogue, extracted resources, or content previews.
+- The user chooses the destination through Android's document creation picker. The app writes the report to that URI and does not retain a second copy.

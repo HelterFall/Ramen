@@ -1,5 +1,6 @@
 package io.github.helterfall.ramen.ui
 
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Handler
@@ -52,12 +53,16 @@ import androidx.compose.ui.unit.sp
 import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
+import io.github.helterfall.ramen.inspection.DirectoryInventoryScanner
+import io.github.helterfall.ramen.inspection.DirectoryInventoryTextWriter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
 import java.io.File
+import java.io.IOException
+import java.nio.file.Files
 import java.util.concurrent.Executors
 
 private val RamenBackground = Color(0xFF101216)
@@ -66,6 +71,44 @@ private val RamenSurfaceRaised = Color(0xFF222832)
 private val RamenAccent = Color(0xFFF2B766)
 private val RamenText = Color(0xFFF4F1EA)
 private val RamenMuted = Color(0xFFA8ADB7)
+
+
+private fun resolveImportedGameDirectory(context: Context, relativeDirectory: String): File {
+    if (relativeDirectory.isBlank() || File(relativeDirectory).isAbsolute ||
+        relativeDirectory.split('/', '\\\\').any { it == ".." }
+    ) {
+        throw IOException("The imported game path is invalid.")
+    }
+
+    val requested = File(context.filesDir, relativeDirectory)
+    if (Files.isSymbolicLink(requested.toPath())) {
+        throw IOException("The imported game root cannot be a symbolic link.")
+    }
+
+    val gamesRoot = File(context.filesDir, "games").canonicalFile
+    val root = requested.canonicalFile
+    if (
+        !root.isDirectory ||
+        root == gamesRoot ||
+        !root.toPath().startsWith(gamesRoot.toPath())
+    ) {
+        throw IOException("The imported game folder is not available in private storage.")
+    }
+    return root
+}
+
+private fun structureDocumentName(title: String): String {
+    val safeBase = title
+        .map { character ->
+            if (character.isLetterOrDigit() || character in " ._-") character else '_'
+        }
+        .joinToString("")
+        .trim()
+        .trim('.')
+        .take(72)
+        .ifBlank { "visual-novel" }
+    return "$safeBase-structure.txt"
+}
 
 @Composable
 fun RamenApp() {
@@ -77,6 +120,9 @@ fun RamenApp() {
         }
     }
     var isImporting by remember { mutableStateOf(false) }
+    var isExportingStructure by remember { mutableStateOf(false) }
+    var pendingStructureExport by remember { mutableStateOf<GameRecord?>(null) }
+    val isBusy = isImporting || isExportingStructure
     var statusMessage by remember {
         mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
     }
@@ -96,7 +142,7 @@ fun RamenApp() {
         releaseReadPermission: Boolean = false,
         importOperation: (Uri) -> GameRecord
     ) {
-        if (isImporting) return
+        if (isBusy) return
 
         isImporting = true
         statusMessage = progressMessage
@@ -176,7 +222,7 @@ fun RamenApp() {
     ) { uri ->
         if (uri == null) {
             statusMessage = "Выбор папки отменён."
-        } else if (isImporting) {
+        } else if (isBusy) {
             statusMessage = "Дождись окончания текущего импорта."
         } else {
             val permissionTaken = runCatching {
@@ -200,8 +246,58 @@ fun RamenApp() {
         }
     }
 
+    val structureDocumentPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        val game = pendingStructureExport
+        pendingStructureExport = null
+
+        when {
+            uri == null -> statusMessage = "Сохранение структуры отменено."
+            game == null -> statusMessage = "Не удалось определить выбранную новеллу."
+            isBusy -> statusMessage = "Дождись окончания текущей операции."
+            else -> {
+                isExportingStructure = true
+                statusMessage = "Составляю дерево папок и файлов: ${game.title}…"
+                executor.execute {
+                    try {
+                        val root = resolveImportedGameDirectory(
+                            context = context,
+                            relativeDirectory = game.relativeDirectory
+                        )
+                        val report = DirectoryInventoryScanner().scanStructure(root)
+                        val output = context.contentResolver.openOutputStream(uri)
+                            ?: throw IOException("Android could not open the selected report file.")
+                        output.use {
+                            DirectoryInventoryTextWriter().write(report, it)
+                        }
+
+                        mainHandler.post {
+                            isExportingStructure = false
+                            statusMessage = "Текстовая структура сохранена: ${game.title}."
+                        }
+                    } catch (error: Exception) {
+                        mainHandler.post {
+                            isExportingStructure = false
+                            statusMessage = error.message ?: "Не удалось создать отчёт структуры."
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    val onExportStructureClick: (GameRecord) -> Unit = { game ->
+        if (isBusy) {
+            statusMessage = "Дождись окончания текущей операции."
+        } else {
+            pendingStructureExport = game
+            structureDocumentPicker.launch(structureDocumentName(game.title))
+        }
+    }
+
     val onImportClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isBusy) {
             documentPicker.launch(
                 arrayOf(
                     "application/zip",
@@ -266,7 +362,7 @@ fun RamenApp() {
                 if (games.isEmpty()) {
                     item {
                         EmptyLibraryCard(
-                            isImporting = isImporting,
+                            isImporting = isBusy,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
                             onImportHtmlClick = onImportHtmlClick
@@ -276,7 +372,7 @@ fun RamenApp() {
                     item {
                         LibrarySummaryCard(
                             gameCount = games.size,
-                            isImporting = isImporting,
+                            isImporting = isBusy,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
                             onImportHtmlClick = onImportHtmlClick
@@ -286,6 +382,8 @@ fun RamenApp() {
                     items(games, key = { it.id }) { game ->
                         GameCard(
                             game = game,
+                            isBusy = isBusy,
+                            onExportStructure = { onExportStructureClick(game) },
                             onInspectResources = {
                                 val intent = Intent(context, ResourceInspectorActivity::class.java)
                                     .putExtra(
@@ -318,7 +416,7 @@ fun RamenApp() {
                 item {
                     ImportStatusCard(
                         message = statusMessage,
-                        isImporting = isImporting
+                        isImporting = isBusy
                     )
                 }
                 item { ComingNextSection() }
@@ -623,6 +721,8 @@ private fun SectionHeading(text: String) {
 @Composable
 private fun GameCard(
     game: GameRecord,
+    isBusy: Boolean,
+    onExportStructure: () -> Unit,
     onInspectResources: () -> Unit,
     onLaunch: () -> Unit
 ) {
@@ -679,6 +779,14 @@ private fun GameCard(
                 shape = RoundedCornerShape(13.dp)
             ) {
                 Text("Просмотреть GPK/GTB и VPK/VTB")
+            }
+            OutlinedButton(
+                onClick = onExportStructure,
+                enabled = !isBusy,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(13.dp)
+            ) {
+                Text("Сохранить структуру (.txt)")
             }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
                 (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE")

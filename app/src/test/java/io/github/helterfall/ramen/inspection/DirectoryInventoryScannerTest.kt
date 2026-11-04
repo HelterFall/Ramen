@@ -100,6 +100,49 @@ class DirectoryInventoryScannerTest {
         }
     }
 
+
+    @Test
+    fun recordsNestedAndEmptyDirectoriesInStructureModeWithoutOpeningFileContents() {
+        val root = Files.createTempDirectory("ramen-inventory-structure").toFile()
+        try {
+            val assets = File(root, "assets")
+            assets.mkdirs()
+            File(assets, "image.bin").writeBytes(byteArrayOf(1, 2, 3, 4))
+            File(root, "empty").mkdirs()
+
+            val result = DirectoryInventoryScanner().scanStructure(root)
+
+            assertEquals(listOf("assets", "empty"), result.directoryPaths)
+            assertEquals(2, result.discoveredDirectories)
+            assertEquals(listOf("assets/image.bin"), result.entries.map { it.relativePath })
+            assertEquals(4L, result.totalBytesObserved)
+            assertEquals(0L, result.totalBytesHashed)
+            assertNull(result.entries.single().sha256Hex)
+            assertNull(result.entries.single().artifactReport)
+            assertFalse(result.truncated)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun directoryLimitIsBoundedAndReported() {
+        val root = Files.createTempDirectory("ramen-inventory-directory-limit").toFile()
+        try {
+            File(root, "a").mkdirs()
+            File(root, "b").mkdirs()
+
+            val result = DirectoryInventoryScanner(maxDirectories = 1).scanStructure(root)
+
+            assertEquals(listOf("a"), result.directoryPaths)
+            assertEquals(2, result.discoveredDirectories)
+            assertTrue(result.truncated)
+            assertTrue(result.warnings.any { it.contains("folder") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test
     fun rejectsNonDirectoryRoot() {
         val directory = Files.createTempDirectory("ramen-inventory-invalid").toFile()

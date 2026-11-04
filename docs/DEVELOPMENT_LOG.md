@@ -709,3 +709,14 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Each of the 15 0x3333/0x1A module-token references has one same-index 0x3333/0x1B reference in the same module, but the two records are in different ordinary-film intervals in all 15 cases (13 id1B earlier, 2 later). They are not adjacent pairs. All seven record IDs that reference module names also reference many non-module Pool 2 entries (33,348 other targets vs 511 module-name targets); no transition semantics were assigned.
 - Reviewed an independent public NNNLib reference from different titles: it describes Pool 2 as a mixed table including jump-target names and treats sys/backscript as system UI there. Added links as cross-title evidence only; it is not used as proof of this title's opcode meanings.
 - No game binaries, sidecars, dialogue, or other assets were added to Git. No module navigation or VM behavior was changed beyond structural validation.
+
+
+## 2026-11-05 — readable visual-novel structure export
+
+- Reused the existing bounded `DirectoryInventoryScanner` rather than creating another traversal implementation.
+- Extended its report with visited directory paths, including empty folders, plus a separate directory-count bound and truncation warning.
+- Added `scanStructure()` as a fast metadata-only mode: it records folder/file paths and file sizes without opening file data for binary inspection or SHA-256 hashing.
+- Added `DirectoryInventoryTextWriter`, which exports a UTF-8 text tree with folder/file names, exact and human-readable sizes, aggregate folder sizes, and warnings when traversal is partial. It excludes file contents and dialogue.
+- Added a per-game `Сохранить структуру (.txt)` action to the library card. Android's Create Document picker asks where to save; scanning and writing run on the existing background executor.
+- Added scanner and writer tests for empty folders, directory-count limits, metadata-only behavior, sizes, truncation messages, and caller-owned output streams.
+- Updated the inventory-report documentation. Existing JSON output remains unchanged.
