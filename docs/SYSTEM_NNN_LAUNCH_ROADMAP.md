@@ -1,3 +1,13 @@
+## 2026-11-05 — Header descriptor 3/4 and scene.dat cross-check
+
+- scene.dat is 1,164 bytes, version 1, with 69 variable-length records of the form [u32 type][u32 valueCount][u32 values...]; all records end exactly at EOF.
+- Its 69-record count equals SPT descriptor 3 count only for 01.spt. The other 19 modules have different descriptor 3 counts.
+- Across all 20 SPTs, the first decoded DWORD at physical offset 0x40 equals descriptor3.logicalBase + descriptor3.entryCount. The next DWORD at 0x44 is not mapped.
+- The descriptor 3 logical first address does not begin a unique strictly increasing UInt32 table under the Pool 1/Pool 2 validation rule in any sample. Descriptor 4 (base zero, count 1–20) also lacks a uniquely located table.
+- No direct field-by-field link from scene.dat records to 0x3333 or 0x5556 marker parameters was found. Keep all fields metadata-only.
+
+---
+
 ## 2026-11-05 — Reference-kind comparison and opaque marker diagnostics
 
 - Pool 1 reference kinds 1/2/3 all address the same string-record format. Counts: 37,008 / 125 / 250. Kind 2/3 are clustered in seven modules; simple length and CRLF statistics do not establish their semantics.
