@@ -160,11 +160,78 @@ class SystemNnnCommandDecoderImplTest {
         assertEquals(SystemNnnDecodedCommand.End, decoder().decodeNext(script, streamEnd))
     }
 
+
+    @Test
+    fun decodesSelectOptionsFromSecondaryPoolAndMapsThemToCaseBranches() {
+        val script = testScript(
+            records = listOf(
+                record(10, SYSTEM_COMMAND, CODE_SELECT, 2u, 2u, 3u, 0u, 0u, 0u, 0u),
+                record(4, CONTROL, CODE_CONTROL_CASE, 1u),
+                record(4, CONTROL, CODE_OPEN_BRACE, 7u),
+                record(3, CALCULATION, 0u),
+                record(3, CONTROL, CODE_CLOSE_BRACE),
+                record(4, CONTROL, CODE_CONTROL_CASE, 2u)
+            ),
+            textCount = 0,
+            secondaryTexts = listOf("unused", "unused", "Take path A", "Take path B")
+        )
+
+        val decoded = decoder().decodeNext(script, RECORD_START) as SystemNnnDecodedCommand.Choice
+
+        assertEquals("", decoded.promptText)
+        assertEquals(listOf("Take path A", "Take path B"), decoded.options.map { it.label })
+        assertEquals(listOf("case-1", "case-2"), decoded.options.map { it.id })
+        assertEquals(RECORD_START + 40L + 16L, decoded.options[0].targetCommandOffset)
+        assertEquals(RECORD_START + 40L + 16L + 16L + 12L + 12L + 16L, decoded.options[1].targetCommandOffset)
+    }
+
+    @Test
+    fun decodesSelectMessagePrefixBeforeTheSelectableRows() {
+        val script = testScript(
+            records = listOf(
+                record(11, SYSTEM_COMMAND, CODE_SELECT, 2u, 2u, 3u, 4u, 0u, 0u, 0u, 1u),
+                record(4, CONTROL, CODE_CONTROL_CASE, 1u),
+                record(4, CONTROL, CODE_OPEN_BRACE, 7u),
+                record(3, CALCULATION, 0u),
+                record(3, CONTROL, CODE_CLOSE_BRACE),
+                record(4, CONTROL, CODE_CONTROL_CASE, 2u)
+            ),
+            textCount = 0,
+            secondaryTexts = listOf("unused", "unused", ">Intro line", "Option A", "Option B")
+        )
+
+        val decoded = decoder().decodeNext(script, RECORD_START) as SystemNnnDecodedCommand.Choice
+
+        assertEquals("Intro line", decoded.promptText)
+        assertEquals(listOf("Option A", "Option B"), decoded.options.map { it.label })
+    }
+
+    @Test
+    fun rejectsSelectOptionsThatReferenceMissingSecondaryText() {
+        val script = testScript(
+            records = listOf(
+                record(10, SYSTEM_COMMAND, CODE_SELECT, 2u, 2u, 99u, 0u, 0u, 0u, 0u),
+                record(4, CONTROL, CODE_CONTROL_CASE, 1u),
+                record(4, CONTROL, CODE_OPEN_BRACE, 7u),
+                record(3, CALCULATION, 0u),
+                record(3, CONTROL, CODE_CLOSE_BRACE),
+                record(4, CONTROL, CODE_CONTROL_CASE, 2u)
+            ),
+            textCount = 0,
+            secondaryTexts = listOf("unused", "unused", "Option A")
+        )
+
+        assertThrows(IOException::class.java) {
+            decoder().decodeNext(script, RECORD_START)
+        }
+    }
+
     private fun decoder() = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
 
     private fun testScript(
         records: List<List<UInt>>,
-        textCount: Int
+        textCount: Int,
+        secondaryTexts: List<String> = emptyList()
     ): SystemNnnScript {
         val words = listOf(0u, 0u, 0u, 0u) + records.flatten() + listOf(0u, 0u, 0u, 0u)
         val bytes = ByteArray(words.size * DWORD_BYTES.toInt())
@@ -185,7 +252,13 @@ class SystemNnnCommandDecoderImplTest {
                     text = "Synthetic dialogue " + index
                 )
             },
-            commandBytes = bytes
+            commandBytes = bytes,
+            secondaryTextPool = secondaryTexts.mapIndexed { index, text ->
+                SystemNnnTextEntry(
+                    offset = firstTextOffset + 0x100L + index * 0x20L,
+                    text = text
+                )
+            }
         )
     }
 
@@ -212,15 +285,20 @@ class SystemNnnCommandDecoderImplTest {
         const val CONTROL = 0x66660002u
         const val SYSTEM_COMMAND = 0x66660006u
         const val SYSTEM_FUNCTION = 0x66660007u
+        const val CALCULATION = 0x66660005u
 
         const val CODE_PRINT = 0x22220001u
         const val CODE_LPRINT = 0x22220002u
         const val CODE_APPEND = 0x22220003u
+        const val CODE_SELECT = 0x22220006u
         const val CODE_CONTROL_NOP = 0x55560001u
         const val CODE_CONTROL_END = 0x55560005u
         const val CODE_CONTROL_IF = 0x55560002u
         const val CODE_CONTROL_ENDKOMA = 0x5556000Eu
         const val CODE_CONTROL_ENDIF = 0x55560013u
+        const val CODE_CONTROL_CASE = 0x55560008u
+        const val CODE_OPEN_BRACE = 0xA000007Bu
+        const val CODE_CLOSE_BRACE = 0xA000007Du
         const val CODE_CONTROL_ENDFILM = 0x5556000Cu
     }
 }
