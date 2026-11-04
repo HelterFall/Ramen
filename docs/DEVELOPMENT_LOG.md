@@ -326,3 +326,14 @@ Key observation: 01.spt is shown as 390 KB, close to the previously analysed sam
 The presence of multiple numbered and named SPT files means the runtime must not assume that the whole game is represented by 01.spt alone. The small XTX/DAT files may hold project tables or configuration, but their roles are not proven from filenames alone.
 
 No code changed. Next diagnostic sample should be spt/01.spt plus the small sidecar files project.xtx, command.xtx, bgmlist.xtx, cglist01.xtx, charaname.xtx, selist.xtx, and scene.dat. Start with headers, tables and references; do not infer command meanings from names.
+
+
+## 2026-11-04 — Real SPT sample and sidecar structural analysis
+
+Inspected uploaded `hui.zip`; it contains all eight requested files. `01.spt` is exactly 389,500 bytes. After XOR 0xFF, its signature at 0x30 is `SPTHEADER0`. Header descriptors are (1299, 0xC5BA), (1124, 0x167F2), (69, 0xC390), and (2, 0). This exactly matches the previously reported sample, proving that the old measurements correspond to the user's current 01.spt.
+
+The first bytes at 0xC5BA after XOR are `33 33 02 00 00 00 FF FF FF FF ...`. This does not prove that the table is a sequence of image IDs or dialogue offsets. At 0x32B20 there are pointer-like values and repeated `text` labels, suggesting a structured text area, but command semantics remain unproven.
+
+`project.xtx` is a 20-line text list of scenario/module names (including sys, backspt, 01–08, 082, character-named scripts and _staff), confirming that the project is multi-script. `bgmlist.xtx`, `cglist01.xtx`, `charaname.xtx`, `selist.xtx` are Shift-JIS/compatible CRLF text tables; structural line counts: 46, 540, 85 (84 nonempty), and 195 (190 nonempty), respectively. Their user-facing strings were not copied into the log. `command.xtx` is only 4 bytes/two blank CRLF lines. `scene.dat` is 1,164 bytes; a naive LE uint32 view gives 291 words, first word equals file size, but format is not yet established.
+
+No app code changed. Do not implement the earlier sequential-text fallback as confirmed behavior. Next: map all four SPT tables and their internal references; correlate with XTX tables and scene.dat; avoid hard-coded offsets across different scripts. A second compact sample such as sys.spt or day.spt will help distinguish shared format from script-specific layout.
