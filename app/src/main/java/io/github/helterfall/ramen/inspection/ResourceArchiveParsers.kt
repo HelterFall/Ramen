@@ -1419,7 +1419,7 @@ object ResourceArchiveParsers {
 
         val fileSize = file.length()
         val headerSize = DWQ_HEADER_SIZE + BMP_HEADER_SIZE
-        if (fileSize < headerSize.toLong()) return false
+        if (fileSize < headerSize.toLong() || fileSize > Int.MAX_VALUE.toLong()) return false
 
         return runCatching {
             val header = ByteArray(headerSize)
