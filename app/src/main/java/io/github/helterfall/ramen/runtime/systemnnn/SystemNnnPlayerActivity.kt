@@ -12,6 +12,7 @@ import java.io.IOException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
+import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
 
 /**
  * Launches one imported System-NNN game from the application's private library.
@@ -63,6 +64,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                 val gameDirectory = resolvePrivateGameDirectory(gameId)
                 val scriptFile = findSystemNnnScript(gameDirectory)
                 val script = SystemNnnScriptLoader().load(scriptFile)
+                val commandStreamReader = SystemNnnCommandStreamReader()
+                val initialCommandOffset = commandStreamReader.filmStartOffset(script, 0)
                 val resolverToTransfer = SystemNnnGpkBitmapRepository.forGameDirectory(gameDirectory)
                 assetResolver = resolverToTransfer
                 preparedAudio = prepareAudioRepository(gameDirectory)
@@ -72,13 +75,14 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                         resolverToTransfer.close()
                         preparedAudio?.repository?.close()
                     } else {
-                        // The SPT pools are now parsed from their real address tables,
-                        // but VM command semantics are not verified yet. Do not run the old
-                        // UInt32/sequential-dialogue guess as if it were a real interpreter.
                         playerViewModel.start(
                             script = script,
-                            commandDecoder = null,
+                            commandDecoder = SystemNnnCommandDecoderImpl(
+                                gtbResourceCount = resolverToTransfer.resourceCount,
+                                streamReader = commandStreamReader
+                            ),
                             assetResolver = resolverToTransfer,
+                            initialCommandOffset = initialCommandOffset,
                             audioRepository = preparedAudio?.repository
                         )
                     }
