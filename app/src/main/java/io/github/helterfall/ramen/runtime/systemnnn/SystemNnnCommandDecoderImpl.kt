@@ -23,6 +23,7 @@ class SystemNnnCommandDecoderImpl(
 
     private var cachedScript: SystemNnnScript? = null
     private var cachedStream: SystemNnnCommandStream? = null
+    private val variables = HashMap<Int, Int>()
 
     init {
         require(gtbResourceCount >= 0) { "gtbResourceCount must not be negative." }
@@ -54,11 +55,15 @@ class SystemNnnCommandDecoderImpl(
 
             SystemNnnRecordKind.SYSTEM_COMMAND -> decodeSystemCommand(script, record)
 
-            SystemNnnRecordKind.CONTROL -> decodeControl(record)
+            SystemNnnRecordKind.CONTROL -> decodeControl(script, stream, record)
+
+            SystemNnnRecordKind.CALCULATION -> {
+                evaluateCalculation(script, record)
+                SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+            }
 
             SystemNnnRecordKind.COMMAND,
             SystemNnnRecordKind.FUNCTION,
-            SystemNnnRecordKind.CALCULATION,
             null -> throw unsupportedRecord(record)
         }
     }
@@ -249,7 +254,11 @@ class SystemNnnCommandDecoderImpl(
             record.codeFamily == EXPRESSION_FAMILY &&
             record.codeId == CODE_CLOSE_BRACE
 
-    private fun decodeControl(record: SystemNnnCommandRecord): SystemNnnDecodedCommand {
+    private fun decodeControl(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand {
         if (record.codeFamily == EXPRESSION_FAMILY) {
             if (record.codeId == CODE_OPEN_BRACE || record.codeId == CODE_CLOSE_BRACE) {
                 return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
@@ -265,6 +274,10 @@ class SystemNnnCommandDecoderImpl(
             CODE_CONTROL_ENDKOMA,
             CODE_CONTROL_ENDIF -> SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
 
+            CODE_CONTROL_CASE -> SystemNnnDecodedCommand.Skip(
+                skipFollowingBranch(script, stream, record)
+            )
+
             CODE_CONTROL_END,
             CODE_CONTROL_ENDFILM -> SystemNnnDecodedCommand.End
 
@@ -272,10 +285,214 @@ class SystemNnnCommandDecoderImpl(
         }
     }
 
+    private fun skipFollowingBranch(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
+        branchRecord: SystemNnnCommandRecord
+    ): Long {
+        val body = recordAt(stream, branchRecord.endOffsetExclusive)
+            ?: return stream.recordEndOffsetExclusive
+        return if (isOpenBrace(body)) {
+            skipBraceBlock(script, stream, body)
+        } else {
+            body.endOffsetExclusive
+        }
+    }
+
+    private data class ExpressionValue(
+        val value: Int,
+        val variableIndex: Int? = null
+    )
+
+    /**
+     * Evaluates the bounded reverse-Polish expression carried by a CALCU
+     * record. Only integer/variable tokens and operators observed in the
+     * supplied module set are accepted.
+     */
+    private fun evaluateCalculation(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ): Int {
+        if (record.payloadWordCount <= 0) {
+            throw IOException("A System-NNN CALCU record has no expression payload.")
+        }
+
+        val first = readPayloadWord(script, record, 0)
+        val tokens = if (first == SCRIPT_CALCU_TOKEN) {
+            if (record.payloadWordCount < 2) {
+                throw IOException("A System-NNN CALCU expression has no token count.")
+            }
+            val tokenCount = readPayloadWord(script, record, 1).toLong()
+            if (tokenCount !in 1L..MAX_EXPRESSION_TOKENS.toLong() ||
+                tokenCount + 2L > record.payloadWordCount.toLong()
+            ) {
+                throw IOException("A System-NNN CALCU expression has an invalid token count.")
+            }
+            List(tokenCount.toInt()) { index -> readPayloadWord(script, record, index + 2) }
+        } else {
+            if (record.payloadWordCount != 1) {
+                throw IOException("A simple System-NNN CALCU expression has trailing words.")
+            }
+            listOf(first)
+        }
+
+        val stack = ArrayList<ExpressionValue>(tokens.size)
+        tokens.forEach { token ->
+            when (val family = (token shr 16).toInt() and 0xFFFF) {
+                SCRIPT_VAR_FAMILY -> {
+                    val rawIndex = (token and 0xFFFFu).toInt()
+                    if ((rawIndex and IMMEDIATE_VARIABLE_FLAG) != 0) {
+                        stack += ExpressionValue(rawIndex and IMMEDIATE_VARIABLE_MASK)
+                    } else {
+                        stack += ExpressionValue(variables[rawIndex] ?: 0, rawIndex)
+                    }
+                }
+
+                SCRIPT_NUMBER_FAMILY -> {
+                    val raw = (token and 0xFFFFu).toInt()
+                    val value = if ((raw and 0x8000) != 0) raw or -0x10000 else raw
+                    stack += ExpressionValue(value)
+                }
+
+                SCRIPT_CALCU_ENZAN_FAMILY,
+                SCRIPT_CALCU_COMPOUND_FAMILY,
+                SCRIPT_CALCU_LOGICAL_FAMILY,
+                SCRIPT_CALCU_COMPARE_FAMILY,
+                SCRIPT_CALCU_COMPARE_EQUAL_FAMILY -> {
+                    applyExpressionOperator(
+                        family = family,
+                        operator = (token and 0xFFFFu).toInt(),
+                        stack = stack
+                    )
+                }
+
+                else -> throw IOException(
+                    "Unsupported System-NNN CALCU token 0x" + token.toString(16) + "."
+                )
+            }
+            if (stack.size > MAX_EXPRESSION_STACK) {
+                throw IOException("A System-NNN CALCU expression exceeded the stack limit.")
+            }
+        }
+
+        if (stack.size != 1) {
+            throw IOException("A System-NNN CALCU expression left an invalid result stack.")
+        }
+        return stack.single().value
+    }
+
+    private fun applyExpressionOperator(
+        family: Int,
+        operator: Int,
+        stack: MutableList<ExpressionValue>
+    ) {
+        if (family == SCRIPT_CALCU_ENZAN_FAMILY && operator == OP_NOT) {
+            val operand = stack.removeLastOrNull()
+                ?: throw IOException("A System-NNN CALCU NOT operator has no operand.")
+            val result = if (operand.value == 0) 1 else 0
+            operand.variableIndex?.let { variables[it] = result }
+            stack += ExpressionValue(result, operand.variableIndex)
+            return
+        }
+
+        if (stack.size < 2) {
+            throw IOException("A System-NNN CALCU binary operator has too few operands.")
+        }
+        val right = stack.removeAt(stack.lastIndex)
+        val left = stack.removeAt(stack.lastIndex)
+
+        val result = when (family) {
+            SCRIPT_CALCU_ENZAN_FAMILY -> when (operator) {
+                OP_ASSIGN -> {
+                    val destination = left.variableIndex
+                        ?: throw IOException("A System-NNN CALCU assignment target is not a variable.")
+                    variables[destination] = right.value
+                    ExpressionValue(right.value, destination)
+                }
+                OP_ADD -> ExpressionValue(left.value + right.value)
+                OP_SUBTRACT -> ExpressionValue(left.value - right.value)
+                OP_MULTIPLY -> ExpressionValue(left.value * right.value)
+                OP_DIVIDE -> ExpressionValue(left.value / right.value.coerceAtLeast(1).let {
+                    if (right.value < 0) -it else it
+                })
+                OP_MODULO -> ExpressionValue(left.value % right.value.coerceAtLeast(1).let {
+                    if (right.value < 0) -it else it
+                })
+                OP_BIT_AND -> ExpressionValue(left.value and right.value)
+                OP_BIT_XOR -> ExpressionValue(left.value xor right.value)
+                OP_BIT_OR -> ExpressionValue(left.value or right.value)
+                else -> throw IOException("Unsupported System-NNN CALCU operator 0x" + operator.toString(16) + ".")
+            }
+
+            SCRIPT_CALCU_COMPOUND_FAMILY -> {
+                if (operator == OP_EQUAL) {
+                    ExpressionValue(if (left.value == right.value) 1 else 0)
+                } else {
+                    val destination = left.variableIndex
+                        ?: throw IOException("A System-NNN compound assignment target is not a variable.")
+                    val updated = when (operator) {
+                        OP_ADD -> left.value + right.value
+                        OP_SUBTRACT -> left.value - right.value
+                        OP_MULTIPLY -> left.value * right.value
+                        OP_DIVIDE -> left.value / right.value.coerceAtLeast(1).let {
+                            if (right.value < 0) -it else it
+                        }
+                        OP_MODULO -> left.value % right.value.coerceAtLeast(1).let {
+                            if (right.value < 0) -it else it
+                        }
+                        OP_BIT_AND -> left.value and right.value
+                        OP_BIT_XOR -> left.value xor right.value
+                        OP_BIT_OR -> left.value or right.value
+                        else -> throw IOException("Unsupported System-NNN compound operator.")
+                    }
+                    variables[destination] = updated
+                    ExpressionValue(updated, destination)
+                }
+            }
+
+            SCRIPT_CALCU_LOGICAL_FAMILY -> {
+                val value = when (operator) {
+                    OP_EQUAL -> left.value == right.value
+                    OP_BIT_AND -> left.value != 0 && right.value != 0
+                    OP_BIT_OR -> left.value != 0 || right.value != 0
+                    OP_BIT_XOR -> (left.value != 0) xor (right.value != 0)
+                    else -> throw IOException("Unsupported System-NNN logical operator.")
+                }
+                ExpressionValue(if (value) 1 else 0)
+            }
+
+            SCRIPT_CALCU_COMPARE_FAMILY -> {
+                val value = when (operator) {
+                    OP_LESS -> left.value < right.value
+                    OP_GREATER -> left.value > right.value
+                    else -> throw IOException("Unsupported System-NNN comparison operator.")
+                }
+                ExpressionValue(if (value) 1 else 0)
+            }
+
+            SCRIPT_CALCU_COMPARE_EQUAL_FAMILY -> {
+                val value = when (operator) {
+                    OP_LESS -> left.value <= right.value
+                    OP_GREATER -> left.value >= right.value
+                    OP_EQUAL -> left.value == right.value
+                    OP_NOT -> left.value != right.value
+                    else -> throw IOException("Unsupported System-NNN inclusive comparison operator.")
+                }
+                ExpressionValue(if (value) 1 else 0)
+            }
+
+            else -> throw IOException("Unsupported System-NNN CALCU operator family.")
+        }
+        stack += result
+    }
+
+    internal fun variableValue(index: Int): Int = variables[index] ?: 0
+
     private fun streamFor(script: SystemNnnScript): SystemNnnCommandStream {
         if (cachedScript !== script || cachedStream == null) {
             cachedStream = streamReader.read(script)
             cachedScript = script
+            variables.clear()
         }
         return checkNotNull(cachedStream)
     }
@@ -325,6 +542,31 @@ class SystemNnnCommandDecoderImpl(
         const val CODE_CONTROL_ENDKOMA = 0x000E
         const val CODE_CONTROL_ENDIF = 0x0013
         const val CODE_CONTROL_CASE = 0x0008
+        const val SCRIPT_VAR_FAMILY = 0x8000
+        const val SCRIPT_NUMBER_FAMILY = 0x9000
+        const val SCRIPT_CALCU_ENZAN_FAMILY = 0xA000
+        const val SCRIPT_CALCU_COMPOUND_FAMILY = 0xA200
+        const val SCRIPT_CALCU_LOGICAL_FAMILY = 0xA300
+        const val SCRIPT_CALCU_COMPARE_FAMILY = 0xA400
+        const val SCRIPT_CALCU_COMPARE_EQUAL_FAMILY = 0xA500
+        const val SCRIPT_CALCU_TOKEN = 0xA0000000u
+        const val IMMEDIATE_VARIABLE_FLAG = 0x8000
+        const val IMMEDIATE_VARIABLE_MASK = 0x7FFF
+        const val MAX_EXPRESSION_TOKENS = 256
+        const val MAX_EXPRESSION_STACK = 256
+        const val OP_ASSIGN = '='.code
+        const val OP_EQUAL = '='.code
+        const val OP_NOT = '!'.code
+        const val OP_ADD = '+'.code
+        const val OP_SUBTRACT = '-'.code
+        const val OP_MULTIPLY = '*'.code
+        const val OP_DIVIDE = '/'.code
+        const val OP_MODULO = '%'.code
+        const val OP_BIT_AND = '&'.code
+        const val OP_BIT_XOR = '^'.code
+        const val OP_BIT_OR = '|'.code
+        const val OP_LESS = '<'.code
+        const val OP_GREATER = '>'.code
         const val CODE_OPEN_BRACE = 0x007B
         const val CODE_CLOSE_BRACE = 0x007D
         const val MAX_SELECT_OPTIONS = 64
