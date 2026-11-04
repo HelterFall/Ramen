@@ -180,8 +180,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
         if (commandDecoder == null) {
             uiState = uiState.copy(
                 isLoading = false,
-                errorMessage = "Загрузчик SPT прочитал заголовок и текстовый пул, " +
-                    "но проверенный декодер команд System-NNN ещё не подключён."
+                errorMessage = "SPT загружен: оба текстовых пула прочитаны. " +
+                    "Воспроизведение пока недоступно — декодер команд System-NNN ещё не реализован. " +
+                    "Импорт и просмотр ресурсов работают отдельно от проигрывателя."
             )
             return
         }
