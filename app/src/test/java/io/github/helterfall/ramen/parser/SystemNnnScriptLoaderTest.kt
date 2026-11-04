@@ -114,6 +114,73 @@ class SystemNnnScriptLoaderTest {
     }
 
     @Test
+    fun scansOpaque3333And5556PatternsWithoutAssigningCommandSemantics() {
+        val commandBytes = ByteArray(40)
+        // 0x3333: candidate extent 2, so candidate continuation is cell 6.
+        putUInt32(commandBytes, 0, 0x66660007)
+        putUInt32(commandBytes, 4, 0x3333001B)
+        putUInt32(commandBytes, 8, 2)
+        putUInt32(commandBytes, 24, 0x66660006)
+
+        // 0x5556: the next aligned cell is inspected at cell 9.
+        putUInt32(commandBytes, 28, 0x66660002)
+        putUInt32(commandBytes, 32, 0x5556000E)
+        putUInt32(commandBytes, 36, 4)
+
+        val script = SystemNnnScript(
+            fileSizeBytes = 0xC0L,
+            firstHeaderWord = 20u,
+            offsetTables = emptyList(),
+            commandStartOffset = 0x40L,
+            commandEndOffset = 0x40L + commandBytes.size,
+            textPoolOffset = 0x80L,
+            textPool = emptyList(),
+            commandBytes = commandBytes
+        )
+
+        val patterns = script.scanOpaqueMarkerPatterns()
+
+        assertEquals(2, patterns.size)
+        assertEquals(0x3333, patterns[0].familyMarker)
+        assertEquals(27, patterns[0].markerParameter)
+        assertEquals(2u, patterns[0].followingWord)
+        assertEquals(0x58L, patterns[0].candidateNextCellOffset)
+        assertEquals(0x6666, patterns[0].candidateNextCellMarker)
+
+        assertEquals(0x5556, patterns[1].familyMarker)
+        assertEquals(14, patterns[1].markerParameter)
+        assertEquals(4u, patterns[1].followingWord)
+        assertNull(patterns[1].candidateNextCellOffset)
+        assertNull(patterns[1].candidateNextCellMarker)
+    }
+
+    @Test
+    fun opaqueMarkerScannerKeepsOutOfRange3333ExtentAsUnresolved() {
+        val commandBytes = ByteArray(20)
+        putUInt32(commandBytes, 0, 0x66660007)
+        putUInt32(commandBytes, 4, 0x3333001B)
+        putUInt32(commandBytes, 8, 21)
+
+        val script = SystemNnnScript(
+            fileSizeBytes = 0xA0L,
+            firstHeaderWord = 20u,
+            offsetTables = emptyList(),
+            commandStartOffset = 0x40L,
+            commandEndOffset = 0x40L + commandBytes.size,
+            textPoolOffset = 0x80L,
+            textPool = emptyList(),
+            commandBytes = commandBytes
+        )
+
+        val pattern = script.scanOpaqueMarkerPatterns().single()
+
+        assertEquals(0x3333, pattern.familyMarker)
+        assertEquals(21u, pattern.followingWord)
+        assertNull(pattern.candidateNextCellOffset)
+        assertNull(pattern.candidateNextCellMarker)
+    }
+
+    @Test
     fun parsesBothPoolsFromLogicalAddressTablesAndPreservesRawRecords() {
         val directory = Files.createTempDirectory("ramen-system-nnn-pools").toFile()
         try {
