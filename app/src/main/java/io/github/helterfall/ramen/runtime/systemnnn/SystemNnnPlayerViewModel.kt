@@ -8,6 +8,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import io.github.helterfall.ramen.parser.SystemNnnScript
+import io.github.helterfall.ramen.parser.SystemNnnCommandStream
+import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
@@ -130,6 +132,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private set
 
     private var script: SystemNnnScript? = null
+    private var commandStream: SystemNnnCommandStream? = null
     private var decoder: SystemNnnCommandDecoder? = null
     private var assets: SystemNnnSceneAssetResolver? = null
     private val bitmapOwners = IdentityHashMap<Bitmap, SystemNnnSceneAssetResolver>()
@@ -166,11 +169,27 @@ class SystemNnnPlayerViewModel : ViewModel() {
         initialAudioResourceName: String? = null
     ) {
         releaseAssets()
+        val parsedCommandStream = try {
+            SystemNnnCommandStreamReader().read(script)
+        } catch (error: Exception) {
+            runCatching { assetResolver.close() }
+            runCatching { audioRepository?.close() }
+            uiState = SystemNnnPlayerUiState(
+                errorMessage = error.message ?: "Не удалось разобрать командный поток SPT."
+            )
+            return
+        }
+
         this.script = script
+        this.commandStream = parsedCommandStream
         this.decoder = commandDecoder
         this.assets = assetResolver
         this.audioRepository = audioRepository
-        this.nextCommandOffset = initialCommandOffset
+        this.nextCommandOffset = if (initialCommandOffset == script.commandStartOffset) {
+            parsedCommandStream.recordStartOffset
+        } else {
+            initialCommandOffset
+        }
         this.frameCounter = 0L
         this.fallbackDialogueStepIndex = 0L
         this.audioRequestId += 1L
@@ -181,9 +200,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
         if (commandDecoder == null) {
             uiState = uiState.copy(
                 isLoading = false,
-                statusMessage = "SPT загружен: оба текстовых пула прочитаны. " +
-                    "Воспроизведение пока недоступно — декодер команд System-NNN ещё не реализован. " +
-                    "Импорт и просмотр ресурсов работают отдельно от проигрывателя."
+                statusMessage = "SPT загружен: текстовые пулы прочитаны, " +
+                    parsedCommandStream.records.size + " командных записей проверено. " +
+                    "Для воспроизведения нужен декодер команд System-NNN."
             )
             return
         }
@@ -372,7 +391,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
             while (commandsWithoutVisibleOutput < MAX_SCENE_COMMANDS_PER_ADVANCE) {
                 val commandOffset = nextCommandOffset
                 if (!isValidCommandCursor(currentScript, commandOffset)) {
-                    throw IOException("Command cursor left the declared SPT main table.")
+                    throw IOException("Command cursor is not on a validated SPT record boundary.")
                 }
 
                 when (val command = currentDecoder.decodeNext(currentScript, commandOffset)) {
@@ -500,11 +519,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
                     SystemNnnDecodedCommand.End -> {
                         audioPlayer?.stop()
-                        if (commandOffset != mainTableEndOffset(currentScript)) {
-                            throw IOException(
-                                "The decoder reported End before the declared 1,299-entry table boundary."
-                            )
-                        }
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter + 1L,
                             isEnded = true
@@ -561,50 +575,29 @@ class SystemNnnPlayerViewModel : ViewModel() {
         currentOffset: Long,
         nextOffset: Long
     ) {
-        if (nextOffset != currentOffset + UINT32_BYTES ||
+        if (!isValidCommandOffset(currentScript, currentOffset) ||
+            nextOffset == currentOffset ||
             !isValidCommandCursor(currentScript, nextOffset)
         ) {
-            throw IOException("Decoded command must advance exactly four bytes.")
+            throw IOException("Decoded command target is not a valid SPT record boundary.")
         }
-    }
-
-    private fun mainTableEndOffset(currentScript: SystemNnnScript): Long {
-        val mainTable = currentScript.offsetTables.firstOrNull { it.name == MAIN_TABLE_NAME }
-            ?: throw IOException("The SPT main transition table is missing.")
-        val start = mainTable.offset.toLong()
-        val entryCount = mainTable.entryCount.toLong()
-
-        if (start != currentScript.commandStartOffset ||
-            entryCount != MAIN_TABLE_ENTRY_COUNT
-        ) {
-            throw IOException("The SPT main transition table descriptor is invalid.")
-        }
-
-        val end = start + entryCount * UINT32_BYTES
-        if (end <= start ||
-            end > currentScript.commandEndOffset ||
-            end > currentScript.fileSizeBytes ||
-            end > currentScript.textPoolOffset
-        ) {
-            throw IOException("The declared SPT main table exceeds its validated file bounds.")
-        }
-        return end
     }
 
     private fun isValidCommandCursor(currentScript: SystemNnnScript, offset: Long): Boolean {
-        val end = runCatching { mainTableEndOffset(currentScript) }.getOrNull() ?: return false
-        val relativeOffset = offset - currentScript.commandStartOffset
-        return offset >= currentScript.commandStartOffset &&
-            offset <= end &&
-            relativeOffset % UINT32_BYTES == 0L
+        val stream = commandStream ?: return false
+        if (script !== currentScript) return false
+        if (offset == stream.recordEndOffsetExclusive) return true
+        return stream.records.binarySearchBy(offset) { it.offset } >= 0
     }
 
     private fun isValidCommandOffset(currentScript: SystemNnnScript, offset: Long): Boolean {
-        val end = runCatching { mainTableEndOffset(currentScript) }.getOrNull() ?: return false
-        return isValidCommandCursor(currentScript, offset) && offset < end
+        val stream = commandStream ?: return false
+        return offset != stream.recordEndOffsetExclusive &&
+            isValidCommandCursor(currentScript, offset)
     }
 
     private fun releaseAssets() {
+        commandStream = null
         audioRequestId += 1L
         val player = audioPlayer
         audioPlayer = null
@@ -626,9 +619,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     companion object {
-        private const val MAIN_TABLE_NAME = "main"
-        private const val MAIN_TABLE_ENTRY_COUNT = 1_299L
-        private const val UINT32_BYTES = 4L
         private const val MAX_SCENE_COMMANDS_PER_ADVANCE = 2_048
     }
 }
