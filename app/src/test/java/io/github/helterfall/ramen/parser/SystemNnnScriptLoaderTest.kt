@@ -172,7 +172,7 @@ class SystemNnnScriptLoaderTest {
                 )
             )
             val damaged = file.readBytes()
-            putUInt32(damaged, 0x104, readUInt32(damaged, 0x100))
+            putUInt32(damaged, 0x104, readUInt32(damaged, 0x100).toInt())
             file.writeBytes(damaged)
 
             val failure = runCatching {
