@@ -447,3 +447,38 @@ The source is for a different game, so it was treated as a hypothesis and tested
 
 ### Next
 Implement the dynamically located Pool 1/Pool 2 tables and aligned string-record reader in Kotlin, test empty Pool 1 modules, then investigate descriptor 3 / scene.dat / var.fxf without guessing their relationship. Only after that, map instruction opcodes and module transitions.
+
+
+## 2026-11-04 — Implement indexed SPT pool parser and validate CI
+
+### Implementation
+- Reworked `SystemNnnScriptLoader.kt` to discover the physical UInt32 address tables from the logical header bases for Pool 1 and Pool 2.
+- Validates 4-byte alignment, strictly increasing logical addresses, exact NUL record counts and aligned record strides.
+- Validates the 16-byte inter-pool marker block for modules with a non-empty Pool 1.
+- Supports the four real modules with an empty first pool.
+- Retains original record bytes, logical addresses and a decode-error flag for non-Shift-JIS rows.
+- Exposes Pool 1 and Pool 2 separately; retains the existing `textPoolOffset` property as a compatibility view.
+- Preserves descriptors 3 and 4 as untyped metadata.
+
+### Runtime safety
+- Replaced the old speculative UInt32/sequential-dialogue implementation in `SystemNnnCommandDecoderImpl` with an explicit IOException until opcode semantics are decoded.
+- `SystemNnnPlayerActivity` passes a null command decoder for now; it no longer routes the guessed decoder into the experimental player.
+- This intentionally prevents false dialogue/background output. It does not make the target game playable yet.
+
+### Tests and CI
+- Rebuilt SPT loader fixtures to contain real indexed-pool structure.
+- Added tests for both pools, invalid Shift-JIS raw-byte retention, empty Pool 1, all 20 recorded descriptor shapes, invalid logical addresses, bad signatures and header probing.
+- Updated VisualNovelDetector SPT fixtures. CI #297 initially failed two detector tests because the old fixtures only had the signature and hard-coded trailing text, not the newly required address tables. Replaced those with valid minimal two-pool fixtures.
+- CI #298 succeeded: `assembleDebug`, `testDebugUnitTest`, `lintDebug`, and debug APK artifact upload all passed.
+- Actions run: https://github.com/HelterFall/Ramen/actions/runs/41846795259.
+- Artifact `ramen-debug-apk`: 11,647,447 bytes.
+- No physical-device validation was performed.
+
+### Remaining limits
+- The SPT VM opcode/operand grammar is not yet implemented.
+- Module transitions are detected as references, not executed.
+- Multi-archive GPK/GTB and VPK/VTB resolving and WGQ content classification remain outstanding.
+- No source-game binaries were added to the repo; real file evidence stays in the investigation records, while CI uses synthetic fixtures.
+
+### Next
+Map instruction boundaries and opcode/operand semantics using the real SPT samples, correlate module links with `project.xtx`, and only then implement the VM runtime.
