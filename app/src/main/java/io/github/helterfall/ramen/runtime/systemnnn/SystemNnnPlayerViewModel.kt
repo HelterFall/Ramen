@@ -140,7 +140,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var frameCounter: Long = 0L
     private var audioRepository: SystemNnnVpkAudioRepository? = null
     private var audioPlayer: SystemNnnAudioPlayer? = null
-    private var fallbackDialogueStepIndex: Long = 0L
     private var audioRequestId: Long = 0L
     private val voiceExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler by lazy(LazyThreadSafetyMode.NONE) {
@@ -191,7 +190,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
             initialCommandOffset
         }
         this.frameCounter = 0L
-        this.fallbackDialogueStepIndex = 0L
         this.audioRequestId += 1L
 
         uiState = SystemNnnPlayerUiState(isLoading = true)
@@ -291,11 +289,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val requestId = ++audioRequestId
         player.stop()
 
-        if (dialogueStepIndex == null ||
-            dialogueStepIndex < 0L ||
-            dialogueStepIndex > Int.MAX_VALUE.toLong()
-        ) {
-            uiState = uiState.copy(audioWarning = "Для текущей строки не задан индекс голосового ресурса.")
+        if (dialogueStepIndex == null) return
+        if (dialogueStepIndex < 0L || dialogueStepIndex > Int.MAX_VALUE.toLong()) {
+            uiState = uiState.copy(audioWarning = "Индекс голосового ресурса выходит за допустимый диапазон.")
             return
         }
 
@@ -450,12 +446,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             sceneSprites = resolveSprites(pendingSpriteReferences!!, resolver)
                         }
 
-                        val dialogueStepIndex =
-                            command.dialogueStepIndex ?: fallbackDialogueStepIndex
-                        fallbackDialogueStepIndex = maxOf(
-                            fallbackDialogueStepIndex,
-                            dialogueStepIndex + 1L
-                        )
+                        val dialogueStepIndex = command.dialogueStepIndex
                         frameCounter += 1L
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter,
