@@ -1,3 +1,12 @@
+## 2026-11-05 — Pool 1 references mapped and read-only scanner implemented
+
+- Across all 16 modules with non-empty Pool 1, the three-cell pattern `(6,0x6666) → (kind=1..3,0x2222) → (u32 index)` yields exactly the indices `0..Pool1Count-1` in code-area order, with no gap, duplicate or descent.
+- All 20 modules match; four empty-pool modules contain no such references. Package total is 37,383 references for 37,383 Pool 1 records. Kind counts: 1=37,008; 2=125; 3=250.
+- Added the read-only Kotlin API `scanPool1References()` and synthetic unit tests. No execution semantics or player behavior was added. Kind meanings remain unknown.
+- Details: [SYSTEM_NNN_COMMAND_MAP_NOTES.md](SYSTEM_NNN_COMMAND_MAP_NOTES.md). CI for the new code change is still to be checked.
+
+---
+
 ## 2026-11-05 — Command-area analysis update
 
 - Added [SYSTEM_NNN_COMMAND_MAP_NOTES.md](SYSTEM_NNN_COMMAND_MAP_NOTES.md) with reproducible per-module offsets, marker counts and exact pair patterns.
