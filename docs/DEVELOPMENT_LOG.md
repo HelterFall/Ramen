@@ -257,3 +257,24 @@ Make the binary inventory portable and comparable without requiring the original
 - `feat/system-nnn-spt-loader` is historical after PR #27 merge.
 - PR #25 and #26 remain unmerged and divergent. Their unique changes must be audited against main before any further integration.
 - System-NNN remains experimental; the decoder's assumptions and complete game playback are not proven by CI.
+
+
+## 2026-11-04 — System-NNN audit roadmap and launch tracking
+
+### Goal
+Create a durable, evidence-based checklist for taking the experimental System-NNN path from file recognition to a verified Android device run, and preserve a chronological work log across sessions.
+
+### Changed
+- Added [System-NNN Launch Roadmap](SYSTEM_NNN_LAUNCH_ROADMAP.md).
+- Recorded the checked repository head `302efb471e929b5136ad7a306e6c793c87f52a81` and the known successful post-merge CI run #279.
+- Recorded the current evidence limits for SPT interpretation, WGQ image/audio classification, VPK/VTB audio variants, voice mapping, BGM startup, and script selection.
+- Added ordered milestones: baseline, resource inventory/classification, SPT structure proof, command semantics, runtime integration, and Android device acceptance.
+- Linked the roadmap from the root handoff.
+
+### Validation boundary
+- Documentation-only change. No application source or tests were modified.
+- No Android build was run for this documentation change.
+- This entry does not claim that the target game has launched or that the experimental interpreter is complete.
+
+### Next action
+Start with a reproducible inventory of the selected test package. Use actual header bytes to classify WGQ and verify resource pairs before changing the parsers.
