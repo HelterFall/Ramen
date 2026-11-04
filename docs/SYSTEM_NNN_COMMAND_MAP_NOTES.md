@@ -137,7 +137,7 @@ The Kotlin parser now exposes:
 - `SystemNnnPool1ReferenceScan`: all matches plus a boolean that is true only when the references cover Pool 1 in exact ascending order.
 - `SystemNnnScript.scanPool1References()`: bounded 4-byte scan for the exact three-cell reference shape.
 
-The scanner does **not** execute commands, display strings, infer the kind's meaning, or alter player behavior. Synthetic unit tests cover all three kinds, ordering mismatch, unsupported kinds, wrong prefixes and truncated rows. The commercial SPT binaries remain outside Git, so the all-20 sample result is preserved in this report rather than as a committed binary fixture.
+The scanner does **not** execute commands, display strings, infer the kind's meaning, or alter player behavior. Synthetic unit tests cover all three kinds, ordering mismatch, unsupported kinds, wrong prefixes and truncated rows. Android CI #312 passed assembleDebug, unit tests, lint and APK upload with this scanner included. The commercial SPT binaries remain outside Git, so the all-20 sample result is preserved in this report rather than as a committed binary fixture. No device test was performed.
 
 ## Per-module command-area map
 
