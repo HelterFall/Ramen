@@ -48,7 +48,7 @@ class VisualNovelDetector {
                     "${sptScript.offsetTables.size} table descriptors, " +
                     "${sptScript.commandByteCount} raw command-region bytes and " +
                     "${sptScript.allTextEntries.size} records across both indexed pools parsed. " +
-                    "The playback interpreter is not connected yet."
+                    "The available player supports only a verified subset of commands; full game compatibility is not confirmed."
             )
         }
 
