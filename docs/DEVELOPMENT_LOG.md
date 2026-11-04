@@ -411,3 +411,39 @@ Confirmed in `SystemNnnPlayerActivity.prepareAudioRepository()`: it scans VTB ca
 Public VNTools format notes classify WGQ as BGM with a 64-byte header and Ogg payload, whereas the current Ramen image resolver treats standalone WGQ as DWQ images. No actual WGQ header from this game has been inspected yet, so this is a high-priority discriminator test rather than a final classification of all 111 files.
 
 No code changed. Next work: prove archive-to-resource mapping using index metadata and SPT references; then implement multiple image/audio banks and a separate BGM path without relying on sorted filename order.
+
+
+## 2026-11-04 — SPT address tables and two string pools validated across all modules
+
+### Cross-reference
+Reviewed an independent NNNLib reverse-engineering reference and parser from another title:
+- https://github.com/flamecho/pretrans-extractor/blob/main/references/engines/system-nnn.md
+- https://github.com/flamecho/pretrans-extractor/blob/main/scripts/cloverlib_extract.py
+- https://github.com/flamecho/pretrans-extractor/blob/main/scripts/cloverlib2_extract.py
+
+The source is for a different game, so it was treated as a hypothesis and tested against every supplied SPT rather than copied uncritically.
+
+### Local verification against the user's complete package
+- Every SPT has the same XOR-0xFF transform, 0x20 first header word, and SPTHEADER0 at 0x30.
+- First two header descriptors are two indexed pools. For each non-empty pool, searching for the aligned first logical address `base + count` yields exactly one candidate UInt32 address table with a strictly increasing sequence.
+- Each table is followed by exactly `count` NUL-delimited records, each next record aligned to 4 bytes.
+- For all 36 non-empty pools across 20 modules, every difference between adjacent logical addresses exactly matches the previous record's 4-byte-aligned size expressed in 4-byte cells. Zero mismatches.
+- Pool 1 is nonempty in 16 files; it is legitimately empty in sys, backspt, day, and _staff. Pool 2 is nonempty and parsed for all 20.
+- In all 16 files with Pool 1, a 16-byte service stub follows Pool 1; it contains the repeated command pairs (1, 0x6666), (2, 0x5555), and (1, 0x4444), and Pool 2's address table starts exactly 16 bytes after Pool 1's end.
+- Pool 2 ends at exact EOF for all 20 files.
+- `01.spt` offsets: Pool 1 address table 0x316E8; Pool 1 begins 0x32B34; Pool 1 ends 0x59FB8; stub 16 bytes; Pool 2 address table 0x59FC8; Pool 2 begins 0x5B158; EOF 0x5F17C.
+- Therefore header bases 0xC5BA/0x167F2 are logical address bases, not physical file offsets. The old loader's fixed 0x32B64 was after six leading `text` records in 01.spt, not a universal pool start.
+- `project.xtx` has an exact one-to-one filename match with all 20 SPT modules. Independent reference describes project.xtx as module load order; treat that as a strong cross-version lead, not yet proof of runtime execution order for this title.
+- Pool 2 contains standalone module-name references: sys.spt references op1, 01–08, 082, akane, aoi, kiika, day; 01 references yuka; 03 references yamiko and _staff; multiple character scripts reference _staff; yuka references yuka2. These are proven data references; opcode behavior not yet decoded.
+
+### scene.dat / var.fxf
+- `scene.dat` has file size 1164, version 1, and 69 variable-length records, each `type + valueCount + valueCount UInt32 values`. The final record ends exactly at EOF. The third descriptor in 01.spt also has count 69, but no field-level mapping has been established; keep it a possible relation only.
+- `var.fxf`, after XOR 0xFF, is a 200-line, six-column CP932 table of state/variable names. This supports classifying FXF/scene.dat as the variables/UI data layer, but exact semantics are not yet mapped.
+
+### Correction to previous assumptions
+- The first SPT descriptor's count is not a count of simple UInt32 scene commands. It is the number of records in Pool 1; the physical UInt32 address table is elsewhere in the file.
+- Current Kotlin loader is structurally wrong: it treats descriptor base as a file offset, hardcodes the text-pool start, rejects empty Pool 1 modules, and splits all trailing NUL strings without using the declared count/address table.
+- No Kotlin code changed and no CI/device test was run in this analysis session.
+
+### Next
+Implement the dynamically located Pool 1/Pool 2 tables and aligned string-record reader in Kotlin, test empty Pool 1 modules, then investigate descriptor 3 / scene.dat / var.fxf without guessing their relationship. Only after that, map instruction opcodes and module transitions.
