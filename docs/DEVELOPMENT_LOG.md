@@ -529,3 +529,14 @@ Partial correlation:
 Candidate marker hits in the scanned 4-byte cells range from 26.7% to 58.1% by module. In 01.spt, 17,078 of 50,602 cells (33.7%) have one of the candidate marker values; in sys.spt, 240 of 413 (58.1%). Therefore, the whole region cannot be treated as a proven flat instruction array. Some cells may be operands, embedded data, padding or other structures.
 
 No opcode meanings were assigned, and the VM decoder remains disabled. This session made no interpreter code changes. Next diagnostic: export per-cell offsets/params/candidate markers internally, map repeated 0x6666/7 → 0x3333 groups, correlate 0x2222/1 with Pool 1 address tables, and compare across sys/backspt/numbered/character modules before implementing execution.
+
+## 2026-11-05 — Контрольная точка после восстановления контекста
+
+- Целевая новелла подтверждена пользователем: **Gore Screaming Show**, используемая сборка — очищенная, с вырезанным NSFW-контентом. Это обязательное условие состава тестового комплекта.
+- Проверена актуальность PR #28: он остаётся открытым черновиком, base `main`, head `docs/system-nnn-launch-roadmap`, не слит.
+- Последний кодовый CI — #301, успешно прошли сборка debug APK, unit tests, lint и публикация APK. Физическая проверка на Android не проводилась.
+- PR #28 добавляет проверенный структурный разбор двух индексированных пулов SPT для всех 20 предоставленных модулей и отключает прежний декодер, который выдавал неподтверждённые диалоги/фоны.
+- Команды/опкоды, VM, переходы сцен, точка входа, voice mapping и BGM пока не реализованы/не доказаны. Следующее исследование — read-only карта командных областей и ссылок; никаких догадок в исполняемый код.
+- Не потерять пользовательские требования: сохранить Resource Inspector и рабочие GPK+GTB / VPK+VTB проверки; не возвращать искусственный лимит 512; не ломать импорт ZIP/папки; перед реальной проверкой выдавать APK из Actions. Пользователь тестирует на Android-телефоне и не работает с полноценной desktop-средой.
+- PR #28 не сливать без отдельного решения пользователя. Успешный CI не равен подтверждённому запуску игры.
+
