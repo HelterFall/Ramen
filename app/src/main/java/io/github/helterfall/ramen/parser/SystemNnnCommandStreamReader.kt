@@ -2,6 +2,43 @@ package io.github.helterfall.ramen.parser
 
 import java.io.IOException
 
+/** Record classes from the 0x6666 identifier family. */
+enum class SystemNnnRecordKind(val identifierType: Int) {
+    DATA(1),
+    CONTROL(2),
+    COMMAND(3),
+    FUNCTION(4),
+    CALCULATION(5),
+    SYSTEM_COMMAND(6),
+    SYSTEM_FUNCTION(7);
+
+    companion object {
+        fun fromIdentifier(identifier: UInt): SystemNnnRecordKind? {
+            if (((identifier shr 16).toInt() and 0xFFFF) != IDENTIFIER_FAMILY) return null
+            val type = (identifier and 0xFFFFu).toInt()
+            return values().firstOrNull { it.identifierType == type }
+        }
+
+        private const val IDENTIFIER_FAMILY = 0x6666
+    }
+}
+
+/** Recognized high-word code families; this does not decode their operands. */
+enum class SystemNnnCodeFamily(val value: Int) {
+    DATA(0x5555),
+    CONTROL(0x5556),
+    SYSTEM_COMMAND(0x2222),
+    SYSTEM_FUNCTION(0x3333),
+    EXPRESSION(0xA000);
+
+    companion object {
+        fun fromCode(code: UInt): SystemNnnCodeFamily? {
+            val family = (code shr 16).toInt() and 0xFFFF
+            return values().firstOrNull { it.value == family }
+        }
+    }
+}
+
 /**
  * One length-prefixed record in the System-NNN code stream.
  *
@@ -27,6 +64,12 @@ data class SystemNnnCommandRecord(
 
     val payloadWordCount: Int
         get() = lengthWords.toInt() - RECORD_HEADER_WORD_COUNT
+
+    val recordKind: SystemNnnRecordKind?
+        get() = SystemNnnRecordKind.fromIdentifier(identifier)
+
+    val knownCodeFamily: SystemNnnCodeFamily?
+        get() = SystemNnnCodeFamily.fromCode(code)
 
     private companion object {
         const val RECORD_HEADER_WORD_COUNT = 3
