@@ -1,3 +1,13 @@
+## 2026-11-05 — Command-area analysis update
+
+- Added [SYSTEM_NNN_COMMAND_MAP_NOTES.md](SYSTEM_NNN_COMMAND_MAP_NOTES.md) with reproducible per-module offsets, marker counts and exact pair patterns.
+- Across all 20 modules, the four observed adjacent-cell families are exact: `7/6666 → */3333`, `6/6666 → */2222`, `2/6666 → */5556`, and `1/6666 → 2/5555`.
+- New invariant: Pool 1 entry count equals the number of `0x2222` cells with parameter 1, 2 or 3 in every module; package total is 37,383 on both sides.
+- These are structural correlations only. No command meanings or individual command-to-string mappings have been established; the VM decoder remains disabled.
+- No Kotlin changes and no new CI run. Next step: compare bounded operands after each `0x2222` pair with the Pool 1 logical-address table at individual-record level.
+
+---
+
 # Актуальная контрольная точка — 2026-11-05
 
 > Этот блок имеет приоритет над более ранними статусными заметками ниже. Старые записи оставлены как хронология, а не как описание текущего состояния.
