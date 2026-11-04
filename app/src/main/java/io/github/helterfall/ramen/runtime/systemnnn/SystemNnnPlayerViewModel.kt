@@ -41,6 +41,7 @@ data class SystemNnnPlayerUiState(
     val forceReveal: Boolean = false,
     val choices: List<SystemNnnChoiceOption> = emptyList(),
     val isEnded: Boolean = false,
+    val statusMessage: String? = null,
     val errorMessage: String? = null,
     val audioWarning: String? = null
 )
@@ -180,7 +181,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         if (commandDecoder == null) {
             uiState = uiState.copy(
                 isLoading = false,
-                errorMessage = "SPT загружен: оба текстовых пула прочитаны. " +
+                statusMessage = "SPT загружен: оба текстовых пула прочитаны. " +
                     "Воспроизведение пока недоступно — декодер команд System-NNN ещё не реализован. " +
                     "Импорт и просмотр ресурсов работают отдельно от проигрывателя."
             )
