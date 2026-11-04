@@ -8,6 +8,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
+@OptIn(ExperimentalUnsignedTypes::class)
 class SystemNnnCommandDecoderImplTest {
 
     @Test
@@ -112,6 +113,16 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun treatsEndFilmAsTheEndOfTheCurrentFilm() {
+        val script = testScript(
+            listOf(record(3, CONTROL, CODE_CONTROL_ENDFILM)),
+            textCount = 0
+        )
+
+        assertEquals(SystemNnnDecodedCommand.End, decoder().decodeNext(script, RECORD_START))
+    }
+
+    @Test
     fun rejectsControlFlowThatRequiresAnUnimplementedExpressionEvaluator() {
         val script = testScript(
             listOf(record(3, CONTROL, CODE_CONTROL_IF)),
@@ -202,13 +213,14 @@ class SystemNnnCommandDecoderImplTest {
         const val SYSTEM_COMMAND = 0x66660006u
         const val SYSTEM_FUNCTION = 0x66660007u
 
-        const val CODE_PRINT = 0x0001u
-        const val CODE_LPRINT = 0x0002u
-        const val CODE_APPEND = 0x0003u
-        const val CODE_CONTROL_NOP = 0x0001u
-        const val CODE_CONTROL_END = 0x0005u
-        const val CODE_CONTROL_IF = 0x0002u
-        const val CODE_CONTROL_ENDKOMA = 0x000Eu
-        const val CODE_CONTROL_ENDIF = 0x0013u
+        const val CODE_PRINT = 0x22220001u
+        const val CODE_LPRINT = 0x22220002u
+        const val CODE_APPEND = 0x22220003u
+        const val CODE_CONTROL_NOP = 0x55560001u
+        const val CODE_CONTROL_END = 0x55560005u
+        const val CODE_CONTROL_IF = 0x55560002u
+        const val CODE_CONTROL_ENDKOMA = 0x5556000Eu
+        const val CODE_CONTROL_ENDIF = 0x55560013u
+        const val CODE_CONTROL_ENDFILM = 0x5556000Cu
     }
 }
