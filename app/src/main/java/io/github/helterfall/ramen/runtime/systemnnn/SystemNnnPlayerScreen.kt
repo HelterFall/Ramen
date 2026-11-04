@@ -134,7 +134,8 @@ fun SystemNnnPlayerScreen(
             }
         }
 
-        (state.errorMessage ?: state.audioWarning)?.let { message ->
+        val failureMessage = state.errorMessage ?: state.audioWarning
+        if (failureMessage != null) {
             Surface(
                 color = Color(0xE62A1717),
                 contentColor = Color.White,
@@ -146,10 +147,29 @@ fun SystemNnnPlayerScreen(
                     .padding(14.dp)
             ) {
                 Text(
-                    text = message,
+                    text = failureMessage,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(12.dp)
                 )
+            }
+        } else {
+            state.statusMessage?.let { message ->
+                Surface(
+                    color = Color(0xE6252A30),
+                    contentColor = Color.White,
+                    shape = RoundedCornerShape(12.dp),
+                    border = BorderStroke(1.dp, Color(0xFF8B7658)),
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .fillMaxWidth()
+                        .padding(14.dp)
+                ) {
+                    Text(
+                        text = message,
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
             }
         }
 
