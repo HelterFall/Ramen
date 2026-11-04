@@ -186,6 +186,28 @@ class SystemNnnScriptLoaderTest {
     }
 
     @Test
+    fun rejectsTrailingDataAfterTheSecondaryPool() {
+        val directory = Files.createTempDirectory("ramen-system-nnn-trailing-data").toFile()
+        try {
+            val file = File(directory, "trailing.spt")
+            val validFixture = createFixture(
+                primaryRecords = listOf("primary".toByteArray(Charsets.US_ASCII)),
+                secondaryRecords = listOf("secondary".toByteArray(Charsets.US_ASCII))
+            )
+            file.writeBytes(validFixture + byteArrayOf(0))
+
+            val failure = runCatching {
+                SystemNnnScriptLoader().load(file)
+            }.exceptionOrNull()
+
+            assertTrue(failure is IOException)
+            assertTrue(failure?.message?.contains("does not end at the file boundary") == true)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun rejectsWrongSignatureAtFixedOffset() {
         val directory = Files.createTempDirectory("ramen-system-nnn-invalid-signature").toFile()
         try {
