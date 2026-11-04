@@ -75,7 +75,7 @@ private val RamenMuted = Color(0xFFA8ADB7)
 
 private fun resolveImportedGameDirectory(context: Context, relativeDirectory: String): File {
     if (relativeDirectory.isBlank() || File(relativeDirectory).isAbsolute ||
-        relativeDirectory.split('/', '\\\\').any { it == ".." }
+        relativeDirectory.split('/').any { it == ".." }
     ) {
         throw IOException("The imported game path is invalid.")
     }
