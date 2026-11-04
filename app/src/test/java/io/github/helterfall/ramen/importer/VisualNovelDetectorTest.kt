@@ -80,7 +80,7 @@ class VisualNovelDetectorTest {
     }
 
     @Test
-    fun detectsSystemNnnSptAndDoesNotCallItAPlaybackRuntime() {
+    fun detectsSystemNnnSptWithoutClaimingFullCompatibility() {
         val root = Files.createTempDirectory("ramen-system-nnn-detect").toFile()
 
         try {
@@ -92,6 +92,7 @@ class VisualNovelDetectorTest {
             assertEquals("system-nnn-spt", result.engineId)
             assertEquals("PARSER_AVAILABLE", result.compatibilityStatus)
             assertTrue(result.evidence.contains("2 records across both indexed pools parsed"))
+            assertTrue(result.evidence.contains("verified subset of commands"))
         } finally {
             root.deleteRecursively()
         }
@@ -106,6 +107,7 @@ class VisualNovelDetectorTest {
             assertEquals("system-nnn-spt", result.engineId)
             assertEquals("PARSER_AVAILABLE", result.compatibilityStatus)
             assertTrue(result.evidence.contains("2 records across both indexed pools parsed"))
+            assertTrue(result.evidence.contains("verified subset of commands"))
         } finally {
             root.deleteRecursively()
         }
