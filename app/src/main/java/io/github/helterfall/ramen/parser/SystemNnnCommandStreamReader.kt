@@ -91,7 +91,7 @@ class SystemNnnCommandStreamReader(
 
         val recordStart = preambleByteCount.toInt()
         val recordEnd = (bytes.size.toLong() - trailerByteCount).toInt()
-        if (recordStart % DWORD_BYTES != 0 || recordEnd % DWORD_BYTES != 0) {
+        if (recordStart % DWORD_BYTES.toInt() != 0 || recordEnd % DWORD_BYTES.toInt() != 0) {
             throw IOException("The SPT command record window is not DWORD-aligned.")
         }
 
