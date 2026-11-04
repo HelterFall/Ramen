@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.charset.Charset
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VisualNovelDetectorTest {
@@ -90,6 +91,7 @@ class VisualNovelDetectorTest {
 
             assertEquals("system-nnn-spt", result.engineId)
             assertEquals("PARSER_AVAILABLE", result.compatibilityStatus)
+            assertTrue(result.evidence.contains("2 records across both indexed pools parsed"))
         } finally {
             root.deleteRecursively()
         }
@@ -103,6 +105,7 @@ class VisualNovelDetectorTest {
             val result = VisualNovelDetector().detect(root)
             assertEquals("system-nnn-spt", result.engineId)
             assertEquals("PARSER_AVAILABLE", result.compatibilityStatus)
+            assertTrue(result.evidence.contains("2 records across both indexed pools parsed"))
         } finally {
             root.deleteRecursively()
         }
