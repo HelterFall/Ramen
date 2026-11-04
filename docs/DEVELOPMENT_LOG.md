@@ -607,3 +607,29 @@ Determine whether reference kinds 1/2/3 distinguish record classes by structural
 - This run includes the Kotlin Pool 1 reference scanner and its synthetic unit tests. Later documentation-only updates do not change that code.
 - No physical-device installation or game-playback test has been performed.
 
+## 2026-11-05 — Compare reference kinds and map opaque 0x3333 / 0x5556 patterns
+
+### Pool 1 reference kinds
+- Verified all 37,383 references still map each Pool 1 index exactly once in ascending order.
+- Kind totals: 1 = 37,008; 2 = 125; 3 = 250.
+- All three kinds use the same parsed Pool 1 storage structure. Kinds 2/3 are limited to seven modules and are clustered in index order.
+- Kind 3 records have a lower CRLF share (57.60%) and greater mean raw length (136.62 bytes) than kind 1 (77.25%, 117.86 bytes); kind 2 is similar to kind 1 (72.80%, 117.44 bytes). These observations do not establish UI semantics.
+
+### Other marker families
+- 0x3333: 136,349 exact prefix matches. A low-word N in 0..20 is followed by a candidate continuation at start+(N+4)*4; 0x6666 is found there in 122,992 cases (90.21%).
+- 0x5556: 12,300 exact prefix matches. The immediately following aligned cell contains 0x6666 in 10,757 cases (87.46%). The third-cell raw word is often 3/4/5/7, with 341 occurrences of 0xA0000000.
+- These are continuation-boundary candidates, not fully validated command sizes or semantics.
+
+### Kotlin changes
+- Added read-only SystemNnnOpaqueMarkerPattern and SystemNnnScript.scanOpaqueMarkerPatterns().
+- The scanner requires the exact observed prefix, preserves raw UInt32 values, and returns candidate successor offsets without executing or skipping the data.
+- Synthetic tests cover the 3333 candidate span, 5556 immediate successor, out-of-range N and wrong prefix.
+- No dialogue/scenario text was exported or recorded.
+
+### Validation
+- CI run #319 was started for the code-bearing head 39b669e16f2bf70ca9d01705853388c57b04e37c; final result must be checked before this update is considered CI-verified.
+- No physical-device test or VM execution is claimed.
+
+### Next
+Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT header descriptors and the existing scene.dat structure. Keep any relation as metadata-only until it is exact across all modules.
+
