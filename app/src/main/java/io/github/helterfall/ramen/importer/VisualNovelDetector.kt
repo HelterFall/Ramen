@@ -47,7 +47,7 @@ class VisualNovelDetector {
                 evidence = "Validated XOR-masked SPTHEADER[0-9] at 0x30; " +
                     "${sptScript.offsetTables.size} table descriptors, " +
                     "${sptScript.commandByteCount} raw command-region bytes and " +
-                    "${sptScript.textPool.size} Shift-JIS text/resource entries parsed. " +
+                    "${sptScript.allTextEntries.size} records across both indexed pools parsed. " +
                     "The playback interpreter is not connected yet."
             )
         }
