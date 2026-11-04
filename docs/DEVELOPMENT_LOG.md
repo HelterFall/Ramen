@@ -633,3 +633,25 @@ Determine whether reference kinds 1/2/3 distinguish record classes by structural
 ### Next
 Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT header descriptors and the existing scene.dat structure. Keep any relation as metadata-only until it is exact across all modules.
 
+## 2026-11-05 — Third/fourth descriptors and scene.dat cross-check
+
+### scene.dat
+- Re-parsed the supplied 1,164-byte scene.dat: header says size 1,164, version 1, record count 69.
+- All 69 variable-length records parse exactly to EOF using [u32 type][u32 valueCount][valueCount × u32 values].
+- Type counts: 10=4, 11=15, 12=14, 13=16, 14=2, 15=14, 18=2, 4=2. ValueCount distribution: 1=28, 2=10, 3=26, 4=1, 5=4. No record text/presentation values were exported.
+
+### SPT descriptor 3
+- Across all 20 SPT samples, DWORD at physical offset 0x40 exactly equals descriptor3.base + descriptor3.count.
+- Descriptor 3 count is 69 only for 01.spt; the other 19 counts differ.
+- A 4-byte-aligned strictly increasing UInt32 address table using descriptor3.base+count as first entry could not be found in any sample using the Pool 1/Pool 2 validation rule.
+- Descriptor 3 therefore has a universal first-word relationship but is not yet understood as a third indexed string pool.
+
+### SPT descriptor 4
+- Base is zero in all 20 files; count ranges 1..20.
+- Short candidate tables are too ambiguous to locate uniquely with the current method. No relationship to the 0x5555/0x4444 pattern was proven.
+
+### Conclusion / next
+- The 01.spt count match (69 == scene.dat record count 69) is one sample correlation only.
+- A direct mapping from scene.dat types/value counts to 0x3333/0x5556 parameters was not established.
+- Next: investigate the repeated DWORD at 0x40 and the second DWORD at 0x44 as a pair, and test any proposed target against the physical bytes before assigning descriptor 3 semantics.
+
