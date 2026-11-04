@@ -51,6 +51,22 @@ data class SystemNnnPool1ReferenceScan(
 )
 
 /**
+ * Read-only candidate for one repeated opaque SPT marker family.
+ *
+ * [familyMarker] is either 0x3333 or 0x5556. [followingWord] is raw data;
+ * [candidateNextCellOffset] is a structural boundary hypothesis, not a
+ * decoded instruction pointer or an execution target.
+ */
+data class SystemNnnOpaqueMarkerPattern(
+    val codeOffset: Long,
+    val familyMarker: Int,
+    val markerParameter: Int,
+    val followingWord: UInt,
+    val candidateNextCellOffset: Long?,
+    val candidateNextCellMarker: Int?
+)
+
+/**
  * One NUL-terminated record from an indexed SPT pool.
  *
  * [offset] is the physical file offset of the first byte. [logicalAddress]
@@ -189,6 +205,79 @@ class SystemNnnScript internal constructor(
         )
     }
 
+    /**
+     * Finds two repeated opaque marker shapes without assigning their meaning.
+     *
+     * 0x3333 candidate:
+     *   [parameter=7, marker=0x6666] [parameter, marker=0x3333] [u16 extent, u16 zero]
+     *   If extent is in the observed range 0..20, a candidate continuation cell
+     *   is inspected at start + (extent + 4) * 4 bytes.
+     *
+     * 0x5556 candidate:
+     *   [parameter=2, marker=0x6666] [parameter, marker=0x5556] [raw u32]
+     *   The next aligned cell at start + 12 bytes is recorded for comparison.
+     *
+     * This scanner returns raw structure only. It does not skip bytes in the
+     * command stream, execute commands, or infer resource/UI behavior.
+     */
+    fun scanOpaqueMarkerPatterns(): List<SystemNnnOpaqueMarkerPattern> {
+        val matches = ArrayList<SystemNnnOpaqueMarkerPattern>()
+        var cellOffset = 0
+
+        while (cellOffset <= commandBytes.size - 12) {
+            val firstCell = readCommandUInt32LE(cellOffset)
+            val secondCell = readCommandUInt32LE(cellOffset + COMMAND_CELL_BYTES)
+            val followingWord = readCommandUInt32LE(cellOffset + 2 * COMMAND_CELL_BYTES)
+
+            val firstParameter = firstCell.toInt() and 0xFFFF
+            val firstMarker = (firstCell shr 16).toInt() and 0xFFFF
+            val markerParameter = secondCell.toInt() and 0xFFFF
+            val familyMarker = (secondCell shr 16).toInt() and 0xFFFF
+
+            val candidateCellOffset = when {
+                firstParameter == OPAQUE_3333_PREFIX_PARAMETER &&
+                    firstMarker == POOL1_REFERENCE_PREFIX_MARKER &&
+                    familyMarker == OPAQUE_3333_MARKER -> {
+                    val extent = followingWord.toInt() and 0xFFFF
+                    val upperWord = (followingWord shr 16).toInt() and 0xFFFF
+                    if (upperWord == 0 && extent in MIN_OPAQUE_3333_EXTENT..MAX_OPAQUE_3333_EXTENT) {
+                        cellOffset + (extent + OPAQUE_3333_NEXT_CELL_BIAS) * COMMAND_CELL_BYTES
+                    } else {
+                        null
+                    }
+                }
+
+                firstParameter == OPAQUE_5556_PREFIX_PARAMETER &&
+                    firstMarker == POOL1_REFERENCE_PREFIX_MARKER &&
+                    familyMarker == OPAQUE_5556_MARKER -> {
+                    cellOffset + OPAQUE_5556_NEXT_CELL_BIAS * COMMAND_CELL_BYTES
+                }
+
+                else -> null
+            }
+
+            if (familyMarker == OPAQUE_3333_MARKER || familyMarker == OPAQUE_5556_MARKER) {
+                val absoluteCandidateOffset = candidateCellOffset
+                    ?.takeIf { it <= commandBytes.size - COMMAND_CELL_BYTES }
+                val candidateMarker = absoluteCandidateOffset?.let {
+                    (readCommandUInt32LE(it) shr 16).toInt() and 0xFFFF
+                }
+                matches += SystemNnnOpaqueMarkerPattern(
+                    codeOffset = commandStartOffset + cellOffset,
+                    familyMarker = familyMarker,
+                    markerParameter = markerParameter,
+                    followingWord = followingWord,
+                    candidateNextCellOffset = absoluteCandidateOffset?.let { commandStartOffset + it },
+                    candidateNextCellMarker = candidateMarker
+                )
+            }
+
+            cellOffset += COMMAND_CELL_BYTES
+        }
+
+        return matches
+    }
+
     private fun readCommandUInt32LE(offset: Int): UInt {
         val value = (commandBytes[offset].toInt() and 0xFF) or
             ((commandBytes[offset + 1].toInt() and 0xFF) shl 8) or
@@ -219,6 +308,14 @@ class SystemNnnScript internal constructor(
         const val POOL1_REFERENCE_MARKER = 0x2222
         const val MIN_POOL1_REFERENCE_KIND = 1
         const val MAX_POOL1_REFERENCE_KIND = 3
+        const val OPAQUE_3333_PREFIX_PARAMETER = 7
+        const val OPAQUE_3333_MARKER = 0x3333
+        const val OPAQUE_3333_NEXT_CELL_BIAS = 4
+        const val MIN_OPAQUE_3333_EXTENT = 0
+        const val MAX_OPAQUE_3333_EXTENT = 20
+        const val OPAQUE_5556_PREFIX_PARAMETER = 2
+        const val OPAQUE_5556_MARKER = 0x5556
+        const val OPAQUE_5556_NEXT_CELL_BIAS = 3
     }
 }
 
