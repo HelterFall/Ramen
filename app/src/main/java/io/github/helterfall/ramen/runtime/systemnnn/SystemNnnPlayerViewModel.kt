@@ -105,9 +105,10 @@ sealed interface SystemNnnDecodedCommand {
     ) : SystemNnnDecodedCommand
 
     data class Choice(
-        val promptTextEntryOffset: Long,
+        val promptTextEntryOffset: Long?,
         val options: List<SystemNnnChoiceOption>,
-        val speakerName: String? = null
+        val speakerName: String? = null,
+        val promptText: String? = null
     ) : SystemNnnDecodedCommand
 
     data object End : SystemNnnDecodedCommand
@@ -464,10 +465,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     is SystemNnnDecodedCommand.Choice -> {
-                        val prompt = currentScript.textEntryAtOffset(command.promptTextEntryOffset)
-                            ?: throw IOException(
-                            "Choice prompt points to an unknown Shift-JIS text-pool offset."
-                        )
+                        val promptText = command.promptText ?: command.promptTextEntryOffset?.let { offset ->
+                            currentScript.textEntryAtOffset(offset)?.text
+                                ?: throw IOException(
+                                    "Choice prompt points to an unknown Shift-JIS text-pool offset."
+                                )
+                        }.orEmpty()
                         if (command.options.isEmpty()) {
                             throw IOException("Choice command has no selectable options.")
                         }
@@ -499,8 +502,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             backgroundBitmap = sceneBackground,
                             sprites = sceneSprites,
                             speakerName = command.speakerName,
-                            dialogueText = prompt.text,
-                            visibleCharacterCount = prompt.text.length,
+                            dialogueText = promptText,
+                            visibleCharacterCount = promptText.length,
                             isTextComplete = true,
                             forceReveal = true,
                             choices = command.options
