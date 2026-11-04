@@ -1,21 +1,21 @@
 # Актуальная контрольная точка — 2026-11-05
 
-> Этот блок приоритетнее более ранних статусов ниже. `main` остаётся базовой веткой; текущая работа ведётся в отдельной ветке PR #28.
+> `main` остаётся базовой веткой. Целевая работа выполняется в открытом draft PR #28; ничего не слито в `main`.
 
-- **Тестовая цель:** Gore Screaming Show, только очищенная сборка с вырезанным NSFW-контентом. Не добавлять в репозиторий бинарники игры или извлечённые тексты.
-- **Текущая рабочая ветка:** `docs/system-nnn-launch-roadmap`; [PR #28](https://github.com/HelterFall/Ramen/pull/28) открыт как draft, не слит в `main`.
-- **Latest code validation:** [Android CI #312](https://github.com/HelterFall/Ramen/actions/runs/41853132716) passed on code-bearing PR head `102e81f53c867d4d43a9dadb5d2d447dd6d98db4`: assembleDebug, unit tests, lint and APK upload all succeeded. Artifact `ramen-debug-apk`: 11,649,256 bytes; SHA-256 `e5f9fd923b20ee8f2906d1b897ed198244304738b2ac7d4db060a5b838f782b7`. No physical-device gameplay test has been performed.
-- **Последний кодовый CI:** [#301](https://github.com/HelterFall/Ramen/actions/runs/41847591081) — сборка, unit tests, lint и APK artifact прошли. Физическая проверка игры не выполнялась.
-- **SPT loader:** PR #28 содержит валидацию двух индексированных пулов по 20 пользовательским модулям; Pool 1 может быть пустым; прежний спекулятивный декодер отключён.
-- **Новое исследование командной области:** см. [SYSTEM_NNN_COMMAND_MAP_NOTES.md](docs/SYSTEM_NNN_COMMAND_MAP_NOTES.md). Подтверждены четыре точные соседние пары маркеров на всех 20 модулях и равенство Pool 1 count числу `0x2222` ячеек с параметром 1–3. Это структурные инварианты, не семантика команд.
-- **SPT Pool 1 references:** exact for all 20 modules: 37,383 command-area references map in order to 37,383 Pool 1 records; the four empty-Pool1 modules have no such refs. Ramen now has a read-only `scanPool1References()` diagnostic and synthetic tests. Types 1/2/3 remain opaque; no VM execution.
-- **Latest code change in this branch:** added `SystemNnnPool1Reference`, `SystemNnnPool1ReferenceScan`, and tests for valid ordering, mismatches, unsupported kinds and truncated patterns. CI for this code change must be checked before calling it green.
-- **Further SPT findings:** kind tags 1/2/3 use the same Pool 1 storage layout; 1=37,008, 2=125, 3=250. Their UI meaning remains unknown. The 0x3333 family has a count-like value whose N+4 candidate position is followed by 0x6666 in 90.21% of observations; 0x5556's immediate +3 cell is followed by 0x6666 in 87.46%. Both remain boundary candidates, not decoded commands.
-- **New diagnostic API:** scanOpaqueMarkerPatterns() reports exact-prefix 0x3333 / 0x5556 matches, raw values and possible continuation cells. It does not execute or skip bytes. Details: [SYSTEM_NNN_COMMAND_MAP_NOTES.md](docs/SYSTEM_NNN_COMMAND_MAP_NOTES.md).
-- **Header descriptor 3/4:** for all 20 SPT files, decoded DWORD at 0x40 equals descriptor3.base + descriptor3.count. No monotonic third address table was found using Pool 1/2 rules. scene.dat independently parses as 69 typed variable-length records; its count matches descriptor3 only in 01.spt, so no direct mapping is claimed.
-- **Не утверждать, что игра запускается:** VM/опкоды, привязка конкретных записей к Pool 1, ветвления, выборы, фоны, переходы, звук и стартовый модуль пока не доказаны.
-- **Сохранять без регрессий:** Resource Inspector; рабочее чтение GPK+GTB и VPK+VTB из пользовательских тестов; ZIP/folder import; снятие искусственного лимита 512.
-- **Рабочий цикл:** отдельная ветка/PR → Actions → APK → проверка пользователем на Android. PR не сливать автоматически.
+- **Целевая игра:** *Gore Screaming Show*, только очищенная Steam-сборка с удалённым NSFW-контентом. Не добавлять бинарники игры, извлечённые сценарии или ресурсы в Git.
+- **Рабочая ветка:** `docs/system-nnn-launch-roadmap`; [PR #28](https://github.com/HelterFall/Ramen/pull/28) открыт как draft.
+- **Последний зелёный CI по WGQ fix:** [Android CI #351](https://github.com/HelterFall/Ramen/actions/runs/41902266343), commit `f0287ab6411429aca0f0c7a62d07304aeaf88f29`. AssembleDebug, unit tests, lint и загрузка debug APK прошли. Artifact ID `13359326663`, 11,690,600 bytes, SHA-256 `c82df8279fde8ac99fd3de8331aa5babad91bc19cc2e00580c639b307c8151a6`. Это не физический device test.
+- **SPT loader:** два индексированных пула проверены на 20 модулях; есть ограниченный разбор record envelope и диагностические Pool 1 / marker scanners.
+- **Частичная VM:** первый поднабор включает PRINT/LPRINT/APPEND, SELECT/CASE и ограниченные CALCU-выражения. Неподдерживаемые COMMAND/FUNCTION и неизвестные коды завершаются явной ошибкой; полной совместимости это не означает.
+- **WGQ fix:** standalone `.wgq` теперь попадает в image catalog только после bounded header probe на поддерживаемую Black Cyc packed-BMP структуру. Если кандидатов нет, поиск продолжается по GPK/GTB в других папках. Это не классификатор всех WGQ и не аудиоплеер.
+- **Что всё ещё блокирует полный запуск:** выбор entrypoint всё ещё предпочитает `01.spt`; переходы между модулями не завершены; выбирается только первая GPK/GTB-пара и первый VPK/VTB-банк; связь реплик с голосом, BGM и сценическими ресурсами не доказана; нет полного теста на Android.
+- **UI:** System-NNN помечается как экспериментальный запуск с частичной поддержкой команд. Не называть игру полностью поддерживаемой.
+- **Сохранять без регрессий:** Resource Inspector, подтверждённое пользователем чтение текущих GPK/GTB и VPK/VTB, ZIP/folder import и отсутствие искусственного лимита 512.
+- **Правило безопасности данных:** никакие материалы из NSFW-издания не добавлять, не восстанавливать и не использовать как замену очищенной Steam-сборке.
+
+**Следующий приоритет:** доказать выбор стартового модуля и переходы проекта, затем составить полный read-only каталог ресурсов; не привязывать архивы к командам только по имени или порядку файлов.
+
+---
 
 # Ramen — единый handoff проекта
 
