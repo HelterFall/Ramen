@@ -177,6 +177,70 @@ References:
 
 Those references concern another title. Their dialogue/choice classifications and game-specific behavior are **not** imported into this target. Only the binary layout hypotheses were cross-checked against the 20 supplied modules.
 
+## Reference-kind comparison and opaque 0x3333 / 0x5556 families
+
+### Pool 1 reference kinds 1, 2, and 3
+
+The 37,383 Pool 1 references remain an exact one-to-one ascending mapping. The kind tag has this distribution:
+
+| Kind tag | Records | CRLF records | CRLF share | Mean raw bytes | Median raw bytes | Strict Shift-JIS |
+|---|---:|---:|---:|---:|---:|---:|
+| 1 | 37,008 | 28,587 | 77.25% | 117.86 | 104 | 36,892 / 37,008 |
+| 2 | 125 | 91 | 72.80% | 117.44 | 109 | 125 / 125 |
+| 3 | 250 | 144 | 57.60% | 136.62 | 123.5 | 250 / 250 |
+
+- All three kinds point into the same Pool 1 and use the same 4-byte-aligned NUL-terminated record structure. There is no evidence of three different storage encodings.
+- Kinds 2 and 3 occur only in seven modules: 02, 04, 05, 07, akane, aoi, and yamiko. The other modules use only kind 1 (or have an empty Pool 1).
+- Kind sequence transitions across adjacent Pool 1 indices: 1→1 = 36,968; 1→2 = 25; 2→2 = 3; 2→3 = 120; 3→2 = 97; 3→3 = 130; 3→1 = 23; 2→1 = 1.
+- Kinds 2 and 3 are therefore clustered rather than uniformly mixed. Kind 3 records have fewer CRLF separators and somewhat greater average length, but these statistics do not establish what kind 1/2/3 mean.
+
+Conclusion: retain the kind field as an opaque value. Do not name it as narration, speaker text, choice, voice, or any UI behavior without a separate cross-reference.
+
+### 0x3333 family — variable-span boundary candidate
+
+Across the 20 modules, there are **136,349** matches of:
+
+~~~
+[parameter=7, marker=0x6666]
+[parameter, marker=0x3333]
+[u16 value N, u16 zero]
+~~~
+
+- The third cell has upper UInt16 = 0 and lower UInt16 in the observed range 0–20.
+- Its most common lower values are: 1 = 49,092; 2 = 39,639; 0 = 14,119; 9 = 13,808; 3 = 8,550; 5 = 3,725; 4 = 2,514; 6 = 1,489; 12 = 1,027; 16 = 728.
+- A candidate continuation cell at start + (N + 4) * 4 contains marker 0x6666 in **122,992 / 136,349** cases (**90.21%**).
+- Other values at that candidate position are marker 0x0000 in 12,577 cases, 0xFFFF in 737, and 0x3333 in 43.
+- By module, the 0x6666 continuation hit rate ranges from 76.6% to 100%; the low rate is in backspt (2,917/3,810). The sys module has only three samples, all three match.
+
+This strongly suggests that N participates in determining a variable-sized block, but the 9.79% of non-0x6666 cases prevent treating the formula as a universal instruction boundary. The Kotlin scanner therefore reports it only as a **candidate** and preserves the raw N value.
+
+### 0x5556 family — fixed three-cell shape candidate
+
+Across the 20 modules, there are **12,300** matches of:
+
+~~~
+[parameter=2, marker=0x6666]
+[parameter, marker=0x5556]
+[raw UInt32 value]
+~~~
+
+- The third cell common raw values are 4 = 6,640; 5 = 2,128; 3 = 1,137; 7 = 891; 0 = 341; 1 = 86; 2 = 80.
+- A notable exception is exactly 0xA0000000 in 341 cases.
+- The next aligned cell, at start + 12 bytes, contains marker 0x6666 in **10,757 / 12,300** cases (**87.46%**); the remaining 1,543 cases have 0x0000 in the marker half.
+- The 0x6666 continuation share ranges from 42.2% in sys (19/45) to 94.6% in yuka2 (280/296).
+
+The three-cell shape is repeatable, and the following-cell position is a useful boundary candidate. It is not a proven fixed-length VM instruction, because 12.54% of observations do not point to a recognized continuation marker.
+
+### Read-only scanner added
+
+The Kotlin API scanOpaqueMarkerPatterns() now reports only exact-prefix matches for the 0x3333 and 0x5556 families. Each result contains:
+- code-area offset;
+- family marker and its parameter;
+- the raw following UInt32 word;
+- an optional candidate next-cell offset and its raw marker.
+
+It does not execute, skip, or decode the surrounding bytes. The 0x3333 continuation offset is reported only when the raw N value is within the observed range 0–20 and its upper word is zero. The 0x5556 scanner inspects the cell immediately after its three-cell shape. Synthetic tests cover both patterns, candidate offsets, an out-of-range 0x3333 value, and rejection of a wrong prefix.
+
 ## What this proves — and what it does not
 
 **Supported by the supplied bytes:**
