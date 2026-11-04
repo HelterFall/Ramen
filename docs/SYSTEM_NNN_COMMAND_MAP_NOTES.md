@@ -353,3 +353,66 @@ This confirms the previously documented **reserved-prefix** interpretation of de
 The Kotlin `filmStartOffset()` reader now validates **every** descriptor-3 pointer and its expected reserved/film record class before returning a requested film target. Synthetic tests cover valid mixed tables, a pointer into a record payload, a reserved slot with the wrong record class, and a film slot that points to a reserved record.
 
 This validates the table structure, not which project module is launched first or what an individual system function does.
+
+## Film interval envelope and Pool 2 module-name references
+
+This section reuses the already validated descriptor-3 pointer vector, bounded record map, project.xtx catalog, and secondary Pool 2 record boundaries. It does not repeat the earlier marker-density or Pool 1 scans, and it does not assign VM behavior to any code.
+
+### Repeated per-film record envelope
+
+The 948 ordinary film slots across the 19 non-system modules partition into 948 intervals when their descriptor-3 targets are sorted by physical record offset. Every interval has the same structural anchors:
+
+- The first record is type 7, code 0x3333/0x50, five DWORDs long; it is the exact descriptor-3 target.
+- The immediately following record begins exactly 20 bytes later and is type 7, code 0x3333/0x52, also five DWORDs long.
+- Exactly one type-7 code 0x3333/0x1A record occurs later in each interval; it is five DWORDs long.
+- The 0x3333/0x1A record is immediately followed by type-2 control record 0x5556/0x0C in all 948 intervals. The current partial decoder labels 0x5556/0x0C as ENDFILM; this observation does not define the behavior of 0x3333/0x1A.
+- The record immediately before 0x3333/0x1A is 0x5556/0x0E in 884 intervals. The other 64 have different raw record codes and remain unclassified.
+
+All three SystemFunction records (0x50, 0x52, 0x1A) use the observed two-word payload shape [1, Pool2Index] in this package. The 0x50 and 0x1A indices are unique per film interval; the 0x52 index is constant within each module (one distinct index across all ordinary films of that module). sys.spt has no ordinary film intervals and therefore no ordinary-film 0x50/0x52/0x1A envelope.
+
+This is a structural film-block invariant, not a decoded meaning for function IDs 0x50, 0x52, or 0x1A.
+
+### Exact references to project module-name tokens
+
+A read-only scan checked only records with exactly two payload DWORDs [1, index], where index is in range for that module's Pool 2 and the referenced Pool 2 text exactly equals one of the 20 names in project.xtx.
+
+It found **511** candidate module-name references:
+
+| Record identifier | Candidate references to module-name tokens |
+|---|---:|
+| type 6, 0x2222/0x0001 | 1 |
+| type 6, 0x2222/0x0004 | 123 |
+| type 7, 0x3333/0x0007 | 34 |
+| type 7, 0x3333/0x0014 | 310 |
+| type 7, 0x3333/0x001A | 15 |
+| type 7, 0x3333/0x001B | 15 |
+| type 7, 0x3333/0x0053 | 13 |
+| **Total** | **511** |
+
+The 15 0x3333/0x001A references to module-name tokens are paired one-to-one with 15 0x3333/0x001B records in the same source module using the same Pool 2 index. The distinct source-to-target pairs are:
+
+- 01 → yuka
+- 03 → yamiko and _staff
+- akane → _staff (three distinct Pool 2 entries)
+- aoi → _staff (three distinct Pool 2 entries)
+- kiika → _staff (three distinct Pool 2 entries)
+- yamiko → _staff
+- yuka → _staff and yuka2
+
+Separately, the 123 0x2222/0x0004 references to module-name tokens are distributed across 03 → yamiko (15), akane → _staff (13), aoi → _staff (21), kiika → _staff (53), and yuka → yuka2 (21).
+
+These are exact references to project module-name strings, not accidental numeric matches. However, the opcodes may also reference other Pool 2 labels, resources, or jump-target names. Their semantics have not been proven. Do not convert these 511 records directly into module transitions or calls.
+
+### Cross-title NNNLib reference (supporting clue only)
+
+A public analysis of other games using the System-NNN/NNNLib family describes Pool 2 as a mixed table containing choices, scene titles, resource identifiers, and jump-target script names. It also treats project.xtx row order as script loading order and classifies sys/backscript files as system UI in those other titles:
+
+- [System-NNN format notes in pretrans-extractor](https://github.com/flamecho/pretrans-extractor/blob/0e8db7f4292b91073fd85f2f73c73daeb7160451/references/engines/system-nnn.md)
+- [Cloverlib extraction reference](https://github.com/flamecho/pretrans-extractor/blob/0e8db7f4292b91073fd85f2f73c73daeb7160451/scripts/cloverlib_extract.py)
+- [Asaki PSP extraction reference](https://github.com/flamecho/pretrans-extractor/blob/0e8db7f4292b91073fd85f2f73c73daeb7160451/scripts/asakiyumemishi_psp_extract.py)
+
+Those are different games and extraction tools, not an opcode specification for this title. They support treating the matched Pool 2 module strings as possible jump-target data, but do not establish that 0x3333/0x1A, 0x3333/0x1B, or 0x2222/0x0004 perform a module call.
+
+### Next validation
+
+Compare the payload and control-flow context of module-name references against the same opcodes that point to ordinary Pool 2 labels. Resolve the sys/backspt system UI path only when a concrete dispatch target is proven. No module-navigation behavior is enabled by these findings.

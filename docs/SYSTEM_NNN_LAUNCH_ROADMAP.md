@@ -1,3 +1,15 @@
+## 2026-11-05 — film interval envelope and candidate module-name references
+
+- Reused the already documented project catalog, descriptor-3 vector validation, Pool 1 scan, and command record map; no earlier scans were repeated.
+- Across the 19 modules with ordinary films, all 948 film intervals show an exact structural envelope: 0x3333/0x50 at the descriptor-3 target, one adjacent 0x3333/0x52 record exactly +20 bytes later, one 0x3333/0x1A near the end of the interval, then 0x5556/0x0C immediately after it.
+- All three function records have length 5 DWORDs. The preceding record before 0x3333/0x1A is 0x5556/0x0E in 884/948 cases; the remaining 64 cases have other raw record codes.
+- A bounded [1, Pool2Index] scan found 511 references to strings that exactly match a module name from project.xtx. Counts and source/target pairs are in SYSTEM_NNN_COMMAND_MAP_NOTES.md.
+- All 15 0x3333/0x1A references to module-name tokens have exactly one matching 0x3333/0x1B reference to the same Pool 2 indices in the same source module. The 123 0x2222/0x0004 module-name references are repeated within several story modules.
+- Another public NNNLib analysis from different titles describes Pool 2 as including script jump-target names and calls out sys/backscript as system UI there. This is supporting family-level evidence only, not an opcode specification for this title.
+- Updated filmStartOffset() to require each ordinary film pointer target to be a five-DWORD 0x3333/0x50 record followed immediately by a five-DWORD 0x3333/0x52 record. CI #362 passed on the exact code commit before this documentation refresh.
+- No semantics are assigned to 0x3333/0x1A, 0x3333/0x1B, 0x3333/0x52, or 0x2222/0x0004; no transitions are implemented. The next step is to compare these references with non-module Pool 2 targets and prove the system boot dispatch.
+
+---
 ## 2026-11-05 — descriptor 3/4 pointer-vector semantics confirmed
 
 - Re-read the already parsed descriptor 3 vector as DWORD pointers at `(logicalBase + index) * 4`; this is distinct from searching for a monotonic logical-address table.

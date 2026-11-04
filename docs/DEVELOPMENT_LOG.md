@@ -698,3 +698,14 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - No SPT binary, sidecar, scenario text, or game asset was added to Git. The upload was inspected read-only.
 - This validates film-table structure, not the game's startup module, dispatch, or full VM.
 
+
+
+## 2026-11-05 — per-film record envelope and project-token cross-references
+
+- Avoided repeating the repository's existing work: SPT pool parsing, Pool 1 reference scan, candidate-marker scan, scene.dat structure, var.fxf decode, project.xtx catalog, and descriptor-3/4 pointer classification.
+- New read-only pass over the 20 uploaded SPT modules: all 948 ordinary film intervals across 19 modules contain exactly one type-7 0x3333/0x50 start record, one adjacent type-7 0x3333/0x52 record at +20 bytes, and one type-7 0x3333/0x1A record. Every 0x3333/0x1A is immediately followed by type-2 0x5556/0x0C; 884/948 have 0x5556/0x0E immediately before it.
+- The film-start reader now validates the five-DWORD 0x3333/0x50 record and its immediately adjacent five-DWORD 0x3333/0x52 record. A synthetic negative test rejects a different adjacent function code.
+- A bounded exact-match scan of payload shape [1, Pool2Index] found 511 records whose in-range Pool 2 entry is exactly one of the project module names. Counts by record ID and source/target pairs are captured in SYSTEM_NNN_COMMAND_MAP_NOTES.md.
+- The 15 0x3333/0x1A module-token references pair with 15 0x3333/0x1B references to the same Pool 2 indices in the same module. These and the 123 0x2222/0x0004 module-token references are candidates only; no command or transition semantics were assigned.
+- Reviewed an independent public NNNLib reference from different titles: it describes Pool 2 as a mixed table including jump-target names and treats sys/backscript as system UI there. Added links as cross-title evidence only; it is not used as proof of this title's opcode meanings.
+- No game binaries, sidecars, dialogue, or other assets were added to Git. No module navigation or VM behavior was changed beyond structural validation.
