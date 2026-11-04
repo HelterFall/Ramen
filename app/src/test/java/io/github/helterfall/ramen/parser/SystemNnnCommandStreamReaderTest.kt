@@ -151,19 +151,19 @@ class SystemNnnCommandStreamReaderTest {
     @Test
     fun resolvesFilmEntryThroughTheThirdAndFourthHeaderDescriptors() {
         val script = filmTableScript(
-            targetWordOffsets = listOf(0x1Au, 0x1Fu, 0x22u)
+            targetWordOffsets = listOf(0x1Au, 0x1Fu, 0x29u)
         )
 
         val reader = SystemNnnCommandStreamReader()
 
         assertEquals(0x7CL, reader.filmStartOffset(script, 0))
-        assertEquals(0x88L, reader.filmStartOffset(script, 1))
+        assertEquals(0xA4L, reader.filmStartOffset(script, 1))
     }
 
     @Test
     fun rejectsFilmEntriesOutsideTheDeclaredFilmTable() {
         val script = filmTableScript(
-            targetWordOffsets = listOf(0x1Au, 0x1Fu, 0x22u)
+            targetWordOffsets = listOf(0x1Au, 0x1Fu, 0x29u)
         )
 
         assertThrows(IOException::class.java) {
@@ -174,7 +174,7 @@ class SystemNnnCommandStreamReaderTest {
     @Test
     fun rejectsFilmEntriesThatPointIntoARecordPayload() {
         val script = filmTableScript(
-            targetWordOffsets = listOf(0x1Au, 0x1Eu, 0x22u)
+            targetWordOffsets = listOf(0x1Au, 0x1Eu, 0x29u)
         )
 
         assertThrows(IOException::class.java) {
@@ -185,7 +185,7 @@ class SystemNnnCommandStreamReaderTest {
     @Test
     fun rejectsReservedTableEntriesThatDoNotTargetTheReservedFunctionRecord() {
         val script = filmTableScript(
-            targetWordOffsets = listOf(0x1Fu, 0x1Fu, 0x22u)
+            targetWordOffsets = listOf(0x1Fu, 0x1Fu, 0x29u)
         )
 
         assertThrows(IOException::class.java) {
@@ -196,7 +196,7 @@ class SystemNnnCommandStreamReaderTest {
     @Test
     fun rejectsFilmEntriesThatTargetReservedFunctionRecords() {
         val script = filmTableScript(
-            targetWordOffsets = listOf(0x1Au, 0x1Au, 0x22u)
+            targetWordOffsets = listOf(0x1Au, 0x1Au, 0x29u)
         )
 
         assertThrows(IOException::class.java) {
@@ -204,14 +204,37 @@ class SystemNnnCommandStreamReaderTest {
         }
     }
 
-    private fun filmTableScript(targetWordOffsets: List<UInt>): SystemNnnScript {
+    @Test
+    fun rejectsFilmEntriesWithoutTheAdjacentContinuationFunction() {
+        val script = filmTableScript(
+            targetWordOffsets = listOf(0x1Au, 0x1Fu, 0x29u),
+            continuationCodeId = 0x53
+        )
+
+        assertThrows(IOException::class.java) {
+            SystemNnnCommandStreamReader().filmStartOffset(script, 0)
+        }
+    }
+
+    private fun filmTableScript(
+        targetWordOffsets: List<UInt>,
+        continuationCodeId: Int = 0x52
+    ): SystemNnnScript {
         require(targetWordOffsets.size == 3)
         val dataRecord = listOf(6u, 0x66660001u, 0x55550002u) + targetWordOffsets
         val reservedEntry = listOf(5u, 0x66660007u, 0x33330051u, 1u, 0u)
-        val firstFilmEntry = listOf(3u, 0x66660007u, 0x33330050u)
-        val secondFilmEntry = listOf(3u, 0x66660007u, 0x33330050u)
+        val firstFilmEntry = listOf(5u, 0x66660007u, 0x33330050u, 1u, 0u)
+        val firstContinuation = listOf(
+            5u, 0x66660007u, 0x33330000u or continuationCodeId.toUInt(), 1u, 0u
+        )
+        val secondFilmEntry = listOf(5u, 0x66660007u, 0x33330050u, 1u, 0u)
+        val secondContinuation = listOf(
+            5u, 0x66660007u, 0x33330000u or continuationCodeId.toUInt(), 1u, 0u
+        )
         val words = listOf(0u, 0u, 0u, 0u) +
-            dataRecord + reservedEntry + firstFilmEntry + secondFilmEntry +
+            dataRecord + reservedEntry +
+            firstFilmEntry + firstContinuation +
+            secondFilmEntry + secondContinuation +
             listOf(0u, 0u, 0u, 0u)
         val bytes = ByteArray(words.size * 4)
         words.forEachIndexed { index, word -> putUInt32(bytes, index * 4, word) }

@@ -255,13 +255,32 @@ class SystemNnnCommandStreamReader(
             if (
                 targetRecord.recordKind != SystemNnnRecordKind.SYSTEM_FUNCTION ||
                 targetRecord.codeFamily != SYSTEM_FUNCTION_FAMILY ||
-                targetRecord.codeId != expectedCodeId
+                targetRecord.codeId != expectedCodeId ||
+                targetRecord.lengthWords != FILM_TABLE_FUNCTION_LENGTH_WORDS
             ) {
                 throw IOException(
                     "The SPT film table entry $tableIndex points to an unexpected " +
                         "System-NNN function record (expected 0x" +
-                        expectedCodeId.toString(16) + ")."
+                        expectedCodeId.toString(16) + " with " +
+                        FILM_TABLE_FUNCTION_LENGTH_WORDS + " words)."
                 )
+            }
+
+            if (tableIndex >= reservedEntries) {
+                val continuation = stream.records.getOrNull(recordIndex + 1)
+                if (
+                    continuation == null ||
+                    continuation.offset != targetRecord.endOffsetExclusive ||
+                    continuation.recordKind != SystemNnnRecordKind.SYSTEM_FUNCTION ||
+                    continuation.codeFamily != SYSTEM_FUNCTION_FAMILY ||
+                    continuation.codeId != FILM_ENTRY_CONTINUATION_CODE_ID ||
+                    continuation.lengthWords != FILM_TABLE_FUNCTION_LENGTH_WORDS
+                ) {
+                    throw IOException(
+                        "The SPT film entry $tableIndex is missing its adjacent " +
+                            "0x3333/0x52 continuation record."
+                    )
+                }
             }
 
             if (tableIndex == entryIndex) {
@@ -299,5 +318,7 @@ class SystemNnnCommandStreamReader(
         const val SYSTEM_FUNCTION_FAMILY = 0x3333
         const val RESERVED_FILM_ENTRY_CODE_ID = 0x51
         const val FILM_ENTRY_CODE_ID = 0x50
+        const val FILM_ENTRY_CONTINUATION_CODE_ID = 0x52
+        const val FILM_TABLE_FUNCTION_LENGTH_WORDS = 5u
     }
 }
