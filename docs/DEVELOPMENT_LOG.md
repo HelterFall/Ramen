@@ -392,3 +392,22 @@ These are heuristic candidates, not confirmed dialogue lines. No scenario text w
 - No CI was run for this documentation-only analysis.
 - No script text was exported or reproduced.
 - No entrypoint or playable runtime has been proven.
+
+
+## 2026-11-04 — Multi-archive resource selection audit
+
+Cross-checked the user's root folder screenshots with current runtime code:
+- `dwq/` contains six visible GPK/GTB pairs: bg0, ev0, sc0, sm0, sys0, ta0.
+- `cdvaw/` contains 166 objects; visible portion shows VPK/VTB pairs aa through ff and the start of gg.vpk.
+- `wgq/` contains 111 standalone .wgq files.
+- root `vaw/` contains two objects.
+
+Confirmed in `SystemNnnGpkBitmapRepository.forGameDirectory()`: root `wgq/` is handled first. If any .wgq files exist, the function returns a WGQ-backed image repository or a GTB/WGQ pair found inside wgq/. It searches ordinary GPK/GTB pairs in the rest of the game tree only when root wgq/ is absent. Therefore the displayed sibling `dwq/` directory can be bypassed.
+
+A second limitation: the bitmap repository opens only one GPK/GTB pair. The user's sample has six pairs, so picking the first pair cannot be assumed to cover all scene resource references.
+
+Confirmed in `SystemNnnPlayerActivity.prepareAudioRepository()`: it scans VTB catalogs, pairs each with same-basename VAW/VPK in the same folder, and returns the first nonempty repository. It does not aggregate multiple VPK/VTB banks. The screenshot shows at least six such pairs in cdvaw/. Sequential voice-index assignment is still unverified.
+
+Public VNTools format notes classify WGQ as BGM with a 64-byte header and Ogg payload, whereas the current Ramen image resolver treats standalone WGQ as DWQ images. No actual WGQ header from this game has been inspected yet, so this is a high-priority discriminator test rather than a final classification of all 111 files.
+
+No code changed. Next work: prove archive-to-resource mapping using index metadata and SPT references; then implement multiple image/audio banks and a separate BGM path without relying on sorted filename order.
