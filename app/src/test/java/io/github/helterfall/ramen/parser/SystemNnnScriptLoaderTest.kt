@@ -115,7 +115,7 @@ class SystemNnnScriptLoaderTest {
 
     @Test
     fun scansOpaque3333And5556PatternsWithoutAssigningCommandSemantics() {
-        val commandBytes = ByteArray(40)
+        val commandBytes = ByteArray(44)
         // 0x3333: candidate extent 2, so candidate continuation is cell 6.
         putUInt32(commandBytes, 0, 0x66660007)
         putUInt32(commandBytes, 4, 0x3333001B)
@@ -126,6 +126,7 @@ class SystemNnnScriptLoaderTest {
         putUInt32(commandBytes, 28, 0x66660002)
         putUInt32(commandBytes, 32, 0x5556000E)
         putUInt32(commandBytes, 36, 4)
+        putUInt32(commandBytes, 40, 0x66660007)
 
         val script = SystemNnnScript(
             fileSizeBytes = 0xC0L,
@@ -150,8 +151,29 @@ class SystemNnnScriptLoaderTest {
         assertEquals(0x5556, patterns[1].familyMarker)
         assertEquals(14, patterns[1].markerParameter)
         assertEquals(4u, patterns[1].followingWord)
-        assertNull(patterns[1].candidateNextCellOffset)
-        assertNull(patterns[1].candidateNextCellMarker)
+        assertEquals(0x68L, patterns[1].candidateNextCellOffset)
+        assertEquals(0x6666, patterns[1].candidateNextCellMarker)
+    }
+
+    @Test
+    fun opaqueMarkerScannerRequiresTheObservedPrefix() {
+        val commandBytes = ByteArray(16)
+        putUInt32(commandBytes, 0, 0x66660006) // wrong prefix parameter for 0x3333
+        putUInt32(commandBytes, 4, 0x3333001B)
+        putUInt32(commandBytes, 8, 1)
+
+        val script = SystemNnnScript(
+            fileSizeBytes = 0x90L,
+            firstHeaderWord = 20u,
+            offsetTables = emptyList(),
+            commandStartOffset = 0x40L,
+            commandEndOffset = 0x40L + commandBytes.size,
+            textPoolOffset = 0x80L,
+            textPool = emptyList(),
+            commandBytes = commandBytes
+        )
+
+        assertTrue(script.scanOpaqueMarkerPatterns().isEmpty())
     }
 
     @Test
