@@ -577,3 +577,25 @@ This is an unusually strong structural correlation and a lead for resolving Pool
 ### Next
 At the individual-record level, compare the data words after each `0x2222` pair with Pool 1 logical addresses and indexes across all 20 modules. Keep this as a read-only diagnostic until a deterministic mapping is proven.
 
+## 2026-11-05 — Pool 1 direct-index mapping and scanner
+
+### Byte-level result
+- For each of the 16 modules with non-empty Pool 1, every observed `[6,0x6666] [kind=1..3,0x2222] [u32 index]` sequence yields one index in exact ascending order: `0..Pool1Count-1`.
+- All 37,383 Pool 1 records are covered once; no missing indices, duplicates or descents. Empty Pool 1 modules have zero references of these kinds.
+- Kind distribution: 1 = 37,008; 2 = 125; 3 = 250. Kind semantics remain unknown.
+- See [SYSTEM_NNN_COMMAND_MAP_NOTES.md](SYSTEM_NNN_COMMAND_MAP_NOTES.md) for the per-module table and evidence boundaries.
+
+### Kotlin changes
+- Added `SystemNnnPool1Reference` and `SystemNnnPool1ReferenceScan`.
+- Added bounded, read-only `SystemNnnScript.scanPool1References()`.
+- Added synthetic tests for all three observed kinds, ascending mapping, mismatch reporting, unsupported kinds, wrong prefixes and truncated rows.
+- The scan does not execute the VM, decode text, or change player behavior. The existing command decoder remains disabled.
+
+### Validation status
+- New source/test commits are pushed to the existing draft PR #28 branch.
+- Actions for the new code must be checked; earlier CI #301 predates this scanner and does not validate it.
+- No device test and no game-launch claim.
+
+### Next
+Determine whether reference kinds 1/2/3 distinguish record classes by structural metadata only, without rendering/extracting scenario text. In parallel, examine the next confirmed reference family without enabling execution.
+
