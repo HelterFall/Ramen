@@ -7,6 +7,8 @@
 - **Последний кодовый CI:** [#301](https://github.com/HelterFall/Ramen/actions/runs/41847591081) — сборка, unit tests, lint и APK artifact прошли. Физическая проверка игры не выполнялась.
 - **SPT loader:** PR #28 содержит валидацию двух индексированных пулов по 20 пользовательским модулям; Pool 1 может быть пустым; прежний спекулятивный декодер отключён.
 - **Новое исследование командной области:** см. [SYSTEM_NNN_COMMAND_MAP_NOTES.md](docs/SYSTEM_NNN_COMMAND_MAP_NOTES.md). Подтверждены четыре точные соседние пары маркеров на всех 20 модулях и равенство Pool 1 count числу `0x2222` ячеек с параметром 1–3. Это структурные инварианты, не семантика команд.
+- **SPT Pool 1 references:** exact for all 20 modules: 37,383 command-area references map in order to 37,383 Pool 1 records; the four empty-Pool1 modules have no such refs. Ramen now has a read-only `scanPool1References()` diagnostic and synthetic tests. Types 1/2/3 remain opaque; no VM execution.
+- **Latest code change in this branch:** added `SystemNnnPool1Reference`, `SystemNnnPool1ReferenceScan`, and tests for valid ordering, mismatches, unsupported kinds and truncated patterns. CI for this code change must be checked before calling it green.
 - **Не утверждать, что игра запускается:** VM/опкоды, привязка конкретных записей к Pool 1, ветвления, выборы, фоны, переходы, звук и стартовый модуль пока не доказаны.
 - **Сохранять без регрессий:** Resource Inspector; рабочее чтение GPK+GTB и VPK+VTB из пользовательских тестов; ZIP/folder import; снятие искусственного лимита 512.
 - **Рабочий цикл:** отдельная ветка/PR → Actions → APK → проверка пользователем на Android. PR не сливать автоматически.
