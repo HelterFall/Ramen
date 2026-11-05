@@ -347,6 +347,8 @@ class SystemNnnCommandDecoderImpl(
             CODE_SYSTEMFUNCTION_MUSIC -> decodeMusic(script, record)
             CODE_SYSTEMFUNCTION_VOICE -> decodeVoice(script, record)
             CODE_SYSTEMFUNCTION_SOUND -> decodeSound(script, record)
+            CODE_SYSTEMFUNCTION_SETEFFECT -> decodeSetEffect(script, record)
+            CODE_SYSTEMFUNCTION_SETEFFECTRECT -> decodeSetEffectRect(script, record)
             CODE_SYSTEMFUNCTION_SETFILM -> decodeSetFilm(script, stream, record)
             CODE_SYSTEMFUNCTION_LOADDWQ -> decodeLoadDwq(script, record)
             CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER -> decodeClearEffectLayer(script, record)
@@ -441,6 +443,60 @@ class SystemNnnCommandDecoderImpl(
             nextCommandOffset = record.endOffsetExclusive,
             soundNumber = soundNumber,
             channel = channel.toInt()
+        )
+    }
+
+    private fun decodeSetEffect(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand {
+        readDeclaredArgumentCount(script, record, 2, MAX_EFFECT_ARGUMENTS, "SETEFFECT")
+        val layer = readPayloadWord(script, record, 1).toLong()
+        val effect = readPayloadWord(script, record, 2).toInt()
+        if (layer !in 0L until MAX_IMAGE_LAYERS.toLong()) {
+            throw IOException("A System-NNN SETEFFECT layer is outside the supported range.")
+        }
+        if (effect == -1) {
+            return SystemNnnDecodedCommand.ClearImageLayer(record.endOffsetExclusive, layer.toInt())
+        }
+        if (effect !in 0..MAX_SYSTEM_EFFECT_ID) {
+            throw IOException("A System-NNN SETEFFECT id is outside the known family range.")
+        }
+        return SystemNnnDecodedCommand.SetImageLayerEffect(
+            nextCommandOffset = record.endOffsetExclusive,
+            layerIndex = layer.toInt(),
+            effectId = effect
+        )
+    }
+
+    private fun decodeSetEffectRect(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.SetImageLayerRect {
+        readDeclaredArgumentCount(script, record, 9, 9, "SETEFFECTRECT")
+        val layer = readPayloadWord(script, record, 1).toLong()
+        if (layer !in 0L until MAX_IMAGE_LAYERS.toLong()) {
+            throw IOException("A System-NNN SETEFFECTRECT layer is outside the supported range.")
+        }
+        fun readRect(start: Int): SystemNnnNativeRect {
+            val x = readPayloadWord(script, record, start).toInt()
+            val y = readPayloadWord(script, record, start + 1).toInt()
+            val width = readPayloadWord(script, record, start + 2).toInt()
+            val height = readPayloadWord(script, record, start + 3).toInt()
+            if (x !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
+                y !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
+                width !in 0..MAX_EFFECT_RECT_DIMENSION ||
+                height !in 0..MAX_EFFECT_RECT_DIMENSION
+            ) {
+                throw IOException("A System-NNN SETEFFECTRECT contains out-of-range coordinates.")
+            }
+            return SystemNnnNativeRect(x, y, width, height)
+        }
+        return SystemNnnDecodedCommand.SetImageLayerRect(
+            nextCommandOffset = record.endOffsetExclusive,
+            layerIndex = layer.toInt(),
+            fromRect = readRect(2),
+            toRect = readRect(6)
         )
     }
 
@@ -1024,6 +1080,8 @@ class SystemNnnCommandDecoderImpl(
         const val CODE_SYSTEMFUNCTION_MUSIC = 0x0007
         const val CODE_SYSTEMFUNCTION_VOICE = 0x0008
         const val CODE_SYSTEMFUNCTION_SOUND = 0x0009
+        const val CODE_SYSTEMFUNCTION_SETEFFECT = 0x0013
+        const val CODE_SYSTEMFUNCTION_SETEFFECTRECT = 0x0016
         const val CODE_SYSTEMFUNCTION_SETFILM = 0x001A
         const val CODE_SYSTEMFUNCTION_CLEARALLEFFECT = 0x0012
         const val CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER = 0x0014
@@ -1037,6 +1095,10 @@ class SystemNnnCommandDecoderImpl(
         const val MAX_IMAGE_LAYERS = 32
         const val MAX_AUDIO_ARGUMENTS = 16
         const val MAX_AUDIO_CHANNEL = 15
+        const val MAX_EFFECT_ARGUMENTS = 66
+        const val MAX_SYSTEM_EFFECT_ID = 140
+        const val MAX_EFFECT_RECT_COORD = 16_384
+        const val MAX_EFFECT_RECT_DIMENSION = 16_384
         const val SETFILM_PAYLOAD_WORD_COUNT = 2
         const val SETFILM_ARGUMENT_COUNT_PAYLOAD = 0
         const val SETFILM_FILM_NUMBER_PAYLOAD = 1

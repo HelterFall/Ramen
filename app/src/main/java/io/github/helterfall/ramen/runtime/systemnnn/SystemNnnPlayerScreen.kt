@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -101,36 +102,79 @@ fun SystemNnnPlayerScreen(
             )
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            state.backgroundBitmap?.let { background ->
-                DisposableEffect(background) {
-                    onDispose { onBitmapDisposed(background) }
-                }
-                Image(
-                    bitmap = background.asImageBitmap(),
-                    contentDescription = "Scene background",
-                    modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.Fit
-                )
+            val sceneAspectRatio = state.backgroundBitmap?.let { bitmap ->
+                bitmap.width.toFloat() / bitmap.height.toFloat()
+            } ?: state.sprites.firstOrNull()?.bitmap?.let { bitmap ->
+                bitmap.width.toFloat() / bitmap.height.toFloat()
+            } ?: (4f / 3f)
+            val availableAspectRatio = maxWidth.value / maxHeight.value
+            val viewportModifier = if (availableAspectRatio > sceneAspectRatio) {
+                Modifier.fillMaxHeight().aspectRatio(sceneAspectRatio)
+            } else {
+                Modifier.fillMaxWidth().aspectRatio(sceneAspectRatio)
             }
 
-            state.sprites.forEach { sprite ->
-                DisposableEffect(sprite.bitmap) {
-                    onDispose { onBitmapDisposed(sprite.bitmap) }
+            BoxWithConstraints(
+                modifier = viewportModifier.align(Alignment.Center)
+            ) {
+                val referenceWidth = state.backgroundBitmap?.width?.toFloat()
+                    ?: state.sprites.firstOrNull()?.bitmap?.width?.toFloat()
+                    ?: 800f
+                val referenceHeight = state.backgroundBitmap?.height?.toFloat()
+                    ?: state.sprites.firstOrNull()?.bitmap?.height?.toFloat()
+                    ?: 600f
+
+                state.backgroundBitmap?.let { background ->
+                    DisposableEffect(background) {
+                        onDispose { onBitmapDisposed(background) }
+                    }
+                    Image(
+                        bitmap = background.asImageBitmap(),
+                        contentDescription = "Scene background",
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = ContentScale.FillBounds,
+                        alignment = Alignment.TopStart
+                    )
                 }
-                val widthFraction = sprite.widthFraction.coerceIn(0.1f, 1.0f)
-                val heightFraction = sprite.heightFraction.coerceIn(0.1f, 1.0f)
-                Image(
-                    bitmap = sprite.bitmap.asImageBitmap(),
-                    contentDescription = sprite.contentDescription,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .width(maxWidth * widthFraction)
-                        .fillMaxHeight(heightFraction)
-                        .offset(
-                            x = maxWidth * (sprite.centerXFraction.coerceIn(0f, 1f) - 0.5f)
-                        ),
-                    contentScale = ContentScale.Fit
-                )
+
+                state.sprites.forEach { sprite ->
+                    DisposableEffect(sprite.bitmap) {
+                        onDispose { onBitmapDisposed(sprite.bitmap) }
+                    }
+                    val nativeRect = sprite.nativeRect
+                    if (nativeRect != null && nativeRect.width > 0 && nativeRect.height > 0) {
+                        val leftFraction = (nativeRect.x / referenceWidth).coerceIn(-2f, 2f)
+                        val topFraction = (nativeRect.y / referenceHeight).coerceIn(-2f, 2f)
+                        val widthFraction = (nativeRect.width / referenceWidth).coerceIn(0f, 2f)
+                        val heightFraction = (nativeRect.height / referenceHeight).coerceIn(0f, 2f)
+                        Image(
+                            bitmap = sprite.bitmap.asImageBitmap(),
+                            contentDescription = sprite.contentDescription,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .offset(x = maxWidth * leftFraction, y = maxHeight * topFraction)
+                                .width(maxWidth * widthFraction)
+                                .fillMaxHeight(heightFraction),
+                            contentScale = ContentScale.FillBounds,
+                            alignment = Alignment.TopStart
+                        )
+                    } else {
+                        val widthFraction = sprite.widthFraction.coerceIn(0.1f, 1.0f)
+                        val heightFraction = sprite.heightFraction.coerceIn(0.1f, 1.0f)
+                        Image(
+                            bitmap = sprite.bitmap.asImageBitmap(),
+                            contentDescription = sprite.contentDescription,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .width(maxWidth * widthFraction)
+                                .fillMaxHeight(heightFraction)
+                                .offset(
+                                    x = maxWidth * (sprite.centerXFraction.coerceIn(0f, 1f) - 0.5f)
+                                ),
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+                }
             }
         }
 
