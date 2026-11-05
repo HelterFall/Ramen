@@ -6,7 +6,7 @@ import java.io.OutputStream
 import java.io.OutputStreamWriter
 import java.util.Locale
 
-/** One project manifest and the read-only module-name references found in its SPT files. */
+/** One project manifest and its read-only SPT transition, local SUB, resource/audio and string-reference inventories. */
 data class SystemNnnModuleReferenceProjectReport(
     val projectPath: String,
     val moduleCount: Int,
@@ -19,12 +19,13 @@ data class SystemNnnModuleReferenceProjectReport(
 )
 
 /**
- * Deterministic UTF-8 export of candidate module-name references.
+ * Deterministic UTF-8 export of SPT transition, local SUB, resource/audio
+ * function and module-name-reference diagnostics.
  *
- * The report contains module identifiers, offsets, record codes and bounded
- * opaque DWORD previews only. It never writes Pool 1 text, Pool 2 text other
- * than exact project module names, or resource payloads. The caller owns the
- * output stream; this writer flushes but does not close it.
+ * The report contains project module identifiers, offsets, record codes and
+ * bounded numeric DWORD previews only. It never writes Pool 1/Pool 2 content,
+ * resource paths or media payloads. The caller owns the output stream; this
+ * writer flushes but does not close it.
  */
 class SystemNnnModuleReferenceReportWriter(
     private val maxCandidates: Int = DEFAULT_MAX_CANDIDATES
