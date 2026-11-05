@@ -7,16 +7,16 @@ import java.nio.file.Files
 /**
  * One scene row in scene.dat.
  *
- * The signed module number is an index into project.xtx. Its sign marks the
- * scene type; the absolute value is passed to CNameList::GetName unchanged.
- * Film numbers are one-based; a negative sign only disables completion checks.
+ * The signed module number is one-based. Its sign marks the scene type;
+ * abs(moduleNumber) - 1 is the zero-based index into project.xtx.
+ * Film numbers are also one-based; a negative sign only disables completion checks.
  */
 data class SystemNnnSceneEntry(
     val storedModuleNumber: Int,
     val storedFilmNumbers: List<Int>
 ) {
     val moduleIndex: Int
-        get() = kotlin.math.abs(storedModuleNumber)
+        get() = kotlin.math.abs(storedModuleNumber) - 1
 
     val isHScene: Boolean
         get() = storedModuleNumber < 0
@@ -109,9 +109,9 @@ data class SystemNnnSceneCatalogAlignment(
  *       int filmCount
  *       int filmNumbers[filmCount]
  *
- * sptNumber is an index into project.xtx (CNameList::GetName); a negative
- * value marks an H-scene and is made positive before lookup. Film numbers are
- * one-based; absolute value minus one is passed to SetPCByFilmNumber. A
+ * sptNumber is a one-based index into project.xtx; abs(sptNumber) - 1 selects
+ * the module and a negative value marks an H-scene. Film numbers are one-based;
+ * absolute value minus one is passed to SetPCByFilmNumber. A
  * negative film number is playable but excluded from completion checks.
  *
  * scenevoice.xtx is scanned only for ASCII @scNN identifiers. Its CP932
@@ -186,9 +186,9 @@ class SystemNnnSceneCatalogReader(
                 )
                 cursor += SCENE_HEADER_BYTES
 
-                if (storedModuleNumber == Int.MIN_VALUE) {
+                if (storedModuleNumber == 0 || storedModuleNumber == Int.MIN_VALUE) {
                     throw IOException(
-                        "scene.dat character $characterIndex scene $sceneIndex has an invalid module number."
+                        "scene.dat character $characterIndex scene $sceneIndex has an invalid one-based module number."
                     )
                 }
                 val filmBytes = filmCount.toLong() * INT32_BYTES
