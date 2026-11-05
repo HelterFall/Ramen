@@ -245,6 +245,30 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun skipsOnlyTheOpeningRecordWhenSelectIsFollowedByAnOuterBrace() {
+        val script = testScript(
+            records = listOf(
+                record(10, SYSTEM_COMMAND, CODE_SELECT, 2u, 2u, 3u, 0u, 0u, 0u, 0u),
+                // The target GetCase routine skips this wrapper record but does
+                // not skip its declared span before looking for CASE records.
+                record(4, CONTROL, CODE_OPEN_BRACE, 99u),
+                record(4, CONTROL, CODE_CONTROL_CASE, 1u),
+                record(4, CONTROL, CODE_OPEN_BRACE, 7u),
+                record(3, CALCULATION, 0u),
+                record(3, CONTROL, CODE_CLOSE_BRACE),
+                record(4, CONTROL, CODE_CONTROL_CASE, 2u)
+            ),
+            textCount = 0,
+            secondaryTexts = listOf("unused", "unused", "Take path A", "Take path B")
+        )
+
+        val decoded = decoder().decodeNext(script, RECORD_START) as SystemNnnDecodedCommand.Choice
+
+        assertEquals(RECORD_START + 40L + 16L, decoded.options[0].targetCommandOffset)
+        assertEquals(RECORD_START + 40L + 16L + 16L + 28L + 12L + 16L, decoded.options[1].targetCommandOffset)
+    }
+
+    @Test
     fun decodesSelectMessagePrefixBeforeTheSelectableRows() {
         val script = testScript(
             records = listOf(
