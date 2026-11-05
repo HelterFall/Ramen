@@ -279,7 +279,7 @@ class SystemNnnCommandDecoderImplTest {
     fun rejectsLocalReturnRecordsWithUnexpectedPayload() {
         val script = localSubroutineScript(returnPayload = listOf(1u))
         val decoder = decoder()
-        val subOffset = LOCAL_SUB_OFFSET + DWORD_BYTES
+        val subOffset = LOCAL_SUB_OFFSET + 4L
         val returnOffset = LOCAL_SUB_RETURN_OFFSET
         assertEquals(
             SystemNnnDecodedCommand.Jump(LOCAL_SUB_TARGET_OFFSET),
