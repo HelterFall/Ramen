@@ -1,6 +1,7 @@
 package io.github.helterfall.ramen.runtime.systemnnn
 
 import io.github.helterfall.ramen.parser.SystemNnnScript
+import io.github.helterfall.ramen.parser.SystemNnnOffsetTable
 import io.github.helterfall.ramen.parser.SystemNnnTextEntry
 import java.io.IOException
 import org.junit.Assert.assertEquals
@@ -226,6 +227,107 @@ class SystemNnnCommandDecoderImplTest {
         }
     }
 
+
+    @Test
+    fun executesLocalSubThroughDescriptorThreeAndReturnsToTheExactCallerContinuation() {
+        val script = localSubroutineScript()
+        val decoder = decoder()
+
+        val call = decoder.decodeNext(script, LOCAL_SUB_OFFSET)
+        assertEquals(SystemNnnDecodedCommand.Jump(LOCAL_SUB_TARGET_OFFSET), call)
+
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(LOCAL_SUB_TARGET_OFFSET + 20L),
+            decoder.decodeNext(script, LOCAL_SUB_TARGET_OFFSET)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(LOCAL_SUB_TARGET_OFFSET + 40L),
+            decoder.decodeNext(script, LOCAL_SUB_TARGET_OFFSET + 20L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Jump(LOCAL_SUB_RETURN_CONTINUATION),
+            decoder.decodeNext(script, LOCAL_SUB_RETURN_OFFSET)
+        )
+
+        val dialogue = decoder.decodeNext(script, LOCAL_SUB_RETURN_CONTINUATION)
+        assertEquals(
+            SystemNnnDecodedCommand.Dialogue(
+                nextCommandOffset = LOCAL_SUB_RETURN_CONTINUATION + 20L,
+                textEntryOffset = script.textPool.single().offset
+            ),
+            dialogue
+        )
+    }
+
+    @Test
+    fun rejectsLocalReturnWhenNoSubroutineCallIsActive() {
+        val script = localSubroutineScript()
+        assertThrows(IOException::class.java) {
+            decoder().decodeNext(script, LOCAL_SUB_RETURN_OFFSET)
+        }
+    }
+
+    @Test
+    fun rejectsLocalSubroutineTargetsOutsideDescriptorThree() {
+        val script = localSubroutineScript(subTableIndex = 3u)
+        assertThrows(IOException::class.java) {
+            decoder().decodeNext(script, LOCAL_SUB_OFFSET)
+        }
+    }
+
+    @Test
+    fun rejectsLocalReturnRecordsWithUnexpectedPayload() {
+        val script = localSubroutineScript(returnPayload = listOf(1u))
+        val decoder = decoder()
+        assertEquals(
+            SystemNnnDecodedCommand.Jump(LOCAL_SUB_TARGET_OFFSET),
+            decoder.decodeNext(script, LOCAL_SUB_OFFSET)
+        )
+        decoder.decodeNext(script, LOCAL_SUB_TARGET_OFFSET)
+        decoder.decodeNext(script, LOCAL_SUB_TARGET_OFFSET + 20L)
+        assertThrows(IOException::class.java) {
+            decoder.decodeNext(script, LOCAL_SUB_RETURN_OFFSET)
+        }
+    }
+
+    private fun localSubroutineScript(
+        subTableIndex: UInt = 1u,
+        returnPayload: List<UInt> = emptyList()
+    ): SystemNnnScript {
+        val words = mutableListOf<UInt>()
+        words += listOf(0u, 0u, 0u, 0u) // preamble
+        // Descriptor-3 table lives in this data record's payload at logical word index 0x17.
+        words += listOf(6u, DATA, 0x55550002u, 0x1Au, 0x1Fu, 0x2Cu)
+        words += listOf(5u, SYSTEM_FUNCTION, 0x33330051u, 1u, 0u) // reserved slot 0
+        words += listOf(5u, SYSTEM_FUNCTION, 0x33330050u, 0u, 0u) // ordinary slot 1
+        words += listOf(5u, SYSTEM_FUNCTION, 0x33330052u, 0u, 0u) // continuation
+        words += record(3 + returnPayload.size, CONTROL, 0x55560007u, *returnPayload.toTypedArray()) // RETURN in local body
+        words += listOf(5u, SYSTEM_FUNCTION, 0x33330050u, 0u, 0u) // ordinary slot 2
+        words += listOf(5u, SYSTEM_FUNCTION, 0x33330052u, 0u, 0u)
+        words += record(5, CONTROL, 0x55560009u, subTableIndex, 7u) // SUB -> descriptor3[1]
+        words += record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 1u) // continuation after SUB
+        words += listOf(0u, 0u, 0u, 0u) // trailer
+
+        val bytes = ByteArray(words.size * DWORD_BYTES.toInt())
+        words.forEachIndexed { index, word -> putUInt32(bytes, index * DWORD_BYTES.toInt(), word) }
+        val commandEnd = COMMAND_START + bytes.size
+        return SystemNnnScript(
+            fileSizeBytes = commandEnd + 0x20L,
+            firstHeaderWord = 0u,
+            offsetTables = listOf(
+                SystemNnnOffsetTable("main", 0u, 0u),
+                SystemNnnOffsetTable("secondary", 0u, 0u),
+                SystemNnnOffsetTable("tertiary", 3u, 0x17u),
+                SystemNnnOffsetTable("auxiliary", 1u, 0u)
+            ),
+            commandStartOffset = COMMAND_START,
+            commandEndOffset = commandEnd,
+            textPoolOffset = commandEnd,
+            textPool = listOf(SystemNnnTextEntry(offset = commandEnd, text = "Local return test")),
+            commandBytes = bytes
+        )
+    }
+
     private fun decoder() = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
 
     private fun testScript(
@@ -280,6 +382,10 @@ class SystemNnnCommandDecoderImplTest {
         const val DWORD_BYTES = 4L
         const val COMMAND_START = 0x40L
         const val RECORD_START = 0x50L
+        const val LOCAL_SUB_TARGET_OFFSET = 0x7CL
+        const val LOCAL_SUB_RETURN_OFFSET = 0xA4L
+        const val LOCAL_SUB_OFFSET = 0xD8L
+        const val LOCAL_SUB_RETURN_CONTINUATION = 0xECL
 
         const val DATA = 0x66660001u
         const val CONTROL = 0x66660002u
