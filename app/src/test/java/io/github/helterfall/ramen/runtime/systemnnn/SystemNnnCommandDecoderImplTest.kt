@@ -58,6 +58,45 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun decodesLoadDwqFromItsLayerAndPoolTwoResourceOperands() {
+        val script = testScript(
+            records = listOf(record(5, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_LOADDWQ, 3u, 0u)),
+            textCount = 0,
+            secondaryTexts = listOf("bg\\scene_01")
+        )
+
+        assertEquals(
+            SystemNnnDecodedCommand.LoadImageLayer(
+                nextCommandOffset = RECORD_START + 20L,
+                layerIndex = 3,
+                resourceId = "bg\\scene_01"
+            ),
+            decoder().decodeNext(script, RECORD_START)
+        )
+    }
+
+    @Test
+    fun decodesClearEffectLayerAndClearAllEffect() {
+        val clearOne = testScript(
+            records = listOf(record(4, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER, 5u)),
+            textCount = 0
+        )
+        val clearAll = testScript(
+            records = listOf(record(3, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_CLEARALLEFFECT)),
+            textCount = 0
+        )
+
+        assertEquals(
+            SystemNnnDecodedCommand.ClearImageLayer(RECORD_START + 16L, 5),
+            decoder().decodeNext(clearOne, RECORD_START)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.ClearAllImageLayers(RECORD_START + 12L),
+            decoder().decodeNext(clearAll, RECORD_START)
+        )
+    }
+
+    @Test
     fun decodesPrintAsTheExactPrimaryPoolEntry() {
         val script = testScript(
             listOf(record(5, SYSTEM_COMMAND, CODE_PRINT, 1u, 11u)),
@@ -822,6 +861,10 @@ class SystemNnnCommandDecoderImplTest {
         const val SYSTEM_COMMAND = 0x66660006u
         const val SYSTEM_FUNCTION = 0x66660007u
         const val CALCULATION = 0x66660005u
+
+        const val CODE_SYSTEMFUNCTION_CLEARALLEFFECT = 0x33330012u
+        const val CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER = 0x33330014u
+        const val CODE_SYSTEMFUNCTION_LOADDWQ = 0x33330015u
 
         const val CODE_PRINT = 0x22220001u
         const val CODE_LPRINT = 0x22220002u

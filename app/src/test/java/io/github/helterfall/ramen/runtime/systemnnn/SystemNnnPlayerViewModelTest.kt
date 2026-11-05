@@ -151,6 +151,35 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun loadDwqRequestsTheNamedResourceAndMissingArtworkDoesNotStopDialogue() {
+        val offsets = recordOffsets()
+        val assets = IndexRecordingAssets
+        assets.lastRequestedName = null
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.LoadImageLayer(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 4,
+                    resourceId = "bg\\missing_scene"
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, assets)
+
+        assertEquals("bg\\missing_scene", assets.lastRequestedName)
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertNull(viewModel.uiState.errorMessage)
+        assertTrue(viewModel.uiState.statusMessage!!.contains("missing_scene"))
+        assertFalse(viewModel.uiState.isLoading)
+    }
+
+    @Test
     fun requestsSceneBitmapUsingGtbIndexRatherThanRawStringIdentifier() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(

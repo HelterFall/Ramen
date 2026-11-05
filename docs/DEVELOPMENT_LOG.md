@@ -879,3 +879,12 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - The family reference dispatches DRAW through an opaque native drawing callback and advances by the declared record length. The Ramen repository does not include the target `gss.exe` or a verified target-specific DRAW payload layout.
 - Decoder now safely skips the complete, already-bounded DRAW record without reading or guessing at its payload, allowing the next SPT record to execute. Graphics represented by that DRAW record are not rendered yet.
 - Added synthetic coverage for DRAW followed by PRINT. Tests, lint, CI and APK builds were not run.
+
+## 2026-11-06 — first bounded DWQ image-layer dispatch
+
+- Implemented the NNNLib family-reference LOADDWQ operand shape: payload DWORD 0 selects the native effect layer; payload DWORD 1 indexes the validated Pool 2 resource-name table.
+- The decoder emits typed load/clear-layer events only after validating the record length boundary, layer range 0–31, Pool 2 index and decoded resource name. PRELOADDWQ remains a cache-only no-op; CLEAREFFECTLAYER and CLEARALLEFFECT update the visible layer set.
+- The ViewModel resolves exact resource names through the existing aggregated Asset Manager and presents image layers in numeric layer order. Missing or ambiguous image resources now become a neutral status message and do not interrupt dialogue.
+- Existing layer bitmaps are reused when unchanged; replaced and cleared resources follow the existing Compose bitmap lifecycle.
+- Opcode names and callback operand shape are cross-title engine-family evidence, not a disassembly of the Gore Screaming Show executable. No target-specific DRAW, transition/effect animation, bank inference, or image-position semantics are claimed. Physical-device validation remains outstanding.
+- Added synthetic decoder and ViewModel regression cases. Tests and lint were not run.

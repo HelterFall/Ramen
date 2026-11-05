@@ -24,7 +24,10 @@ data class SystemNnnSpriteBitmap(
     val centerXFraction: Float = 0.5f,
     val widthFraction: Float = 0.62f,
     val heightFraction: Float = 0.82f,
-    val contentDescription: String? = null
+    val contentDescription: String? = null,
+    val layerIndex: Int = 0,
+    val nativeBankNamespace: String? = null,
+    val nativeBankSlot: Int? = null
 )
 
 data class SystemNnnChoiceOption(
@@ -140,6 +143,21 @@ sealed interface SystemNnnDecodedCommand {
         val backgroundBankSlot: Int? = null
     ) : SystemNnnDecodedCommand
 
+    data class LoadImageLayer(
+        val nextCommandOffset: Long,
+        val layerIndex: Int,
+        val resourceId: String
+    ) : SystemNnnDecodedCommand
+
+    data class ClearImageLayer(
+        val nextCommandOffset: Long,
+        val layerIndex: Int
+    ) : SystemNnnDecodedCommand
+
+    data class ClearAllImageLayers(
+        val nextCommandOffset: Long
+    ) : SystemNnnDecodedCommand
+
     data class Skip(
         val nextCommandOffset: Long
     ) : SystemNnnDecodedCommand
@@ -186,7 +204,9 @@ data class SystemNnnSpriteReference(
     val contentDescription: String? = null,
     /** Optional explicit DWQ bank identity; both values are required together. */
     val nativeBankNamespace: String? = null,
-    val nativeBankSlot: Int? = null
+    val nativeBankSlot: Int? = null,
+    /** Native effect-layer index; -1 means use the containing list order. */
+    val layerIndex: Int = -1
 )
 
 /**
@@ -672,7 +692,21 @@ class SystemNnnPlayerViewModel : ViewModel() {
             var pendingBackgroundResourceIndex: Long? = null
             var pendingBackgroundBankNamespace: String? = null
             var pendingBackgroundBankSlot: Int? = null
-            var pendingSpriteReferences: List<SystemNnnSpriteReference>? = null
+            val pendingSpriteLayers = LinkedHashMap<Int, SystemNnnSpriteReference>()
+            sceneSprites.forEach { sprite ->
+                pendingSpriteLayers[sprite.layerIndex] = SystemNnnSpriteReference(
+                    resourceId = sprite.resourceId,
+                    centerXFraction = sprite.centerXFraction,
+                    widthFraction = sprite.widthFraction,
+                    heightFraction = sprite.heightFraction,
+                    contentDescription = sprite.contentDescription,
+                    nativeBankNamespace = sprite.nativeBankNamespace,
+                    nativeBankSlot = sprite.nativeBankSlot,
+                    layerIndex = sprite.layerIndex
+                )
+            }
+            var pendingSpriteLayersChanged = false
+            var imageStatusMessage: String? = null
             var commandsWithoutVisibleOutput = 0
 
             while (commandsWithoutVisibleOutput < MAX_SCENE_COMMANDS_PER_ADVANCE) {
@@ -707,10 +741,56 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         } else if (command.backgroundBankNamespace != null) {
                             throw IOException("A native image bank identity requires a background resource.")
                         }
-                        // Scene updates can be numerous before the next dialogue.
-                        // Keep only the final resource descriptors and decode them
-                        // once, immediately before publishing the visible frame.
-                        pendingSpriteReferences = command.sprites
+                        // A scene snapshot replaces the complete visual layer set.
+                        pendingSpriteLayers.clear()
+                        command.sprites.forEachIndexed { index, reference ->
+                            val layer = if (reference.layerIndex in 0 until MAX_IMAGE_LAYERS) {
+                                reference.layerIndex
+                            } else {
+                                index
+                            }
+                            if (layer in 0 until MAX_IMAGE_LAYERS) {
+                                pendingSpriteLayers[layer] = reference.copy(layerIndex = layer)
+                            }
+                        }
+                        pendingSpriteLayersChanged = true
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.LoadImageLayer -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        if (command.layerIndex !in 0 until MAX_IMAGE_LAYERS) {
+                            throw IOException("LOADDWQ supplied an invalid effect layer.")
+                        }
+                        nextCommandOffset = command.nextCommandOffset
+                        pendingSpriteLayers[command.layerIndex] = SystemNnnSpriteReference(
+                            resourceId = command.resourceId,
+                            centerXFraction = 0.5f,
+                            widthFraction = 1f,
+                            heightFraction = 1f,
+                            contentDescription = "Image layer " + command.layerIndex,
+                            layerIndex = command.layerIndex
+                        )
+                        pendingSpriteLayersChanged = true
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.ClearImageLayer -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        if (command.layerIndex !in 0 until MAX_IMAGE_LAYERS) {
+                            throw IOException("CLEAREFFECTLAYER supplied an invalid layer.")
+                        }
+                        nextCommandOffset = command.nextCommandOffset
+                        pendingSpriteLayers.remove(command.layerIndex)
+                        pendingSpriteLayersChanged = true
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.ClearAllImageLayers -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        nextCommandOffset = command.nextCommandOffset
+                        pendingSpriteLayers.clear()
+                        pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -824,10 +904,27 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             }
                         }
                         if (command.sprites.isNotEmpty()) {
-                            pendingSpriteReferences = command.sprites
+                            pendingSpriteLayers.clear()
+                            command.sprites.forEachIndexed { index, reference ->
+                                val layer = if (reference.layerIndex in 0 until MAX_IMAGE_LAYERS) {
+                                    reference.layerIndex
+                                } else {
+                                    index
+                                }
+                                if (layer in 0 until MAX_IMAGE_LAYERS) {
+                                    pendingSpriteLayers[layer] = reference.copy(layerIndex = layer)
+                                }
+                            }
+                            pendingSpriteLayersChanged = true
                         }
-                        if (pendingSpriteReferences != null) {
-                            sceneSprites = resolveSprites(pendingSpriteReferences!!, resolver)
+                        if (pendingSpriteLayersChanged) {
+                            val resolution = resolveSprites(
+                                references = pendingSpriteLayers.values.sortedBy { it.layerIndex },
+                                existingSprites = sceneSprites,
+                                resolver = resolver
+                            )
+                            sceneSprites = resolution.sprites
+                            imageStatusMessage = resolution.statusMessage
                         }
 
                         val dialogueStepIndex = command.dialogueStepIndex
@@ -842,7 +939,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             visibleCharacterCount = 0,
                             isTextComplete = text.isEmpty(),
                             forceReveal = false,
-                            currentFilmNumber = currentFilmNumber
+                            currentFilmNumber = currentFilmNumber,
+                            statusMessage = imageStatusMessage
                         )
                         playVoice(dialogueStepIndex, command.voiceResourceId)
                         return
@@ -882,8 +980,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 resolver
                             )
                         }
-                        if (pendingSpriteReferences != null) {
-                            sceneSprites = resolveSprites(pendingSpriteReferences!!, resolver)
+                        if (pendingSpriteLayersChanged) {
+                            val resolution = resolveSprites(
+                                references = pendingSpriteLayers.values.sortedBy { it.layerIndex },
+                                existingSprites = sceneSprites,
+                                resolver = resolver
+                            )
+                            sceneSprites = resolution.sprites
+                            imageStatusMessage = resolution.statusMessage
                         }
 
                         frameCounter += 1L
@@ -898,7 +1002,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             isTextComplete = true,
                             forceReveal = true,
                             choices = command.options,
-                            currentFilmNumber = currentFilmNumber
+                            currentFilmNumber = currentFilmNumber,
+                            backgroundBitmap = sceneBackground,
+                            sprites = sceneSprites,
+                            statusMessage = imageStatusMessage
                         )
                         return
                     }
@@ -1081,28 +1188,85 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
     }
 
+    private data class SpriteResolution(
+        val sprites: List<SystemNnnSpriteBitmap>,
+        val statusMessage: String?
+    )
+
+    /**
+     * Resolves only changed layers. A missing or ambiguous image removes that
+     * layer but never blocks the next dialogue line.
+     */
     private fun resolveSprites(
         references: List<SystemNnnSpriteReference>,
+        existingSprites: List<SystemNnnSpriteBitmap>,
         resolver: SystemNnnSceneAssetResolver
-    ): List<SystemNnnSpriteBitmap> = references.map { reference ->
-        validateNativeBankIdentity(reference.nativeBankNamespace, reference.nativeBankSlot)
-        val bitmap = if (reference.nativeBankNamespace == null) {
-            loadBitmap(reference.resourceId, resolver)
-        } else {
-            loadBitmapFromNativeBank(
-                reference.nativeBankNamespace,
-                checkNotNull(reference.nativeBankSlot),
-                reference.resourceId,
-                resolver
+    ): SpriteResolution {
+        val existingByLayer = existingSprites.associateBy { it.layerIndex }
+        val resolved = ArrayList<SystemNnnSpriteBitmap>(references.size)
+        val warnings = ArrayList<String>()
+
+        references.forEach { reference ->
+            val layer = reference.layerIndex
+            if (layer !in 0 until MAX_IMAGE_LAYERS) {
+                warnings += "Invalid image layer $layer was ignored."
+                return@forEach
+            }
+            val existing = existingByLayer[layer]
+            if (
+                existing != null &&
+                existing.resourceId == reference.resourceId &&
+                existing.centerXFraction == reference.centerXFraction &&
+                existing.widthFraction == reference.widthFraction &&
+                existing.heightFraction == reference.heightFraction &&
+                existing.nativeBankNamespace == reference.nativeBankNamespace &&
+                existing.nativeBankSlot == reference.nativeBankSlot
+            ) {
+                resolved += existing
+                return@forEach
+            }
+
+            val bitmap = runCatching {
+                validateNativeBankIdentity(reference.nativeBankNamespace, reference.nativeBankSlot)
+                if (reference.nativeBankNamespace == null) {
+                    loadBitmap(reference.resourceId, resolver)
+                } else {
+                    loadBitmapFromNativeBank(
+                        reference.nativeBankNamespace,
+                        checkNotNull(reference.nativeBankSlot),
+                        reference.resourceId,
+                        resolver
+                    )
+                }
+            }.getOrElse { failure ->
+                warnings += "Layer $layer ('${reference.resourceId}'): " +
+                    (failure.message ?: failure.javaClass.simpleName)
+                null
+            }
+
+            if (bitmap == null) {
+                if (warnings.none { it.contains("Layer $layer") }) {
+                    warnings += "Layer $layer resource '${reference.resourceId}' was not found."
+                }
+                return@forEach
+            }
+            resolved += SystemNnnSpriteBitmap(
+                resourceId = reference.resourceId,
+                bitmap = bitmap,
+                centerXFraction = reference.centerXFraction,
+                widthFraction = reference.widthFraction,
+                heightFraction = reference.heightFraction,
+                contentDescription = reference.contentDescription,
+                layerIndex = layer,
+                nativeBankNamespace = reference.nativeBankNamespace,
+                nativeBankSlot = reference.nativeBankSlot
             )
-        } ?: throw IOException("Character sprite resource was not found.")
-        SystemNnnSpriteBitmap(
-            resourceId = reference.resourceId,
-            bitmap = bitmap,
-            centerXFraction = reference.centerXFraction,
-            widthFraction = reference.widthFraction,
-            heightFraction = reference.heightFraction,
-            contentDescription = reference.contentDescription
+        }
+
+        return SpriteResolution(
+            sprites = resolved.sortedBy { it.layerIndex },
+            statusMessage = warnings.take(MAX_IMAGE_WARNING_COUNT).takeIf { it.isNotEmpty() }
+                ?.joinToString(separator = "\n")
         )
     }
 
@@ -1160,6 +1324,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
     companion object {
         private const val MAX_SCENE_COMMANDS_PER_ADVANCE = 2_048
+        private const val MAX_IMAGE_LAYERS = 32
+        private const val MAX_IMAGE_WARNING_COUNT = 4
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
         // and one nested SPT executor. A direct scene starts in slot 1.
         private const val MAX_NESTED_MODULE_CALL_DEPTH = 2

@@ -345,8 +345,69 @@ class SystemNnnCommandDecoderImpl(
 
         return when (record.codeId) {
             CODE_SYSTEMFUNCTION_SETFILM -> decodeSetFilm(script, stream, record)
+            CODE_SYSTEMFUNCTION_LOADDWQ -> decodeLoadDwq(script, record)
+            CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER -> decodeClearEffectLayer(script, record)
+            CODE_SYSTEMFUNCTION_CLEARALLEFFECT ->
+                SystemNnnDecodedCommand.ClearAllImageLayers(record.endOffsetExclusive)
+            // PRELOADDWQ affects only the native image cache; display is
+            // deferred until a later LOADDWQ record selects a layer.
+            CODE_SYSTEMFUNCTION_PRELOADDWQ ->
+                SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
             else -> skipUnsupported(record, "unknown system function code")
         }
+    }
+
+    /**
+     * Family-reference execscript.cpp forwards LOADDWQ as (layer, Pool2 string).
+     * Its callback loads that named DWQ into the selected effect layer. The
+     * reference is cross-title context; all reads stay bounded by this record
+     * and the target script's already-validated Pool 2 catalog.
+     */
+    private fun decodeLoadDwq(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand {
+        if (record.payloadWordCount < LOADDWQ_PAYLOAD_WORD_COUNT) {
+            return skipUnsupported(record, "LOADDWQ is missing its layer or Pool 2 resource index")
+        }
+        val layerValue = readPayloadWord(script, record, LOADDWQ_LAYER_PAYLOAD).toLong()
+        if (layerValue !in 0L until MAX_IMAGE_LAYERS.toLong()) {
+            return skipUnsupported(record, "LOADDWQ layer is outside the supported layer range")
+        }
+        val resourceIndex = readPayloadWord(script, record, LOADDWQ_RESOURCE_INDEX_PAYLOAD).toLong()
+        if (resourceIndex > Int.MAX_VALUE.toLong()) {
+            return skipUnsupported(record, "LOADDWQ Pool 2 index is outside the supported range")
+        }
+        val resource = script.secondaryTextPool.getOrNull(resourceIndex.toInt())
+            ?.takeIf { entry ->
+                !entry.hasDecodingErrors &&
+                    entry.text.isNotBlank() &&
+                    entry.text.none { character -> character.isISOControl() }
+            }
+            ?: return skipUnsupported(record, "LOADDWQ references a missing or invalid Pool 2 resource")
+
+        return SystemNnnDecodedCommand.LoadImageLayer(
+            nextCommandOffset = record.endOffsetExclusive,
+            layerIndex = layerValue.toInt(),
+            resourceId = resource.text
+        )
+    }
+
+    private fun decodeClearEffectLayer(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand {
+        if (record.payloadWordCount < CLEAR_EFFECT_LAYER_PAYLOAD_WORD_COUNT) {
+            return skipUnsupported(record, "CLEAREFFECTLAYER is missing its layer operand")
+        }
+        val layerValue = readPayloadWord(script, record, CLEAR_EFFECT_LAYER_LAYER_PAYLOAD).toLong()
+        if (layerValue !in 0L until MAX_IMAGE_LAYERS.toLong()) {
+            return skipUnsupported(record, "CLEAREFFECTLAYER layer is outside the supported layer range")
+        }
+        return SystemNnnDecodedCommand.ClearImageLayer(
+            nextCommandOffset = record.endOffsetExclusive,
+            layerIndex = layerValue.toInt()
+        )
     }
 
     /**
@@ -874,6 +935,16 @@ class SystemNnnCommandDecoderImpl(
         const val USER_FUNCTION_ARGUMENT_COUNT_PAYLOAD = 0
         const val SYSTEM_FUNCTION_FAMILY = 0x3333
         const val CODE_SYSTEMFUNCTION_SETFILM = 0x001A
+        const val CODE_SYSTEMFUNCTION_CLEARALLEFFECT = 0x0012
+        const val CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER = 0x0014
+        const val CODE_SYSTEMFUNCTION_LOADDWQ = 0x0015
+        const val CODE_SYSTEMFUNCTION_PRELOADDWQ = 0x001F
+        const val LOADDWQ_PAYLOAD_WORD_COUNT = 2
+        const val LOADDWQ_LAYER_PAYLOAD = 0
+        const val LOADDWQ_RESOURCE_INDEX_PAYLOAD = 1
+        const val CLEAR_EFFECT_LAYER_PAYLOAD_WORD_COUNT = 1
+        const val CLEAR_EFFECT_LAYER_LAYER_PAYLOAD = 0
+        const val MAX_IMAGE_LAYERS = 32
         const val SETFILM_PAYLOAD_WORD_COUNT = 2
         const val SETFILM_ARGUMENT_COUNT_PAYLOAD = 0
         const val SETFILM_FILM_NUMBER_PAYLOAD = 1
