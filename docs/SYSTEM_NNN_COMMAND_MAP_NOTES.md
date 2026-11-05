@@ -499,3 +499,13 @@ These are exact references to module-name strings, not proven module transfers. 
 2. Compare `@scNN` sequence positions with the row and pointer values to establish (or reject) an ordering relation.
 3. Use the new scanner's per-record offsets and surrounding film intervals to separate actual dispatch candidates from ordinary labels.
 4. Do not add a VM module-call opcode until a target module/film and return behavior are proven across more than one transition.
+
+
+### Direct-value comparison — negative result
+
+A deliberately narrow comparison was also made between the fifth DWORD of each of the 69 descriptor-3 target records in 01.spt and every UInt32 value carried by the 69 scene.dat rows:
+- The 69 pointer-record values are distinct.
+- Only one numeric value is shared between the two complete value sets.
+- That shared value is not at the same row/slot index.
+
+Therefore, scene.dat is not a direct table of the pointer records' fifth-DWORD values. This does not rule out an indirect/index-based relationship, but it rules out using a naïve numeric equality as the scene-to-film mapping.
