@@ -75,9 +75,9 @@ class SystemNnnModuleReferenceScannerTest {
     private fun testScriptWithFilmTable(): SystemNnnScript {
         val records = listOf(
             listOf(6u, 0x66660001u, 0x55550002u, 0x1Au, 0x1Fu, 0x2Eu),
-            listOf(5u, 0x66660007u, 0x33330051u, 1u, 0u),
-            listOf(5u, 0x66660007u, 0x33330050u, 1u, 0u),
-            listOf(5u, 0x66660007u, 0x33330052u, 1u, 0u),
+            listOf(5u, 0x66660007u, 0x33330051u, 0u, 0u),
+            listOf(5u, 0x66660007u, 0x33330050u, 0u, 0u),
+            listOf(5u, 0x66660007u, 0x33330052u, 0u, 0u),
             listOf(5u, 0x66660006u, 0x22220004u, 1u, 0u),
             listOf(5u, 0x66660007u, 0x33330050u, 1u, 0u),
             listOf(5u, 0x66660007u, 0x33330052u, 1u, 0u),
