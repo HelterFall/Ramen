@@ -161,6 +161,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                 SystemNnnPlayerModuleProgram(
                     name = module.name,
                     script = script,
+                    commandStream = stream,
                     initialCommandOffset = startOffset
                 )
             }
