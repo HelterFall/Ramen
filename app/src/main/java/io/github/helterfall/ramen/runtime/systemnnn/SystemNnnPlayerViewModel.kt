@@ -14,6 +14,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.util.IdentityHashMap
+import java.util.Locale
 import java.util.concurrent.Executors
 
 data class SystemNnnSpriteBitmap(
@@ -84,6 +85,18 @@ fun interface SystemNnnCommandDecoder {
     ): SystemNnnDecodedCommand
 }
 
+data class SystemNnnPlayerModuleProgram(
+    val name: String,
+    val script: SystemNnnScript,
+    val initialCommandOffset: Long
+)
+
+enum class SystemNnnModuleTransferKind {
+    SCRIPT,
+    SUBSCRIPT,
+    SCRIPTJUMP
+}
+
 sealed interface SystemNnnDecodedCommand {
     data class Dialogue(
         val nextCommandOffset: Long,
@@ -115,6 +128,16 @@ sealed interface SystemNnnDecodedCommand {
         val nextCommandOffset: Long,
         val filmNumber: Int
     ) : SystemNnnDecodedCommand
+
+    data class ModuleTransfer(
+        val nextCommandOffset: Long,
+        val targetModuleName: String,
+        val kind: SystemNnnModuleTransferKind
+    ) : SystemNnnDecodedCommand
+
+    data object ModuleReturn : SystemNnnDecodedCommand
+
+    data object ControllerReset : SystemNnnDecodedCommand
 
     data class Choice(
         val promptTextEntryOffset: Long?,
@@ -151,6 +174,21 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private val bitmapOwners = IdentityHashMap<Bitmap, SystemNnnSceneAssetResolver>()
     private var nextCommandOffset: Long = 0L
     private var frameCounter: Long = 0L
+    private var currentModuleName: String? = null
+    private var currentFilmNumber: Int? = null
+    private var projectModules: Map<String, SystemNnnPlayerModuleProgram> = emptyMap()
+    private var moduleDecoderFactory: ((SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder)? = null
+    private var controllerProgram: SystemNnnPlayerModuleProgram? = null
+    private val moduleCallStack = ArrayList<ModuleCallFrame>()
+
+    private data class ModuleCallFrame(
+        val moduleName: String,
+        val script: SystemNnnScript,
+        val commandStream: SystemNnnCommandStream,
+        val decoder: SystemNnnCommandDecoder,
+        val nextCommandOffset: Long,
+        val currentFilmNumber: Int?
+    )
     private var audioRepository: SystemNnnVpkAudioRepository? = null
     private var audioPlayer: SystemNnnAudioPlayer? = null
     private var audioRequestId: Long = 0L
@@ -178,9 +216,40 @@ class SystemNnnPlayerViewModel : ViewModel() {
         initialCommandOffset: Long = script.commandStartOffset,
         audioRepository: SystemNnnVpkAudioRepository? = null,
         initialAudioTrack: File? = null,
-        initialAudioResourceName: String? = null
+        initialAudioResourceName: String? = null,
+        moduleName: String? = null,
+        modulePrograms: Collection<SystemNnnPlayerModuleProgram> = emptyList(),
+        decoderFactory: ((SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder)? = null
     ) {
         releaseAssets()
+
+        moduleCallStack.clear()
+        currentModuleName = moduleName
+        currentFilmNumber = null
+        if (moduleName == null) {
+            projectModules = emptyMap()
+            moduleDecoderFactory = null
+            controllerProgram = null
+        } else {
+            val mappedPrograms = modulePrograms.associateBy {
+                it.name.lowercase(Locale.ROOT)
+            }
+            if (mappedPrograms.size != modulePrograms.size) {
+                uiState = SystemNnnPlayerUiState(errorMessage = "В проекте повторяются имена модулей.")
+                runCatching { assetResolver.close() }
+                runCatching { audioRepository?.close() }
+                return
+            }
+            projectModules = mappedPrograms
+            moduleDecoderFactory = decoderFactory
+            controllerProgram = mappedPrograms[moduleName.lowercase(Locale.ROOT)]
+            if (controllerProgram == null || decoderFactory == null) {
+                uiState = SystemNnnPlayerUiState(errorMessage = "Не удалось подготовить управляющий модуль проекта.")
+                runCatching { assetResolver.close() }
+                runCatching { audioRepository?.close() }
+                return
+            }
+        }
         val parsedCommandStream = try {
             SystemNnnCommandStreamReader().read(script)
         } catch (error: Exception) {
@@ -219,6 +288,33 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
 
         advanceToVisibleEvent()
+    }
+
+    fun startProject(
+        modules: Collection<SystemNnnPlayerModuleProgram>,
+        controlModuleName: String,
+        assetResolver: SystemNnnSceneAssetResolver,
+        decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder,
+        audioRepository: SystemNnnVpkAudioRepository? = null
+    ) {
+        val moduleMap = modules.associateBy { it.name.lowercase(Locale.ROOT) }
+        val control = moduleMap[controlModuleName.lowercase(Locale.ROOT)]
+        if (control == null) {
+            runCatching { assetResolver.close() }
+            runCatching { audioRepository?.close() }
+            showStartupError("В project.xtx отсутствует управляющий модуль '$controlModuleName'.")
+            return
+        }
+        start(
+            script = control.script,
+            commandDecoder = decoderFactory(control),
+            assetResolver = assetResolver,
+            initialCommandOffset = control.initialCommandOffset,
+            audioRepository = audioRepository,
+            moduleName = control.name,
+            modulePrograms = modules,
+            decoderFactory = decoderFactory
+        )
     }
 
     /** Alias used by the player screen to advance to the next frame. */
@@ -375,11 +471,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     private fun advanceToVisibleEvent() {
-        val currentScript = script
-        val currentDecoder = decoder
         val resolver = assets
 
-        if (currentScript == null || currentDecoder == null || resolver == null) {
+        if (script == null || decoder == null || resolver == null) {
             uiState = uiState.copy(
                 isLoading = false,
                 errorMessage = "Игровая сессия не инициализирована."
@@ -395,10 +489,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
             var pendingBackgroundResourceId: String? = null
             var pendingBackgroundResourceIndex: Long? = null
             var pendingSpriteReferences: List<SystemNnnSpriteReference>? = null
-            var currentFilmNumber = uiState.currentFilmNumber
             var commandsWithoutVisibleOutput = 0
 
             while (commandsWithoutVisibleOutput < MAX_SCENE_COMMANDS_PER_ADVANCE) {
+                val currentScript = script ?: throw IOException("Текущий модуль не загружен.")
+                val currentDecoder = decoder ?: throw IOException("Декодер текущего модуля не загружен.")
                 val commandOffset = nextCommandOffset
                 if (!isValidCommandCursor(currentScript, commandOffset)) {
                     throw IOException("Command cursor is not on a validated SPT record boundary.")
@@ -443,6 +538,26 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         }
                         nextCommandOffset = command.nextCommandOffset
                         currentFilmNumber = command.filmNumber
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.ModuleTransfer -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        switchModule(
+                            targetModuleName = command.targetModuleName,
+                            kind = command.kind,
+                            callerContinuation = command.nextCommandOffset
+                        )
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    SystemNnnDecodedCommand.ModuleReturn -> {
+                        returnToCaller()
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    SystemNnnDecodedCommand.ControllerReset -> {
+                        resetControllerOrEnd()
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -566,6 +681,85 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
     }
 
+
+    private fun switchModule(
+        targetModuleName: String,
+        kind: SystemNnnModuleTransferKind,
+        callerContinuation: Long
+    ) {
+        val currentScript = script ?: throw IOException("Нет активного SPT для межмодульного перехода.")
+        val currentStream = commandStream ?: throw IOException("Нет командного потока активного SPT.")
+        val currentDecoder = decoder ?: throw IOException("Нет декодера активного SPT.")
+        val currentName = currentModuleName ?: throw IOException("Межмодульный переход недоступен вне project.xtx.")
+        val factory = moduleDecoderFactory
+            ?: throw IOException("Для этого одиночного SPT не загружен каталог модулей.")
+
+        val target = projectModules[targetModuleName.lowercase(Locale.ROOT)]
+            ?: throw IOException("Модуль '$targetModuleName' отсутствует в project.xtx.")
+
+        if (kind != SystemNnnModuleTransferKind.SCRIPTJUMP) {
+            if (moduleCallStack.size >= MAX_NESTED_MODULE_DEPTH) {
+                throw IOException("Превышена максимальная глубина вложенных SPT-модулей.")
+            }
+            moduleCallStack += ModuleCallFrame(
+                moduleName = currentName,
+                script = currentScript,
+                commandStream = currentStream,
+                decoder = currentDecoder,
+                nextCommandOffset = callerContinuation,
+                currentFilmNumber = currentFilmNumber
+            )
+        }
+
+        val targetStream = SystemNnnCommandStreamReader().read(target.script)
+        if (target.initialCommandOffset != targetStream.recordEndOffsetExclusive &&
+            targetStream.records.binarySearchBy(target.initialCommandOffset) { it.offset } < 0
+        ) {
+            throw IOException("Точка входа модуля '${target.name}' не является границей команды.")
+        }
+
+        script = target.script
+        commandStream = targetStream
+        decoder = factory(target)
+        nextCommandOffset = target.initialCommandOffset
+        currentModuleName = target.name
+        currentFilmNumber = null
+    }
+
+    private fun returnToCaller() {
+        val caller = moduleCallStack.removeLastOrNull()
+            ?: throw IOException("NEXT встретился без активного родительского SPT-модуля.")
+        script = caller.script
+        commandStream = caller.commandStream
+        decoder = caller.decoder
+        nextCommandOffset = caller.nextCommandOffset
+        currentModuleName = caller.moduleName
+        currentFilmNumber = caller.currentFilmNumber
+    }
+
+    private fun resetControllerOrEnd() {
+        val controller = controllerProgram
+        val factory = moduleDecoderFactory
+        if (controller == null || factory == null) {
+            audioPlayer?.stop()
+            uiState = SystemNnnPlayerUiState(
+                frameId = frameCounter + 1L,
+                isEnded = true,
+                currentFilmNumber = currentFilmNumber
+            )
+            return
+        }
+
+        moduleCallStack.clear()
+        val stream = SystemNnnCommandStreamReader().read(controller.script)
+        script = controller.script
+        commandStream = stream
+        decoder = factory(controller)
+        nextCommandOffset = controller.initialCommandOffset
+        currentModuleName = controller.name
+        currentFilmNumber = null
+    }
+
     /**
      * Releases resources decoded for a frame that was never published. The
      * current UI state remains the owner of its displayed background/sprites.
@@ -626,6 +820,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
     private fun releaseAssets() {
         commandStream = null
+        moduleCallStack.clear()
         audioRequestId += 1L
         val player = audioPlayer
         audioPlayer = null
@@ -648,5 +843,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
     companion object {
         private const val MAX_SCENE_COMMANDS_PER_ADVANCE = 2_048
+        private const val MAX_NESTED_MODULE_DEPTH = 3
     }
 }
