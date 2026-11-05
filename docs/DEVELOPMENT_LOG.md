@@ -743,3 +743,12 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Extended SystemNnnModuleReferenceScanner so each exact module-name candidate is annotated with the nearest preceding physical film-table target. The candidate keeps both sourceFilmTableIndex and sourceFilmNumber; destination film/call semantics remain unknown.
 - Added a synthetic scanner test covering a reserved prefix, two ordinary film intervals, and a candidate reference in each interval.
 - CI run #379 failed in a negative-control fixture because one synthetic record declared a 4-DWORD length while containing 5 DWORDs. The trailing DWORD was consequently read as a new record header. The fixture is corrected to a valid 5-DWORD record whose first payload DWORD is not the candidate tag. The corrected branch head is under CI; no pass is claimed until that run completes.
+
+
+## 2026-11-05 — archive replay of source-film ownership
+
+- Independently replayed the exact module-name candidate predicate over all 20 SPT modules in hui(4).zip and attached each candidate to the nearest preceding validated descriptor-3 film target.
+- Result: 511/511 candidates assigned to ordinary film intervals; 173 distinct source-film intervals across 7 source modules (01:2, 03:19, akane:49, aoi:173, kiika:213, yamiko:17, yuka:38).
+- This confirms the candidate list can be organized by source film. It does not prove any candidate executes a module transfer or determine a target film.
+- Rechecked the 15 same-index 0x3333/0x001A and 0x3333/0x001B module-name references: each matching pair remains in different source-film intervals (13 earlier / 2 later), so they are not local call/return pairs.
+- No runtime dispatch semantics or module auto-start were enabled. Next: export a grouped diagnostic by source module/film/code/target and inspect surrounding control-flow records.
