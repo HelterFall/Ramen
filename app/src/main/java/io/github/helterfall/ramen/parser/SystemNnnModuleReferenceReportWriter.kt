@@ -53,10 +53,17 @@ class SystemNnnModuleReferenceReportWriter(
         val totalLocalSubroutines = reports.sumOf {
             it.localSubroutineScan?.candidates?.size?.toLong() ?: 0L
         }
+        val totalResourceFunctions = reports.sumOf { it.resourceFunctionCandidates.size.toLong() }
+        val resourceFunctionCountDifferences = reports.sumOf { report ->
+            report.resourceFunctionCandidates.count {
+                it.countWordEqualsRemainingPayloadWordCount == false
+            }.toLong()
+        }
         val writer = BufferedWriter(OutputStreamWriter(output, Charsets.UTF_8))
-        writer.appendLine("SYSTEM-NNN SCRIPT TRANSFERS, LOCAL SUBROUTINES AND STRING REFERENCES")
+        writer.appendLine("SYSTEM-NNN SCRIPT TRANSFERS, RESOURCE FUNCTIONS, LOCAL SUBROUTINES AND STRING REFERENCES")
         writer.appendLine(
-            "Projects: ${reports.size} · script transfers: $totalTransfers · local SUB calls: $totalLocalSubroutines · " +
+            "Projects: ${reports.size} · script transfers: $totalTransfers · resource/audio functions: $totalResourceFunctions · " +
+                "count/payload differences: $resourceFunctionCountDifferences · local SUB calls: $totalLocalSubroutines · " +
                 "unclassified references: ${reports.sumOf { it.candidates.size }} · unresolved transfer targets: $unresolvedTransfers"
         )
         writer.appendLine(

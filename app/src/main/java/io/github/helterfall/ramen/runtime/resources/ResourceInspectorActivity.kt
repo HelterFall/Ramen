@@ -443,6 +443,12 @@ class ResourceInspectorActivity : ComponentActivity() {
                 val candidateCount = reports.sumOf { it.candidates.size }
                 val transferCount = reports.sumOf { it.scriptTransfers.size }
                 val localSubroutineCount = reports.sumOf { it.localSubroutineScan?.candidates?.size ?: 0 }
+                val resourceFunctionCount = reports.sumOf { it.resourceFunctionCandidates.size }
+                val resourceFunctionCountDifferences = reports.sumOf { report ->
+                    report.resourceFunctionCandidates.count {
+                        it.countWordEqualsRemainingPayloadWordCount == false
+                    }
+                }
                 val warningCount = reports.sumOf { it.warnings.size }
                 val output = contentResolver.openOutputStream(uri)
                     ?: throw IOException("Не удалось открыть выбранный документ для записи.")
@@ -453,7 +459,9 @@ class ResourceInspectorActivity : ComponentActivity() {
                 runOnUiThread {
                     textState.value = textState.value.copy(
                         isExportingModuleReferences = false,
-                        exportMessage = "Отчёт сохранён: переходов $transferCount · локальных SUB $localSubroutineCount · обычных ссылок $candidateCount · предупреждений $warningCount."
+                        exportMessage = "Отчёт сохранён: переходов $transferCount · resource/audio функций $resourceFunctionCount " +
+                            "(различий count/payload $resourceFunctionCountDifferences) · локальных SUB $localSubroutineCount · " +
+                            "обычных ссылок $candidateCount · предупреждений $warningCount."
                     )
                 }
             } catch (error: Exception) {
