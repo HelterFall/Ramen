@@ -116,7 +116,7 @@ class SystemNnnModuleReferenceReportWriter(
                     .forEach { subroutine ->
                         val targetFilm = subroutine.targetFilmNumber?.let { "film=$it" } ?: "reserved"
                         writer.appendLine(
-                            "  SUB id=${subroutine.subroutineId} @${formatOffset(subroutine.commandOffset)} " +
+                            "  MODULE=${subroutine.sourceModuleName} SUB id=${subroutine.subroutineId} @${formatOffset(subroutine.commandOffset)} " +
                                 "-> descriptor3[${subroutine.targetTableIndex}] " +
                                 "@${formatOffset(subroutine.targetCommandOffset)} " +
                                 "function=0x3333/${subroutine.targetFunctionCodeId.toString(16).uppercase(Locale.ROOT)} " +
