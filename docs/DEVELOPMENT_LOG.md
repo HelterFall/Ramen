@@ -827,3 +827,5 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - SystemNnnAssetManager now owns the loose VAW/WGQ repository and surfaces validated loose-resource metadata. Lookup is by unique path/name only; loose resources are deliberately not assigned fake VTB row numbers.
 - The indexed gg.vtb/gg.vpk 90-row voice catalog and its materializeByIndex behavior remain unchanged. Existing indexed image loading remains demand-decoded from GTB/GPK.
 - Added synthetic tests for WAVE, differential PCM, and PACKTYPE=6 WGQ materialization, including temp-file cleanup. Tests, lint, CI and APK builds were not run by request. Commercial binaries, extracted scenario text and game media remain outside Git.
+
+- Added explicit native image-bank lookup by namespace and numbered slot. Duplicate matches remain ambiguous and require the path-derived bank ID; this API does not infer an SPT-to-namespace mapping.
