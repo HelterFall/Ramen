@@ -918,3 +918,41 @@ CI #298 ранее также прошёл успешно, но CI #301 пров
 5. Не реализовывать интерпретацию и не включать исполнение в player, пока смысл операндов/переходов не будет подтверждён на нескольких сценариях.
 
 В этой сессии код интерпретатора не менялся; это следующий read-only этап анализа командной области.
+
+
+## 2026-11-05 — next bridge: scene catalog and candidate module references
+
+### New evidence from hui(4).zip
+
+- scene.dat is a bounded version-1 container with 69 variable-length rows and exact EOF at byte 1164.
+- nya/scenevoice.xtx lists 69 sequential IDs (@sc01–@sc69).
+- 01.spt descriptor 3 also has 69 entries; descriptor 4 marks a 2-entry reserved prefix, leaving 67 ordinary film slots.
+- The three 69-counts are useful evidence for a shared scene/catalog layer, but they do not yet prove that row N, voice ID N, and pointer slot N refer to the same scene.
+
+### Code added to PR #28
+
+- SystemNnnSceneCatalogReader parses scene.dat with bounded file/record/value limits, version and declared-size checks, and strict EOF validation. Opaque row values are preserved as UInt32; no enum labels or meaning are invented.
+- The same reader extracts only ASCII @scNN identifiers from scenevoice.xtx, including CRLF line endings.
+- compareWithFilmTable() reports the count relationship between the sidecars and an SPT descriptor-3 pointer vector. It explicitly reports sameIndexMappingProven = false.
+- SystemNnnModuleReferenceScanner emits per-record candidates for exact [1, Pool2Index] references to project.xtx module-name strings. Results include the record offset and code identifier for further contextual comparison. They are not executable transitions.
+
+### Interpreter and scene-link status
+
+The existing decoder already handles a limited subset (PRINT/LPRINT/APPEND, SELECT/CASE, bounded CALCU, and selected control records). The unresolved part is not the SPT record envelope: it is the meaning and runtime behavior of the remaining command/function records, especially how a script names a target module/film and how control returns.
+
+The archive replay still finds 511 module-name string references across the 20 modules, but multiple unrelated record families use the same payload shape for non-module labels. The scanner makes those records inspectable; it does not promote them to an executable module call.
+
+### Next implementation order
+
+1. Use the new diagnostics to test scene.dat row N ↔ descriptor-3 slot N ↔ @scNN N against the actual per-slot record payloads. Record exact matches and counterexamples.
+2. Partition module-name candidates by source film interval, preceding/following records, and the candidate target string class. Compare them to control records and the existing CASE/brace handling.
+3. Find a second independently corroborated transition with a resolvable target film and return behavior before implementing a call stack.
+4. Only then add explicit runtime state such as currentModule, currentFilm, and a bounded return stack, plus synthetic fixtures derived from the proven record envelope.
+5. Keep multi-module auto-start disabled until the startup dispatch from sys/system UI or a directly proven main film is established.
+
+### What this code does not claim
+
+- It does not identify an actual scene ordering.
+- It does not prove that scenevoice.xtx is a one-to-one voice routing table for the 69 records.
+- It does not implement module calls, returns, or startup dispatch.
+- It does not make the novel playable end-to-end or change asset-bank selection.
