@@ -63,6 +63,7 @@ data class SystemNnnSceneRoute(
     val isHScene: Boolean,
     val filmChoiceIndex: Int,
     val filmIndex: Int,
+    val filmIndices: List<Int>,
     val completionCheckEnabled: Boolean
 )
 
@@ -286,6 +287,7 @@ class SystemNnnSceneCatalogReader(
             isHScene = scene.isHScene,
             filmChoiceIndex = filmChoiceIndex,
             filmIndex = kotlin.math.abs(storedFilmNumber) - 1,
+            filmIndices = scene.filmIndices,
             completionCheckEnabled = storedFilmNumber > 0
         )
     }
