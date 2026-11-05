@@ -572,3 +572,12 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - Добавлен синтетический тест с reserved-prefix элементом и двумя обычными film intervals.
 - Первый CI #379 выявил ошибку в отрицательном тестовом fixture: запись объявляла 4 DWORD, хотя содержала 5. Fixture исправлен на валидные 5 DWORD с некандидатным reference tag. Исправленный head ожидает завершения CI; зелёный результат пока не заявлять.
 - Следующий шаг: сгруппировать кандидатов по (source module, source film, record family/code, target module) и исследовать соседние branch/control records. VM-вызовы, call stack и module auto-start не включать до подтверждения destination film и return convention.
+
+
+### Результат независимой группировки кандидатов по исходным film-интервалам
+
+- Повторный анализ 20 SPT из hui(4).zip подтвердил, что все 511 точных ссылок на имена модулей имеют preceding ordinary film-table owner.
+- 511 кандидатов распределены по 173 различным исходным film-интервалам в 7 модулях: 01 (2), 03 (19), akane (49), aoi (173), kiika (213), yamiko (17), yuka (38).
+- Это подтверждает структурную привязку ссылок к исходным film-интервалам, но не модульный переход/вызов и не целевой film.
+- 15 ссылок 0x3333/0x001A и соответствующие same-index 0x3333/0x001B остаются в разных исходных film-интервалах (13 раньше / 2 позже), не являются локальной парой call/return.
+- Следующий шаг: создать детерминированный диагностический отчёт module → source film → record family/code → target Pool 2 string и сравнить соседние control-flow records. Автоматический module dispatch и call stack остаются выключенными.
