@@ -686,3 +686,6 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - `SystemNnnAssetManager` owns this loose-resource repository, exposes validated loose resource metadata, and deletes staged temporary files on close. Name lookup must resolve to one resource; a relative path is available when basenames collide.
 - Indexed audio remains unchanged: the 90 VTB rows are the only numeric dialogue-voice namespace. Loose VAW/WGQ resources are name/path-addressed and are not appended to that index.
 - Added synthetic coverage for PACKTYPE 0, 1 and 6 plus WGQ manager integration. CI, tests, lint and APK builds were not run. No game data, dialogue text or media was committed.
+
+
+- Added explicit `loadBitmapFromNativeBank(namespace, slot, name)` and `loadBitmapByNativeBankIndex(namespace, slot, row)` APIs. They resolve only a unique metadata-matched bank and fail closed on duplicate namespace/slot pairs; no SPT operand is assumed to choose the namespace.
