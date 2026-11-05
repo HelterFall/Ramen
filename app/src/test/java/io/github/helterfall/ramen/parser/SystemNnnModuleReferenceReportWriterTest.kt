@@ -181,6 +181,39 @@ class SystemNnnModuleReferenceReportWriterTest {
     }
 
     @Test
+    fun includesResourceFunctionsInTheConfiguredCandidateLimit() {
+        val candidate = SystemNnnResourceFunctionCandidate(
+            sourceModuleName = "03",
+            kind = SystemNnnResourceFunctionKind.VOICE,
+            commandOffset = 0xA0L,
+            recordLengthWords = 4u,
+            leadingCountWord = 0u,
+            remainingPayloadWordCount = 0,
+            countWordEqualsRemainingPayloadWordCount = true,
+            payloadPreview = emptyList(),
+            sourceFilmTableIndex = null,
+            sourceFilmNumber = null,
+            sourceFilmStartOffset = null,
+            sourceFilmEndOffsetExclusive = null,
+            previousRecord = null,
+            nextRecord = null
+        )
+        val writer = SystemNnnModuleReferenceReportWriter(maxCandidates = 1)
+        val reports = listOf(
+            SystemNnnModuleReferenceProjectReport(
+                projectPath = "project.xtx",
+                moduleCount = 1,
+                candidates = emptyList(),
+                resourceFunctionCandidates = listOf(candidate, candidate)
+            )
+        )
+
+        org.junit.Assert.assertThrows(IOException::class.java) {
+            writer.write(reports, ByteArrayOutputStream())
+        }
+    }
+
+    @Test
     fun rejectsReportsAboveTheConfiguredCandidateLimit() {
         val writer = SystemNnnModuleReferenceReportWriter(maxCandidates = 1)
         val candidate = candidate(

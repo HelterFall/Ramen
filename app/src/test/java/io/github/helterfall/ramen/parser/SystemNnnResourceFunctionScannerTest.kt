@@ -73,6 +73,24 @@ class SystemNnnResourceFunctionScannerTest {
     }
 
     @Test
+    fun capsPayloadAndNeighborContextPreviewsAtConfiguredLimits() {
+        val payload = (0u..11u).toList()
+        val script = scriptOf(
+            records = listOf(
+                listOf(15u, 0x66660007u, 0x33330007u) + payload,
+                listOf(9u, 0x66660001u, 0x55550001u, 1u, 2u, 3u)
+            )
+        )
+        val stream = SystemNnnCommandStreamReader().read(script)
+        val result = SystemNnnResourceFunctionScanner(maxPreviewWords = 2).scan("03", script, stream)
+        val candidate = result.candidates.single()
+
+        assertEquals(listOf(0u, 1u), candidate.payloadPreview)
+        assertEquals(12, candidate.remainingPayloadWordCount)
+        assertEquals(4, candidate.nextRecord?.payloadPreview?.size)
+    }
+
+    @Test
     fun rejectsBlankModuleName() {
         val script = scriptOf(records = emptyList())
         val stream = SystemNnnCommandStreamReader().read(script)
