@@ -956,3 +956,15 @@ The archive replay still finds 511 module-name string references across the 20 m
 - It does not prove that scenevoice.xtx is a one-to-one voice routing table for the 69 records.
 - It does not implement module calls, returns, or startup dispatch.
 - It does not make the novel playable end-to-end or change asset-bank selection.
+
+
+### Additional diagnostic: candidate references now carry source-film ownership
+
+The validated descriptor-3 pointer vector is now available as typed `SystemNnnFilmTableEntry` entries. The module-reference scanner annotates each exact Pool 2 module-name candidate with the nearest preceding physical film-table target:
+- original descriptor-3 table index;
+- ordinary 0-based film number, or null for reserved-prefix entries;
+- original command-record offset and module-name target remain unchanged.
+
+This gives a concrete grouping key for reviewing the 511 candidates by source module and source film. It does **not** prove that any candidate performs a call/jump, or what film should be selected in the destination module.
+
+Before adding a runtime module stack, the next pass should group candidates by source-film interval and inspect their neighboring records/branch structure. A destination film selector and return rule must be demonstrated separately.
