@@ -640,14 +640,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     is SystemNnnDecodedCommand.EndFilm -> {
-                        if (sceneReplayModuleName == null) {
+                        val sceneReplayOwnsCurrentFilm =
+                            sceneReplayModuleName != null &&
+                                moduleCallStack.isEmpty() &&
+                                currentModuleName.equals(sceneReplayModuleName, ignoreCase = true)
+
+                        if (sceneReplayOwnsCurrentFilm) {
+                            advanceSceneReplayFilm()
+                        } else {
                             validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                             nextCommandOffset = command.nextCommandOffset
-                            commandsWithoutVisibleOutput += 1
-                        } else {
-                            advanceSceneReplayFilm()
-                            commandsWithoutVisibleOutput += 1
                         }
+                        commandsWithoutVisibleOutput += 1
                     }
 
                     SystemNnnDecodedCommand.ModuleReturn -> {
