@@ -15,8 +15,8 @@ class SystemNnnAssetManagerTest {
     fun discoversMultipleImageBanksWithoutInventingAGlobalIndex() {
         val root = Files.createTempDirectory("ramen-systemnnn-asset-manager").toFile()
         try {
-            createImageBank(File(root, "a/scene"))
-            createImageBank(File(root, "b/scene"))
+            createImageBank(File(root, "a/sc0"))
+            createImageBank(File(root, "b/sc0"))
 
             SystemNnnAssetManager.forGameDirectory(
                 gameDirectory = root,
@@ -24,7 +24,7 @@ class SystemNnnAssetManagerTest {
             ).use { manager ->
                 assertEquals(2, manager.catalog.imageBanks.size)
                 assertEquals(
-                    listOf("a/scene.gtb", "b/scene.gtb"),
+                    listOf("a/sc0.gtb", "b/sc0.gtb"),
                     manager.catalog.imageBanks.map { it.id }
                 )
                 assertEquals(2, manager.catalog.totalIndexedImageResources)
@@ -41,7 +41,7 @@ class SystemNnnAssetManagerTest {
                     manager.loadBitmapByIndex(0L)
                 }
                 assertThrows(IOException::class.java) {
-                    manager.loadBitmapByBankIndex("missing/scene.gtb", 0L)
+                    manager.loadBitmapByBankIndex("missing/sc0.gtb", 0L)
                 }
             }
         } finally {
