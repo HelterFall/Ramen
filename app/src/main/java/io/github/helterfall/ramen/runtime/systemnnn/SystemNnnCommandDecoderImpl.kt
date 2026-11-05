@@ -270,6 +270,7 @@ class SystemNnnCommandDecoderImpl(
      */
     private fun decodeModuleTransfer(
         script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
         record: SystemNnnCommandRecord,
         kind: SystemNnnModuleTransferKind
     ): SystemNnnDecodedCommand.ModuleTransfer {
@@ -285,10 +286,17 @@ class SystemNnnCommandDecoderImpl(
         if (target.hasDecodingErrors || !MODULE_NAME_PATTERN.matches(target.text)) {
             throw IOException("A System-NNN $kind target is not a valid module name.")
         }
+        val returnSelectorCandidate = if (kind == SystemNnnModuleTransferKind.SCRIPTJUMP) {
+            null
+        } else {
+            val nextRecordIndex = stream.records.binarySearchBy(record.endOffsetExclusive) { it.offset }
+            stream.records.getOrNull(nextRecordIndex)?.lengthWords
+        }
         return SystemNnnDecodedCommand.ModuleTransfer(
             nextCommandOffset = record.endOffsetExclusive,
             targetModuleName = target.text,
-            kind = kind
+            kind = kind,
+            returnSelectorCandidate = returnSelectorCandidate
         )
     }
 
@@ -404,15 +412,15 @@ class SystemNnnCommandDecoderImpl(
             CODE_CONTROL_RETURN -> returnFromLocalSubroutine(stream, record)
 
             CODE_CONTROL_SCRIPT -> decodeModuleTransfer(
-                script, record, SystemNnnModuleTransferKind.SCRIPT
+                script, stream, record, SystemNnnModuleTransferKind.SCRIPT
             )
 
             CODE_CONTROL_SUBSCRIPT -> decodeModuleTransfer(
-                script, record, SystemNnnModuleTransferKind.SUBSCRIPT
+                script, stream, record, SystemNnnModuleTransferKind.SUBSCRIPT
             )
 
             CODE_CONTROL_SCRIPTJUMP -> decodeModuleTransfer(
-                script, record, SystemNnnModuleTransferKind.SCRIPTJUMP
+                script, stream, record, SystemNnnModuleTransferKind.SCRIPTJUMP
             )
 
             CODE_CONTROL_NEXT -> {
