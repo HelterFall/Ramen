@@ -48,6 +48,30 @@ class SystemNnnAssetManagerTest {
     }
 
     @Test
+    fun fallsBackToSameStemWgqWhenPreferredGpkIsInvalid() {
+        val root = Files.createTempDirectory("ramen-systemnnn-image-fallback").toFile()
+        try {
+            val base = File(root, "dwq/scene")
+            createImageBank(base)
+            val gpk = File(root, "dwq/scene.gpk")
+            val validArchive = gpk.readBytes()
+            gpk.writeBytes(byteArrayOf(1, 2, 3))
+            File(root, "dwq/scene.wgq").writeBytes(validArchive)
+
+            SystemNnnAssetManager.forGameDirectory(
+                gameDirectory = root,
+                cacheDirectory = File(root, "cache")
+            ).use { manager ->
+                assertEquals(1, manager.catalog.imageBanks.size)
+                assertEquals("dwq/scene.wgq", manager.catalog.imageBanks.single().archivePath)
+                assertEquals(1, manager.catalog.totalIndexedImageResources)
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun discoversIndexedVpkVoiceBankAndKeepsItsRowsBankLocal() {
         val root = Files.createTempDirectory("ramen-systemnnn-audio-bank").toFile()
         try {
@@ -65,6 +89,28 @@ class SystemNnnAssetManagerTest {
                 assertEquals(1, manager.catalog.totalIndexedAudioResources)
                 assertEquals("track001", manager.entries.single().name)
                 assertEquals("track001", manager.findResource("TRACK001")?.name)
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun fallsBackToVpkWhenPreferredSameStemVawIsInvalid() {
+        val root = Files.createTempDirectory("ramen-systemnnn-audio-fallback").toFile()
+        try {
+            val directory = File(root, "cdvaw").apply { mkdirs() }
+            File(directory, "gg.vaw").writeBytes(byteArrayOf(1, 2, 3))
+            File(directory, "gg.vpk").writeBytes(createVpkAudioBlock())
+            File(directory, "gg.vtb").writeBytes(createVtbIndex("track001", 0))
+
+            SystemNnnAssetManager.forGameDirectory(
+                gameDirectory = root,
+                cacheDirectory = File(root, "cache")
+            ).use { manager ->
+                assertEquals("cdvaw/gg.vpk", manager.catalog.audioBanks.single().archivePath)
+                assertEquals(listOf("cdvaw/gg.vaw"), manager.catalog.unindexedVawFiles)
+                assertEquals("track001", manager.entries.single().name)
             }
         } finally {
             root.deleteRecursively()
