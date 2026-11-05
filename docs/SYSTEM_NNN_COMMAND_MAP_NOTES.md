@@ -509,3 +509,16 @@ A deliberately narrow comparison was also made between the fifth DWORD of each o
 - That shared value is not at the same row/slot index.
 
 Therefore, scene.dat is not a direct table of the pointer records' fifth-DWORD values. This does not rule out an indirect/index-based relationship, but it rules out using a naïve numeric equality as the scene-to-film mapping.
+
+
+### Per-record source-film annotation for candidate module references
+
+The Kotlin diagnostics now expose all validated descriptor-3 entries as `SystemNnnFilmTableEntry` records, preserving the original pointer-table index, the ordinary zero-based film number (null for reserved-prefix entries), and the resolved command offset.
+
+`SystemNnnModuleReferenceScanner` sorts these validated target offsets by physical location and annotates each candidate reference with the nearest preceding table entry:
+- `sourceFilmTableIndex` preserves which descriptor-3 slot owns the physical interval;
+- `sourceFilmNumber` gives the ordinary film number after the reserved prefix, or null if the candidate is in a reserved prefix interval.
+
+This is a structural ownership annotation only. It does not make a module-name string reference an executable transfer, and it does not identify the target film in the destination module. Synthetic tests cover a reserved entry plus two ordinary film intervals and confirm that candidate records are assigned to their enclosing source intervals.
+
+The next useful diagnostic is to group the 511 candidate references by (source module, source film number, record family/code, target module) and compare same-film control-flow context. No VM call/return behavior should be enabled until the destination film and return convention are independently proven.
