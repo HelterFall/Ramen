@@ -640,10 +640,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     is SystemNnnDecodedCommand.EndFilm -> {
+                        val replayOwner = sceneReplayModuleName
+                        val activeModule = currentModuleName
                         val sceneReplayOwnsCurrentFilm =
-                            sceneReplayModuleName != null &&
-                                moduleCallStack.isEmpty() &&
-                                currentModuleName.equals(sceneReplayModuleName, ignoreCase = true)
+                            replayOwner != null &&
+                                activeModule != null &&
+                                activeModule.equals(replayOwner, ignoreCase = true) &&
+                                moduleCallStack.isEmpty()
 
                         if (sceneReplayOwnsCurrentFilm) {
                             advanceSceneReplayFilm()
