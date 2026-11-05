@@ -802,3 +802,12 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Activity prepares all modules, all descriptor3 film offsets and scene.dat; scene launch is available through EXTRA_SCENE_CHARACTER_INDEX + EXTRA_SCENE_INDEX + optional EXTRA_SCENE_FILM_CHOICE_INDEX. A visible scene picker is not part of this engine change.
 - ENDFILM is a mode-dependent decoded event: sequential in normal story mode, next-film dispatch during scene replay, finish after the last film.
 - CI, APK and automated tests deliberately not run as requested.
+
+## 2026-11-06 — native conditional flow and asset manager
+
+- Confirmed target IF/ELSIF/ELSE transitions from `gss.exe`: true branches begin after their condition record; false branches skip the declared brace span; subsequent alternatives are skipped once an earlier branch is taken.
+- Corrected CALCU integer divide/modulo and compound forms to use the target executable's zero-divisor fallback (`divisor = 1`). Added branch-flow and zero-divisor synthetic tests; tests were not run.
+- Added `SystemNnnAssetManager` and `SystemNnnAudioResourceRepository`. Runtime startup now opens the complete validated image/audio bank catalog instead of one first-match image bank and a separately selected first-match audio bank.
+- Per-bank IDs are relative index-file paths. Duplicate name lookups and unqualified row indexes fail closed when multiple banks make resolution ambiguous. Payloads remain on disk and selected Ogg data is staged only on demand.
+- Archive metadata scan: one 69-entry GPK/GTB image bank, one 90-entry VPK/VTB audio bank, two unindexed VAW files and one unindexed WGQ Ogg/`PACKTYPE=6` candidate. No mapping or playback behavior is inferred for the loose files.
+- Added synthetic asset-manager coverage for multi-bank ambiguity, indexed VPK discovery and unindexed WGQ inventory. No CI, tests, lint or APK build run by request.
