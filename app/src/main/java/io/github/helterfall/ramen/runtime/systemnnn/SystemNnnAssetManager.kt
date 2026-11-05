@@ -151,6 +151,55 @@ class SystemNnnAssetManager private constructor(
         return bank.repository.loadBitmapByIndex(index)
     }
 
+    /**
+     * Resolves one native DWQ namespace/slot explicitly. The caller must not
+     * infer a namespace from an SPT operand until that operand's semantics are proven.
+     */
+    @Throws(IOException::class)
+    fun loadBitmapFromNativeBank(
+        namespace: String,
+        slot: Int,
+        resourceId: String
+    ): Bitmap? {
+        checkOpen()
+        if (namespace.isBlank() || slot < 0) {
+            throw IOException("A native image namespace and non-negative slot are required.")
+        }
+        val matches = imageBanks.filter {
+            it.info.nativeNamespace.equals(namespace.trim(), ignoreCase = true) &&
+                it.info.bankSlot == slot
+        }
+        return when (matches.size) {
+            0 -> null
+            1 -> matches.single().repository.loadBitmap(resourceId)
+            else -> throw IOException(
+                "Native image bank " + namespace + slot +
+                    " is ambiguous; use its path-derived bank ID."
+            )
+        }
+    }
+
+    /** Resolves a zero-based resource row in an explicitly selected native bank. */
+    @Throws(IOException::class)
+    fun loadBitmapByNativeBankIndex(namespace: String, slot: Int, index: Long): Bitmap? {
+        checkOpen()
+        if (namespace.isBlank() || slot < 0) {
+            throw IOException("A native image namespace and non-negative slot are required.")
+        }
+        val matches = imageBanks.filter {
+            it.info.nativeNamespace.equals(namespace.trim(), ignoreCase = true) &&
+                it.info.bankSlot == slot
+        }
+        return when (matches.size) {
+            0 -> null
+            1 -> matches.single().repository.loadBitmapByIndex(index)
+            else -> throw IOException(
+                "Native image bank " + namespace + slot +
+                    " is ambiguous; use loadBitmapByBankIndex(bankId, index)."
+            )
+        }
+    }
+
     @Throws(IOException::class)
     fun loadBitmapAtBlockOffset(bankId: String, blockOffset: Long): Bitmap? {
         checkOpen()
