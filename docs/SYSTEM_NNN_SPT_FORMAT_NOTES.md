@@ -86,3 +86,20 @@ The current loader's interpretation of all NUL-delimited data from `0x32B64` onw
 ## Evidence boundary
 
 The two supplied text files contain the analysis script and its printed summary, not the binary SPT sample itself. The recorded byte offsets and values are therefore preserved as reported observations, but cannot be independently re-parsed from the binary in this documentation update.
+
+
+## 2026-11-05 follow-up — target header and trailing DATA/TABLE records
+
+Source: the cleaned user-provided `hui(5).zip`, restricted to the 20 files under `hui/spt/`. The analysis below uses only DWORD structure and command boundaries; it does not extract dialogue or media.
+
+Across all 20 SPT modules:
+- DWORD 0 is `0x14`.
+- Four words at byte offsets `0x40`, `0x44`, `0x48`, and `0x4C` are present; the latter two are zero in every inspected module.
+- The word at `0x40` equals descriptor-3 base plus descriptor-3 entry count. Multiplying it by four gives the byte address immediately after the descriptor-3 DWORD vector.
+- That byte address is the start of a DATA record (`identifier=0x66660001`, `code=0x55550002`) whose first payload marker is `0x44440003`. The word at `0x44` points to the next DATA/TABLE record of the same identifier/code and the same first payload marker. Both records are part of the parsed command stream, not a new command-stream terminator.
+
+The raw marker `0x44440003` is named `TYPE_TABLE_LABEL` in the inspected NNNLib family header. Treat that as a family-level label only; do not infer from it that either target table is a module-return table.
+
+The target `hui/gss.exe` disassembly separately settles transfer behavior: its SCRIPT, SUBSCRIPT and SCRIPTJUMP handlers read only the single Pool 2 operand at record+0x0C and advance PC by the current record length. The following DWORD is the next record length and is not read as a return selector. The earlier experiment where values 3–5 indexed the second DATA/TABLE record and happened to resolve to command boundaries is therefore not an execution rule and must not be used for module returns.
+
+This follow-up supersedes the earlier note that the `0x44` word was still unmapped. It does not establish every purpose of the two DATA/TABLE records; their broader label-table consumers remain a separate format question.
