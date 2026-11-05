@@ -390,13 +390,14 @@ class SystemNnnAssetManager private constructor(
                             ignoreCase = true
                         )
                 }
-                ?.sortedBy { candidate ->
-                    when (candidate.extension.lowercase()) {
-                        "vaw" -> 0
-                        "gpk" -> 0
-                        else -> 1
-                    }
-                }
+                ?.sortedWith(
+                    compareBy<File> { candidate ->
+                        when (candidate.extension.lowercase()) {
+                            "vaw", "gpk" -> 0
+                            else -> 1
+                        }
+                    }.thenBy { it.name.lowercase() }
+                )
                 ?.firstOrNull()
 
         private fun relativePath(root: File, file: File): String =
