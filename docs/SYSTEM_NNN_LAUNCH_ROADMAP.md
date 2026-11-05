@@ -1031,3 +1031,18 @@ The decoder has an integrated test for the target shape:
 `SUB → descriptor3 film target → SETFILM → ENDFILM → RETURN → caller continuation`.
 
 This validates module-local film identity, but does not prove a direct mapping from `scene.dat` rows or `@scNN` identifiers to a descriptor-3 film slot. The 69-count correlation remains only cardinality evidence.
+
+### Project-level routing and scene.dat routes are now wired
+
+- All 20 modules declared by the primary spt/project.xtx are loaded in manifest order. The canonical primary manifest wins over the alternate !eng files/spt/project.xtx.
+- Runtime starts from sys. Target SCRIPT/SUBSCRIPT push a module frame containing the caller continuation; SCRIPTJUMP replaces the current module; NEXT restores the saved parent; END resets sys; EXIT ends playback. Module names resolve from the one-word Pool 2 operand and must exist in the project catalog.
+- Project decoders share one variable map but retain independent local SUB stacks. Nested module depth is capped at three.
+- IF/ELSIF/ELSE executes the bounded RPN conditions and skips brace spans using their declared lengths.
+
+### scene.dat scene-to-module-to-film mapping
+
+The native scene.dat parser now follows the CSceneList layout (fileSize, characterCount, then per-character sceneCount, followed by rows of sptNumber, filmCount and signed filmNumbers). The project route is direct: abs(sptNumber) indexes project.xtx; abs(filmNumber)−1 indexes the selected module's ordinary descriptor3 film slots. Negative sptNumber marks H-scene; negative filmNumber disables completion tracking but not playback.
+
+For the supplied primary archive the one character group has 69 rows and 150 film references. Module index → (scene rows, film refs, ordinary film slots): 4→(2,4,158), 10→(4,4,47), 11→(15,23,100), 12→(14,36,82), 13→(16,42,107), 14→(2,2,55), 15→(14,33,94), 18→(2,6,14). Every film index fits its specific module. 43 of the 150 film references are negative/completion-untracked.
+
+The Activity accepts scene replay via EXTRA_SCENE_CHARACTER_INDEX, EXTRA_SCENE_INDEX and optional EXTRA_SCENE_FILM_CHOICE_INDEX. The ViewModel starts the selected module at its film-table target and replays the remaining films in that scene row. ENDFILM remains sequential in normal gameplay but advances the scene replay queue in gallery/replay mode. The visible gallery picker is still separate follow-up UI work.
