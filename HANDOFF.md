@@ -590,3 +590,15 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - В Resource Inspector → "Текстовые данные" добавлена кнопка "Сохранить карту ссылок на модули (.txt)". Экспорт идёт в фоне, читает все найденные project.xtx и их sibling SPT, сохраняет предупреждения по отдельным модулям и использует системный Android CreateDocument.
 - CI #394 на предыдущем head обнаружил, что синтетические строки 0x3333/0x50 и 0x3333/0x52 в тесте сами совпадали с фильтром [1, Pool2Index]. Тестовый fixture исправлен: эти записи больше не ссылаются на имя целевого модуля. Следующий CI должен подтвердить исправление и новый экспорт.
 - Этот экспорт остаётся диагностикой. Автоматический выбор стартового модуля, module call/return и проигрывание сцен не включены.
+
+
+### 2026-11-05 — фактические script-control переходы
+
+- По 20 SPT из hui(4).zip найдено 29 type-2 CONTROL записей family 0x5556 с одним Pool 2 операндом, точно разрешающимся в имя из project.xtx:
+  - 14 SCRIPT из sys → op1, 01, 02, 03, 04, 05, 06, 07, 08, 082, akane, aoi, kiika, day;
+  - 3 SCRIPTJUMP: 01 → yuka; 03 → yamiko; yuka → yuka2;
+  - 12 SUBSCRIPT → _staff из 03 (1), akane (3), aoi (3), kiika (3), yamiko (1), yuka (1).
+- Публичный NNNLib source другой игры (pinned tinyan/SystemNNN@78a05053c78b3b80065a9a209c6685a7c60a2e83) подтверждает семейные имена кодов и общий механизм загрузки spt/<module>.spt, но не доказывает target-specific return behavior. SCRIPT/SUBSCRIPT в reference используют вложенный script level; SCRIPTJUMP заменяет текущий.
+- Тот же источник определяет 0x3333/0x0053 как CONFIGMASK; предыдущие 13 совпадений _staff у этого кода — не переходы.
+- Добавлен read-only SystemNnnScriptTransferScanner и тесты. Resource Inspector экспортирует SCRIPT-переходы отдельно от общих строковых ссылок.
+- Следующий DWORD после Pool2Index в target совпадает с length DWORD следующей записи; family reference использует его как selector возврата, но таблица возврата целевой игры пока не разобрана. Не включать module execution/call stack/sys auto-start до этого.
