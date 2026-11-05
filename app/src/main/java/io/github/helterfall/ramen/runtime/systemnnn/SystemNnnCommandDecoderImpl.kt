@@ -14,9 +14,10 @@ import java.io.IOException
  * bundled SPT modules and the public reference runtime. PRINT, LPRINT and
  * APPEND resolve their first payload DWORD through the module's primary text
  * pool. SETFILM is additionally validated against the descriptor-3 film table;
- * local SUB/RETURN uses a bounded in-module stack. ENDFILM advances to the next
- * record so a following RETURN can restore the local caller. Inter-module
- * SCRIPT/SCRIPTJUMP/SUBSCRIPT and unverified resource semantics remain disabled.
+ * local SUB/RETURN uses a bounded in-module stack. IF/ELSIF/ELSE evaluates
+ * the target RPN conditions and bounded brace spans. SCRIPT/SUBSCRIPT push a
+ * project-module frame, SCRIPTJUMP replaces the active frame, NEXT returns to
+ * the saved caller continuation, and END restarts the sys controller.
  */
 class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int,
