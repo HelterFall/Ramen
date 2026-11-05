@@ -890,6 +890,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     private fun resetControllerOrEnd() {
+        if (sceneReplayModuleName != null) {
+            finishSceneReplay()
+            return
+        }
+
         val controller = controllerProgram
         val factory = moduleDecoderFactory
         if (controller == null || factory == null) {
