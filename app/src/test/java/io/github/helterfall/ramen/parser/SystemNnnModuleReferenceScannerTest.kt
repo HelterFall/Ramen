@@ -15,7 +15,7 @@ class SystemNnnModuleReferenceScannerTest {
                 listOf(5u, 0x66660007u, 0x3333001Au, 1u, 1u),
                 listOf(5u, 0x66660002u, 0x5556000Cu, 1u, 2u)
             ),
-            pool2 = listOf("yamiko", "background_01", "01")
+            pool2 = listOf("yamiko", "01", "background_01")
         )
         val stream = SystemNnnCommandStreamReader().read(script)
 
