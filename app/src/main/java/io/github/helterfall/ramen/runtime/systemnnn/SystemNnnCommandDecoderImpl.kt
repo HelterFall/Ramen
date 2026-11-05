@@ -15,9 +15,11 @@ import java.io.IOException
  * APPEND resolve their first payload DWORD through the module's primary text
  * pool. SETFILM is additionally validated against the descriptor-3 film table;
  * local SUB/RETURN uses a bounded in-module stack. IF/ELSIF/ELSE evaluates
- * the target RPN conditions and bounded brace spans. SCRIPT/SUBSCRIPT push a
- * project-module frame, SCRIPTJUMP replaces the active frame, NEXT returns to
- * the saved caller continuation, and END restarts the sys controller.
+ * the target RPN conditions and bounded brace spans; the false path skips a
+ * branch body and resumes at the following ELSIF/ELSE marker. CALCU divide and
+ * modulo by zero follow the target executable's divisor-to-one fallback.
+ * SCRIPT/SUBSCRIPT push a project-module frame, SCRIPTJUMP replaces the active
+ * frame, NEXT returns to the saved caller continuation, and END restarts sys.
  */
 class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int,
@@ -702,16 +704,14 @@ class SystemNnnCommandDecoderImpl(
                 OP_SUBTRACT -> ExpressionValue(left.value - right.value)
                 OP_MULTIPLY -> ExpressionValue(left.value * right.value)
                 OP_DIVIDE -> {
-                    if (right.value == 0) {
-                        throw IOException("A System-NNN CALCU division by zero is not valid.")
-                    }
-                    ExpressionValue(left.value / right.value)
+                    // Native gss.exe replaces a zero divisor with 1 before idiv.
+                    val divisor = if (right.value == 0) 1 else right.value
+                    ExpressionValue(left.value / divisor)
                 }
                 OP_MODULO -> {
-                    if (right.value == 0) {
-                        throw IOException("A System-NNN CALCU modulo by zero is not valid.")
-                    }
-                    ExpressionValue(left.value % right.value)
+                    // The same zero-divisor fallback is used by the native modulo path.
+                    val divisor = if (right.value == 0) 1 else right.value
+                    ExpressionValue(left.value % divisor)
                 }
                 OP_BIT_AND -> ExpressionValue(left.value and right.value)
                 OP_BIT_XOR -> ExpressionValue(left.value xor right.value)
@@ -730,16 +730,12 @@ class SystemNnnCommandDecoderImpl(
                         OP_SUBTRACT -> left.value - right.value
                         OP_MULTIPLY -> left.value * right.value
                         OP_DIVIDE -> {
-                            if (right.value == 0) {
-                                throw IOException("A System-NNN CALCU compound division by zero is not valid.")
-                            }
-                            left.value / right.value
+                            val divisor = if (right.value == 0) 1 else right.value
+                            left.value / divisor
                         }
                         OP_MODULO -> {
-                            if (right.value == 0) {
-                                throw IOException("A System-NNN CALCU compound modulo by zero is not valid.")
-                            }
-                            left.value % right.value
+                            val divisor = if (right.value == 0) 1 else right.value
+                            left.value % divisor
                         }
                         OP_BIT_AND -> left.value and right.value
                         OP_BIT_XOR -> left.value xor right.value
