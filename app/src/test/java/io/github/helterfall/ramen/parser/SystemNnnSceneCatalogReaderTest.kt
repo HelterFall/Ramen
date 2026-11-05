@@ -55,7 +55,7 @@ class SystemNnnSceneCatalogReaderTest {
 
     @Test
     fun readsSceneVoiceIdsWithoutDecodingDisplayText() {
-        val source = "[scene gallery]\n@sc01\n@sc02\n@sc69\n".toByteArray(Charsets.UTF_8)
+        val source = "[scene gallery]\r\n@sc01\r\n@sc02\r\n@sc69\r\n".toByteArray(Charsets.UTF_8)
 
         val parsed = SystemNnnSceneCatalogReader().readSceneVoiceCatalog(source)
 
