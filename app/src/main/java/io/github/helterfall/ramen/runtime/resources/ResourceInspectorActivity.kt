@@ -62,6 +62,7 @@ import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
 import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
 import io.github.helterfall.ramen.parser.SystemNnnProjectCatalog
 import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceScanner
+import io.github.helterfall.ramen.parser.SystemNnnScriptTransferScanner
 import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceReportWriter
 import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceProjectReport
 
@@ -365,6 +366,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                 val scriptLoader = SystemNnnScriptLoader()
                 val streamReader = SystemNnnCommandStreamReader()
                 val scanner = SystemNnnModuleReferenceScanner(streamReader)
+                val transferScanner = SystemNnnScriptTransferScanner(streamReader)
                 val reports = projectFiles.map { projectFile ->
                     val projectPath = projectFile.relativeTo(gameRoot).invariantSeparatorsPath
                     try {
@@ -372,6 +374,9 @@ class ResourceInspectorActivity : ComponentActivity() {
                         val modules = catalog.resolveModules(projectFile)
                         val candidates =
                             ArrayList<io.github.helterfall.ramen.parser.SystemNnnModuleReferenceCandidate>()
+                        val scriptTransfers =
+                            ArrayList<io.github.helterfall.ramen.parser.SystemNnnScriptTransferCandidate>()
+                        var unresolvedTransferTargets = 0
                         val warnings = ArrayList<String>()
 
                         modules.forEach { module ->
@@ -384,6 +389,14 @@ class ResourceInspectorActivity : ComponentActivity() {
                                     stream = stream,
                                     projectModuleNames = catalog.moduleNames
                                 )
+                                val transferResult = transferScanner.scan(
+                                    sourceModuleName = module.name,
+                                    script = script,
+                                    stream = stream,
+                                    projectModuleNames = catalog.moduleNames
+                                )
+                                scriptTransfers += transferResult.candidates
+                                unresolvedTransferTargets += transferResult.unresolvedTargetCount
                             } catch (error: Exception) {
                                 warnings += "${module.name}: ${error.message ?: "ошибка чтения SPT"}"
                             }
@@ -393,7 +406,9 @@ class ResourceInspectorActivity : ComponentActivity() {
                             projectPath = projectPath,
                             moduleCount = modules.size,
                             candidates = candidates,
-                            warnings = warnings
+                            warnings = warnings,
+                            scriptTransfers = scriptTransfers,
+                            unresolvedScriptTransferTargetCount = unresolvedTransferTargets
                         )
                     } catch (error: Exception) {
                         SystemNnnModuleReferenceProjectReport(
@@ -406,6 +421,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                 }
 
                 val candidateCount = reports.sumOf { it.candidates.size }
+                val transferCount = reports.sumOf { it.scriptTransfers.size }
                 val warningCount = reports.sumOf { it.warnings.size }
                 val output = contentResolver.openOutputStream(uri)
                     ?: throw IOException("Не удалось открыть выбранный документ для записи.")
@@ -416,7 +432,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                 runOnUiThread {
                     textState.value = textState.value.copy(
                         isExportingModuleReferences = false,
-                        exportMessage = "Отчёт сохранён: кандидатов $candidateCount · предупреждений $warningCount."
+                        exportMessage = "Отчёт сохранён: переходов $transferCount · обычных ссылок $candidateCount · предупреждений $warningCount."
                     )
                 }
             } catch (error: Exception) {
@@ -1273,7 +1289,7 @@ private fun TextMetadataPanel(
                     ) {
                         Text(
                             if (state.isExportingModuleReferences) "Собираю карту ссылок…"
-                            else "Сохранить карту ссылок на модули (.txt)"
+                            else "Сохранить карту переходов и ссылок (.txt)"
                         )
                     }
                 } else {
