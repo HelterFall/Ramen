@@ -263,32 +263,47 @@ class SystemNnnAssetManager private constructor(
 
             val gtbFiles = discoverFiles(root, "gtb", warnings)
             gtbFiles.forEach { indexFile ->
-                val archiveFile = matchingSibling(indexFile, INDEXED_IMAGE_ARCHIVE_EXTENSIONS)
-                if (archiveFile == null) {
+                val archiveCandidates = matchingSiblings(indexFile, INDEXED_IMAGE_ARCHIVE_EXTENSIONS)
+                if (archiveCandidates.isEmpty()) {
                     warnings += relativePath(root, indexFile) +
                         ": GTB has no sibling GPK/WGQ archive with the same base name."
                     return@forEach
                 }
-                pairedImageArchives += archiveFile.canonicalPath
-                try {
-                    val repository = SystemNnnGpkBitmapRepository(indexFile, archiveFile, imageDecoder)
-                    if (repository.resourceCount <= 0) {
-                        repository.close()
-                        warnings += relativePath(root, indexFile) + ": indexed image bank is empty."
-                    } else {
-                        val info = SystemNnnAssetBankInfo(
-                            id = relativePath(root, indexFile),
-                            type = SystemNnnAssetBankType.INDEXED_IMAGE,
-                            indexPath = relativePath(root, indexFile),
-                            archivePath = relativePath(root, archiveFile),
-                            resourceCount = repository.resourceCount
-                        )
-                        imageBanks += ImageBank(info, repository)
+
+                var openedRepository: SystemNnnGpkBitmapRepository? = null
+                var selectedArchive: File? = null
+                archiveCandidates.forEach candidateLoop@ { archiveFile ->
+                    if (openedRepository != null) return@candidateLoop
+                    try {
+                        val repository = SystemNnnGpkBitmapRepository(indexFile, archiveFile, imageDecoder)
+                        if (repository.resourceCount <= 0) {
+                            repository.close()
+                            warnings += relativePath(root, archiveFile) + ": indexed image bank is empty."
+                        } else {
+                            openedRepository = repository
+                            selectedArchive = archiveFile
+                        }
+                    } catch (error: Exception) {
+                        warnings += relativePath(root, archiveFile) +
+                            ": image archive candidate could not be opened: " +
+                            (error.message ?: error.javaClass.simpleName)
                     }
-                } catch (error: Exception) {
-                    warnings += relativePath(root, indexFile) +
-                        ": image bank could not be opened: " +
-                        (error.message ?: error.javaClass.simpleName)
+                }
+
+                val repository = openedRepository
+                val archiveFile = selectedArchive
+                if (repository != null && archiveFile != null) {
+                    pairedImageArchives += archiveFile.canonicalPath
+                    val info = SystemNnnAssetBankInfo(
+                        id = relativePath(root, indexFile),
+                        type = SystemNnnAssetBankType.INDEXED_IMAGE,
+                        indexPath = relativePath(root, indexFile),
+                        archivePath = relativePath(root, archiveFile),
+                        resourceCount = repository.resourceCount
+                    )
+                    imageBanks += ImageBank(info, repository)
+                } else {
+                    warnings += relativePath(root, indexFile) + ": no valid image archive candidate was found."
                 }
             }
 
@@ -324,36 +339,51 @@ class SystemNnnAssetManager private constructor(
 
             val vtbFiles = discoverFiles(root, "vtb", warnings)
             vtbFiles.forEach { indexFile ->
-                val archiveFile = matchingSibling(indexFile, INDEXED_AUDIO_ARCHIVE_EXTENSIONS)
-                if (archiveFile == null) {
+                val archiveCandidates = matchingSiblings(indexFile, INDEXED_AUDIO_ARCHIVE_EXTENSIONS)
+                if (archiveCandidates.isEmpty()) {
                     warnings += relativePath(root, indexFile) +
                         ": VTB has no sibling VAW/VPK archive with the same base name."
                     return@forEach
                 }
-                pairedAudioArchives += archiveFile.canonicalPath
-                try {
-                    val repository = SystemNnnVpkAudioRepository(
-                        indexFile = indexFile,
-                        archiveFile = archiveFile,
-                        cacheDirectory = cacheDirectory
-                    )
-                    if (repository.entries.isEmpty()) {
-                        repository.close()
-                        warnings += relativePath(root, indexFile) + ": indexed audio bank is empty."
-                    } else {
-                        val info = SystemNnnAssetBankInfo(
-                            id = relativePath(root, indexFile),
-                            type = SystemNnnAssetBankType.INDEXED_AUDIO,
-                            indexPath = relativePath(root, indexFile),
-                            archivePath = relativePath(root, archiveFile),
-                            resourceCount = repository.entries.size
+
+                var openedRepository: SystemNnnVpkAudioRepository? = null
+                var selectedArchive: File? = null
+                archiveCandidates.forEach candidateLoop@ { archiveFile ->
+                    if (openedRepository != null) return@candidateLoop
+                    try {
+                        val repository = SystemNnnVpkAudioRepository(
+                            indexFile = indexFile,
+                            archiveFile = archiveFile,
+                            cacheDirectory = cacheDirectory
                         )
-                        audioBanks += AudioBank(info, repository)
+                        if (repository.entries.isEmpty()) {
+                            repository.close()
+                            warnings += relativePath(root, archiveFile) + ": indexed audio bank is empty."
+                        } else {
+                            openedRepository = repository
+                            selectedArchive = archiveFile
+                        }
+                    } catch (error: Exception) {
+                        warnings += relativePath(root, archiveFile) +
+                            ": audio archive candidate could not be opened: " +
+                            (error.message ?: error.javaClass.simpleName)
                     }
-                } catch (error: Exception) {
-                    warnings += relativePath(root, indexFile) +
-                        ": audio bank could not be opened: " +
-                        (error.message ?: error.javaClass.simpleName)
+                }
+
+                val repository = openedRepository
+                val archiveFile = selectedArchive
+                if (repository != null && archiveFile != null) {
+                    pairedAudioArchives += archiveFile.canonicalPath
+                    val info = SystemNnnAssetBankInfo(
+                        id = relativePath(root, indexFile),
+                        type = SystemNnnAssetBankType.INDEXED_AUDIO,
+                        indexPath = relativePath(root, indexFile),
+                        archivePath = relativePath(root, archiveFile),
+                        resourceCount = repository.entries.size
+                    )
+                    audioBanks += AudioBank(info, repository)
+                } else {
+                    warnings += relativePath(root, indexFile) + ": no valid audio archive candidate was found."
                 }
             }
 
@@ -413,7 +443,7 @@ class SystemNnnAssetManager private constructor(
             return discovered.take(MAX_DISCOVERED_FILES)
         }
 
-        private fun matchingSibling(indexFile: File, extensions: Set<String>): File? =
+        private fun matchingSiblings(indexFile: File, extensions: Set<String>): List<File> =
             indexFile.parentFile
                 ?.listFiles()
                 ?.asSequence()
@@ -434,7 +464,8 @@ class SystemNnnAssetManager private constructor(
                         }
                     }.thenBy { it.name.lowercase() }
                 )
-                ?.firstOrNull()
+                ?.toList()
+                .orEmpty()
 
         private fun relativePath(root: File, file: File): String =
             file.relativeTo(root).invariantSeparatorsPath
