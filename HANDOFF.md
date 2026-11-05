@@ -677,3 +677,12 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - Native DWQ image-manager initialization at VA `0x0043C100` enumerates the ten-entry prefix table at `0x493B40`; the non-empty native namespaces are `ta`, `bg`, `ev`, `sc`, `sm`, and `sys`. For each numbered slot it formats `dwq/<prefix><slot>.gtb` and the matching `.gpk`. GTB lookup normalizes ASCII case and searches the indexed names before resolving the GPK block.
 - `SystemNnnAssetBankInfo` now retains the native image namespace and numeric slot when the index filename matches one of those target patterns (for example, `sc0.gtb` → namespace `sc`, slot `0`). Path-derived bank IDs remain the unique catalog keys; this is metadata, not a claim that SPT commands already choose the correct namespace.
 - Candidate archive fallback is deterministic and validated: for a same-stem GTB/VTB, the manager tries preferred extensions first (`GPK` before `WGQ`, `VAW` before `VPK`) and continues to the next candidate if parsing fails. The chosen file is marked paired only after a successful parse. Synthetic tests cover both image and audio fallback cases.
+
+
+### 2026-11-06 — loose VAW/WGQ audio materialization
+
+- Added a separate bounded loose-audio reader for standalone `.vaw`/`.wgq` resources without a VTB row. It recognizes Black Cyc `PACKTYPE=0` WAVE, `PACKTYPE=1` differential PCM, `PACKTYPE=2` Ogg (64-byte resource header + 44-byte descriptor), and `PACKTYPE=6` Ogg with the native `OGG ` tag at header offset 0x10.
+- `PACKTYPE=1` reconstructs signed 16-bit differential samples into a temporary WAVE stream using an LSB-first bit reader. `PACKTYPE=0/2/6` stages only the stream bytes after the native wrapper.
+- `SystemNnnAssetManager` owns this loose-resource repository, exposes validated loose resource metadata, and deletes staged temporary files on close. Name lookup must resolve to one resource; a relative path is available when basenames collide.
+- Indexed audio remains unchanged: the 90 VTB rows are the only numeric dialogue-voice namespace. Loose VAW/WGQ resources are name/path-addressed and are not appended to that index.
+- Added synthetic coverage for PACKTYPE 0, 1 and 6 plus WGQ manager integration. CI, tests, lint and APK builds were not run. No game data, dialogue text or media was committed.
