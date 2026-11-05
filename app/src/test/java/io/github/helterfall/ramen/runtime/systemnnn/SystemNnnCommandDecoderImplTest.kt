@@ -114,13 +114,71 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
-    fun treatsEndFilmAsTheEndOfTheCurrentFilm() {
+    fun endFilmAdvancesToTheNextRecordInsteadOfEndingThePlayer() {
         val script = testScript(
-            listOf(record(3, CONTROL, CODE_CONTROL_ENDFILM)),
-            textCount = 0
+            listOf(
+                record(3, CONTROL, CODE_CONTROL_ENDFILM),
+                record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
+            ),
+            textCount = 1
         )
+        val decoder = decoder()
 
-        assertEquals(SystemNnnDecodedCommand.End, decoder().decodeNext(script, RECORD_START))
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 12L),
+            decoder.decodeNext(script, RECORD_START)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Dialogue(
+                nextCommandOffset = RECORD_START + 32L,
+                textEntryOffset = script.textPool.single().offset
+            ),
+            decoder.decodeNext(script, RECORD_START + 12L)
+        )
+    }
+
+    @Test
+    fun setFilmMustMatchTheOneBasedFilmNumberOfItsDescriptorThreeInterval() {
+        val script = filmSetScript(filmNumber = 1u)
+
+        assertEquals(
+            SystemNnnDecodedCommand.SetFilm(
+                nextCommandOffset = SETFILM_OFFSET + 20L,
+                filmNumber = 1
+            ),
+            decoder().decodeNext(script, SETFILM_OFFSET)
+        )
+    }
+
+    @Test
+    fun rejectsSetFilmWhenItsNumberDoesNotMatchTheOwningDescriptorThreeEntry() {
+        val script = filmSetScript(filmNumber = 2u)
+
+        assertThrows(IOException::class.java) {
+            decoder().decodeNext(script, SETFILM_OFFSET)
+        }
+    }
+
+    @Test
+    fun continuesFromEndFilmToTheNextFilmSetFilmRecordInTheSameModule() {
+        val script = filmSetScript(filmNumber = 1u)
+        val decoder = decoder()
+
+        assertEquals(
+            SystemNnnDecodedCommand.SetFilm(SETFILM_OFFSET + 20L, 1),
+            decoder.decodeNext(script, SETFILM_OFFSET)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(END_FILM_OFFSET + 12L),
+            decoder.decodeNext(script, END_FILM_OFFSET)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Dialogue(
+                nextCommandOffset = PRINT_OFFSET + 20L,
+                textEntryOffset = script.textPool.single().offset
+            ),
+            decoder.decodeNext(script, PRINT_OFFSET)
+        )
     }
 
     @Test
@@ -331,6 +389,38 @@ class SystemNnnCommandDecoderImplTest {
         )
     }
 
+    private fun filmSetScript(filmNumber: UInt): SystemNnnScript {
+        val words = listOf(0u, 0u, 0u, 0u) +
+            record(5, DATA, 0x55550002u, 0x19u, 0x1Eu) +
+            record(5, SYSTEM_FUNCTION, 0x33330051u, 1u, 0u) +
+            record(5, SYSTEM_FUNCTION, 0x33330050u, 1u, 0u) +
+            record(5, SYSTEM_FUNCTION, 0x33330052u, 1u, 0u) +
+            record(5, SYSTEM_FUNCTION, 0x3333001Au, 1u, filmNumber) +
+            record(3, CONTROL, CODE_CONTROL_ENDFILM) +
+            record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u) +
+            listOf(0u, 0u, 0u, 0u)
+        val bytes = ByteArray(words.size * DWORD_BYTES.toInt())
+        words.forEachIndexed { index, word ->
+            putUInt32(bytes, index * DWORD_BYTES.toInt(), word)
+        }
+        val commandEnd = COMMAND_START + bytes.size
+        return SystemNnnScript(
+            fileSizeBytes = commandEnd + 0x20L,
+            firstHeaderWord = 0u,
+            offsetTables = listOf(
+                SystemNnnOffsetTable("main", 0u, 0u),
+                SystemNnnOffsetTable("secondary", 0u, 0u),
+                SystemNnnOffsetTable("tertiary", 2u, 0x17u),
+                SystemNnnOffsetTable("auxiliary", 1u, 0u)
+            ),
+            commandStartOffset = COMMAND_START,
+            commandEndOffset = commandEnd,
+            textPoolOffset = commandEnd,
+            textPool = listOf(SystemNnnTextEntry(offset = commandEnd, text = "Film continuation")),
+            commandBytes = bytes
+        )
+    }
+
     private fun decoder() = SystemNnnCommandDecoderImpl(gtbResourceCount = 8)
 
     private fun testScript(
@@ -389,6 +479,9 @@ class SystemNnnCommandDecoderImplTest {
         const val LOCAL_SUB_RETURN_OFFSET = 0xA4L
         const val LOCAL_SUB_OFFSET = 0xD8L
         const val LOCAL_SUB_RETURN_CONTINUATION = 0xECL
+        const val SETFILM_OFFSET = 0xA0L
+        const val END_FILM_OFFSET = 0xB4L
+        const val PRINT_OFFSET = 0xC0L
 
         const val DATA = 0x66660001u
         const val CONTROL = 0x66660002u
