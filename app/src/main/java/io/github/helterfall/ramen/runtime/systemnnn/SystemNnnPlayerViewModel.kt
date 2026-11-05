@@ -146,8 +146,6 @@ sealed interface SystemNnnDecodedCommand {
         val nextCommandOffset: Long,
         val targetModuleName: String,
         val kind: SystemNnnModuleTransferKind,
-        /** Raw next-record length observed where the family runtime reads its call-return selector. */
-        val returnSelectorCandidate: UInt? = null
     ) : SystemNnnDecodedCommand
 
     data object ModuleReturn : SystemNnnDecodedCommand
@@ -205,8 +203,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val commandStream: SystemNnnCommandStream,
         val decoder: SystemNnnCommandDecoder,
         val nextCommandOffset: Long,
-        val currentFilmNumber: Int?,
-        val returnSelectorCandidate: UInt?
+        val currentFilmNumber: Int?
     )
     private var audioRepository: SystemNnnVpkAudioRepository? = null
     private var audioPlayer: SystemNnnAudioPlayer? = null
@@ -637,8 +634,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         switchModule(
                             targetModuleName = command.targetModuleName,
                             kind = command.kind,
-                            callerContinuation = command.nextCommandOffset,
-                            returnSelectorCandidate = command.returnSelectorCandidate
+                            callerContinuation = command.nextCommandOffset
                         )
                         commandsWithoutVisibleOutput += 1
                     }
@@ -795,8 +791,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private fun switchModule(
         targetModuleName: String,
         kind: SystemNnnModuleTransferKind,
-        callerContinuation: Long,
-        returnSelectorCandidate: UInt?
+        callerContinuation: Long
     ) {
         val currentScript = script ?: throw IOException("Нет активного SPT для межмодульного перехода.")
         val currentStream = commandStream ?: throw IOException("Нет командного потока активного SPT.")
@@ -826,8 +821,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 commandStream = currentStream,
                 decoder = currentDecoder,
                 nextCommandOffset = callerContinuation,
-                currentFilmNumber = currentFilmNumber,
-                returnSelectorCandidate = returnSelectorCandidate
+                currentFilmNumber = currentFilmNumber
             )
         }
 
