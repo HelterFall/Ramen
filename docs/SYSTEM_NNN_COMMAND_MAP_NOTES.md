@@ -439,3 +439,63 @@ The record-neighbour distributions also overlap for module-name and other Pool 2
 Finally, the 15 same-index 0x001B references are all in a different ordinary-film interval from their matching 0x001A reference. Their relative order is 13 earlier and 2 later. This explicitly rules out describing the pair as an adjacent command sequence in the current evidence.
 
 Conclusion: retain these as exact Pool 2 cross-references to module-name strings. Until a branch/dispatch target is resolved from the VM's actual control-flow fields, do not enable module navigation or classify these opcodes as calls.
+
+
+## 2026-11-05 — scene catalog cardinality and module-reference scanner
+
+### Scene metadata from the new user archive
+
+A read-only structural parse of `hui/spt/scene.dat` confirms:
+- Header: declared size `1164`, version `1`, row count `69`.
+- All 69 variable-length rows parse exactly to EOF.
+- Opaque row-type counts: `4:2`, `10:4`, `11:15`, `12:14`, `13:16`, `14:2`, `15:14`, `18:2`.
+- Value-count distribution: `1:28`, `2:10`, `3:26`, `4:1`, `5:4`.
+
+No meaning is assigned to row types or values. In particular, numeric similarity alone does not establish a scene-to-film pointer.
+
+The same archive's `hui/nya/scenevoice.xtx` contains exactly 69 unique sequential ASCII identifiers, `@sc01` through `@sc69`. Its lines use CRLF. The new reader scans only these ASCII identifiers and leaves the CP932 header/display text uninterpreted.
+
+For `01.spt`, descriptor 3 has 69 pointer entries and descriptor 4 has a reserved prefix count of 2, leaving 67 ordinary film slots. Thus three independently stored counts are 69:
+- `scene.dat` rows: 69;
+- `scenevoice.xtx` IDs: 69;
+- `01.spt` descriptor-3 entries: 69.
+
+This is a strong cardinality correlation, but **not yet an established index mapping**. The reserved prefix is part of the 69-entry pointer vector; do not subtract it from either sidecar count or assume row 0 maps to pointer slot 0.
+
+### New read-only Kotlin diagnostics
+
+- `SystemNnnSceneCatalogReader` reads the version-1 `scene.dat` row envelope with file-size, row-count, per-row value-count, truncation, and EOF checks. It preserves row types and UInt32 values verbatim.
+- The same reader extracts `@scNN` identifiers from `scenevoice.xtx`, including CRLF files, without decoding or copying its non-ASCII text.
+- `compareWithFilmTable()` reports matching/mismatching cardinalities and the reserved/ordinary film counts. Its `sameIndexMappingProven` field is deliberately always false until an actual row-to-pointer relationship is demonstrated.
+- `SystemNnnModuleReferenceScanner` scans one parsed SPT stream for the exact two-DWORD payload `[1, Pool2Index]` where the indexed Pool 2 bytes equal one of the `project.xtx` module names. Each result preserves source module, target name, record offset, identifier type, code family/id, Pool 2 index, and record length. It is a string-reference candidate, **not a call/jump instruction**.
+
+### Candidate-reference replay against all 20 supplied modules
+
+An independent read-only replay of the scanner predicate against the new archive's 20 `hui/spt` modules found 511 exact module-name references. The per-record-code counts are unchanged from the earlier notes:
+- type 6 `0x2222/0x0001`: 1;
+- type 6 `0x2222/0x0004`: 123;
+- type 7 `0x3333/0x0007`: 34;
+- type 7 `0x3333/0x0014`: 310;
+- type 7 `0x3333/0x001A`: 15;
+- type 7 `0x3333/0x001B`: 15;
+- type 7 `0x3333/0x0053`: 13.
+
+The complete candidate source-to-target counts (all seven record codes combined) are:
+- `01 → yuka`: 2;
+- `03 → yamiko`: 17; `03 → _staff`: 2;
+- `akane → _staff`: 49;
+- `aoi → _staff`: 173;
+- `kiika → _staff`: 213;
+- `yamiko → _staff`: 17;
+- `yuka → _staff`: 11; `yuka → yuka2`: 27.
+
+The `0x2222/0x0004` subset retains the earlier, narrower edges: `03 → yamiko` (15), `akane → _staff` (13), `aoi → _staff` (21), `kiika → _staff` (53), and `yuka → yuka2` (21).
+
+These are exact references to module-name strings, not proven module transfers. The negative control remains decisive: the same record families also reference many non-module Pool 2 entries. No runtime module navigation has been enabled. Kotlin scanner tests use synthetic records; the 511-reference total above comes from the independent archive replay, not from a committed game binary or a device run.
+
+### Next evidence needed
+
+1. Compare each `scene.dat` row with the same-index descriptor-3 target record and its payload, including the two reserved slots, rather than relying on equal counts.
+2. Compare `@scNN` sequence positions with the row and pointer values to establish (or reject) an ordering relation.
+3. Use the new scanner's per-record offsets and surrounding film intervals to separate actual dispatch candidates from ordinary labels.
+4. Do not add a VM module-call opcode until a target module/film and return behavior are proven across more than one transition.
