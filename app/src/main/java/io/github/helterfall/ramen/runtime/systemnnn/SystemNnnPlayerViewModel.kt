@@ -205,7 +205,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val nextCommandOffset: Long,
         val currentFilmNumber: Int?
     )
-    private var audioRepository: SystemNnnVpkAudioRepository? = null
+    private var audioRepository: SystemNnnAudioResourceRepository? = null
     private var audioPlayer: SystemNnnAudioPlayer? = null
     private var audioRequestId: Long = 0L
     private val voiceExecutor = Executors.newSingleThreadExecutor()
@@ -230,7 +230,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         commandDecoder: SystemNnnCommandDecoder?,
         assetResolver: SystemNnnSceneAssetResolver,
         initialCommandOffset: Long = script.commandStartOffset,
-        audioRepository: SystemNnnVpkAudioRepository? = null,
+        audioRepository: SystemNnnAudioResourceRepository? = null,
         initialAudioTrack: File? = null,
         initialAudioResourceName: String? = null,
         moduleName: String? = null,
@@ -330,7 +330,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         controlModuleName: String,
         assetResolver: SystemNnnSceneAssetResolver,
         decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder,
-        audioRepository: SystemNnnVpkAudioRepository? = null,
+        audioRepository: SystemNnnAudioResourceRepository? = null,
         initialSceneRoute: SystemNnnSceneRoute? = null
     ) {
         val orderedModules = modules.toList()
