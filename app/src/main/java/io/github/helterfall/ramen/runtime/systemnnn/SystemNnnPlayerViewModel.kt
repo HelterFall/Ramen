@@ -1001,8 +1001,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             forceReveal = true,
                             choices = command.options,
                             currentFilmNumber = currentFilmNumber,
-                            backgroundBitmap = sceneBackground,
-                            sprites = sceneSprites,
                             statusMessage = imageStatusMessage
                         )
                         return
