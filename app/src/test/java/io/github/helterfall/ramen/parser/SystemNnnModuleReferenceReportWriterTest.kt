@@ -24,6 +24,21 @@ class SystemNnnModuleReferenceReportWriterTest {
             tableIndex = 1,
             offset = 0xA4L
         )
+        val transfer = SystemNnnScriptTransferCandidate(
+            sourceModuleName = "sys",
+            targetModuleName = "op1",
+            kind = SystemNnnScriptTransferKind.SCRIPT,
+            commandOffset = 0x50L,
+            pool2Index = 1u,
+            recordLengthWords = 4u,
+            sourceFilmTableIndex = null,
+            sourceFilmNumber = null,
+            sourceFilmStartOffset = null,
+            sourceFilmEndOffsetExclusive = null,
+            followingRecordLengthWord = 4u,
+            previousRecord = null,
+            nextRecord = null
+        )
         val output = ByteArrayOutputStream()
 
         SystemNnnModuleReferenceReportWriter().write(
@@ -31,7 +46,8 @@ class SystemNnnModuleReferenceReportWriterTest {
                 SystemNnnModuleReferenceProjectReport(
                     projectPath = "spt/project.xtx",
                     moduleCount = 20,
-                    candidates = listOf(first, second)
+                    candidates = listOf(first, second),
+                    scriptTransfers = listOf(transfer)
                 )
             ),
             output
@@ -44,7 +60,11 @@ class SystemNnnModuleReferenceReportWriterTest {
         assertTrue(report.contains("code=0x2222/0x0004"))
         assertTrue(report.contains("PREV:"))
         assertTrue(report.contains("NEXT:"))
-        assertTrue(report.contains("not proven calls, jumps"))
+        assertTrue(report.contains("SCRIPT TRANSFER RECORDS"))
+        assertTrue(report.contains("SCRIPT @0x50"))
+        assertTrue(report.contains("-> op1"))
+        assertTrue(report.contains("UNCLASSIFIED POOL 2 MODULE-NAME REFERENCES"))
+        assertTrue(report.contains("Targets below exactly match project.xtx module names"))
         assertFalse(report.contains("Содержимое реплики"))
         assertFalse(report.contains("dialogue body"))
     }
