@@ -1022,9 +1022,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         if (command.filmNumber <= 0) {
                             throw IOException("SETFILM supplied a non-positive film number.")
                         }
-                        if (currentFilmNumber != null && currentFilmNumber != command.filmNumber) {
-                            clearPendingSceneVisuals()
-                        }
                         nextCommandOffset = command.nextCommandOffset
                         currentFilmNumber = command.filmNumber
                         commandsWithoutVisibleOutput += 1
@@ -1037,9 +1034,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             kind = command.kind,
                             callerContinuation = command.nextCommandOffset
                         )
-                        if (command.kind == SystemNnnModuleTransferKind.SCRIPTJUMP) {
-                            clearPendingSceneVisuals()
-                        }
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -1053,11 +1047,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 moduleCallStack.isEmpty()
 
                         if (sceneReplayOwnsCurrentFilm) {
-                            val previousFilmNumber = currentFilmNumber
                             advanceSceneReplayFilm()
-                            if (currentFilmNumber != previousFilmNumber) {
-                                clearPendingSceneVisuals()
-                            }
                         } else {
                             validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                             nextCommandOffset = command.nextCommandOffset
@@ -1071,7 +1061,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     SystemNnnDecodedCommand.ControllerReset -> {
-                        clearPendingSceneVisuals()
                         resetControllerOrEnd()
                         commandsWithoutVisibleOutput += 1
                     }
