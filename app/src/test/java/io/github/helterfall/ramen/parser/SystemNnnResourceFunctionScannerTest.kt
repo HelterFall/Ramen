@@ -78,7 +78,7 @@ class SystemNnnResourceFunctionScannerTest {
         val script = scriptOf(
             records = listOf(
                 listOf(15u, 0x66660007u, 0x33330007u) + payload,
-                listOf(9u, 0x66660001u, 0x55550001u, 1u, 2u, 3u)
+                listOf(9u, 0x66660001u, 0x55550001u, 1u, 2u, 3u, 4u, 5u, 6u)
             )
         )
         val stream = SystemNnnCommandStreamReader().read(script)
@@ -86,7 +86,7 @@ class SystemNnnResourceFunctionScannerTest {
         val candidate = result.candidates.single()
 
         assertEquals(listOf(0u, 1u), candidate.payloadPreview)
-        assertEquals(12, candidate.remainingPayloadWordCount)
+        assertEquals(11, candidate.remainingPayloadWordCount)
         assertEquals(4, candidate.nextRecord?.payloadPreview?.size)
     }
 
