@@ -23,7 +23,9 @@ class SystemNnnCommandDecoderImpl(
 
     private var cachedScript: SystemNnnScript? = null
     private var cachedStream: SystemNnnCommandStream? = null
+    private var cachedFilmTableEntries: List<io.github.helterfall.ramen.parser.SystemNnnFilmTableEntry>? = null
     private val variables = HashMap<Int, Int>()
+    private val localSubroutineStack = ArrayList<LocalSubroutineFrame>()
 
     init {
         require(gtbResourceCount >= 0) { "gtbResourceCount must not be negative." }
@@ -278,12 +280,108 @@ class SystemNnnCommandDecoderImpl(
                 skipFollowingBranch(script, stream, record)
             )
 
+            CODE_CONTROL_SUB -> decodeLocalSubroutine(script, stream, record)
+
+            CODE_CONTROL_RETURN -> returnFromLocalSubroutine(stream, record)
+
             CODE_CONTROL_END,
             CODE_CONTROL_ENDFILM -> SystemNnnDecodedCommand.End
 
             else -> throw unsupportedRecord(record)
         }
     }
+
+
+    /**
+     * Executes the verified local SUB shape:
+     * payload[0] selects the descriptor-3 jump-vector entry;
+     * payload[1] is the module-local SUB identifier.
+     *
+     * The family reference pushes the bytecode continuation before jumping
+     * through descriptor 3. The target archive confirms the same two operands
+     * and valid 0x3333/0x50 or 0x3333/0x51 function targets for every SUB.
+     */
+    private fun decodeLocalSubroutine(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.Jump {
+        if (record.payloadWordCount != LOCAL_SUB_PAYLOAD_WORD_COUNT) {
+            throw IOException("A System-NNN SUB record must contain exactly two DWORD operands.")
+        }
+        if (localSubroutineStack.size >= MAX_LOCAL_SUBROUTINE_DEPTH) {
+            throw IOException("The System-NNN local SUB stack exceeded its depth limit.")
+        }
+
+        val tableIndexValue = readPayloadWord(script, record, LOCAL_SUB_TABLE_INDEX_PAYLOAD).toLong()
+        val subroutineIdValue = readPayloadWord(script, record, LOCAL_SUB_ID_PAYLOAD).toLong()
+        if (tableIndexValue > Int.MAX_VALUE.toLong() ||
+            subroutineIdValue > MAX_LOCAL_SUBROUTINE_ID.toLong()
+        ) {
+            throw IOException("A System-NNN SUB operand is outside the supported range.")
+        }
+
+        val entries = filmTableEntriesFor(script, stream)
+        if (tableIndexValue >= entries.size.toLong()) {
+            throw IOException("A System-NNN SUB references a missing descriptor-3 entry.")
+        }
+
+        val target = entries[tableIndexValue.toInt()].targetCommandOffset
+        val targetIndex = stream.records.binarySearchBy(target) { it.offset }
+        if (targetIndex < 0) {
+            throw IOException("A System-NNN SUB target is not a validated command boundary.")
+        }
+
+        val continuation = record.endOffsetExclusive
+        if (
+            continuation != stream.recordEndOffsetExclusive &&
+            stream.records.binarySearchBy(continuation) { it.offset } < 0
+        ) {
+            throw IOException("A System-NNN SUB return continuation is not a record boundary.")
+        }
+
+        localSubroutineStack += LocalSubroutineFrame(
+            returnCommandOffset = continuation,
+            subroutineId = subroutineIdValue.toInt()
+        )
+        return SystemNnnDecodedCommand.Jump(target)
+    }
+
+    /** Returns to the exact command after the matching SUB; never guesses a caller. */
+    private fun returnFromLocalSubroutine(
+        stream: SystemNnnCommandStream,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.Jump {
+        if (record.payloadWordCount != 0) {
+            throw IOException("A System-NNN RETURN record must not contain payload DWORDs.")
+        }
+        val frame = localSubroutineStack.lastOrNull()
+            ?: throw IOException("A System-NNN RETURN record has no matching local SUB call.")
+        localSubroutineStack.removeAt(localSubroutineStack.lastIndex)
+
+        if (
+            frame.returnCommandOffset != stream.recordEndOffsetExclusive &&
+            stream.records.binarySearchBy(frame.returnCommandOffset) { it.offset } < 0
+        ) {
+            throw IOException("A System-NNN RETURN continuation is not a record boundary.")
+        }
+        return SystemNnnDecodedCommand.Jump(frame.returnCommandOffset)
+    }
+
+    private fun filmTableEntriesFor(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream
+    ): List<io.github.helterfall.ramen.parser.SystemNnnFilmTableEntry> {
+        cachedFilmTableEntries?.let { return it }
+        return streamReader.filmTableEntries(script, stream).also {
+            cachedFilmTableEntries = it
+        }
+    }
+
+    private data class LocalSubroutineFrame(
+        val returnCommandOffset: Long,
+        val subroutineId: Int
+    )
 
     private fun skipFollowingBranch(
         script: SystemNnnScript,
@@ -492,7 +590,9 @@ class SystemNnnCommandDecoderImpl(
         if (cachedScript !== script || cachedStream == null) {
             cachedStream = streamReader.read(script)
             cachedScript = script
+            cachedFilmTableEntries = null
             variables.clear()
+            localSubroutineStack.clear()
         }
         return checkNotNull(cachedStream)
     }
@@ -542,6 +642,13 @@ class SystemNnnCommandDecoderImpl(
         const val CODE_CONTROL_ENDKOMA = 0x000E
         const val CODE_CONTROL_ENDIF = 0x0013
         const val CODE_CONTROL_CASE = 0x0008
+        const val CODE_CONTROL_SUB = 0x0009
+        const val CODE_CONTROL_RETURN = 0x0007
+        const val LOCAL_SUB_PAYLOAD_WORD_COUNT = 2
+        const val LOCAL_SUB_TABLE_INDEX_PAYLOAD = 0
+        const val LOCAL_SUB_ID_PAYLOAD = 1
+        const val MAX_LOCAL_SUBROUTINE_DEPTH = 249
+        const val MAX_LOCAL_SUBROUTINE_ID = 10_000
         const val SCRIPT_VAR_FAMILY = 0x8000
         const val SCRIPT_NUMBER_FAMILY = 0x9000
         const val SCRIPT_CALCU_ENZAN_FAMILY = 0xA000
