@@ -67,6 +67,29 @@ class SystemNnnLooseAudioFormatTest {
         }
     }
 
+
+    @Test
+    fun packTypeTwoSkipsTheNativeWaveDescriptorBeforeOgg() {
+        val root = Files.createTempDirectory("ramen-loose-vaw-ogg").toFile()
+        val source = File(root, "vaw/sys/music.vaw")
+        try {
+            val header = ByteArray(0x40) { ' '.code.toByte() }
+            "PACKTYPE=2      ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x30)
+            val descriptor = ByteArray(0x2C)
+            val ogg = "OggSafter-descriptor".toByteArray(Charsets.US_ASCII)
+            source.writeBytes(header + descriptor + ogg)
+
+            val repository = SystemNnnLooseAudioRepository(root, listOf(source), File(root, "cache"))
+            assertEquals(0x6CL, repository.resources.single().payloadOffsetBytes)
+            val staged = repository.materialize("music")
+            assertEquals(ogg.toList(), staged.readBytes().toList())
+            repository.close()
+            assertFalse(staged.exists())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     @Test
     fun packTypeSixRequiresOggMarkerAndStagesOnlyTheStream() {
         val root = Files.createTempDirectory("ramen-loose-wgq-ogg").toFile()
