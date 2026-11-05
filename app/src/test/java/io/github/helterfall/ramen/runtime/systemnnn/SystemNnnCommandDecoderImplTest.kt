@@ -415,6 +415,8 @@ class SystemNnnCommandDecoderImplTest {
         const val CODE_CONTROL_ENDKOMA = 0x5556000Eu
         const val CODE_CONTROL_ENDIF = 0x55560013u
         const val CODE_CONTROL_CASE = 0x55560008u
+        const val CODE_CONTROL_RETURN = 0x55560007u
+        const val CODE_CONTROL_SUB = 0x55560009u
         const val CODE_OPEN_BRACE = 0xA000007Bu
         const val CODE_CLOSE_BRACE = 0xA000007Du
         const val CODE_CONTROL_ENDFILM = 0x5556000Cu
