@@ -73,6 +73,7 @@ class SystemNnnLooseAudioFormatTest {
         val root = Files.createTempDirectory("ramen-loose-vaw-ogg").toFile()
         val source = File(root, "vaw/sys/music.vaw")
         try {
+            source.parentFile?.mkdirs()
             val header = ByteArray(0x40) { ' '.code.toByte() }
             "PACKTYPE=2      ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x30)
             val descriptor = ByteArray(0x2C)
