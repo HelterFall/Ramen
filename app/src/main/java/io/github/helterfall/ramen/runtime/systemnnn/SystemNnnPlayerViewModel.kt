@@ -279,8 +279,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
         val parsedCommandStream = try {
             if (moduleName != null) {
-                controllerProgram?.commandStream
-                    ?: throw IOException("В управляющем модуле отсутствует разобранный поток команд.")
+                modulePrograms.firstOrNull {
+                    it.name.equals(moduleName, ignoreCase = true)
+                }?.commandStream
+                    ?: throw IOException("В активном модуле '$moduleName' отсутствует разобранный поток команд.")
             } else {
                 SystemNnnCommandStreamReader().read(script)
             }
