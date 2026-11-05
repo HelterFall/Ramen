@@ -1,5 +1,7 @@
 package io.github.helterfall.ramen.runtime.systemnnn
 
+import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -404,6 +406,29 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     }
 
     companion object {
+        /**
+         * Creates a launch request for a specific scene.dat row. The optional
+         * film choice is the zero-based position inside that row; playback
+         * continues with the following film entries until ENDFILM ends the row.
+         */
+        fun createSceneIntent(
+            context: Context,
+            gameId: String,
+            characterIndex: Int,
+            sceneIndex: Int,
+            filmChoiceIndex: Int = 0
+        ): Intent {
+            require(gameId.isNotBlank()) { "gameId must not be blank." }
+            require(characterIndex >= 0) { "characterIndex must not be negative." }
+            require(sceneIndex >= 0) { "sceneIndex must not be negative." }
+            require(filmChoiceIndex >= 0) { "filmChoiceIndex must not be negative." }
+            return Intent(context, SystemNnnPlayerActivity::class.java)
+                .putExtra(EXTRA_GAME_ID, gameId)
+                .putExtra(EXTRA_SCENE_CHARACTER_INDEX, characterIndex)
+                .putExtra(EXTRA_SCENE_INDEX, sceneIndex)
+                .putExtra(EXTRA_SCENE_FILM_CHOICE_INDEX, filmChoiceIndex)
+        }
+
         const val EXTRA_GAME_ID = "io.github.helterfall.ramen.extra.SYSTEM_NNN_GAME_ID"
         const val EXTRA_SCENE_CHARACTER_INDEX = "io.github.helterfall.ramen.extra.SYSTEM_NNN_SCENE_CHARACTER_INDEX"
         const val EXTRA_SCENE_INDEX = "io.github.helterfall.ramen.extra.SYSTEM_NNN_SCENE_INDEX"
