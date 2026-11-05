@@ -522,3 +522,18 @@ The Kotlin diagnostics now expose all validated descriptor-3 entries as `SystemN
 This is a structural ownership annotation only. It does not make a module-name string reference an executable transfer, and it does not identify the target film in the destination module. Synthetic tests cover a reserved entry plus two ordinary film intervals and confirm that candidate records are assigned to their enclosing source intervals.
 
 The next useful diagnostic is to group the 511 candidate references by (source module, source film number, record family/code, target module) and compare same-film control-flow context. No VM call/return behavior should be enabled until the destination film and return convention are independently proven.
+
+
+### Independent source-film grouping replay over the 20 SPT modules
+
+The source-film annotation predicate was replayed independently against the 20 demasked SPT files in the new archive. Results:
+- all **511/511** exact module-name candidates resolve to a preceding ordinary descriptor-3 film entry;
+- no candidate falls before the first film entry or into a reserved-prefix interval;
+- candidates are distributed across **173 distinct source-film intervals** in **7 source modules**;
+- per-source-module totals: `01:2`, `03:19`, `akane:49`, `aoi:173`, `kiika:213`, `yamiko:17`, `yuka:38`.
+
+This validates the structural ownership assignment as a useful way to index the candidate records. It still does not show that a candidate changes modules: the target is just a Pool 2 string that exactly matches a project module name, and several opcode families share the same payload form for non-module labels.
+
+The 15 exact `0x3333/0x1A` references and their same-module/same-Pool2-index `0x3333/0x1B` counterparts remain in different source-film intervals in all 15 cases (13 counterparts physically earlier, 2 later). Source-film grouping therefore does not turn these into a local call/return pair. Preserve both the physical offset and source-film owner; do not pair them as adjacent commands.
+
+A useful next artifact is a deterministic, read-only export grouped by source module → source film → record family/code → target string. It can reveal whether specific candidates consistently sit next to control-flow structures without altering player execution.
