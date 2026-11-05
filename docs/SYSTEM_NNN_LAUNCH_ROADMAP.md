@@ -1046,3 +1046,11 @@ The native scene.dat parser now follows the CSceneList layout (fileSize, charact
 For the supplied primary archive the one character group has 69 rows and 150 film references. Module index → (scene rows, film refs, ordinary film slots): 4→(2,4,158), 10→(4,4,47), 11→(15,23,100), 12→(14,36,82), 13→(16,42,107), 14→(2,2,55), 15→(14,33,94), 18→(2,6,14). Every film index fits its specific module. 43 of the 150 film references are negative/completion-untracked.
 
 The Activity accepts scene replay via EXTRA_SCENE_CHARACTER_INDEX, EXTRA_SCENE_INDEX and optional EXTRA_SCENE_FILM_CHOICE_INDEX. The ViewModel starts the selected module at its film-table target and replays the remaining films in that scene row. ENDFILM remains sequential in normal gameplay but advances the scene replay queue in gallery/replay mode. The visible gallery picker is still separate follow-up UI work.
+
+### Multi-bank asset manager (initial runtime integration)
+
+- Added a project-level catalog over every validated same-stem GTB↔GPK/WGQ image pair and VTB↔VPK/VAW audio pair found under the imported game directory.
+- Each bank has a stable ID derived from its relative index-file path, and exposes its own row count. Image names and audio names are resolved only when unique across banks; numeric row lookups require a single bank or an explicit bank ID.
+- Loose VAW files and unpaired WGQ files are retained in the catalog as unresolved candidates rather than being guessed as voice, BGM, or image resources. The supplied archive has one 69-row GPK/GTB image bank, one 90-row VPK/VTB audio bank, two loose VAW files, and one unindexed WGQ Ogg/`PACKTYPE=6` file.
+- `SystemNnnAssetManager` now replaces the two independent first-match discoveries in `SystemNnnPlayerActivity` and is passed to the ViewModel as both the scene image resolver and audio resource repository. Its close operation is idempotent.
+- Remaining asset work: identify the native command-to-resource operands for SPT backgrounds/sprites, determine how the loose VAW and WGQ `PACKTYPE=6` resources are addressed, and verify any multi-bank selection rules against target dispatch before using a global index.
