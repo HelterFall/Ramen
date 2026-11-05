@@ -13,7 +13,8 @@ data class SystemNnnModuleReferenceProjectReport(
     val candidates: List<SystemNnnModuleReferenceCandidate>,
     val warnings: List<String> = emptyList(),
     val scriptTransfers: List<SystemNnnScriptTransferCandidate> = emptyList(),
-    val unresolvedScriptTransferTargetCount: Int = 0
+    val unresolvedScriptTransferTargetCount: Int = 0,
+    val localSubroutineScan: SystemNnnLocalSubroutineScanResult? = null
 )
 
 /**
@@ -37,7 +38,9 @@ class SystemNnnModuleReferenceReportWriter(
         output: OutputStream
     ) {
         val totalCandidates = reports.sumOf {
-            it.candidates.size.toLong() + it.scriptTransfers.size.toLong()
+            it.candidates.size.toLong() +
+                it.scriptTransfers.size.toLong() +
+                (it.localSubroutineScan?.candidates?.size ?: 0).toLong()
         }
         if (totalCandidates > maxCandidates.toLong()) {
             throw IOException("The module-reference report exceeds the candidate limit.")
@@ -45,10 +48,13 @@ class SystemNnnModuleReferenceReportWriter(
 
         val totalTransfers = reports.sumOf { it.scriptTransfers.size.toLong() }
         val unresolvedTransfers = reports.sumOf { it.unresolvedScriptTransferTargetCount.toLong() }
+        val totalLocalSubroutines = reports.sumOf {
+            it.localSubroutineScan?.candidates?.size?.toLong() ?: 0L
+        }
         val writer = BufferedWriter(OutputStreamWriter(output, Charsets.UTF_8))
-        writer.appendLine("SYSTEM-NNN SCRIPT TRANSFERS AND MODULE-NAME REFERENCES")
+        writer.appendLine("SYSTEM-NNN SCRIPT TRANSFERS, LOCAL SUBROUTINES AND STRING REFERENCES")
         writer.appendLine(
-            "Projects: ${reports.size} · script-transfer candidates: $totalTransfers · " +
+            "Projects: ${reports.size} · script transfers: $totalTransfers · local SUB calls: $totalLocalSubroutines · " +
                 "unclassified references: ${reports.sumOf { it.candidates.size }} · unresolved transfer targets: $unresolvedTransfers"
         )
         writer.appendLine(
@@ -91,6 +97,33 @@ class SystemNnnModuleReferenceReportWriter(
                             writer.appendLine("    PREV: ${formatContext(transfer.previousRecord)}")
                             writer.appendLine("    NEXT: ${formatContext(transfer.nextRecord)}")
                         }
+                    }
+            }
+
+            if (report.localSubroutineScan != null) {
+                val localScan = report.localSubroutineScan
+                writer.appendLine()
+                writer.appendLine("LOCAL SUBROUTINE TABLE TARGETS")
+                writer.appendLine(
+                    "SUB IDs dense=${localScan.subroutineIdsAreDense} · " +
+                        "missing=${localScan.missingSubroutineIds.joinToString(",").ifEmpty { "none" }} · " +
+                        "duplicates=${localScan.duplicateSubroutineIds.joinToString(",").ifEmpty { "none" }} · " +
+                        "unresolved targets=${localScan.unresolvedTargetCount}"
+                )
+                localScan.candidates
+                    .sortedWith(compareBy<SystemNnnLocalSubroutineCandidate> { it.sourceModuleName }
+                        .thenBy { it.subroutineId })
+                    .forEach { subroutine ->
+                        val targetFilm = subroutine.targetFilmNumber?.let { "film=$it" } ?: "reserved"
+                        writer.appendLine(
+                            "  SUB id=${subroutine.subroutineId} @${formatOffset(subroutine.commandOffset)} " +
+                                "-> descriptor3[${subroutine.targetTableIndex}] " +
+                                "@${formatOffset(subroutine.targetCommandOffset)} " +
+                                "function=0x3333/${subroutine.targetFunctionCodeId.toString(16).uppercase(Locale.ROOT)} " +
+                                "($targetFilm)"
+                        )
+                        writer.appendLine("    PREV: ${formatContext(subroutine.previousRecord)}")
+                        writer.appendLine("    NEXT: ${formatContext(subroutine.nextRecord)}")
                     }
             }
 
