@@ -7,16 +7,16 @@ import java.nio.file.Files
 /**
  * One scene row in scene.dat.
  *
- * The signed module number is one-based. Its sign marks the scene type;
- * abs(moduleNumber) - 1 is the zero-based index into project.xtx.
- * Film numbers are also one-based; a negative sign only disables completion checks.
+ * The signed module number is a zero-based project.xtx index. Its sign
+ * marks the scene type; abs(moduleNumber) is passed to the project name table.
+ * Film numbers are one-based; a negative sign only disables completion checks.
  */
 data class SystemNnnSceneEntry(
     val storedModuleNumber: Int,
     val storedFilmNumbers: List<Int>
 ) {
     val moduleIndex: Int
-        get() = kotlin.math.abs(storedModuleNumber) - 1
+        get() = kotlin.math.abs(storedModuleNumber)
 
     val isHScene: Boolean
         get() = storedModuleNumber < 0
@@ -186,9 +186,9 @@ class SystemNnnSceneCatalogReader(
                 )
                 cursor += SCENE_HEADER_BYTES
 
-                if (storedModuleNumber == 0 || storedModuleNumber == Int.MIN_VALUE) {
+                if (storedModuleNumber == Int.MIN_VALUE) {
                     throw IOException(
-                        "scene.dat character $characterIndex scene $sceneIndex has an invalid one-based module number."
+                        "scene.dat character $characterIndex scene $sceneIndex has an invalid module number."
                     )
                 }
                 val filmBytes = filmCount.toLong() * INT32_BYTES
