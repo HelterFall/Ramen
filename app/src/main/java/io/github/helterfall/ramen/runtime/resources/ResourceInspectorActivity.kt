@@ -63,6 +63,7 @@ import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
 import io.github.helterfall.ramen.parser.SystemNnnProjectCatalog
 import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceScanner
 import io.github.helterfall.ramen.parser.SystemNnnScriptTransferScanner
+import io.github.helterfall.ramen.parser.SystemNnnLocalSubroutineScanner
 import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceReportWriter
 import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceProjectReport
 
@@ -367,6 +368,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                 val streamReader = SystemNnnCommandStreamReader()
                 val scanner = SystemNnnModuleReferenceScanner(streamReader)
                 val transferScanner = SystemNnnScriptTransferScanner(streamReader)
+                val localSubroutineScanner = SystemNnnLocalSubroutineScanner(streamReader)
                 val reports = projectFiles.map { projectFile ->
                     val projectPath = projectFile.relativeTo(gameRoot).invariantSeparatorsPath
                     try {
@@ -377,6 +379,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                         val scriptTransfers =
                             ArrayList<io.github.helterfall.ramen.parser.SystemNnnScriptTransferCandidate>()
                         var unresolvedTransferTargets = 0
+                        var localSubroutineScan: io.github.helterfall.ramen.parser.SystemNnnLocalSubroutineScanResult? = null
                         val warnings = ArrayList<String>()
 
                         modules.forEach { module ->
@@ -397,6 +400,11 @@ class ResourceInspectorActivity : ComponentActivity() {
                                 )
                                 scriptTransfers += transferResult.candidates
                                 unresolvedTransferTargets += transferResult.unresolvedTargetCount
+                                localSubroutineScan = localSubroutineScanner.scan(
+                                    sourceModuleName = module.name,
+                                    script = script,
+                                    stream = stream
+                                )
                             } catch (error: Exception) {
                                 warnings += "${module.name}: ${error.message ?: "ошибка чтения SPT"}"
                             }
@@ -408,7 +416,8 @@ class ResourceInspectorActivity : ComponentActivity() {
                             candidates = candidates,
                             warnings = warnings,
                             scriptTransfers = scriptTransfers,
-                            unresolvedScriptTransferTargetCount = unresolvedTransferTargets
+                            unresolvedScriptTransferTargetCount = unresolvedTransferTargets,
+                            localSubroutineScan = localSubroutineScan
                         )
                     } catch (error: Exception) {
                         SystemNnnModuleReferenceProjectReport(
@@ -422,6 +431,7 @@ class ResourceInspectorActivity : ComponentActivity() {
 
                 val candidateCount = reports.sumOf { it.candidates.size }
                 val transferCount = reports.sumOf { it.scriptTransfers.size }
+                val localSubroutineCount = reports.sumOf { it.localSubroutineScan?.candidates?.size ?: 0 }
                 val warningCount = reports.sumOf { it.warnings.size }
                 val output = contentResolver.openOutputStream(uri)
                     ?: throw IOException("Не удалось открыть выбранный документ для записи.")
@@ -432,7 +442,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                 runOnUiThread {
                     textState.value = textState.value.copy(
                         isExportingModuleReferences = false,
-                        exportMessage = "Отчёт сохранён: переходов $transferCount · обычных ссылок $candidateCount · предупреждений $warningCount."
+                        exportMessage = "Отчёт сохранён: переходов $transferCount · локальных SUB $localSubroutineCount · обычных ссылок $candidateCount · предупреждений $warningCount."
                     )
                 }
             } catch (error: Exception) {
@@ -1289,7 +1299,7 @@ private fun TextMetadataPanel(
                     ) {
                         Text(
                             if (state.isExportingModuleReferences) "Собираю карту ссылок…"
-                            else "Сохранить карту переходов и ссылок (.txt)"
+                            else "Сохранить карту переходов, SUB и ссылок (.txt)"
                         )
                     }
                 } else {
