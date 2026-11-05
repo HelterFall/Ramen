@@ -195,7 +195,9 @@ class SystemNnnCommandDecoderImpl(
         var cursor = afterSelectOffset
         val first = recordAt(stream, cursor)
         if (isOpenBrace(first)) {
-            cursor = skipBraceBlock(script, stream, first!!)
+            // Target gss.exe GetCase skips an initial wrapper brace record only.
+            // CASE-body braces below are skipped by their declared DWORD span.
+            cursor = first!!.endOffsetExclusive
         }
 
         repeat(MAX_CASE_SCAN_RECORDS) {
