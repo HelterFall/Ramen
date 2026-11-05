@@ -14,7 +14,9 @@ data class SystemNnnModuleReferenceCandidate(
     val codeFamily: Int,
     val codeId: Int,
     val pool2Index: UInt,
-    val recordLengthWords: UInt
+    val recordLengthWords: UInt,
+    val sourceFilmTableIndex: Int?,
+    val sourceFilmNumber: Int?
 )
 
 /**
@@ -24,7 +26,9 @@ data class SystemNnnModuleReferenceCandidate(
  * Pool 2 string match against project.xtx names. It deliberately does not
  * classify any matching record as a module transition.
  */
-class SystemNnnModuleReferenceScanner {
+class SystemNnnModuleReferenceScanner(
+    private val streamReader: SystemNnnCommandStreamReader = SystemNnnCommandStreamReader()
+) {
 
     @Throws(IOException::class)
     fun scan(
@@ -37,6 +41,18 @@ class SystemNnnModuleReferenceScanner {
         if (projectModuleNames.isEmpty()) return emptyList()
 
         val knownModules = projectModuleNames.toHashSet()
+        val filmEntries = if (script.offsetTables.size > FILM_TABLE_DESCRIPTOR_INDEX) {
+            streamReader.filmTableEntries(script, stream)
+                .sortedBy { it.targetCommandOffset }
+        } else {
+            emptyList()
+        }
+        if (filmEntries.zipWithNext().any { (left, right) ->
+                left.targetCommandOffset == right.targetCommandOffset
+            }
+        ) {
+            throw IOException("The SPT film table contains duplicate physical scene-entry offsets.")
+        }
         val candidates = ArrayList<SystemNnnModuleReferenceCandidate>()
 
         stream.records.forEach { record ->
@@ -57,6 +73,7 @@ class SystemNnnModuleReferenceScanner {
                 return@forEach
             }
 
+            val sourceFilm = findSourceFilmEntry(record.offset, filmEntries)
             candidates += SystemNnnModuleReferenceCandidate(
                 sourceModuleName = sourceModuleName,
                 targetModuleName = targetName,
@@ -65,11 +82,37 @@ class SystemNnnModuleReferenceScanner {
                 codeFamily = record.codeFamily,
                 codeId = record.codeId,
                 pool2Index = poolIndex,
-                recordLengthWords = record.lengthWords
+                recordLengthWords = record.lengthWords,
+                sourceFilmTableIndex = sourceFilm?.tableIndex,
+                sourceFilmNumber = sourceFilm?.filmNumber
             )
         }
 
         return candidates
+    }
+
+    /**
+     * Finds the physical film interval containing a record. Film entries are
+     * sorted by their validated command offsets; reserved prefixes retain their
+     * table index but intentionally have no ordinary film number.
+     */
+    private fun findSourceFilmEntry(
+        commandOffset: Long,
+        orderedEntries: List<SystemNnnFilmTableEntry>
+    ): SystemNnnFilmTableEntry? {
+        var low = 0
+        var high = orderedEntries.lastIndex
+        var bestIndex = -1
+        while (low <= high) {
+            val middle = low + (high - low) / 2
+            if (orderedEntries[middle].targetCommandOffset <= commandOffset) {
+                bestIndex = middle
+                low = middle + 1
+            } else {
+                high = middle - 1
+            }
+        }
+        return orderedEntries.getOrNull(bestIndex)
     }
 
     private fun readPayloadWord(
@@ -96,6 +139,7 @@ class SystemNnnModuleReferenceScanner {
     private companion object {
         const val REFERENCE_PAYLOAD_WORD_COUNT = 2
         const val REFERENCE_TAG = 1u
+        const val FILM_TABLE_DESCRIPTOR_INDEX = 2
         const val RECORD_HEADER_BYTES = 12L
         const val UINT32_BYTES = 4L
     }
