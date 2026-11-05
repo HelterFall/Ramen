@@ -850,3 +850,4 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 
 - Resource/audio SPT inventory now carries up to four numeric DWORDs from the immediately previous and next records, plus source film-table identity/interval when descriptor 3 is validated. Adjacent context never crosses a known film boundary; the exported text contains no Pool 1/Pool 2 strings.
 - Switched per-candidate scene-interval indexing to binary search; each neighbour context is capped at four DWORDs.
+- Added a synthetic resource-function scan fixture with valid reserved/ordinary film pointers. It checks that the next-film SETFILM record is not exposed as the prior film's NEXT context; not executed.

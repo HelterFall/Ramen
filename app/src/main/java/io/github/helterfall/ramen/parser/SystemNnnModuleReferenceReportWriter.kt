@@ -71,7 +71,8 @@ class SystemNnnModuleReferenceReportWriter(
                 "Targets below exactly match project.xtx module names; runtime return/startup behavior is not device-verified."
         )
         writer.appendLine(
-            "Only record metadata and numeric DWORD previews are included; scenario text, names and resource data are omitted."
+            "Scenario/dialogue strings, Pool 1/Pool 2 contents, resource paths and media bytes are omitted. " +
+                "Project module identifiers are shown only to identify each source record."
         )
         writer.appendLine(
             "Resource/audio SYSTEM_FUNCTION labels are cross-title NNNLib context only; they are candidates, not target-confirmed command semantics."
@@ -142,7 +143,7 @@ class SystemNnnModuleReferenceReportWriter(
                         writer.appendLine(
                             "    ${kind.familyReferenceName} count=${candidates.size} " +
                                 "lengthWords={$lengths} remainingPayloadWords={$payloadSizes} " +
-                                "leadingWord={$leadingValues}"
+                                "leadingWord(first $MAX_SUMMARY_VALUES numeric values)={$leadingValues}"
                         )
                     }
                 report.resourceFunctionCandidates
