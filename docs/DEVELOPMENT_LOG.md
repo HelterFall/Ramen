@@ -811,3 +811,10 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Per-bank IDs are relative index-file paths. Duplicate name lookups and unqualified row indexes fail closed when multiple banks make resolution ambiguous. Payloads remain on disk and selected Ogg data is staged only on demand.
 - Archive metadata scan: one 69-entry GPK/GTB image bank, one 90-entry VPK/VTB audio bank, two unindexed VAW files and one unindexed WGQ Ogg/`PACKTYPE=6` candidate. No mapping or playback behavior is inferred for the loose files.
 - Added synthetic asset-manager coverage for multi-bank ambiguity, indexed VPK discovery and unindexed WGQ inventory. No CI, tests, lint or APK build run by request.
+
+## 2026-11-06 — native DWQ namespace and WGQ/MML catalog
+
+- Native image-manager initialization enumerates the fixed DWQ namespace prefixes `ta`, `bg`, `ev`, `sc`, `sm`, `sys` and constructs numbered same-stem GTB/GPK banks. The manager's catalog now preserves the detected namespace and suffix slot (e.g. `sc0` → `sc`, `0`).
+- Same-stem archive fallback now tries GPK before WGQ and VAW before VPK, validating each candidate in turn rather than failing on the first corrupt file. Added synthetic fallback tests.
+- The native WGQ/MML loader first tries a same-token `.mml` path and falls back to `.wgq`; another WGQ path opens the file, skips its 64-byte preamble, and passes the stream to a dedicated reader. `.mml` names are catalogued separately; the supplied `gsstxt01.mml` and `gss01_1.wgq` are not associated by guesswork.
+- The SPT operand that selects among DWQ namespaces/slots is still unresolved, so global image index addressing remains disabled when multiple banks exist. No direct WGQ stream decoder has been added.
