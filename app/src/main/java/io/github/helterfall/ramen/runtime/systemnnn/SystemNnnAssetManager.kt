@@ -20,7 +20,11 @@ data class SystemNnnAssetBankInfo(
     val type: SystemNnnAssetBankType,
     val indexPath: String?,
     val archivePath: String?,
-    val resourceCount: Int
+    val resourceCount: Int,
+    /** Native DWQ image-group prefix (ta/bg/ev/sc/sm/sys), when recognized. */
+    val nativeNamespace: String? = null,
+    /** Numeric suffix in dwq/<namespace><slot>.gtb/.gpk, when recognized. */
+    val bankSlot: Int? = null
 )
 
 data class SystemNnnAssetCatalog(
@@ -299,7 +303,9 @@ class SystemNnnAssetManager private constructor(
                         type = SystemNnnAssetBankType.INDEXED_IMAGE,
                         indexPath = relativePath(root, indexFile),
                         archivePath = relativePath(root, archiveFile),
-                        resourceCount = repository.resourceCount
+                        resourceCount = repository.resourceCount,
+                        nativeNamespace = nativeImageIdentity(indexFile.nameWithoutExtension).first,
+                        bankSlot = nativeImageIdentity(indexFile.nameWithoutExtension).second
                     )
                     imageBanks += ImageBank(info, repository)
                 } else {
@@ -466,6 +472,19 @@ class SystemNnnAssetManager private constructor(
                 )
                 ?.toList()
                 .orEmpty()
+
+        private val NATIVE_IMAGE_NAMESPACES = setOf("ta", "bg", "ev", "sc", "sm", "sys")
+
+        private fun nativeImageIdentity(baseName: String): Pair<String?, Int?> {
+            val normalized = baseName.lowercase()
+            val slot = normalized.lastOrNull()?.digitToIntOrNull() ?: return null to null
+            val namespace = normalized.dropLast(1)
+            return if (namespace in NATIVE_IMAGE_NAMESPACES) {
+                namespace to slot
+            } else {
+                null to null
+            }
+        }
 
         private fun relativePath(root: File, file: File): String =
             file.relativeTo(root).invariantSeparatorsPath
