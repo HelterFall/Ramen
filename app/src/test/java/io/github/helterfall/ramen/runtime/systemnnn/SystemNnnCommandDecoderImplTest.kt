@@ -318,6 +318,44 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun runsSetFilmEndFilmAndReturnInsideARealDescriptorThreeSubroutine() {
+        val script = localFilmSubroutineScript()
+        val decoder = decoder()
+
+        assertEquals(
+            SystemNnnDecodedCommand.Jump(LOCAL_FILM_TARGET_OFFSET),
+            decoder.decodeNext(script, LOCAL_FILM_SUB_CALL_OFFSET)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(LOCAL_FILM_TARGET_OFFSET + 20L),
+            decoder.decodeNext(script, LOCAL_FILM_TARGET_OFFSET)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(LOCAL_FILM_TARGET_OFFSET + 40L),
+            decoder.decodeNext(script, LOCAL_FILM_TARGET_OFFSET + 20L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.SetFilm(LOCAL_FILM_ENDFILM_OFFSET, 1),
+            decoder.decodeNext(script, LOCAL_FILM_SETFILM_OFFSET)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(LOCAL_FILM_RETURN_OFFSET),
+            decoder.decodeNext(script, LOCAL_FILM_ENDFILM_OFFSET)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Jump(LOCAL_FILM_CALLER_CONTINUATION),
+            decoder.decodeNext(script, LOCAL_FILM_RETURN_OFFSET)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Dialogue(
+                nextCommandOffset = LOCAL_FILM_CALLER_CONTINUATION + 20L,
+                textEntryOffset = script.textPool.single().offset
+            ),
+            decoder.decodeNext(script, LOCAL_FILM_CALLER_CONTINUATION)
+        )
+    }
+
+    @Test
     fun rejectsLocalReturnWhenNoSubroutineCallIsActive() {
         val script = localSubroutineScript()
         assertThrows(IOException::class.java) {
@@ -385,6 +423,42 @@ class SystemNnnCommandDecoderImplTest {
             commandEndOffset = commandEnd,
             textPoolOffset = commandEnd,
             textPool = listOf(SystemNnnTextEntry(offset = commandEnd, text = "Local return test")),
+            commandBytes = bytes
+        )
+    }
+
+    private fun localFilmSubroutineScript(): SystemNnnScript {
+        val words = listOf(0u, 0u, 0u, 0u) +
+            record(6, DATA, 0x55550002u, 0x1Au, 0x1Fu, 0x34u) +
+            record(5, SYSTEM_FUNCTION, 0x33330051u, 1u, 0u) +
+            record(5, SYSTEM_FUNCTION, 0x33330050u, 0u, 0u) +
+            record(5, SYSTEM_FUNCTION, 0x33330052u, 0u, 0u) +
+            record(5, SYSTEM_FUNCTION, 0x3333001Au, 1u, 1u) +
+            record(3, CONTROL, CODE_CONTROL_ENDFILM) +
+            record(3, CONTROL, CODE_CONTROL_RETURN) +
+            record(5, SYSTEM_FUNCTION, 0x33330050u, 0u, 0u) +
+            record(5, SYSTEM_FUNCTION, 0x33330052u, 0u, 0u) +
+            record(5, CONTROL, CODE_CONTROL_SUB, 1u, 0u) +
+            record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u) +
+            listOf(0u, 0u, 0u, 0u)
+        val bytes = ByteArray(words.size * DWORD_BYTES.toInt())
+        words.forEachIndexed { index, word ->
+            putUInt32(bytes, index * DWORD_BYTES.toInt(), word)
+        }
+        val commandEnd = COMMAND_START + bytes.size
+        return SystemNnnScript(
+            fileSizeBytes = commandEnd + 0x20L,
+            firstHeaderWord = 0u,
+            offsetTables = listOf(
+                SystemNnnOffsetTable("main", 0u, 0u),
+                SystemNnnOffsetTable("secondary", 0u, 0u),
+                SystemNnnOffsetTable("tertiary", 3u, 0x17u),
+                SystemNnnOffsetTable("auxiliary", 1u, 0u)
+            ),
+            commandStartOffset = COMMAND_START,
+            commandEndOffset = commandEnd,
+            textPoolOffset = commandEnd,
+            textPool = listOf(SystemNnnTextEntry(offset = commandEnd, text = "Returned from local film")),
             commandBytes = bytes
         )
     }
@@ -482,6 +556,12 @@ class SystemNnnCommandDecoderImplTest {
         const val SETFILM_OFFSET = 0xA0L
         const val END_FILM_OFFSET = 0xB4L
         const val PRINT_OFFSET = 0xC0L
+        const val LOCAL_FILM_TARGET_OFFSET = 0x7CL
+        const val LOCAL_FILM_SETFILM_OFFSET = 0xA4L
+        const val LOCAL_FILM_ENDFILM_OFFSET = 0xB8L
+        const val LOCAL_FILM_RETURN_OFFSET = 0xC4L
+        const val LOCAL_FILM_SUB_CALL_OFFSET = 0xF8L
+        const val LOCAL_FILM_CALLER_CONTINUATION = 0x10CL
 
         const val DATA = 0x66660001u
         const val CONTROL = 0x66660002u
