@@ -812,7 +812,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val targetDecoder = factory(target)
 
         if (kind != SystemNnnModuleTransferKind.SCRIPTJUMP) {
-            if (moduleCallStack.size >= MAX_NESTED_MODULE_DEPTH) {
+            // sys.spt is native run-mode slot 0; a direct scene route starts in
+            // the main-script slot 1. Slot 2 is the final nested SPT executor.
+            val maxCallDepth = if (sceneReplayModuleName != null) {
+                MAX_SCENE_REPLAY_MODULE_CALL_DEPTH
+            } else {
+                MAX_NESTED_MODULE_CALL_DEPTH
+            }
+            if (moduleCallStack.size >= maxCallDepth) {
                 throw IOException("Превышена максимальная глубина вложенных SPT-модулей.")
             }
             moduleCallStack += ModuleCallFrame(
@@ -1006,6 +1013,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
     companion object {
         private const val MAX_SCENE_COMMANDS_PER_ADVANCE = 2_048
-        private const val MAX_NESTED_MODULE_DEPTH = 3
+        // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
+        // and one nested SPT executor. A direct scene starts in slot 1.
+        private const val MAX_NESTED_MODULE_CALL_DEPTH = 2
+        private const val MAX_SCENE_REPLAY_MODULE_CALL_DEPTH = 1
     }
 }
