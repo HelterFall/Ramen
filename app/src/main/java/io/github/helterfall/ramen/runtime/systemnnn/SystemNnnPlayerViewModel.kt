@@ -333,7 +333,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         audioRepository: SystemNnnVpkAudioRepository? = null,
         initialSceneRoute: SystemNnnSceneRoute? = null
     ) {
-        val moduleMap = modules.associateBy { it.name.lowercase(Locale.ROOT) }
+        val orderedModules = modules.toList()
+        val moduleMap = orderedModules.associateBy { it.name.lowercase(Locale.ROOT) }
         val control = moduleMap[controlModuleName.lowercase(Locale.ROOT)]
         if (control == null) {
             runCatching { assetResolver.close() }
@@ -345,15 +346,26 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val startingProgram = if (initialSceneRoute == null) {
             control
         } else {
-            moduleMap[initialSceneRoute.moduleName.lowercase(Locale.ROOT)]
+            val routedModule = orderedModules.getOrNull(initialSceneRoute.moduleIndex)
                 ?: run {
                     runCatching { assetResolver.close() }
                     runCatching { audioRepository?.close() }
                     showStartupError(
-                        "scene.dat указывает на отсутствующий модуль '${initialSceneRoute.moduleName}'."
+                        "scene.dat указывает на module index ${initialSceneRoute.moduleIndex} " +
+                            "за пределами project.xtx."
                     )
                     return
                 }
+            if (!routedModule.name.equals(initialSceneRoute.moduleName, ignoreCase = true)) {
+                runCatching { assetResolver.close() }
+                runCatching { audioRepository?.close() }
+                showStartupError(
+                    "scene.dat module index ${initialSceneRoute.moduleIndex} должен указывать на " +
+                        "'${initialSceneRoute.moduleName}', но project.xtx содержит '${routedModule.name}'."
+                )
+                return
+            }
+            routedModule
         }
         val replayFilms = if (initialSceneRoute == null) {
             emptyList()
