@@ -182,9 +182,10 @@ class SystemNnnCommandDecoderImpl(
     }
 
     /**
-     * Mirrors the reference runtime's CASE scan: each CASE contains a 1-based
-     * option number. A following opening-brace record stores the block span in
-     * DWORDs; skipping it lands on the closing brace and then the next CASE.
+     * Mirrors target gss.exe GetCase: CASE carries the 1-based option number,
+     * and a matching branch begins immediately after that CASE record. Unmatched
+     * branch blocks are skipped by the opening brace's DWORD span, including the
+     * closing-brace record when the span lands on it.
      */
     private fun findCaseTarget(
         script: SystemNnnScript,
