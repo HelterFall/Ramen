@@ -537,3 +537,12 @@ This validates the structural ownership assignment as a useful way to index the 
 The 15 exact `0x3333/0x1A` references and their same-module/same-Pool2-index `0x3333/0x1B` counterparts remain in different source-film intervals in all 15 cases (13 counterparts physically earlier, 2 later). Source-film grouping therefore does not turn these into a local call/return pair. Preserve both the physical offset and source-film owner; do not pair them as adjacent commands.
 
 A useful next artifact is a deterministic, read-only export grouped by source module → source film → record family/code → target string. It can reveal whether specific candidates consistently sit next to control-flow structures without altering player execution.
+
+
+### Bounded record context and in-app diagnostic report
+
+The candidate scanner now attaches the previous and next record from the same validated physical film interval. Each context item contains only offset, identifier type, code family/id, record length, and at most the first four opaque payload DWORDs. A neighbor that starts at the next film-table target is deliberately excluded from the current interval.
+
+The Resource Inspector's Text Data tab now offers "Сохранить карту ссылок на модули (.txt)" when one or more sibling project.xtx catalogs are present. Export is performed on the existing worker thread and uses the validated project catalog and SPT parsers. Every catalog is reported separately; per-module read failures are preserved as warnings rather than silently discarded.
+
+The deterministic UTF-8 report groups candidates by project → source module → source film interval → candidate record. It includes adjacent-record metadata and opaque payload previews, but no scenario dialogue, Pool 1 contents, resource payloads, or presumed control-flow labels. A 20,000-candidate cap bounds output. The report explicitly states that matching module-name strings are not proven calls/jumps/startup routes.

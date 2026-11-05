@@ -84,8 +84,8 @@ class SystemNnnModuleReferenceScannerTest {
             listOf(5u, 0x66660007u, 0x33330050u, 0u, 0u),
             listOf(5u, 0x66660007u, 0x33330052u, 0u, 0u),
             listOf(5u, 0x66660006u, 0x22220004u, 1u, 0u),
-            listOf(5u, 0x66660007u, 0x33330050u, 1u, 0u),
-            listOf(5u, 0x66660007u, 0x33330052u, 1u, 0u),
+            listOf(5u, 0x66660007u, 0x33330050u, 0u, 0u),
+            listOf(5u, 0x66660007u, 0x33330052u, 0u, 0u),
             listOf(5u, 0x66660006u, 0x22220004u, 1u, 0u)
         )
         val words = listOf(0u, 0u, 0u, 0u) + records.flatten() + listOf(0u, 0u, 0u, 0u)

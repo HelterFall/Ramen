@@ -980,3 +980,16 @@ An independent read-only replay over all 20 SPT modules in the new archive confi
 This is a useful diagnostic partition, not proof of module navigation. The 15 same-index 0x3333/0x1A and 0x3333/0x1B module-name references still occupy different source-film intervals (13 earlier / 2 later). They are not local call/return pairs.
 
 Next: add or run a deterministic report grouped by source module, source film, record family/code, and target Pool 2 string; use surrounding record context to narrow dispatch candidates. Runtime behavior remains gated on proving a destination film and a return rule.
+
+
+### In-app export of candidate module-reference context
+
+The Resource Inspector Text Data tab now exports a deterministic UTF-8 report for every discovered project.xtx:
+- module-name candidate references are grouped by source module and validated source-film interval;
+- each candidate includes exact code/offset information and bounded previous/next record context from inside that interval;
+- context previews retain at most four opaque payload DWORDs per neighbor;
+- per-module parsing failures are preserved as warnings;
+- no dialogue, Pool 1 text, or resource payload is written;
+- output is capped at 20,000 candidates and the report labels all entries as unproven candidates, not transitions.
+
+The export does not turn references into executable control flow. Its purpose is to give the next reverse-engineering pass a stable report that can be compared across the main and alternate SPT sets.

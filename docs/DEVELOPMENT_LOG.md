@@ -752,3 +752,13 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - This confirms the candidate list can be organized by source film. It does not prove any candidate executes a module transfer or determine a target film.
 - Rechecked the 15 same-index 0x3333/0x001A and 0x3333/0x001B module-name references: each matching pair remains in different source-film intervals (13 earlier / 2 later), so they are not local call/return pairs.
 - No runtime dispatch semantics or module auto-start were enabled. Next: export a grouped diagnostic by source module/film/code/target and inspect surrounding control-flow records.
+
+
+## 2026-11-05 — source-film context export in Resource Inspector
+
+- Extended each module-name candidate with its validated physical source-film interval and the previous/next command record inside that interval. Each neighbor retains offset, identifier type, code family/id, length and at most four opaque DWORD payload values. The following film entry itself is excluded from the current interval.
+- Added SystemNnnModuleReferenceReportWriter: deterministic UTF-8 export grouped by project, source module and source film; includes exact record offsets and bounded neighbor context; does not write scenario text or resource payloads; flushes but does not close caller-owned streams; caps output at 20,000 candidates.
+- Integrated an export action into Resource Inspector → Text Data. It discovers bounded project.xtx files, resolves each catalog with SystemNnnProjectCatalog, reads all sibling SPT modules off the UI thread, preserves per-module failures as warnings, and saves through Android CreateDocument.
+- Added writer tests for deterministic grouping, no scenario-text fields, output-stream ownership and candidate limits.
+- CI #394 (head bd2acb...) still failed because the synthetic film fixture's secondary film-function records also contained [1, Pool2Index] payloads; the scanner correctly found those extra candidates. The fixture now clears those unrelated payload references for all 0x3333/0x50 and 0x3333/0x52 rows. The next CI must confirm the corrected test and new exporter.
+- No runtime module dispatch, call stack, startup selection or scene playback behavior was enabled.
