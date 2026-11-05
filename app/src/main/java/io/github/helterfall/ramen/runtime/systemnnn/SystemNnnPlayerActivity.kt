@@ -27,9 +27,9 @@ import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
  * Launches an imported System-NNN project from the application's private library.
  *
  * A project.xtx catalog is loaded as a set of sibling SPT modules and execution
- * begins in the canonical sys controller. Script and archive parsing run off
- * the main thread; the module router and matching GTB/GPK resolver are injected
- * after every declared module has been validated.
+ * begins in the canonical sys controller. Script and asset-bank parsing run
+ * off the main thread; the module router and project-level asset manager are
+ * injected after the declared SPT modules have been validated.
  */
 class SystemNnnPlayerActivity : ComponentActivity() {
 
