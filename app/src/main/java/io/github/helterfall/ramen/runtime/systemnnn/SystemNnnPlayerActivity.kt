@@ -13,6 +13,7 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
 import io.github.helterfall.ramen.parser.SystemNnnProjectCatalog
+import io.github.helterfall.ramen.parser.SystemNnnScript
 import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
 
 /**
@@ -26,6 +27,12 @@ class SystemNnnPlayerActivity : ComponentActivity() {
 
     private data class PreparedAudioRepository(
         val repository: SystemNnnVpkAudioRepository
+    )
+
+    private data class PreparedScriptLaunch(
+        val projectModules: List<SystemNnnPlayerModuleProgram>?,
+        val standaloneScript: SystemNnnScript?,
+        val initialCommandOffset: Long
     )
 
     private lateinit var playerViewModel: SystemNnnPlayerViewModel
@@ -63,10 +70,12 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             var preparedAudio: PreparedAudioRepository? = null
             try {
                 val gameDirectory = resolvePrivateGameDirectory(gameId)
-                val scriptFile = findSystemNnnScript(gameDirectory)
-                val script = SystemNnnScriptLoader().load(scriptFile)
                 val commandStreamReader = SystemNnnCommandStreamReader()
-                val initialCommandOffset = commandStreamReader.filmStartOffset(script, 0)
+                val launch = prepareScriptLaunch(
+                    gameDirectory = gameDirectory,
+                    scriptLoader = SystemNnnScriptLoader(),
+                    commandStreamReader = commandStreamReader
+                )
                 val resolverToTransfer = SystemNnnGpkBitmapRepository.forGameDirectory(gameDirectory)
                 assetResolver = resolverToTransfer
                 preparedAudio = prepareAudioRepository(gameDirectory)
@@ -76,16 +85,32 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                         resolverToTransfer.close()
                         preparedAudio?.repository?.close()
                     } else {
-                        playerViewModel.start(
-                            script = script,
-                            commandDecoder = SystemNnnCommandDecoderImpl(
+                        val decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder = {
+                            SystemNnnCommandDecoderImpl(
                                 gtbResourceCount = resolverToTransfer.resourceCount,
                                 streamReader = commandStreamReader
-                            ),
-                            assetResolver = resolverToTransfer,
-                            initialCommandOffset = initialCommandOffset,
-                            audioRepository = preparedAudio?.repository
-                        )
+                            )
+                        }
+                        if (launch.projectModules != null) {
+                            playerViewModel.startProject(
+                                modules = launch.projectModules,
+                                controlModuleName = "sys",
+                                assetResolver = resolverToTransfer,
+                                decoderFactory = decoderFactory,
+                                audioRepository = preparedAudio?.repository
+                            )
+                        } else {
+                            playerViewModel.start(
+                                script = checkNotNull(launch.standaloneScript),
+                                commandDecoder = SystemNnnCommandDecoderImpl(
+                                    gtbResourceCount = resolverToTransfer.resourceCount,
+                                    streamReader = commandStreamReader
+                                ),
+                                assetResolver = resolverToTransfer,
+                                initialCommandOffset = launch.initialCommandOffset,
+                                audioRepository = preparedAudio?.repository
+                            )
+                        }
                     }
                 }
             } catch (error: Exception) {
@@ -117,7 +142,46 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         return gameDirectory
     }
 
-    private fun findSystemNnnScript(gameDirectory: File): File {
+    private fun prepareScriptLaunch(
+        gameDirectory: File,
+        scriptLoader: SystemNnnScriptLoader,
+        commandStreamReader: SystemNnnCommandStreamReader
+    ): PreparedScriptLaunch {
+        val projectModules = findSystemNnnProjectModules(gameDirectory)
+        if (projectModules != null) {
+            val programs = projectModules.map { module ->
+                val script = scriptLoader.load(module.scriptFile)
+                val stream = commandStreamReader.read(script)
+                val startOffset = if (module.name.equals("sys", ignoreCase = true)) {
+                    stream.recordStartOffset
+                } else {
+                    commandStreamReader.filmStartOffset(script, 0)
+                }
+                SystemNnnPlayerModuleProgram(
+                    name = module.name,
+                    script = script,
+                    initialCommandOffset = startOffset
+                )
+            }
+            return PreparedScriptLaunch(
+                projectModules = programs,
+                standaloneScript = null,
+                initialCommandOffset = 0L
+            )
+        }
+
+        val standaloneFile = findStandaloneSystemNnnScript(gameDirectory)
+        val script = scriptLoader.load(standaloneFile)
+        return PreparedScriptLaunch(
+            projectModules = null,
+            standaloneScript = script,
+            initialCommandOffset = commandStreamReader.filmStartOffset(script, 0)
+        )
+    }
+
+    private fun findSystemNnnProjectModules(
+        gameDirectory: File
+    ): List<io.github.helterfall.ramen.parser.SystemNnnProjectModule>? {
         val projectFiles = gameDirectory.walkTopDown()
             .maxDepth(MAX_GAME_SCAN_DEPTH)
             .filter { file ->
@@ -129,26 +193,24 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         if (projectFiles.size > 1) {
             throw IOException("В импортированной папке найдено несколько project.xtx; проект неоднозначен.")
         }
+        if (projectFiles.isEmpty()) return null
 
-        if (projectFiles.size == 1) {
-            val projectFile = projectFiles.single()
-            val modules = SystemNnnProjectCatalog.load(projectFile).resolveModules(projectFile)
-            val invalidModules = modules.filterNot { module ->
-                SystemNnnScriptLoader.hasValidHeader(module.scriptFile)
-            }
-            if (invalidModules.isNotEmpty()) {
-                val names = invalidModules.joinToString(", ") { it.name }
-                throw IOException("В project.xtx есть модули без корректного SPT-заголовка: $names.")
-            }
-            if (modules.size != 1) {
-                throw IOException(
-                    "Проект System-NNN содержит ${modules.size} модулей. " +
-                        "Стартовый модуль пока не подтверждён, поэтому произвольный сценарий не выбран."
-                )
-            }
-            return modules.single().scriptFile
+        val projectFile = projectFiles.single()
+        val modules = SystemNnnProjectCatalog.load(projectFile).resolveModules(projectFile)
+        val invalidModules = modules.filterNot { module ->
+            SystemNnnScriptLoader.hasValidHeader(module.scriptFile)
         }
+        if (invalidModules.isNotEmpty()) {
+            val names = invalidModules.joinToString(", ") { it.name }
+            throw IOException("В project.xtx есть модули без корректного SPT-заголовка: $names.")
+        }
+        if (modules.none { it.name.equals("sys", ignoreCase = true) }) {
+            throw IOException("В project.xtx отсутствует управляющий модуль sys.")
+        }
+        return modules
+    }
 
+    private fun findStandaloneSystemNnnScript(gameDirectory: File): File {
         val validCandidates = gameDirectory.walkTopDown()
             .maxDepth(MAX_GAME_SCAN_DEPTH)
             .filter { file ->
@@ -161,9 +223,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
 
         return when (validCandidates.size) {
             1 -> validCandidates.single()
-            0 -> throw IOException(
-                "Не найден корректный System-NNN .spt сценарий или project.xtx."
-            )
+            0 -> throw IOException("Не найден корректный System-NNN .spt сценарий или project.xtx.")
             else -> throw IOException(
                 "Найдено несколько System-NNN .spt сценариев без project.xtx; " +
                     "стартовый модуль не может быть выбран автоматически."
