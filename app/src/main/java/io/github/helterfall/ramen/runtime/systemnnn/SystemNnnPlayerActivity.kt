@@ -33,10 +33,6 @@ import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
  */
 class SystemNnnPlayerActivity : ComponentActivity() {
 
-    private data class PreparedAudioRepository(
-        val repository: SystemNnnVpkAudioRepository
-    )
-
     private data class PreparedScriptLaunch(
         val projectModules: List<SystemNnnPlayerModuleProgram>?,
         val standaloneScript: SystemNnnScript?,
@@ -77,8 +73,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         }
 
         startupExecutor.execute {
-            var assetResolver: SystemNnnGpkBitmapRepository? = null
-            var preparedAudio: PreparedAudioRepository? = null
+            var assetResolver: SystemNnnAssetManager? = null
             try {
                 val gameDirectory = resolvePrivateGameDirectory(gameId)
                 val commandStreamReader = SystemNnnCommandStreamReader()
@@ -88,19 +83,20 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     commandStreamReader = commandStreamReader
                 )
                 val initialSceneRoute = resolveRequestedSceneRoute(launch)
-                val resolverToTransfer = SystemNnnGpkBitmapRepository.forGameDirectory(gameDirectory)
-                assetResolver = resolverToTransfer
-                preparedAudio = prepareAudioRepository(gameDirectory)
+                val assetManagerToTransfer = SystemNnnAssetManager.forGameDirectory(
+                    gameDirectory = gameDirectory,
+                    cacheDirectory = File(cacheDir, "systemnnn-audio")
+                )
+                assetResolver = assetManagerToTransfer
 
                 mainHandler.post {
                     if (isFinishing || isDestroyed) {
-                        resolverToTransfer.close()
-                        preparedAudio?.repository?.close()
+                        assetManagerToTransfer.close()
                     } else {
                         val projectVariables = launch.initialVariables.toMutableMap()
                         val decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder = {
                             SystemNnnCommandDecoderImpl(
-                                gtbResourceCount = resolverToTransfer.resourceCount,
+                                gtbResourceCount = assetManagerToTransfer.resourceCount,
                                 streamReader = commandStreamReader,
                                 variables = projectVariables
                             )
@@ -109,28 +105,27 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                             playerViewModel.startProject(
                                 modules = launch.projectModules,
                                 controlModuleName = "sys",
-                                assetResolver = resolverToTransfer,
+                                assetResolver = assetManagerToTransfer,
                                 decoderFactory = decoderFactory,
-                                audioRepository = preparedAudio?.repository,
+                                audioRepository = assetManagerToTransfer,
                                 initialSceneRoute = initialSceneRoute
                             )
                         } else {
                             playerViewModel.start(
                                 script = checkNotNull(launch.standaloneScript),
                                 commandDecoder = SystemNnnCommandDecoderImpl(
-                                    gtbResourceCount = resolverToTransfer.resourceCount,
+                                    gtbResourceCount = assetManagerToTransfer.resourceCount,
                                     streamReader = commandStreamReader
                                 ),
-                                assetResolver = resolverToTransfer,
+                                assetResolver = assetManagerToTransfer,
                                 initialCommandOffset = launch.initialCommandOffset,
-                                audioRepository = preparedAudio?.repository
+                                audioRepository = assetManagerToTransfer
                             )
                         }
                     }
                 }
             } catch (error: Exception) {
                 assetResolver?.close()
-                preparedAudio?.repository?.close()
                 mainHandler.post {
                     if (!isFinishing && !isDestroyed) {
                         playerViewModel.showStartupError(
@@ -376,62 +371,6 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Opens the indexed VTB catalog and its matching VAW (preferred) or VPK archive.
-     * Individual voice tracks are staged when their dialogue step becomes active.
-     */
-    private fun prepareAudioRepository(gameDirectory: File): PreparedAudioRepository? {
-        val indexFiles = gameDirectory.walkTopDown()
-            .maxDepth(MAX_GAME_SCAN_DEPTH)
-            .filter { file ->
-                file.isFile && file.extension.equals("vtb", ignoreCase = true)
-            }
-            .take(MAX_DISCOVERED_FILES)
-            .toList()
-            .sortedWith(
-                compareBy<File> {
-                    val path = it.relativeTo(gameDirectory).invariantSeparatorsPath
-                    if (path.split("/").any { segment ->
-                            segment.equals("vaw", ignoreCase = true)
-                        }
-                    ) 0 else 1
-                }.thenBy { it.relativeTo(gameDirectory).invariantSeparatorsPath }
-            )
-
-        for (indexFile in indexFiles) {
-            val archiveFiles = indexFile.parentFile
-                ?.listFiles()
-                ?.filter { candidate ->
-                    candidate.isFile &&
-                        candidate.extension.lowercase() in AUDIO_ARCHIVE_EXTENSIONS &&
-                        candidate.nameWithoutExtension.equals(
-                            indexFile.nameWithoutExtension,
-                            ignoreCase = true
-                        )
-                }
-                ?.sortedBy { if (it.extension.equals("vaw", ignoreCase = true)) 0 else 1 }
-                .orEmpty()
-
-            for (archiveFile in archiveFiles) {
-                val repository = try {
-                    SystemNnnVpkAudioRepository(
-                        indexFile = indexFile,
-                        archiveFile = archiveFile,
-                        cacheDirectory = File(cacheDir, "systemnnn-audio")
-                    )
-                } catch (_: Exception) {
-                    continue
-                }
-
-                if (repository.entries.isNotEmpty()) {
-                    return PreparedAudioRepository(repository)
-                }
-                repository.close()
-            }
-        }
-        return null
-    }
-
     override fun onDestroy() {
         if (::startupExecutor.isInitialized) {
             startupExecutor.shutdownNow()
@@ -471,6 +410,5 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         private const val MAX_DISCOVERED_FILES = 10_000
         private const val PRIMARY_PROJECT_MANIFEST_SUFFIX = "spt/project.xtx"
         private const val ALTERNATE_PROJECT_DIRECTORY = "!eng files"
-        private val AUDIO_ARCHIVE_EXTENSIONS = setOf("vaw", "vpk")
     }
 }
