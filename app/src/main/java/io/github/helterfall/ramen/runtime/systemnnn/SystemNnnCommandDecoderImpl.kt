@@ -38,6 +38,9 @@ class SystemNnnCommandDecoderImpl(
     ): SystemNnnDecodedCommand {
         val stream = streamFor(script)
         if (commandOffset == stream.recordEndOffsetExclusive) {
+            if (localSubroutineStack.isNotEmpty()) {
+                throw IOException("The SPT command stream ended before a local SUB returned.")
+            }
             return SystemNnnDecodedCommand.End
         }
 
