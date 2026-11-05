@@ -368,6 +368,10 @@ class SystemNnnCommandDecoderImpl(
             CODE_CONTROL_ENDKOMA,
             CODE_CONTROL_ENDIF -> SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
 
+            CODE_CONTROL_IF -> decodeIfBranch(script, stream, record)
+
+            CODE_CONTROL_ELSIF,
+            CODE_CONTROL_ELSE,
             CODE_CONTROL_CASE -> SystemNnnDecodedCommand.Skip(
                 skipFollowingBranch(script, stream, record)
             )
@@ -496,6 +500,49 @@ class SystemNnnCommandDecoderImpl(
         val returnCommandOffset: Long,
         val subroutineId: Int
     )
+
+    /**
+     * Executes the target IF/ELSIF chain. Each condition is a bounded RPN
+     * expression in the CONTROL record payload; a true branch falls through
+     * into its brace body, while a false branch skips the exact brace span and
+     * checks the immediately following ELSIF/ELSE marker.
+     */
+    private fun decodeIfBranch(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
+        firstCondition: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.Skip {
+        var condition = firstCondition
+        repeat(MAX_CONDITIONAL_BRANCHES) {
+            if (evaluateCalculation(script, condition) > 0) {
+                return SystemNnnDecodedCommand.Skip(condition.endOffsetExclusive)
+            }
+
+            val body = recordAt(stream, condition.endOffsetExclusive)
+                ?: return SystemNnnDecodedCommand.Skip(stream.recordEndOffsetExclusive)
+            val afterBody = if (isOpenBrace(body)) {
+                skipBraceBlock(script, stream, body)
+            } else {
+                body.endOffsetExclusive
+            }
+
+            val nextBranch = recordAt(stream, afterBody)
+                ?: return SystemNnnDecodedCommand.Skip(afterBody)
+            if (
+                nextBranch.recordKind != SystemNnnRecordKind.CONTROL ||
+                nextBranch.codeFamily != CONTROL_FAMILY
+            ) {
+                return SystemNnnDecodedCommand.Skip(afterBody)
+            }
+
+            when (nextBranch.codeId) {
+                CODE_CONTROL_ELSIF -> condition = nextBranch
+                CODE_CONTROL_ELSE -> return SystemNnnDecodedCommand.Skip(nextBranch.endOffsetExclusive)
+                else -> return SystemNnnDecodedCommand.Skip(afterBody)
+            }
+        }
+        throw IOException("A System-NNN IF chain exceeded the conditional branch limit.")
+    }
 
     private fun skipFollowingBranch(
         script: SystemNnnScript,
@@ -757,6 +804,9 @@ class SystemNnnCommandDecoderImpl(
         const val CODE_APPEND = 0x0003
 
         const val CODE_CONTROL_NOP = 0x0001
+        const val CODE_CONTROL_IF = 0x0002
+        const val CODE_CONTROL_ELSIF = 0x0003
+        const val CODE_CONTROL_ELSE = 0x0004
         const val CODE_CONTROL_END = 0x0005
         const val CODE_CONTROL_NEXT = 0x0006
         const val CODE_CONTROL_ENDFILM = 0x000C
@@ -806,6 +856,7 @@ class SystemNnnCommandDecoderImpl(
         const val CODE_CLOSE_BRACE = 0x007D
         const val MAX_SELECT_OPTIONS = 64
         const val MAX_CASE_SCAN_RECORDS = 4096
+        const val MAX_CONDITIONAL_BRANCHES = 64
         const val MAX_BRACE_SPAN_WORDS = 1_000_000L
         const val CODE_SELECT = 0x0006
 
