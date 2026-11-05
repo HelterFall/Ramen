@@ -14,7 +14,7 @@ import java.io.IOException
  * silently concatenate them into a guessed global voice table.
  */
 interface SystemNnnAudioResourceRepository : Closeable {
-    override val entries: List<VpkAudioResource>
+    val entries: List<VpkAudioResource>
 
     fun findResource(resourceId: String): VpkAudioResource?
 
@@ -43,7 +43,7 @@ class SystemNnnVpkAudioRepository(
     private val stagedFiles = LinkedHashSet<File>()
     private var closed = false
 
-    val entries: List<VpkAudioResource>
+    override val entries: List<VpkAudioResource>
 
     init {
         entries = try {
