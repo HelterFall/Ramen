@@ -61,6 +61,28 @@ class SystemNnnResourceFunctionScannerTest {
     }
 
     @Test
+    fun clipsNeighborContextAtValidatedFilmBoundaries() {
+        val script = filmTableScript()
+        val stream = SystemNnnCommandStreamReader().read(script)
+        val result = SystemNnnResourceFunctionScanner().scan("03", script, stream)
+        val music = result.candidates.single { it.kind == SystemNnnResourceFunctionKind.MUSIC }
+        val voice = result.candidates.single { it.kind == SystemNnnResourceFunctionKind.VOICE }
+
+        assertEquals(0xA4L, music.commandOffset)
+        assertEquals(1, music.sourceFilmTableIndex)
+        assertEquals(0, music.sourceFilmNumber)
+        assertEquals(0x52, music.previousRecord?.codeId)
+        assertNull(music.nextRecord)
+        assertEquals(0xB8L, music.sourceFilmEndOffsetExclusive)
+
+        assertEquals(0xE0L, voice.commandOffset)
+        assertEquals(2, voice.sourceFilmTableIndex)
+        assertEquals(1, voice.sourceFilmNumber)
+        assertEquals(0x52, voice.previousRecord?.codeId)
+        assertNull(voice.nextRecord)
+        assertEquals(0xF4L, voice.sourceFilmEndOffsetExclusive)
+    }
+    @Test
     fun marksMissingCountWordAndKeepsEmptyPayloadBounded() {
         val script = scriptOf(records = listOf(listOf(3u, 0x66660007u, 0x33330018u)))
         val stream = SystemNnnCommandStreamReader().read(script)
@@ -99,6 +121,40 @@ class SystemNnnResourceFunctionScannerTest {
         }
     }
 
+    private fun filmTableScript(): SystemNnnScript {
+        val records = listOf(
+            listOf(6u, 0x66660001u, 0x55550002u, 0x1Au, 0x1Fu, 0x2Eu),
+            listOf(5u, 0x66660007u, 0x33330051u, 1u, 0u),
+            listOf(5u, 0x66660007u, 0x33330050u, 1u, 0u),
+            listOf(5u, 0x66660007u, 0x33330052u, 1u, 0u),
+            listOf(5u, 0x66660007u, 0x33330007u, 1u, 0x41u),
+            listOf(5u, 0x66660007u, 0x33330050u, 1u, 1u),
+            listOf(5u, 0x66660007u, 0x33330052u, 1u, 1u),
+            listOf(5u, 0x66660007u, 0x33330008u, 1u, 0x42u)
+        )
+        val words = listOf(0u, 0u, 0u, 0u) + records.flatten() + listOf(0u, 0u, 0u, 0u)
+        val bytes = ByteArray(words.size * 4)
+        words.forEachIndexed { index, word ->
+            repeat(4) { offset ->
+                bytes[index * 4 + offset] = ((word shr (offset * 8)) and 0xFFu).toByte()
+            }
+        }
+        return SystemNnnScript(
+            fileSizeBytes = 0x40L + bytes.size,
+            firstHeaderWord = 0u,
+            offsetTables = listOf(
+                SystemNnnOffsetTable("main", 0u, 0u),
+                SystemNnnOffsetTable("secondary", 0u, 0u),
+                SystemNnnOffsetTable("tertiary", 3u, 0x17u),
+                SystemNnnOffsetTable("auxiliary", 1u, 0u)
+            ),
+            commandStartOffset = 0x40L,
+            commandEndOffset = 0x40L + bytes.size,
+            textPoolOffset = 0x40L + bytes.size,
+            textPool = emptyList(),
+            commandBytes = bytes
+        )
+    }
     private fun scriptOf(records: List<List<UInt>>): SystemNnnScript {
         val words = listOf(0u, 0u, 0u, 0u) + records.flatten() + listOf(0u, 0u, 0u, 0u)
         val bytes = ByteArray(words.size * 4)
