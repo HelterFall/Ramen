@@ -109,7 +109,7 @@ data class SystemNnnSceneCatalogAlignment(
  *       int filmCount
  *       int filmNumbers[filmCount]
  *
- * sptNumber is a one-based index into project.xtx; abs(sptNumber) - 1 selects
+ * sptNumber is a zero-based index into project.xtx; abs(sptNumber) selects
  * the module and a negative value marks an H-scene. Film numbers are one-based;
  * absolute value minus one is passed to SetPCByFilmNumber. A
  * negative film number is playable but excluded from completion checks.
