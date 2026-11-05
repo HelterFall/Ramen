@@ -650,3 +650,12 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - `GetCase` at `0x00417570` receives the requested 1-based CASE number as a separate argument and searches the CASE records for that number. No evidence ties the suspected `selectSerial` word to CASE routing. The decoder intentionally leaves all three metadata DWORDs opaque; there is no nonzero sample in this archive from which to infer their runtime effect.
 - Corrected initial brace handling: target GetCase skips an initial wrapper OPEN_BRACE by record length only. Ramen previously skipped the full brace span; it now mirrors the native behavior. Added a regression test with an outer wrapper brace.
 - No CI/tests/lint/APK build run per current direction. The new regression test is committed but not executed.
+
+### 2026-11-06 — native IF/ELSIF/ELSE and CALCU verification
+
+- Target `gss.exe` IF dispatch at VA `0x00416611` evaluates the bounded RPN condition and branches on signed-positive result (`eax > 0`). A true condition resumes immediately after the IF/ELSIF record so its body executes.
+- The false path advances past the condition record, skips the following OPEN_BRACE span, and resumes at the next ELSIF/ELSE marker. Once one branch has been taken, later ELSIF/ELSE markers skip their own bodies. Existing Ramen `decodeIfBranch`, `skipFollowingBranch` and `skipBraceBlock` match these transitions for the observed archive structures.
+- Full scan of all 20 primary SPT modules: 490 IF/ELSIF/ELSE records; all 490 have bounded brace bodies whose declared spans land on valid record boundaries. Longest observed ELSIF chain is 11 (the runtime guard remains 64).
+- The 341 inline-RPN IF/ELSIF records use only variable, number, inclusive comparison, logical, and strict comparison token families. Observed operators are covered by the current evaluator; no unhandled token family appeared in this conditional set.
+- Confirmed one CALCU mismatch in native `gss.exe` at VA `0x00417690`: integer divide and modulo replace a zero divisor with 1 before the native divide operation. The same fallback is used by compound divide/modulo. Ramen now mirrors that behavior rather than throwing on a zero divisor.
+- Added synthetic tests for false IF→ELSIF→ELSE traversal, skipping later alternatives after a true IF, and the division-by-zero fallback. Tests were not run, per current direction.
