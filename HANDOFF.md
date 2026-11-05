@@ -612,3 +612,11 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - CONTROL RETURN записей 1 008, поэтому не сопоставлять их попарно с SUB по порядку.
 - Добавлен read-only SystemNnnLocalSubroutineScanner; экспорт показывает SUB ID → descriptor3 slot → target offset/function.
 - Выполнение SUB/RETURN и runtime call stack остаются выключенными до доказательства target-specific return behavior.
+### 2026-11-05 — SETFILM and film block sequence
+
+- Проверка 20 SPT по физическим descriptor-3 интервалам: все 948 ordinary films имеют ровно одну SYSTEM_FUNCTION 0x3333/0x001A SETFILM с payload [1, N], за которой следует CONTROL 0x5556/0x000C ENDFILM.
+- Для всех 948 N = descriptor3 tableIndex - reservedPrefixCount + 1. Ошибок/пропусков/дубликатов в ordinary intervals не найдено.
+- В NNNLib reference SystemFunctionSetFilm сохраняет N−1 как текущий film number активного SPT. ENDFILM передаёт управление outer loop, это не общий конец приложения. При локальном SUB после ENDFILM следующая CONTROL RETURN возвращает к сохранённому PC.
+- Ramen декодирует SETFILM, валидирует номер относительно descriptor3 owner, сохраняет currentFilmNumber в состоянии ViewModel; ENDFILM теперь последовательный переход к следующей записи, CONTROL END остаётся концом управляющего потока.
+- Добавлен интеграционный тест: SUB → descriptor3 target → SETFILM → ENDFILM → RETURN → caller continuation.
+- Связь 69 строк scene.dat / 69 @scNN / 69 descriptor3 в 01.spt всё ещё только совпадение количества, не доказанное сопоставление по индексу. Gallery navigation, межмодульные SCRIPT, sys startup и физическое прохождение на устройстве не реализованы.
