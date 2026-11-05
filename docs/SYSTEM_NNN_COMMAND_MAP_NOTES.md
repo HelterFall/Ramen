@@ -581,3 +581,24 @@ The NNNLib family source identifies `0x3333/0x0053` as CONFIGMASK. Thirteen occu
 - The target SCRIPT/SUBSCRIPT following DWORD equals the next record's length DWORD. The family reference uses that location as a return selector, but the target title's selector-to-resume table is still unknown.
 - CONTROL SUB (`0x5556/0x0009`) and RETURN (`0x5556/0x0007`) must be mapped separately from module SCRIPT/SUBSCRIPT.
 - A read-only `SystemNnnScriptTransferScanner` was added. It labels the three code families, resolves exact Pool 2 module names, and captures source offsets/film context. It does not execute a transfer.
+
+
+## 2026-11-05 — локальные CONTROL SUB связаны с descriptor-3 jump vector
+
+### Семейная семантика NNNLib
+
+В NNNLib reference из другого title CONTROL SUB (0x5556/0x0009) обрабатывается как локальный вызов: первый DWORD payload индексирует descriptor-3 jump vector, второй DWORD сохраняется как локальный SUB ID; переход выполняется к адресу из выбранного descriptor-3 элемента. CONTROL RETURN (0x5556/0x0007) возвращает управление из локального стека. Это семейный reference на pinned revision tinyan/SystemNNN@78a05053c78b3b80065a9a209c6685a7c60a2e83, не самостоятельная спецификация target title.
+
+### Проверка на 20 целевых SPT
+
+Независимый replay по всем модулям из hui(4).zip подтверждает:
+- 1 069 / 1 069 CONTROL SUB имеют ровно два DWORD payload;
+- 1 069 / 1 069 первых операндов находятся в диапазоне descriptor 3;
+- каждый выбранный descriptor-3 элемент указывает на валидную 5-DWORD SYSTEM_FUNCTION запись 0x3333/0x50 (обычная) либо 0x3333/0x51 (reserved);
+- второй операнд внутри каждого модуля образует уникальную плотную последовательность локальных ID 0..SUBCount−1 без пропусков и повторов.
+
+Количество SUB по модулям: sys 9, backspt 22, 01 65, 02 50, 03 182, 04 67, 05 37, 06 9, 07 27, 08 16, 082 58, akane 105, aoi 89, kiika 115, yamiko 68, yuka 109, day 8, op1 19, yuka2 13, _staff 1.
+
+CONTROL RETURN встречается 1 008 раз при 1 069 SUB. Их нельзя сопоставлять один-к-одному по порядку: нужны ветвления и реальные continuations.
+
+В код добавлен read-only SystemNnnLocalSubroutineScanner. Он проверяет оба операнда, разрешает первый через валидированный descriptor-3 vector, сохраняет target function code/offset, проверяет плотность SUB ID и не исполняет SUB/RETURN.
