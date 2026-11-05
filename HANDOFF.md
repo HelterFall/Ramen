@@ -639,3 +639,12 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - PE32/i386 `hui/gss.exe`: transfer handlers at VA `0x00417000` (SCRIPT), `0x00417059` (SUBSCRIPT), `0x004170B2` (SCRIPTJUMP). Each reads only the Pool 2 index at record+0x0C, resolves the module name, calls the transfer callback, then advances the active PC by the current record length. No selector read at record+0x10 occurs.
 - The following DWORD is only the next record length. Keep exact caller continuation in the module frame; remove any saved selector candidate. The earlier family-source interpretation of `m_stack[253]` / `AdjustScriptCall` belongs to another title/save-restore path and is not target runtime behavior.
 - Existing SCRIPT/SUBSCRIPT push and SCRIPTJUMP replace behavior remain. Follow-up native disassembly of `gss.exe` at VAs `0x00409ACC`, `0x0040E560`, `0x00411CB0` and `0x004106E0` confirms exactly three executor slots (modes 0..2): sys/controller at slot 0, main module at slot 1, nested module at slot 2. Normal project start allows at most 2 call frames; direct scene replay starts from slot 1 and allows 1. The callback's Japanese overflow warning says no further lower-level script may be called. Ramen rejects overflow instead of overwriting slot 2. No CI, tests, lint or APK build were run, per current direction; no on-device/end-to-end test is claimed.
+
+
+### 2026-11-06 — native SELECT/CASE verification
+
+- Target `gss.exe`: SELECT handler at VA `0x0041720A`; CASE lookup at VA `0x00417570`.
+- Full scan of all 20 primary SPT modules: 46 SELECT records; all option/prefix Pool 2 indexes resolve, and each SELECT has CASE numbers exactly `1..N` (N=1..4). The one prefix-row case is handled by the existing decoder. All 104 case bodies are brace-wrapped and use spans that resolve to the next CASE boundary after skipping a closing brace when present.
+- The three native choice metadata fields (time limit, auto-select, special flag) are zero in all 46 records. They remain unmodeled in the current UI; no observed non-default behavior was lost by this omission in this archive.
+- Corrected initial brace handling: target GetCase skips an initial wrapper OPEN_BRACE by record length only. Ramen previously skipped the full brace span; it now mirrors the native behavior. Added a regression test with an outer wrapper brace.
+- No CI/tests/lint/APK build run per current direction. The new regression test is committed but not executed.
