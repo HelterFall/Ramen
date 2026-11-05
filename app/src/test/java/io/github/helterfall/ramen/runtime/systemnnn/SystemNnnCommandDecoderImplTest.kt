@@ -279,15 +279,26 @@ class SystemNnnCommandDecoderImplTest {
     fun rejectsLocalReturnRecordsWithUnexpectedPayload() {
         val script = localSubroutineScript(returnPayload = listOf(1u))
         val decoder = decoder()
+        val subOffset = commandOffset(script, CODE_CONTROL_SUB)
+        val returnOffset = commandOffset(script, CODE_CONTROL_RETURN)
         assertEquals(
             SystemNnnDecodedCommand.Jump(LOCAL_SUB_TARGET_OFFSET),
-            decoder.decodeNext(script, LOCAL_SUB_OFFSET)
+            decoder.decodeNext(script, subOffset)
         )
         decoder.decodeNext(script, LOCAL_SUB_TARGET_OFFSET)
         decoder.decodeNext(script, LOCAL_SUB_TARGET_OFFSET + 20L)
         assertThrows(IOException::class.java) {
-            decoder.decodeNext(script, LOCAL_SUB_RETURN_OFFSET)
+            decoder.decodeNext(script, returnOffset)
         }
+    }
+
+    private fun commandOffset(script: SystemNnnScript, codeId: Int): Long {
+        val stream = SystemNnnCommandStreamReader().read(script)
+        return stream.records.single {
+            it.recordKind == SystemNnnRecordKind.CONTROL &&
+                it.codeFamily == 0x5556 &&
+                it.codeId == codeId
+        }.offset
     }
 
     private fun localSubroutineScript(
@@ -297,7 +308,8 @@ class SystemNnnCommandDecoderImplTest {
         val words = mutableListOf<UInt>()
         words += listOf(0u, 0u, 0u, 0u) // preamble
         // Descriptor-3 table lives in this data record's payload at logical word index 0x17.
-        words += listOf(6u, DATA, 0x55550002u, 0x1Au, 0x1Fu, 0x2Cu)
+        val secondOrdinaryTargetWordOffset = 0x2Cu + returnPayload.size.toUInt()
+        words += listOf(6u, DATA, 0x55550002u, 0x1Au, 0x1Fu, secondOrdinaryTargetWordOffset)
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330051u, 1u, 0u) // reserved slot 0
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330050u, 0u, 0u) // ordinary slot 1
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330052u, 0u, 0u) // continuation
