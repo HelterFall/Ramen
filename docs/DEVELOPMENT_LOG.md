@@ -720,3 +720,17 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Added a per-game `Сохранить структуру (.txt)` action to the library card. Android's Create Document picker asks where to save; scanning and writing run on the existing background executor.
 - Added scanner and writer tests for empty folders, directory-count limits, metadata-only behavior, sizes, truncation messages, and caller-owned output streams.
 - Updated the inventory-report documentation. Existing JSON output remains unchanged.
+
+
+## 2026-11-05 — scene catalog parsing and module-reference diagnostics
+
+- Inspected the new hui(4).zip archive read-only. It contains the same 20-module SPT project set plus scene metadata sidecars; no commercial binaries or extracted scenario text were added to Git.
+- Parsed scene.dat using the header layout {fileSize, version, rowCount}. Confirmed version 1, 69 rows, declared/actual size 1164 bytes, and exact EOF. All row types and UInt32 values were retained as opaque data.
+- Scanned nya/scenevoice.xtx for ASCII identifiers only. Confirmed 69 unique sequential IDs @sc01 through @sc69; source lines use CRLF.
+- Confirmed a cardinality correlation in 01.spt: descriptor 3 has 69 pointer entries and descriptor 4 has a reserved prefix count of 2. The 69-counts do not prove row-to-pointer index correspondence; the diagnostics explicitly leave sameIndexMappingProven false.
+- Added SystemNnnSceneCatalogReader with bounded file/row/value limits, version and size checks, exact EOF validation, CRLF-safe scene-ID extraction, and count-only comparison against the SPT film table.
+- Added SystemNnnModuleReferenceScanner. It reports exact [1, Pool2Index] payload references whose Pool 2 bytes equal a project.xtx module name, preserving source module, target name, record offset and code identifier. It deliberately does not treat them as calls/jumps.
+- Replayed the scanner predicate independently against all 20 supplied SPT modules: 511 module-name references were found with the previously documented per-record-code counts. The same record families still have a much larger population of ordinary Pool 2 references, so transition semantics remain unproven.
+- Added synthetic unit tests for the scene.dat envelope, CRLF scene IDs, count-only alignment, and exact candidate-reference filtering. The tests contain no game binary, dialogue, or asset payload.
+- CI for the resulting branch head is the next validation gate; no physical-device test or end-to-end gameplay is claimed.
+- Next: correlate individual scene.dat rows with descriptor-3 target payloads and @scNN IDs, then investigate candidate module references in their film/control-flow context before implementing module call/return semantics.
