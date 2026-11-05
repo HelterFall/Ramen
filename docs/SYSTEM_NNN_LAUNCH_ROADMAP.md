@@ -993,3 +993,17 @@ The Resource Inspector Text Data tab now exports a deterministic UTF-8 report fo
 - output is capped at 20,000 candidates and the report labels all entries as unproven candidates, not transitions.
 
 The export does not turn references into executable control flow. Its purpose is to give the next reverse-engineering pass a stable report that can be compared across the main and alternate SPT sets.
+
+
+## 2026-11-05 — module transfers located in the actual control-opcode family
+
+Across the 20 SPT modules in the new archive, the actual cross-module candidates are type-2 CONTROL records in family `0x5556`:
+- 14 SCRIPT (`0x000A`) records in `sys` target op1, 01, 02, 03, 04, 05, 06, 07, 08, 082, akane, aoi, kiika and day;
+- 3 SCRIPTJUMP (`0x0015`) records: 01→yuka, 03→yamiko, yuka→yuka2;
+- 12 SUBSCRIPT (`0x0016`) records target `_staff` from 03, akane, aoi, kiika, yamiko and yuka.
+
+Each carries exactly one DWORD Pool 2 operand that resolves to a project.xtx module name. The Text Data export separates these typed control candidates from 511 generic module-name string references.
+
+The pinned NNNLib reference from another title supports the names and broad load model (SCRIPT/SUBSCRIPT nested, SCRIPTJUMP replaces), but does not prove target-specific return behavior. It also identifies `0x3333/0x0053` as CONFIGMASK; earlier matches of that code to `_staff` are not transitions.
+
+Next: prove the target return-selector table and map CONTROL SUB/RETURN. Do not yet add module execution, call stack or automatic boot from sys.
