@@ -1317,8 +1317,8 @@ private fun TextMetadataPanel(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            if (state.isExportingModuleReferences) "Собираю карту ссылок…"
-                            else "Сохранить карту переходов, SUB и ссылок (.txt)"
+                            if (state.isExportingModuleReferences) "Собираю карту команд и ресурсов…"
+                            else "Сохранить карту команд, ресурсов и переходов (.txt)"
                         )
                     }
                 } else {
