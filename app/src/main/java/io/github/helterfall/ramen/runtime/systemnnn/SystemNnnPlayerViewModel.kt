@@ -94,6 +94,11 @@ data class SystemNnnPlayerModuleProgram(
     val filmStartOffsets: List<Long> = emptyList()
 )
 
+data class SystemNnnSceneReplayFilm(
+    val filmIndex: Int,
+    val commandOffset: Long
+)
+
 enum class SystemNnnModuleTransferKind {
     SCRIPT,
     SUBSCRIPT,
@@ -130,6 +135,10 @@ sealed interface SystemNnnDecodedCommand {
     data class SetFilm(
         val nextCommandOffset: Long,
         val filmNumber: Int
+    ) : SystemNnnDecodedCommand
+
+    data class EndFilm(
+        val nextCommandOffset: Long
     ) : SystemNnnDecodedCommand
 
     data class ModuleTransfer(
@@ -183,6 +192,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var moduleDecoderFactory: ((SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder)? = null
     private var controllerProgram: SystemNnnPlayerModuleProgram? = null
     private val moduleCallStack = ArrayList<ModuleCallFrame>()
+    private var sceneReplayModuleName: String? = null
+    private var sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList()
+    private var sceneReplayFilmCursor: Int = 0
 
     private data class ModuleCallFrame(
         val moduleName: String,
@@ -224,13 +236,21 @@ class SystemNnnPlayerViewModel : ViewModel() {
         modulePrograms: Collection<SystemNnnPlayerModuleProgram> = emptyList(),
         decoderFactory: ((SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder)? = null,
         controllerModuleName: String? = null,
-        initialFilmNumber: Int? = null
+        initialFilmNumber: Int? = null,
+        sceneReplayModuleName: String? = null,
+        sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList()
     ) {
         releaseAssets()
 
         moduleCallStack.clear()
+        sceneReplayModuleName = null
+        sceneReplayFilms = emptyList()
+        sceneReplayFilmCursor = 0
         currentModuleName = moduleName
         currentFilmNumber = initialFilmNumber
+        this.sceneReplayModuleName = sceneReplayModuleName
+        this.sceneReplayFilms = sceneReplayFilms
+        this.sceneReplayFilmCursor = if (sceneReplayFilms.isNotEmpty()) 1 else 0
         if (moduleName == null) {
             projectModules = emptyMap()
             moduleDecoderFactory = null
@@ -332,20 +352,27 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     return
                 }
         }
-        val startOffset = if (initialSceneRoute == null) {
-            startingProgram.initialCommandOffset
+        val replayFilms = if (initialSceneRoute == null) {
+            emptyList()
         } else {
-            startingProgram.filmStartOffsets.getOrNull(initialSceneRoute.filmIndex)
-                ?: run {
-                    runCatching { assetResolver.close() }
-                    runCatching { audioRepository?.close() }
-                    showStartupError(
-                        "scene.dat указывает на отсутствующий film slot ${initialSceneRoute.filmIndex} " +
-                            "в модуле '${startingProgram.name}'."
-                    )
-                    return
+            initialSceneRoute.filmIndices
+                .drop(initialSceneRoute.filmChoiceIndex)
+                .map { filmIndex ->
+                    val offset = startingProgram.filmStartOffsets.getOrNull(filmIndex)
+                        ?: run {
+                            runCatching { assetResolver.close() }
+                            runCatching { audioRepository?.close() }
+                            showStartupError(
+                                "scene.dat указывает на отсутствующий film slot $filmIndex " +
+                                    "в модуле '${startingProgram.name}'."
+                            )
+                            return
+                        }
+                    SystemNnnSceneReplayFilm(filmIndex, offset)
                 }
         }
+        val startOffset = replayFilms.firstOrNull()?.commandOffset
+            ?: startingProgram.initialCommandOffset
 
         start(
             script = startingProgram.script,
@@ -357,7 +384,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
             modulePrograms = modules,
             decoderFactory = decoderFactory,
             controllerModuleName = control.name,
-            initialFilmNumber = initialSceneRoute?.let { it.filmIndex + 1 }
+            initialFilmNumber = replayFilms.firstOrNull()?.filmIndex?.plus(1),
+            sceneReplayModuleName = initialSceneRoute?.moduleName,
+            sceneReplayFilms = replayFilms
         )
     }
 
@@ -595,6 +624,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         commandsWithoutVisibleOutput += 1
                     }
 
+                    is SystemNnnDecodedCommand.EndFilm -> {
+                        if (sceneReplayModuleName == null) {
+                            validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                            nextCommandOffset = command.nextCommandOffset
+                            commandsWithoutVisibleOutput += 1
+                        } else {
+                            advanceSceneReplayFilm()
+                            commandsWithoutVisibleOutput += 1
+                        }
+                    }
+
                     SystemNnnDecodedCommand.ModuleReturn -> {
                         returnToCaller()
                         commandsWithoutVisibleOutput += 1
@@ -773,13 +813,58 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
     private fun returnToCaller() {
         val caller = moduleCallStack.removeLastOrNull()
-            ?: throw IOException("NEXT встретился без активного родительского SPT-модуля.")
+        if (caller == null) {
+            if (sceneReplayModuleName != null) {
+                finishSceneReplay()
+                return
+            }
+            throw IOException("NEXT встретился без активного родительского SPT-модуля.")
+        }
         script = caller.script
         commandStream = caller.commandStream
         decoder = caller.decoder
         nextCommandOffset = caller.nextCommandOffset
         currentModuleName = caller.moduleName
         currentFilmNumber = caller.currentFilmNumber
+    }
+
+
+    private fun advanceSceneReplayFilm() {
+        val next = sceneReplayFilms.getOrNull(sceneReplayFilmCursor)
+        if (next == null) {
+            finishSceneReplay()
+            return
+        }
+        val moduleName = sceneReplayModuleName
+            ?: throw IOException("Scene replay has no owning SPT module.")
+        val program = projectModules[moduleName.lowercase(Locale.ROOT)]
+            ?: throw IOException("Scene replay module '$moduleName' is absent from project.xtx.")
+        val factory = moduleDecoderFactory
+            ?: throw IOException("Scene replay has no project decoder factory.")
+
+        // ENDFILM ends this film at the outer scheduler. Each next film starts
+        // at its own descriptor-3 entry with a fresh per-module local SUB stack.
+        moduleCallStack.clear()
+        script = program.script
+        commandStream = program.commandStream
+        decoder = factory(program)
+        nextCommandOffset = next.commandOffset
+        currentModuleName = program.name
+        currentFilmNumber = next.filmIndex + 1
+        sceneReplayFilmCursor += 1
+    }
+
+    private fun finishSceneReplay() {
+        sceneReplayModuleName = null
+        sceneReplayFilms = emptyList()
+        sceneReplayFilmCursor = 0
+        moduleCallStack.clear()
+        audioPlayer?.stop()
+        uiState = SystemNnnPlayerUiState(
+            frameId = frameCounter + 1L,
+            isEnded = true,
+            currentFilmNumber = currentFilmNumber
+        )
     }
 
     private fun resetControllerOrEnd() {
@@ -866,6 +951,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private fun releaseAssets() {
         commandStream = null
         moduleCallStack.clear()
+        sceneReplayModuleName = null
+        sceneReplayFilms = emptyList()
+        sceneReplayFilmCursor = 0
         audioRequestId += 1L
         val player = audioPlayer
         audioPlayer = null
