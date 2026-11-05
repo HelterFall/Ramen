@@ -605,9 +605,36 @@ class SystemNnnCommandDecoderImplTest {
         }
     }
 
+    @Test
+    fun nextClearsStaleLocalSubFramesAndIgnoresItsPayload() {
+        val script = localSubroutineScript(
+            returnPayload = listOf(0xDEADBEEFu),
+            returnCode = CODE_CONTROL_NEXT
+        )
+        val decoder = decoder()
+
+        assertEquals(
+            SystemNnnDecodedCommand.Jump(LOCAL_SUB_TARGET_OFFSET),
+            decoder.decodeNext(script, LOCAL_SUB_OFFSET)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(LOCAL_SUB_TARGET_OFFSET + 20L),
+            decoder.decodeNext(script, LOCAL_SUB_TARGET_OFFSET)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(LOCAL_SUB_TARGET_OFFSET + 40L),
+            decoder.decodeNext(script, LOCAL_SUB_TARGET_OFFSET + 20L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.ModuleReturn,
+            decoder.decodeNext(script, LOCAL_SUB_RETURN_OFFSET)
+        )
+    }
+
     private fun localSubroutineScript(
         subTableIndex: UInt = 1u,
-        returnPayload: List<UInt> = emptyList()
+        returnPayload: List<UInt> = emptyList(),
+        returnCode: UInt = CODE_CONTROL_RETURN
     ): SystemNnnScript {
         val words = mutableListOf<UInt>()
         words += listOf(0u, 0u, 0u, 0u) // preamble
@@ -617,7 +644,7 @@ class SystemNnnCommandDecoderImplTest {
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330051u, 1u, 0u) // reserved slot 0
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330050u, 0u, 0u) // ordinary slot 1
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330052u, 0u, 0u) // continuation
-        words += record(3 + returnPayload.size, CONTROL, 0x55560007u, *returnPayload.toUIntArray()) // RETURN in local body
+        words += record(3 + returnPayload.size, CONTROL, returnCode, *returnPayload.toUIntArray()) // local transfer in body
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330050u, 0u, 0u) // ordinary slot 2
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330052u, 0u, 0u)
         words += record(5, CONTROL, 0x55560009u, subTableIndex, 7u) // SUB -> descriptor3[1]

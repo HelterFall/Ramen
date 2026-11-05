@@ -437,9 +437,11 @@ class SystemNnnCommandDecoderImpl(
             )
 
             CODE_CONTROL_NEXT -> {
-                if (record.payloadWordCount != 0 || localSubroutineStack.isNotEmpty()) {
-                    throw IOException("NEXT requires an empty local SUB stack and no payload.")
-                }
+                // NEXT is the module-return boundary. Some real scripts arrive
+                // here with stale local SUB frames and opaque trailing DWORDs.
+                // The record envelope already validated its full length, so
+                // discard the stale stack and ignore payload without decoding it.
+                localSubroutineStack.clear()
                 SystemNnnDecodedCommand.ModuleReturn
             }
 
