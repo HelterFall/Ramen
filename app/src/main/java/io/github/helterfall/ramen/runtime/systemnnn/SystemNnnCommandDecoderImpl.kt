@@ -69,8 +69,9 @@ class SystemNnnCommandDecoderImpl(
                 SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
             }
 
+            SystemNnnRecordKind.FUNCTION -> decodeUserFunction(record)
+
             SystemNnnRecordKind.COMMAND,
-            SystemNnnRecordKind.FUNCTION,
             null -> throw unsupportedRecord(record)
         }
     }
@@ -289,6 +290,25 @@ class SystemNnnCommandDecoderImpl(
             targetModuleName = target.text,
             kind = kind
         )
+    }
+
+    /**
+     * The cleaned target archive contains 22 IDENTIFY_FUNCTION records, all
+     * code 0x0002 with zero arguments. In its function.xtx, function slot 2 is
+     * "stopf5"; the reference callback only clears skip-mode flags. Ramen has
+     * no skip-mode state, so this exact record is a no-op. Other user functions
+     * remain unsupported rather than being guessed.
+     */
+    private fun decodeUserFunction(
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.Skip {
+        if (record.codeFamily != USER_FUNCTION_FAMILY ||
+            record.codeId != USER_FUNCTION_STOP_F5 ||
+            record.payloadWordCount != USER_FUNCTION_ZERO_ARGUMENT_COUNT
+        ) {
+            throw unsupportedRecord(record)
+        }
+        return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
     }
 
     private fun decodeSystemFunction(
@@ -790,6 +810,9 @@ class SystemNnnCommandDecoderImpl(
         const val DWORD_BYTES = 4L
         const val RECORD_HEADER_WORDS = 3
         const val SYSTEM_COMMAND_FAMILY = 0x2222
+        const val USER_FUNCTION_FAMILY = 0x0000
+        const val USER_FUNCTION_STOP_F5 = 0x0002
+        const val USER_FUNCTION_ZERO_ARGUMENT_COUNT = 1
         const val SYSTEM_FUNCTION_FAMILY = 0x3333
         const val CODE_SYSTEMFUNCTION_SETFILM = 0x001A
         const val SETFILM_PAYLOAD_WORD_COUNT = 2
