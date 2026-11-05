@@ -120,7 +120,11 @@ class SystemNnnResourceFunctionScanner(
             val countEqualsRemainingPayload = leadingCountWord?.let { it.toLong() == remainingPayloadWords.toLong() }
             val previewCount = minOf(record.payloadWordCount, maxPreviewWords)
             val sourceFilm = findSourceFilmEntry(record.offset, orderedFilmEntries)
-            val sourceFilmIndex = sourceFilm?.let(orderedFilmEntries::indexOf)?.takeIf { it >= 0 }
+            val sourceFilmIndex = sourceFilm
+                ?.let { entry ->
+                    orderedFilmEntries.binarySearchBy(entry.targetCommandOffset) { it.targetCommandOffset }
+                }
+                ?.takeIf { it >= 0 }
             val sourceFilmEnd = sourceFilmIndex
                 ?.let { orderedFilmEntries.getOrNull(it + 1)?.targetCommandOffset }
                 ?: if (sourceFilm != null) stream.recordEndOffsetExclusive else null

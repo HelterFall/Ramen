@@ -841,7 +841,7 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 ## 2026-11-06 — read-only resource/audio SYSTEM_FUNCTION inventory
 
 - Added SystemNnnResourceFunctionScanner for family-known 0x3333 resource/audio code IDs: MUSIC, VOICE, SOUND, LOADDWQ, SETCG, SETSCENE, PRELOADDWQ and selected voice/SE volume/fade controls.
-- It reports exact SPT record offsets/lengths, the raw first payload DWORD, declared-vs-available argument counts and an eight-DWORD numeric preview. No pool text, filenames, resource bytes or media are read or emitted.
+- It reports exact SPT record offsets/lengths, the raw leading DWORD, remaining payload word count and an eight-DWORD numeric preview. The count-to-payload comparison is diagnostic only. No pool text, filenames, resource bytes or media are read or emitted.
 - The labels are sourced from a pinned NNNLib family reference and explicitly remain hypotheses for this title. The Resource Inspector's existing metadata-only report now includes these candidates. No runtime dispatch was enabled.
 - Synthetic scanner/report tests were added; tests, CI, lint and APK builds were not run by request.
 
@@ -849,3 +849,4 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 
 
 - Resource/audio SPT inventory now carries up to four numeric DWORDs from the immediately previous and next records, plus source film-table identity/interval when descriptor 3 is validated. Adjacent context never crosses a known film boundary; the exported text contains no Pool 1/Pool 2 strings.
+- Switched per-candidate scene-interval indexing to binary search; each neighbour context is capped at four DWORDs.

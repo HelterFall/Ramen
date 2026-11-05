@@ -702,7 +702,7 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 ### 2026-11-06 — read-only resource/audio SYSTEM_FUNCTION inventory
 
 - Added a bounded scanner for family-known resource/audio SYSTEM_FUNCTION IDs (music, voice, sound, DWQ loading, CG/scene selection and related audio controls). The labels come from the pinned NNNLib family reference, not from a target-specific proof of handler semantics.
-- The scanner records module, code ID, record offset/length, first payload DWORD as a raw declared-argument-count candidate, available argument DWORD count, and at most eight numeric payload DWORDs. It never resolves string-pool indexes, extracts filenames, reads media or executes commands.
+- The scanner records module, code ID, record offset/length, the leading payload DWORD, remaining payload word count and at most eight numeric payload DWORDs. The leading-word comparison is diagnostic only, not an argument-arity assertion. It never resolves string-pool indexes, extracts filenames, reads media or executes commands.
 - Extended the Resource Inspector's existing SPT diagnostic export with this section, so the actual imported target modules can be reviewed without changing player behavior.
 - No target opcode is connected to image/audio playback. Tests were added but not run; no CI, lint or APK build was run.
 
@@ -710,3 +710,4 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 
 
 - Extended resource/audio candidate rows with previous/next record contexts (numeric previews only) and, when validated descriptor-3 entries exist, source film-table index/number and the bounded film interval. Neighbour context is clipped to that interval.
+- The film interval lookup uses binary search over the validated, physically sorted descriptor-3 entries; neighbour previews are capped at four DWORDs.
