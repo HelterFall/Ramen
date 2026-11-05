@@ -13,8 +13,10 @@ import java.io.IOException
  * The record envelope and message-reference layout are verified against the
  * bundled SPT modules and the public reference runtime. PRINT, LPRINT and
  * APPEND resolve their first payload DWORD through the module's primary text
- * pool. Commands whose control-flow or resource semantics are not implemented
- * fail explicitly instead of being treated as ordinary dialogue.
+ * pool. SETFILM is additionally validated against the descriptor-3 film table;
+ * local SUB/RETURN uses a bounded in-module stack. ENDFILM advances to the next
+ * record so a following RETURN can restore the local caller. Inter-module
+ * SCRIPT/SCRIPTJUMP/SUBSCRIPT and unverified resource semantics remain disabled.
  */
 class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int,
