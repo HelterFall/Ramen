@@ -91,6 +91,17 @@ class SystemNnnGpkBitmapRepository private constructor(
 
     fun loadBitmap(index: Int): Bitmap? = loadBitmapByIndex(index.toLong())
 
+    /** Exact, case-insensitive name lookup used by the project-level asset catalog. */
+    fun hasResourceName(resourceId: String): Boolean {
+        if (wgqFiles.isNotEmpty()) {
+            return wgqFiles.any { file ->
+                file.name.equals(resourceId, ignoreCase = true) ||
+                    file.nameWithoutExtension.equals(resourceId, ignoreCase = true)
+            }
+        }
+        return archive.entries.any { it.name.equals(resourceId, ignoreCase = true) }
+    }
+
     fun loadBitmapAtBlockOffset(blockOffset: Long): Bitmap? {
         if (archiveSource == null) return null
         val entry = archive.entries.firstOrNull { it.blockOffset == blockOffset } ?: return null
