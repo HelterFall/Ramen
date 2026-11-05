@@ -762,3 +762,13 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Added writer tests for deterministic grouping, no scenario-text fields, output-stream ownership and candidate limits.
 - CI #394 (head bd2acb...) still failed because the synthetic film fixture's secondary film-function records also contained [1, Pool2Index] payloads; the scanner correctly found those extra candidates. The fixture now clears those unrelated payload references for all 0x3333/0x50 and 0x3333/0x52 rows. The next CI must confirm the corrected test and new exporter.
 - No runtime module dispatch, call stack, startup selection or scene playback behavior was enabled.
+
+
+## 2026-11-05 — target SPT script-transfer opcodes identified
+
+- Consulted the public NNNLib source at pinned revision tinyan/SystemNNN@78a05053c78b3b80065a9a209c6685a7c60a2e83 as family context from another title. It names CONTROL 0x5556/0x000A SCRIPT, 0x0015 SCRIPTJUMP, and 0x0016 SUBSCRIPT; transfer targets are resolved via Pool 2 and the callback loads spt/<module>.spt. SCRIPT/SUBSCRIPT enter a nested script level; SCRIPTJUMP replaces the current level. The reference initializes its controller from sys.spt.
+- The same reference defines 0x3333/0x0052 as FILMTYPETIME and 0x3333/0x0053 as CONFIGMASK. The latter is not a module transfer.
+- Independent read-only scan of hui(4).zip found 29 exact target control records: 14 SCRIPT from sys to 14 project modules; 3 SCRIPTJUMP (01→yuka, 03→yamiko, yuka→yuka2); 12 SUBSCRIPT to _staff from 03/akane/aoi/kiika/yamiko/yuka.
+- Added SystemNnnScriptTransferScanner and synthetic tests. It accepts only type-2 CONTROL records, family 0x5556, IDs 0x0A/0x15/0x16, one Pool 2 operand and exact project module-name matches; unresolved target strings are counted but not exposed.
+- Resource Inspector's Text Data export now reports these typed transfer candidates separately from the older unclassified module-name references. Runtime transfer behavior is still disabled.
+- In the target SPTs the DWORD after the Pool 2 operand is the next record's length. The family reference uses that slot as a return selector; the target's selector-to-resume mapping is not yet known, so no call stack has been added.
