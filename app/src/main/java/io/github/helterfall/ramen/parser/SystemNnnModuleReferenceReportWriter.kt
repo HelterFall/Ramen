@@ -117,6 +117,43 @@ class SystemNnnModuleReferenceReportWriter(
             if (report.resourceFunctionCandidates.isNotEmpty()) {
                 writer.appendLine()
                 writer.appendLine("RESOURCE/AUDIO SYSTEM_FUNCTION CANDIDATES (FAMILY REFERENCE LABELS ONLY)")
+                writer.appendLine("  LOCATION SUMMARY BY SOURCE MODULE AND FILM INTERVAL")
+                report.resourceFunctionCandidates
+                    .groupBy { candidate ->
+                        SourceFilmGroup(
+                            sourceModuleName = candidate.sourceModuleName,
+                            sourceFilmTableIndex = candidate.sourceFilmTableIndex,
+                            sourceFilmNumber = candidate.sourceFilmNumber,
+                            sourceFilmStartOffset = candidate.sourceFilmStartOffset,
+                            sourceFilmEndOffsetExclusive = candidate.sourceFilmEndOffsetExclusive
+                        )
+                    }
+                    .entries
+                    .sortedWith(
+                        compareBy<Map.Entry<SourceFilmGroup, List<SystemNnnResourceFunctionCandidate>>> {
+                            it.key.sourceModuleName
+                        }.thenBy { it.key.sourceFilmTableIndex ?: Int.MAX_VALUE }
+                            .thenBy { it.key.sourceFilmStartOffset ?: Long.MAX_VALUE }
+                    )
+                    .forEach { (group, candidates) ->
+                        val locationLabel = when {
+                            group.sourceFilmTableIndex == null -> "outside indexed film intervals"
+                            group.sourceFilmNumber == null -> "reserved table entry ${group.sourceFilmTableIndex}"
+                            else -> "film=${group.sourceFilmNumber}"
+                        }
+                        val functionCounts = candidates
+                            .groupingBy { it.kind.familyReferenceName }
+                            .eachCount()
+                            .toSortedMap()
+                            .entries
+                            .joinToString(",") { "${it.key}:${it.value}" }
+                        writer.appendLine(
+                            "    MODULE=${group.sourceModuleName} ${locationLabel} " +
+                                "tableIndex=${group.sourceFilmTableIndex ?: "—"} " +
+                                "count=${candidates.size} byFunction={$functionCounts}"
+                        )
+                    }
+                writer.appendLine()
                 writer.appendLine("  SHAPE SUMMARY BY FUNCTION CODE")
                 report.resourceFunctionCandidates
                     .groupBy { it.kind }

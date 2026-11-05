@@ -176,6 +176,67 @@ class SystemNnnModuleReferenceReportWriterTest {
     }
 
     @Test
+    fun summarizesResourceFunctionLocationsByModuleAndFilmInterval() {
+        val first = SystemNnnResourceFunctionCandidate(
+            sourceModuleName = "03",
+            kind = SystemNnnResourceFunctionKind.LOAD_DWQ,
+            commandOffset = 0xA0L,
+            recordLengthWords = 5u,
+            leadingCountWord = 1u,
+            remainingPayloadWordCount = 1,
+            countWordEqualsRemainingPayloadWordCount = true,
+            payloadPreview = listOf(1u),
+            sourceFilmTableIndex = 2,
+            sourceFilmNumber = 1,
+            sourceFilmStartOffset = 0x80L,
+            sourceFilmEndOffsetExclusive = 0xC0L,
+            previousRecord = null,
+            nextRecord = null
+        )
+        val secondInSameFilm = first.copy(
+            kind = SystemNnnResourceFunctionKind.VOICE,
+            commandOffset = 0xA8L
+        )
+        val outsideFilmTable = first.copy(
+            commandOffset = 0xC0L,
+            sourceFilmTableIndex = null,
+            sourceFilmNumber = null,
+            sourceFilmStartOffset = null,
+            sourceFilmEndOffsetExclusive = null
+        )
+        val output = ByteArrayOutputStream()
+
+        SystemNnnModuleReferenceReportWriter().write(
+            listOf(
+                SystemNnnModuleReferenceProjectReport(
+                    projectPath = "spt/project.xtx",
+                    moduleCount = 20,
+                    candidates = emptyList(),
+                    resourceFunctionCandidates = listOf(
+                        outsideFilmTable,
+                        secondInSameFilm,
+                        first
+                    )
+                )
+            ),
+            output
+        )
+
+        val report = output.toString(Charsets.UTF_8.name())
+        assertTrue(report.contains("LOCATION SUMMARY BY SOURCE MODULE AND FILM INTERVAL"))
+        assertTrue(report.contains(
+            "MODULE=03 film=1 tableIndex=2 count=2 byFunction={LOADDWQ:1,VOICE:1}"
+        ))
+        assertTrue(report.contains(
+            "MODULE=03 outside indexed film intervals tableIndex=— count=1 byFunction={LOADDWQ:1}"
+        ))
+        assertTrue(
+            report.indexOf("MODULE=03 film=1") <
+                report.indexOf("MODULE=03 outside indexed film intervals")
+        )
+    }
+
+    @Test
     fun flushesButDoesNotCloseTheCallerOwnedStream() {
         val output = CloseTrackingOutputStream()
         val candidate = candidate(

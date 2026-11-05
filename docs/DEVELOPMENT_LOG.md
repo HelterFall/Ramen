@@ -854,3 +854,5 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 
 
 - Extended the resource/audio report summary with bounded payload-position frequency tables for the first eight positions. For each function code it lists presence counts and up to 16 most frequent numeric DWORD values per position, ordered deterministically by frequency then value. No operand values are assigned semantics.
+
+- Added a deterministic, numeric-only location summary for resource/audio SYSTEM_FUNCTION candidates, grouped by source module and validated source-film interval, with per-function counts. This is a physical-origin inventory only; it does not infer resource-bank namespaces, slot mappings or operand meanings. Synthetic coverage was added; tests, lint, CI and APK builds were not run by request.
