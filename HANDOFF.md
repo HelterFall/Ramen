@@ -602,3 +602,13 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - Тот же источник определяет 0x3333/0x0053 как CONFIGMASK; предыдущие 13 совпадений _staff у этого кода — не переходы.
 - Добавлен read-only SystemNnnScriptTransferScanner и тесты. Resource Inspector экспортирует SCRIPT-переходы отдельно от общих строковых ссылок.
 - Следующий DWORD после Pool2Index в target совпадает с length DWORD следующей записи; family reference использует его как selector возврата, но таблица возврата целевой игры пока не разобрана. Не включать module execution/call stack/sys auto-start до этого.
+
+
+### 2026-11-05 — локальные SUB связаны с descriptor 3
+
+- Все 1 069 CONTROL SUB (0x5556/0x0009) из 20 модулей имеют два DWORD операнда. Первый находится в диапазоне descriptor 3 и указывает на валидный 5-DWORD function record 0x3333/0x50 или reserved 0x3333/0x51.
+- Второй операнд в каждом модуле — уникальная плотная нумерация локальных SUB ID от 0 до N−1.
+- SUB по модулям: sys 9, backspt 22, 01 65, 02 50, 03 182, 04 67, 05 37, 06 9, 07 27, 08 16, 082 58, akane 105, aoi 89, kiika 115, yamiko 68, yuka 109, day 8, op1 19, yuka2 13, _staff 1.
+- CONTROL RETURN записей 1 008, поэтому не сопоставлять их попарно с SUB по порядку.
+- Добавлен read-only SystemNnnLocalSubroutineScanner; экспорт показывает SUB ID → descriptor3 slot → target offset/function.
+- Выполнение SUB/RETURN и runtime call stack остаются выключенными до доказательства target-specific return behavior.
