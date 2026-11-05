@@ -20,6 +20,7 @@ import io.github.helterfall.ramen.parser.SystemNnnSceneCatalogReader
 import io.github.helterfall.ramen.parser.SystemNnnSceneData
 import io.github.helterfall.ramen.parser.SystemNnnSceneVoiceCatalog
 import io.github.helterfall.ramen.parser.SystemNnnSceneRoute
+import io.github.helterfall.ramen.parser.SystemNnnVariableCatalogReader
 import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
 
 /**
@@ -41,7 +42,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         val standaloneScript: SystemNnnScript?,
         val initialCommandOffset: Long,
         val sceneData: SystemNnnSceneData? = null,
-        val sceneVoiceCatalog: SystemNnnSceneVoiceCatalog? = null
+        val sceneVoiceCatalog: SystemNnnSceneVoiceCatalog? = null,
+        val initialVariables: Map<Int, Int> = emptyMap()
     )
 
     private lateinit var playerViewModel: SystemNnnPlayerViewModel
@@ -95,7 +97,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                         resolverToTransfer.close()
                         preparedAudio?.repository?.close()
                     } else {
-                        val projectVariables = HashMap<Int, Int>()
+                        val projectVariables = launch.initialVariables.toMutableMap()
                         val decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder = {
                             SystemNnnCommandDecoderImpl(
                                 gtbResourceCount = resolverToTransfer.resourceCount,
@@ -186,6 +188,12 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             }
             val sptDirectory = projectModules.first().scriptFile.parentFile
                 ?: throw IOException("Каталог SPT-модулей не имеет родительской папки.")
+            val variableFile = File(sptDirectory, "var.fxf")
+            val initialVariables = if (variableFile.isFile) {
+                SystemNnnVariableCatalogReader().read(variableFile).newGameDefaults()
+            } else {
+                emptyMap()
+            }
             val sceneDataFile = File(sptDirectory, "scene.dat")
             val sceneData = if (sceneDataFile.isFile) {
                 SystemNnnSceneCatalogReader().readSceneData(sceneDataFile)
@@ -211,7 +219,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                 standaloneScript = null,
                 initialCommandOffset = 0L,
                 sceneData = sceneData,
-                sceneVoiceCatalog = sceneVoiceCatalog
+                sceneVoiceCatalog = sceneVoiceCatalog,
+                initialVariables = initialVariables
             )
         }
 
