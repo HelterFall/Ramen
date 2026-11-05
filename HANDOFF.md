@@ -712,3 +712,5 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - Extended resource/audio candidate rows with previous/next record contexts (numeric previews only) and, when validated descriptor-3 entries exist, source film-table index/number and the bounded film interval. Neighbour context is clipped to that interval.
 - The film interval lookup uses binary search over the validated, physically sorted descriptor-3 entries; neighbour previews are capped at four DWORDs.
 - Added a synthetic two-film pointer-table fixture to verify resource-function neighbour context stops at the next validated film start and preserves the correct film number. The fixture is source-only; tests remain unrun.
+
+- Resource/audio shape summary now includes per-position DWORD frequency tables across the first eight payload words; each position lists presence count and up to 16 common numeric values. These are raw distributions, not decoded resource IDs.

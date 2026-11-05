@@ -146,6 +146,28 @@ class SystemNnnModuleReferenceReportWriter(
                                 "lengthWords={$lengths} remainingPayloadWords={$payloadSizes} " +
                                 "leadingWord(first $MAX_SUMMARY_VALUES numeric values)={$leadingValues}"
                         )
+                        val maxPayloadPositions = candidates.maxOf { it.payloadPreview.size }
+                        repeat(maxPayloadPositions) { payloadPosition ->
+                            val positionValues = candidates.mapNotNull {
+                                it.payloadPreview.getOrNull(payloadPosition)
+                            }
+                            val commonValues = positionValues
+                                .groupingBy { it }
+                                .eachCount()
+                                .entries
+                                .sortedWith(
+                                    compareByDescending<Map.Entry<UInt, Int>> { it.value }
+                                        .thenBy { it.key }
+                                )
+                                .take(MAX_SUMMARY_VALUES)
+                                .joinToString(",") {
+                                    "${formatDword(it.key)}:${it.value}"
+                                }
+                            writer.appendLine(
+                                "      payload[$payloadPosition] present=${positionValues.size}/${candidates.size} " +
+                                    "common(first $MAX_SUMMARY_VALUES by frequency)={$commonValues}"
+                            )
+                        }
                     }
                 report.resourceFunctionCandidates
                     .sortedWith(compareBy<SystemNnnResourceFunctionCandidate> { it.sourceModuleName }

@@ -128,6 +128,19 @@ class SystemNnnModuleReferenceReportWriterTest {
                 payloadPreview = listOf(1u)
             )
         )
+        val secondCandidate = candidate.copy(
+            commandOffset = 0xC0L,
+            recordLengthWords = 6u,
+            leadingCountWord = 2u,
+            remainingPayloadWordCount = 2,
+            payloadPreview = listOf(2u, 10u, 11u),
+            sourceFilmTableIndex = null,
+            sourceFilmNumber = null,
+            sourceFilmStartOffset = null,
+            sourceFilmEndOffsetExclusive = null,
+            previousRecord = null,
+            nextRecord = null
+        )
         val output = ByteArrayOutputStream()
 
         SystemNnnModuleReferenceReportWriter().write(
@@ -136,7 +149,7 @@ class SystemNnnModuleReferenceReportWriterTest {
                     projectPath = "spt/project.xtx",
                     moduleCount = 20,
                     candidates = emptyList(),
-                    resourceFunctionCandidates = listOf(candidate)
+                    resourceFunctionCandidates = listOf(candidate, secondCandidate)
                 )
             ),
             output
@@ -145,10 +158,13 @@ class SystemNnnModuleReferenceReportWriterTest {
         val report = output.toString(Charsets.UTF_8.name())
         assertTrue(report.contains("RESOURCE/AUDIO SYSTEM_FUNCTION CANDIDATES"))
         assertTrue(report.contains("SHAPE SUMMARY BY FUNCTION CODE"))
-        assertTrue(report.contains("LOADDWQ count=1 lengthWords={5:1} remainingPayloadWords={1:1}"))
-        assertTrue(report.contains("leadingWord={0x00000001:1}"))
+        assertTrue(report.contains("LOADDWQ count=2 lengthWords={5:1,6:1} remainingPayloadWords={1:1,2:1}"))
+        assertTrue(report.contains("leadingWord(first 16 numeric values)={0x00000001:1,0x00000002:1}"))
+        assertTrue(report.contains("payload[0] present=2/2 common(first 16 by frequency)={0x00000001:1,0x00000002:1}"))
+        assertTrue(report.contains("payload[1] present=2/2 common(first 16 by frequency)={0x00000009:1,0x0000000A:1}"))
+        assertTrue(report.contains("payload[2] present=1/2 common(first 16 by frequency)={0x0000000B:1}"))
         assertTrue(report.contains("MODULE=03 LOADDWQ @0xA0"))
-        assertTrue(report.contains("resource/audio functions: 1"))
+        assertTrue(report.contains("resource/audio functions: 2"))
         assertTrue(report.contains("count/payload differences: 0"))
         assertTrue(report.contains("countWord=1 remainingPayloadWords=1 countVsPayload=equal"))
         assertTrue(report.contains("payload=[0x00000001,0x00000009]"))
