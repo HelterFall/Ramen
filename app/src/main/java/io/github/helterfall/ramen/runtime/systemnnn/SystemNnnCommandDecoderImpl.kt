@@ -694,12 +694,18 @@ class SystemNnnCommandDecoderImpl(
                 OP_ADD -> ExpressionValue(left.value + right.value)
                 OP_SUBTRACT -> ExpressionValue(left.value - right.value)
                 OP_MULTIPLY -> ExpressionValue(left.value * right.value)
-                OP_DIVIDE -> ExpressionValue(left.value / right.value.coerceAtLeast(1).let {
-                    if (right.value < 0) -it else it
-                })
-                OP_MODULO -> ExpressionValue(left.value % right.value.coerceAtLeast(1).let {
-                    if (right.value < 0) -it else it
-                })
+                OP_DIVIDE -> {
+                    if (right.value == 0) {
+                        throw IOException("A System-NNN CALCU division by zero is not valid.")
+                    }
+                    ExpressionValue(left.value / right.value)
+                }
+                OP_MODULO -> {
+                    if (right.value == 0) {
+                        throw IOException("A System-NNN CALCU modulo by zero is not valid.")
+                    }
+                    ExpressionValue(left.value % right.value)
+                }
                 OP_BIT_AND -> ExpressionValue(left.value and right.value)
                 OP_BIT_XOR -> ExpressionValue(left.value xor right.value)
                 OP_BIT_OR -> ExpressionValue(left.value or right.value)
@@ -716,11 +722,17 @@ class SystemNnnCommandDecoderImpl(
                         OP_ADD -> left.value + right.value
                         OP_SUBTRACT -> left.value - right.value
                         OP_MULTIPLY -> left.value * right.value
-                        OP_DIVIDE -> left.value / right.value.coerceAtLeast(1).let {
-                            if (right.value < 0) -it else it
+                        OP_DIVIDE -> {
+                            if (right.value == 0) {
+                                throw IOException("A System-NNN CALCU compound division by zero is not valid.")
+                            }
+                            left.value / right.value
                         }
-                        OP_MODULO -> left.value % right.value.coerceAtLeast(1).let {
-                            if (right.value < 0) -it else it
+                        OP_MODULO -> {
+                            if (right.value == 0) {
+                                throw IOException("A System-NNN CALCU compound modulo by zero is not valid.")
+                            }
+                            left.value % right.value
                         }
                         OP_BIT_AND -> left.value and right.value
                         OP_BIT_XOR -> left.value xor right.value
