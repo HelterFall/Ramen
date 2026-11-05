@@ -9,6 +9,23 @@ import java.io.File
 import java.io.IOException
 
 /**
+ * Index-based audio access exposed to the player. Implementations must keep
+ * bank-local indexes explicit; a catalog containing several banks must not
+ * silently concatenate them into a guessed global voice table.
+ */
+interface SystemNnnAudioResourceRepository : Closeable {
+    override val entries: List<VpkAudioResource>
+
+    fun findResource(resourceId: String): VpkAudioResource?
+
+    @Throws(IOException::class)
+    fun materialize(resourceId: String): File
+
+    @Throws(IOException::class)
+    fun materializeByIndex(index: Long): File
+}
+
+/**
  * Opens a matching .vtb/.vpk pair, validates its index and Ogg page boundaries,
  * and stages only the selected Ogg payload into app cache for Android MediaPlayer.
  *
@@ -19,7 +36,7 @@ class SystemNnnVpkAudioRepository(
     indexFile: File,
     archiveFile: File,
     private val cacheDirectory: File
-) : Closeable {
+) : SystemNnnAudioResourceRepository {
 
     private val indexSource = FileRandomAccessSource(indexFile)
     private val archiveSource = FileRandomAccessSource(archiveFile)
@@ -37,7 +54,7 @@ class SystemNnnVpkAudioRepository(
         }
     }
 
-    fun findResource(resourceId: String): VpkAudioResource? {
+    override fun findResource(resourceId: String): VpkAudioResource? {
         checkOpen()
         val trimmed = resourceId.trim()
         return entries.firstOrNull { it.name.equals(trimmed, ignoreCase = true) }
@@ -45,7 +62,7 @@ class SystemNnnVpkAudioRepository(
     }
 
     @Throws(IOException::class)
-    fun materialize(resourceId: String): File {
+    override fun materialize(resourceId: String): File {
         checkOpen()
         val resource = findResource(resourceId)
             ?: throw IOException("VPK/VAW audio resource was not found: " + resourceId)
@@ -57,7 +74,7 @@ class SystemNnnVpkAudioRepository(
     }
 
     /** Resolves the zero-based VTB row synchronized with a dialogue step. */
-    fun materializeByIndex(index: Long): File {
+    override fun materializeByIndex(index: Long): File {
         checkOpen()
         if (index < 0L || index >= entries.size.toLong()) {
             throw IOException("VAW/VTB voice index is outside the audio catalog: " + index)
