@@ -52,7 +52,8 @@ data class SystemNnnSceneCatalogAlignment(
         get() = sceneDataAndVoiceCountsMatch && sceneDataAndFilmTableCountsMatch
 
     /** Deliberately false until an actual row-to-pointer relation is demonstrated. */
-    val sameIndexMappingProven: Boolean = false
+    val sameIndexMappingProven: Boolean
+        get() = false
 }
 
 /**
