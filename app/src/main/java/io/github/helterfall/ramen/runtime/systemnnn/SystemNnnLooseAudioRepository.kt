@@ -39,10 +39,13 @@ class SystemNnnLooseAudioRepository(
     }
 
     fun matches(id: String): List<SystemNnnLooseAudioResourceInfo> {
-        val query = id.trim()
-        return resources.filter {
-            it.id.equals(query, true) || it.fileName.equals(query, true) ||
-                it.fileName.substringBeforeLast('.', it.fileName).equals(query, true)
+        val query = id.trim().replace('\\\\', '/')
+        val queryBase = query.substringAfterLast('/').substringBeforeLast('.')
+        return resources.filter { resource ->
+            val resourcePath = resource.id.replace('\\\\', '/')
+            resourcePath.equals(query, true) ||
+                resource.fileName.equals(query.substringAfterLast('/'), true) ||
+                resource.fileName.substringBeforeLast('.', resource.fileName).equals(queryBase, true)
         }
     }
 

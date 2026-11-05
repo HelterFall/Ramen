@@ -219,7 +219,7 @@ class SystemNnnAssetManager private constructor(
     override fun findResource(resourceId: String): VpkAudioResource? {
         checkOpen()
         val matchingBanks = audioBanks.filter { bank ->
-            bank.repository.entries.any { it.name.equals(resourceId, ignoreCase = true) }
+            bank.repository.entries.any { audioResourceNameMatches(it.name, resourceId) }
         }
         if (matchingBanks.size > 1) return null
         if (matchingBanks.size == 1) {
@@ -258,6 +258,7 @@ class SystemNnnAssetManager private constructor(
         checkOpen()
         if (oneBasedNumber <= 0) return null
         val slot = (oneBasedNumber.toLong() - 1L) * 2L
+        if (slot > Int.MAX_VALUE.toLong()) return null
         return musicResourceNames.getOrNull(slot.toInt())?.takeIf { it.isNotBlank() }
     }
 
@@ -265,6 +266,7 @@ class SystemNnnAssetManager private constructor(
         checkOpen()
         if (zeroBasedNumber < 0) return null
         val slot = zeroBasedNumber.toLong() * 2L
+        if (slot > Int.MAX_VALUE.toLong()) return null
         return soundResourceNames.getOrNull(slot.toInt())?.takeIf { it.isNotBlank() }
     }
 

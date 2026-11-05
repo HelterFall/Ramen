@@ -29,6 +29,16 @@ interface SystemNnnAudioResourceRepository : Closeable {
     fun soundResourceName(zeroBasedNumber: Int): String? = null
 }
 
+internal fun audioResourceNameMatches(candidate: String, requested: String): Boolean {
+    fun key(value: String): String {
+        val normalized = value.trim().replace('\\\\', '/')
+        val baseName = normalized.substringAfterLast('/')
+        return baseName.substringBeforeLast('.', baseName).lowercase(Locale.ROOT)
+    }
+    return candidate.trim().replace('\\\\', '/').equals(requested.trim().replace('\\\\', '/'), true) ||
+        key(candidate) == key(requested)
+}
+
 /**
  * Opens a matching .vtb/.vpk pair, validates its index and Ogg page boundaries,
  * and stages only the selected Ogg payload into app cache for Android MediaPlayer.
@@ -61,7 +71,7 @@ class SystemNnnVpkAudioRepository(
     override fun findResource(resourceId: String): VpkAudioResource? {
         checkOpen()
         val trimmed = resourceId.trim()
-        return entries.firstOrNull { it.name.equals(trimmed, ignoreCase = true) }
+        return entries.firstOrNull { audioResourceNameMatches(it.name, trimmed) }
             ?: trimmed.toIntOrNull()?.let(entries::getOrNull)
     }
 

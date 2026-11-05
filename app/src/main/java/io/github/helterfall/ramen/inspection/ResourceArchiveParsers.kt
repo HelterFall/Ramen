@@ -1379,6 +1379,7 @@ object ResourceArchiveParsers {
     private const val DWQ_HEADER_SIZE = 0x40
     private const val BMP_HEADER_SIZE = 0x36
     private const val MAX_WGQ_FILES = 10_000
+    private const val MAX_STANDALONE_WGQ_BYTES = 128L * 1024L * 1024L
     private val IGNORED_SCRIPT_CONFIGURATION_EXTENSIONS = setOf("xtx")
 
     private val PACKTYPE_PATTERN = Regex("^PACKTYPE=([0-9]+)(A?)$")
