@@ -717,3 +717,35 @@ Consequences for Ramen:
 - At the native overflow boundary the executable warns and reuses its final executor slot. Ramen instead rejects the extra push with a bounded error rather than silently overwriting the active nested frame.
 
 This is based on the target executable, not the NNNLib source from another title. No CI/tests/lint/APK build was run for this change.
+
+
+## 2026-11-06 — target-native SELECT/CASE branch mapping
+
+Source: cleaned user archive `hui(5).zip`; all 20 primary `hui/spt/*.spt` command streams were structurally parsed. Only record identifiers, codes, DWORD counts, indexes and command offsets were used; no scenario text was reproduced.
+
+### Native executable behavior
+
+- The SELECT command handler is at `gss.exe` VA `0x0041720A`. It reads the option count from the first payload DWORD. For the newer record shape, it reads the message-prefix count from the final DWORD, copies the prefix/option Pool 2 indexes in that order, and forwards the metadata to the selection callback. The target's time-limit, auto-select and special-flag DWORDs are all zero in the scanned SELECT records.
+- The target's CASE lookup routine is at VA `0x00417570`. Starting at the PC immediately after SELECT, it skips an initial outer OPEN_BRACE record by that record's own length only. It then searches CONTROL/CASE records (`0x55560008`), compares the low 16 bits of the first payload DWORD with the requested case number, and returns the command boundary immediately after the matching CASE record.
+- When a CASE does not match, the routine advances past the CASE record. If the next record is OPEN_BRACE, it skips by the DWORD span stored in that brace record's first payload. If that lands on CLOSE_BRACE, it also advances by the closing-brace record length before continuing to the next CASE.
+
+### Full primary-archive scan
+
+| Check | Result |
+|---|---:|
+| Primary SPT modules parsed | 20 / 20 |
+| SELECT records | 46 |
+| Options per SELECT | 1–4 (maximum 4) |
+| Prefix rows | 1 total: 45 SELECTs have 0, one has 1 |
+| Pool 2 references in option/prefix lists | 46 / 46 valid |
+| CASE lists | 46 / 46 exactly enumerate `1..N` |
+| CASE bodies wrapped in OPEN_BRACE | 104 / 104 |
+| Nonzero time-limit / auto-select / special-flag values | 0 |
+
+Per-module SELECT counts: `01=11`, `02=5`, `03=9`, `04=3`, `05=1`, `06=1`, `07=0`, `08=0`, `082=1`, `_staff=0`, `akane=4`, `aoi=4`, `backspt=0`, `day=0`, `kiika=2`, `op1=1`, `sys=0`, `yamiko=0`, `yuka=4`, `yuka2=0`.
+
+### Ramen correction
+
+The decoder already mapped option `N` to CASE `N` and returned the boundary immediately after that CASE. Its branch-body brace skip matches the native span/closing-brace behavior for the 104 observed case blocks. One mismatch was corrected: when SELECT is followed by an outer OPEN_BRACE, Ramen now skips only that opening record, matching the target `GetCase` routine, rather than skipping the entire wrapper span before scanning CASE records. A synthetic regression test covers this case.
+
+Ramen intentionally still does not expose the native time-limit/auto-select/special-flag metadata in its choice UI. The three fields are all zero across the 46 SELECT records in this cleaned archive. Tests were not run per current work direction.
