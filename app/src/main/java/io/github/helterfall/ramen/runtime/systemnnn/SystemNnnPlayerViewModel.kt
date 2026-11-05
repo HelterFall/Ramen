@@ -34,6 +34,8 @@ data class SystemNnnChoiceOption(
 data class SystemNnnPlayerUiState(
     val frameId: Long = 0L,
     val isLoading: Boolean = false,
+    /** One-based module-local film number from the latest validated SETFILM record. */
+    val currentFilmNumber: Int? = null,
     val backgroundBitmap: Bitmap? = null,
     val sprites: List<SystemNnnSpriteBitmap> = emptyList(),
     val speakerName: String? = null,
@@ -107,6 +109,11 @@ sealed interface SystemNnnDecodedCommand {
     /** A validated non-sequential local control transfer within the current SPT. */
     data class Jump(
         val targetCommandOffset: Long
+    ) : SystemNnnDecodedCommand
+
+    data class SetFilm(
+        val nextCommandOffset: Long,
+        val filmNumber: Int
     ) : SystemNnnDecodedCommand
 
     data class Choice(
@@ -388,6 +395,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
             var pendingBackgroundResourceId: String? = null
             var pendingBackgroundResourceIndex: Long? = null
             var pendingSpriteReferences: List<SystemNnnSpriteReference>? = null
+            var currentFilmNumber = uiState.currentFilmNumber
             var commandsWithoutVisibleOutput = 0
 
             while (commandsWithoutVisibleOutput < MAX_SCENE_COMMANDS_PER_ADVANCE) {
@@ -425,6 +433,16 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             throw IOException("Local control transfer target is not a validated SPT record boundary.")
                         }
                         nextCommandOffset = command.targetCommandOffset
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.SetFilm -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        if (command.filmNumber <= 0) {
+                            throw IOException("SETFILM supplied a non-positive film number.")
+                        }
+                        nextCommandOffset = command.nextCommandOffset
+                        currentFilmNumber = command.filmNumber
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -471,7 +489,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             dialogueText = text,
                             visibleCharacterCount = 0,
                             isTextComplete = text.isEmpty(),
-                            forceReveal = false
+                            forceReveal = false,
+                            currentFilmNumber = currentFilmNumber
                         )
                         playVoice(dialogueStepIndex)
                         return
@@ -519,7 +538,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             visibleCharacterCount = promptText.length,
                             isTextComplete = true,
                             forceReveal = true,
-                            choices = command.options
+                            choices = command.options,
+                            currentFilmNumber = currentFilmNumber
                         )
                         return
                     }
@@ -528,7 +548,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         audioPlayer?.stop()
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter + 1L,
-                            isEnded = true
+                            isEnded = true,
+                            currentFilmNumber = currentFilmNumber
                         )
                         return
                     }
