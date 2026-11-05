@@ -562,3 +562,13 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - Независимый повтор предиката на 20 модулях архива находит те же 511 ссылок на имена модулей. Негативный контроль сохраняется: те же типы записей ссылаются на множество обычных Pool 2 строк; runtime-переходы не включать.
 - Следующий этап: побайтно сопоставить каждую строку scene.dat с payload соответствующего указателя descriptor 3 и @scNN; затем исследовать 511 кандидатов в пределах конкретных film intervals и control-flow. Модульные call/return и автоматический выбор entrypoint не реализовывать до доказанного target/return behavior.
 - CI для нового кода должен быть подтверждён на итоговом head. Физическое устройство и полное прохождение игры не проверялись.
+
+
+### Дополнение 2026-11-05 — индекс исходного film для ссылок на модули
+
+- SystemNnnCommandStreamReader теперь отдаёт полный проверенный descriptor-3 pointer vector через filmTableEntries(): table index, ordinary film number (null для reserved prefix), target command offset.
+- SystemNnnModuleReferenceScanner добавляет к каждой точной ссылке на module-name строку ближайший предшествующий физический film-entry target: sourceFilmTableIndex и sourceFilmNumber.
+- Это только привязка к исходному интервалу по физическому положению. Она не доказывает, что строковая ссылка вызывает модуль, и не устанавливает целевой film в принимающем модуле.
+- Добавлен синтетический тест с reserved-prefix элементом и двумя обычными film intervals.
+- Первый CI #379 выявил ошибку в отрицательном тестовом fixture: запись объявляла 4 DWORD, хотя содержала 5. Fixture исправлен на валидные 5 DWORD с некандидатным reference tag. Исправленный head ожидает завершения CI; зелёный результат пока не заявлять.
+- Следующий шаг: сгруппировать кандидатов по (source module, source film, record family/code, target module) и исследовать соседние branch/control records. VM-вызовы, call stack и module auto-start не включать до подтверждения destination film и return convention.
