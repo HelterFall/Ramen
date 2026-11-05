@@ -888,3 +888,11 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Existing layer bitmaps are reused when unchanged; replaced and cleared resources follow the existing Compose bitmap lifecycle.
 - Opcode names and callback operand shape are cross-title engine-family evidence, not a disassembly of the Gore Screaming Show executable. No target-specific DRAW, transition/effect animation, bank inference, or image-position semantics are claimed. Physical-device validation remains outstanding.
 - Added synthetic decoder and ViewModel regression cases. Tests and lint were not run.
+
+
+## 2026-11-06 — correct static DWQ placement and scene-boundary cleanup
+
+- Corrected the static fallback for SETEFFECTRECT to use the destination rectangle (toRect), not the transition's starting rectangle (fromRect). This avoids rendering layers at their pre-transition position when effect animation is not implemented.
+- Kept the game viewport at a stable 4:3 fallback when a scene has no explicit background bitmap; a foreground sprite no longer changes the viewport's aspect ratio.
+- SceneUpdate now replaces the whole visual snapshot, including clearing an absent prior background. A changed SETFILM, the next scene-replay film, SCRIPTJUMP and controller reset clear inherited background/layer references; ordinary SCRIPT/SUBSCRIPT calls retain the current scene.
+- This remains a static visual approximation. Exact target-game rectangle units, effect animation and the repeated device crash are not yet verified from a GSS log or executable trace. Tests and lint were not run.

@@ -817,6 +817,19 @@ class SystemNnnPlayerViewModel : ViewModel() {
             }
             var pendingSpriteLayersChanged = false
             var imageStatusMessage: String? = null
+
+            fun clearPendingSceneVisuals() {
+                sceneBackground = null
+                pendingBackgroundResourceId = null
+                pendingBackgroundResourceIndex = null
+                pendingBackgroundBankNamespace = null
+                pendingBackgroundBankSlot = null
+                pendingSpriteLayers.clear()
+                pendingLayerRects.clear()
+                pendingLayerEffects.clear()
+                pendingSpriteLayersChanged = true
+            }
+
             var commandsWithoutVisibleOutput = 0
 
             while (commandsWithoutVisibleOutput < MAX_SCENE_COMMANDS_PER_ADVANCE) {
@@ -831,6 +844,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     is SystemNnnDecodedCommand.SceneUpdate -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
+                        clearPendingSceneVisuals()
                         validateNativeBankIdentity(
                             command.backgroundBankNamespace,
                             command.backgroundBankSlot
@@ -852,9 +866,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             throw IOException("A native image bank identity requires a background resource.")
                         }
                         // A scene snapshot replaces the complete visual layer set.
-                        pendingSpriteLayers.clear()
-                        pendingLayerRects.clear()
-                        pendingLayerEffects.clear()
                         command.sprites.forEachIndexed { index, reference ->
                             val layer = if (reference.layerIndex in 0 until MAX_IMAGE_LAYERS) {
                                 reference.layerIndex
@@ -882,7 +893,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             heightFraction = 1f,
                             contentDescription = "Image layer " + command.layerIndex,
                             layerIndex = command.layerIndex,
-                            nativeRect = pendingLayerRects[command.layerIndex]?.first,
+                            nativeRect = pendingLayerRects[command.layerIndex]?.second,
                             nativeEffectId = pendingLayerEffects[command.layerIndex]
                         )
                         pendingSpriteLayersChanged = true
@@ -917,7 +928,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         nextCommandOffset = command.nextCommandOffset
                         pendingLayerRects[command.layerIndex] = command.fromRect to command.toRect
                         pendingSpriteLayers[command.layerIndex]?.let { reference ->
-                            pendingSpriteLayers[command.layerIndex] = reference.copy(nativeRect = command.fromRect)
+                            pendingSpriteLayers[command.layerIndex] = reference.copy(nativeRect = command.toRect)
                         }
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
@@ -1011,6 +1022,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         if (command.filmNumber <= 0) {
                             throw IOException("SETFILM supplied a non-positive film number.")
                         }
+                        if (currentFilmNumber != null && currentFilmNumber != command.filmNumber) {
+                            clearPendingSceneVisuals()
+                        }
                         nextCommandOffset = command.nextCommandOffset
                         currentFilmNumber = command.filmNumber
                         commandsWithoutVisibleOutput += 1
@@ -1023,6 +1037,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             kind = command.kind,
                             callerContinuation = command.nextCommandOffset
                         )
+                        if (command.kind == SystemNnnModuleTransferKind.SCRIPTJUMP) {
+                            clearPendingSceneVisuals()
+                        }
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -1036,7 +1053,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 moduleCallStack.isEmpty()
 
                         if (sceneReplayOwnsCurrentFilm) {
+                            val previousFilmNumber = currentFilmNumber
                             advanceSceneReplayFilm()
+                            if (currentFilmNumber != previousFilmNumber) {
+                                clearPendingSceneVisuals()
+                            }
                         } else {
                             validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                             nextCommandOffset = command.nextCommandOffset
@@ -1050,6 +1071,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     SystemNnnDecodedCommand.ControllerReset -> {
+                        clearPendingSceneVisuals()
                         resetControllerOrEnd()
                         commandsWithoutVisibleOutput += 1
                     }

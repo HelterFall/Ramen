@@ -104,8 +104,6 @@ fun SystemNnnPlayerScreen(
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
             val sceneAspectRatio = state.backgroundBitmap?.let { bitmap ->
                 bitmap.width.toFloat() / bitmap.height.toFloat()
-            } ?: state.sprites.firstOrNull()?.bitmap?.let { bitmap ->
-                bitmap.width.toFloat() / bitmap.height.toFloat()
             } ?: (4f / 3f)
             val availableAspectRatio = maxWidth.value / maxHeight.value
             val viewportModifier = if (availableAspectRatio > sceneAspectRatio) {
