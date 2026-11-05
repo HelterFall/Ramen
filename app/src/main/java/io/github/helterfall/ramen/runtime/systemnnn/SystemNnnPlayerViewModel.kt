@@ -88,6 +88,7 @@ fun interface SystemNnnCommandDecoder {
 data class SystemNnnPlayerModuleProgram(
     val name: String,
     val script: SystemNnnScript,
+    val commandStream: SystemNnnCommandStream,
     val initialCommandOffset: Long
 )
 
@@ -251,7 +252,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
             }
         }
         val parsedCommandStream = try {
-            SystemNnnCommandStreamReader().read(script)
+            if (moduleName != null) {
+                controllerProgram?.commandStream
+                    ?: throw IOException("В управляющем модуле отсутствует разобранный поток команд.")
+            } else {
+                SystemNnnCommandStreamReader().read(script)
+            }
         } catch (error: Exception) {
             runCatching { assetResolver.close() }
             runCatching { audioRepository?.close() }
@@ -711,7 +717,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
             )
         }
 
-        val targetStream = SystemNnnCommandStreamReader().read(target.script)
+        val targetStream = target.commandStream
         if (target.initialCommandOffset != targetStream.recordEndOffsetExclusive &&
             targetStream.records.binarySearchBy(target.initialCommandOffset) { it.offset } < 0
         ) {
@@ -751,7 +757,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
 
         moduleCallStack.clear()
-        val stream = SystemNnnCommandStreamReader().read(controller.script)
+        val stream = controller.commandStream
         script = controller.script
         commandStream = stream
         decoder = factory(controller)
