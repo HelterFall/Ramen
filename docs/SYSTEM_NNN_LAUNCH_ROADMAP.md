@@ -1061,3 +1061,10 @@ The Activity accepts scene replay via EXTRA_SCENE_CHARACTER_INDEX, EXTRA_SCENE_I
 - A separate native loader at VA `0x0047B060` opens `wgq/<token>.wgq`, seeks 64 bytes into the file, then supplies the remaining stream to a dedicated reader at VA `0x0047B790`.
 - The supplied archive's `gss01_1.wgq` and `gsstxt01.mml` names do not match. The project-level asset catalog now lists loose `.mml` files separately from unindexed `.wgq`; it does not infer their relationship.
 - Ramen does not yet implement the native WGQ streaming decoder. Do not treat the Ogg capture marker as proof that the file can be played directly; the native code routes it through a dedicated reader.
+
+### Native DWQ bank namespaces
+
+- The target image manager at `gss.exe` VA `0x0043C100` loops over a fixed ten-entry prefix table; six entries are active: `ta`, `bg`, `ev`, `sc`, `sm`, `sys`. It constructs `dwq/<prefix><slot>.gtb` plus the same-stem `.gpk` for each configured slot.
+- The asset catalog now preserves `nativeNamespace` and `bankSlot` for matching indexed image banks, e.g. `sc0.gtb` → (`sc`, `0`). A bank's stable runtime ID is still its relative GTB path.
+- The SPT command-to-namespace/slot dispatch is not yet implemented. Do not use summed image-bank counts as a global row index. Resolve by unique GTB resource name or an explicit bank ID until the native command operand mapping is proven.
+- Same-stem archive pairing now tries candidates in deterministic native priority order and moves to the next candidate if validation fails. Successful pairs alone are marked as paired.
