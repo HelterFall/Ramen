@@ -14,6 +14,10 @@ import java.util.concurrent.Executors
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
 import io.github.helterfall.ramen.parser.SystemNnnProjectCatalog
 import io.github.helterfall.ramen.parser.SystemNnnScript
+import io.github.helterfall.ramen.parser.SystemNnnSceneCatalogReader
+import io.github.helterfall.ramen.parser.SystemNnnSceneData
+import io.github.helterfall.ramen.parser.SystemNnnSceneVoiceCatalog
+import io.github.helterfall.ramen.parser.SystemNnnSceneRoute
 import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
 
 /**
@@ -33,7 +37,9 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     private data class PreparedScriptLaunch(
         val projectModules: List<SystemNnnPlayerModuleProgram>?,
         val standaloneScript: SystemNnnScript?,
-        val initialCommandOffset: Long
+        val initialCommandOffset: Long,
+        val sceneData: SystemNnnSceneData? = null,
+        val sceneVoiceCatalog: SystemNnnSceneVoiceCatalog? = null
     )
 
     private lateinit var playerViewModel: SystemNnnPlayerViewModel
@@ -77,6 +83,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     scriptLoader = SystemNnnScriptLoader(),
                     commandStreamReader = commandStreamReader
                 )
+                val initialSceneRoute = resolveRequestedSceneRoute(launch)
                 val resolverToTransfer = SystemNnnGpkBitmapRepository.forGameDirectory(gameDirectory)
                 assetResolver = resolverToTransfer
                 preparedAudio = prepareAudioRepository(gameDirectory)
@@ -100,7 +107,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                                 controlModuleName = "sys",
                                 assetResolver = resolverToTransfer,
                                 decoderFactory = decoderFactory,
-                                audioRepository = preparedAudio?.repository
+                                audioRepository = preparedAudio?.repository,
+                                initialSceneRoute = initialSceneRoute
                             )
                         } else {
                             playerViewModel.start(
@@ -159,17 +167,47 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                 // the first command record begins at stream.recordStartOffset;
                 // module-local bootstrap SUB/IF/NEXT logic lives before film 0.
                 val startOffset = stream.recordStartOffset
+                val filmEntries = commandStreamReader.filmTableEntries(script, stream)
+                    .filter { it.filmNumber != null }
+                    .sortedBy { it.filmNumber }
+                val filmStartOffsets = filmEntries.map { it.targetCommandOffset }
+                if (filmEntries.indices.any { index -> filmEntries[index].filmNumber != index }) {
+                    throw IOException("Модуль '${module.name}' имеет разреженную нумерацию film slots.")
+                }
                 SystemNnnPlayerModuleProgram(
                     name = module.name,
                     script = script,
                     commandStream = stream,
-                    initialCommandOffset = startOffset
+                    initialCommandOffset = startOffset,
+                    filmStartOffsets = filmStartOffsets
+                )
+            }
+            val sptDirectory = projectModules.first().scriptFile.parentFile
+                ?: throw IOException("Каталог SPT-модулей не имеет родительской папки.")
+            val sceneDataFile = File(sptDirectory, "scene.dat")
+            val sceneData = if (sceneDataFile.isFile) {
+                SystemNnnSceneCatalogReader().readSceneData(sceneDataFile)
+            } else {
+                null
+            }
+            val sceneVoiceFile = File(gameDirectory, "nya/scenevoice.xtx")
+            val sceneVoiceCatalog = if (sceneVoiceFile.isFile) {
+                SystemNnnSceneCatalogReader().readSceneVoiceCatalog(sceneVoiceFile)
+            } else {
+                null
+            }
+            if (sceneData != null) {
+                validateSceneDataRoutes(
+                    sceneData = sceneData,
+                    modulePrograms = programs
                 )
             }
             return PreparedScriptLaunch(
                 projectModules = programs,
                 standaloneScript = null,
-                initialCommandOffset = 0L
+                initialCommandOffset = 0L,
+                sceneData = sceneData,
+                sceneVoiceCatalog = sceneVoiceCatalog
             )
         }
 
@@ -180,6 +218,63 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             standaloneScript = script,
             initialCommandOffset = commandStreamReader.filmStartOffset(script, 0)
         )
+    }
+
+    private fun validateSceneDataRoutes(
+        sceneData: SystemNnnSceneData,
+        modulePrograms: List<SystemNnnPlayerModuleProgram>
+    ) {
+        val modulesByIndex = modulePrograms
+        sceneData.characters.forEachIndexed { characterIndex, character ->
+            character.scenes.forEachIndexed { sceneIndex, scene ->
+                val module = modulesByIndex.getOrNull(scene.moduleIndex)
+                    ?: throw IOException(
+                        "scene.dat[$characterIndex][$sceneIndex] module index ${scene.moduleIndex} " +
+                            "is outside project.xtx."
+                    )
+                scene.filmIndices.forEachIndexed { choiceIndex, filmIndex ->
+                    if (module.filmStartOffsets.getOrNull(filmIndex) == null) {
+                        throw IOException(
+                            "scene.dat[$characterIndex][$sceneIndex] film choice $choiceIndex " +
+                                "points to missing slot $filmIndex in module '${module.name}'."
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun resolveRequestedSceneRoute(
+        launch: PreparedScriptLaunch
+    ): SystemNnnSceneRoute? {
+        val hasCharacter = intent.hasExtra(EXTRA_SCENE_CHARACTER_INDEX)
+        val hasScene = intent.hasExtra(EXTRA_SCENE_INDEX)
+        val hasFilmChoice = intent.hasExtra(EXTRA_SCENE_FILM_CHOICE_INDEX)
+        if (!hasCharacter && !hasScene && !hasFilmChoice) return null
+        if (!hasCharacter || !hasScene || launch.projectModules == null || launch.sceneData == null) {
+            throw IOException(
+                "Для запуска сцены нужны project.xtx, scene.dat, индекс персонажа и индекс сцены."
+            )
+        }
+
+        val reader = SystemNnnSceneCatalogReader()
+        val route = reader.resolveRoute(
+            sceneData = launch.sceneData,
+            characterIndex = intent.getIntExtra(EXTRA_SCENE_CHARACTER_INDEX, -1),
+            sceneIndex = intent.getIntExtra(EXTRA_SCENE_INDEX, -1),
+            filmChoiceIndex = intent.getIntExtra(EXTRA_SCENE_FILM_CHOICE_INDEX, 0),
+            projectModuleNames = launch.projectModules.map { it.name },
+            sceneVoiceCatalog = launch.sceneVoiceCatalog
+        )
+        val targetModule = launch.projectModules.firstOrNull {
+            it.name.equals(route.moduleName, ignoreCase = true)
+        } ?: throw IOException("scene.dat resolved to a module absent from the loaded project.")
+        if (targetModule.filmStartOffsets.getOrNull(route.filmIndex) == null) {
+            throw IOException(
+                "scene.dat resolved to film slot ${route.filmIndex} outside '${targetModule.name}'."
+            )
+        }
+        return route
     }
 
     private fun findSystemNnnProjectModules(
@@ -311,6 +406,9 @@ class SystemNnnPlayerActivity : ComponentActivity() {
 
     companion object {
         const val EXTRA_GAME_ID = "io.github.helterfall.ramen.extra.SYSTEM_NNN_GAME_ID"
+        const val EXTRA_SCENE_CHARACTER_INDEX = "io.github.helterfall.ramen.extra.SYSTEM_NNN_SCENE_CHARACTER_INDEX"
+        const val EXTRA_SCENE_INDEX = "io.github.helterfall.ramen.extra.SYSTEM_NNN_SCENE_INDEX"
+        const val EXTRA_SCENE_FILM_CHOICE_INDEX = "io.github.helterfall.ramen.extra.SYSTEM_NNN_SCENE_FILM_CHOICE_INDEX"
         private const val MAX_GAME_SCAN_DEPTH = 12
         private const val MAX_DISCOVERED_FILES = 10_000
         private const val PRIMARY_PROJECT_MANIFEST_PATH = "spt/project.xtx"
