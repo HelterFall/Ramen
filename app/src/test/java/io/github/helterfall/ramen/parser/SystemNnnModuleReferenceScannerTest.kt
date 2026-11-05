@@ -58,7 +58,7 @@ class SystemNnnModuleReferenceScannerTest {
         val script = testScript(
             records = listOf(
                 listOf(5u, 0x66660006u, 0x22220004u, 2u, 0u),
-                listOf(4u, 0x66660007u, 0x3333001Au, 1u, 0u),
+                listOf(5u, 0x66660007u, 0x3333001Au, 2u, 0u),
                 listOf(5u, 0x66660007u, 0x3333001Bu, 1u, 4u)
             ),
             pool2 = listOf("yamiko")
