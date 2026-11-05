@@ -202,6 +202,33 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun explicitNativeImageBankRowIsForwardedWithoutUsingTheAggregateIndexSpace() {
+        val offsets = recordOffsets()
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SceneUpdate(
+                    nextCommandOffset = offsets[1],
+                    backgroundResourceIndex = 17L,
+                    backgroundBankNamespace = "sc",
+                    backgroundBankSlot = 0
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val assets = IndexRecordingAssets
+        assets.lastNativeBankIndexRequest = null
+        assets.lastRequestedIndex = null
+
+        SystemNnnPlayerViewModel().start(testScript(), decoder, assets)
+
+        assertEquals(Triple("sc", 0, 17L), assets.lastNativeBankIndexRequest)
+        assertNull(assets.lastRequestedIndex)
+    }
+
+    @Test
     fun dialogueLoadsItsSynchronizedGtbBackgroundIndex() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(
@@ -455,6 +482,7 @@ class SystemNnnPlayerViewModelTest {
         var lastRequestedIndex: Long? = null
         var lastRequestedName: String? = null
         var lastNativeBankRequest: Triple<String, Int, String>? = null
+        var lastNativeBankIndexRequest: Triple<String, Int, Long>? = null
 
         override fun loadBitmap(resourceId: String): android.graphics.Bitmap? {
             lastRequestedName = resourceId
@@ -472,6 +500,15 @@ class SystemNnnPlayerViewModelTest {
             resourceId: String
         ): android.graphics.Bitmap? {
             lastNativeBankRequest = Triple(namespace, slot, resourceId)
+            return null
+        }
+
+        override fun loadBitmapByNativeBankIndex(
+            namespace: String,
+            slot: Int,
+            index: Long
+        ): android.graphics.Bitmap? {
+            lastNativeBankIndexRequest = Triple(namespace, slot, index)
             return null
         }
 

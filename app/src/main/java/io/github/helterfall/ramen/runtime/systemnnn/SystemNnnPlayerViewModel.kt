@@ -183,7 +183,10 @@ data class SystemNnnSpriteReference(
     val centerXFraction: Float = 0.5f,
     val widthFraction: Float = 0.62f,
     val heightFraction: Float = 0.82f,
-    val contentDescription: String? = null
+    val contentDescription: String? = null,
+    /** Optional explicit DWQ bank identity; both values are required together. */
+    val nativeBankNamespace: String? = null,
+    val nativeBankSlot: Int? = null
 )
 
 /**
@@ -500,21 +503,53 @@ class SystemNnnPlayerViewModel : ViewModel() {
         bitmapOwners[bitmap] = resolver
     }
 
+    private fun loadBitmapByNativeBankIndex(
+        namespace: String,
+        slot: Int,
+        index: Long,
+        resolver: SystemNnnSceneAssetResolver
+    ): Bitmap? = resolver.loadBitmapByNativeBankIndex(namespace, slot, index)?.also { bitmap ->
+        bitmapOwners[bitmap] = resolver
+    }
+
+    private fun validateNativeBankIdentity(namespace: String?, slot: Int?) {
+        if ((namespace == null) != (slot == null) ||
+            (namespace != null && (namespace.isBlank() || slot == null || slot < 0))
+        ) {
+            throw IOException("A native image bank identity requires a non-blank namespace and non-negative slot.")
+        }
+    }
+
     private fun resolveBackground(
         resourceId: String,
         namespace: String?,
         slot: Int?,
         resolver: SystemNnnSceneAssetResolver
     ): Bitmap {
-        if (namespace == null && slot == null) {
+        validateNativeBankIdentity(namespace, slot)
+        if (namespace == null) {
             return loadBitmap(resourceId, resolver)
                 ?: throw IOException("Background resource was not found.")
         }
-        if (namespace.isNullOrBlank() || slot == null || slot < 0) {
-            throw IOException("A native background reference requires a namespace and non-negative bank slot.")
-        }
-        return loadBitmapFromNativeBank(namespace, slot, resourceId, resolver)
+        return loadBitmapFromNativeBank(namespace, checkNotNull(slot), resourceId, resolver)
             ?: throw IOException("Native background resource was not found in " + namespace + slot + ".")
+    }
+
+    private fun resolveBackgroundIndex(
+        index: Long,
+        namespace: String?,
+        slot: Int?,
+        resolver: SystemNnnSceneAssetResolver
+    ): Bitmap {
+        validateNativeBankIdentity(namespace, slot)
+        if (namespace == null) {
+            return loadBitmapByIndex(index, resolver)
+                ?: throw IOException("Background GTB resource index " + index + " was not found.")
+        }
+        return loadBitmapByNativeBankIndex(namespace, checkNotNull(slot), index, resolver)
+            ?: throw IOException(
+                "Native background index " + index + " was not found in " + namespace + slot + "."
+            )
     }
 
     /**
@@ -530,15 +565,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
         val exactResourceId = voiceResourceId?.trim()?.takeIf { it.isNotEmpty() }
         if (exactResourceId == null && dialogueStepIndex == null) return
+        val numericDialogueIndex = dialogueStepIndex
         if (exactResourceId == null &&
-            (dialogueStepIndex!! < 0L || dialogueStepIndex > Int.MAX_VALUE.toLong())
+            (numericDialogueIndex == null ||
+                numericDialogueIndex < 0L ||
+                numericDialogueIndex > Int.MAX_VALUE.toLong())
         ) {
             uiState = uiState.copy(audioWarning = "Индекс голосового ресурса выходит за допустимый диапазон.")
             return
         }
 
         val indexedResource = if (exactResourceId == null) {
-            repository.entries.getOrNull(dialogueStepIndex!!.toInt())
+            repository.entries.getOrNull(checkNotNull(numericDialogueIndex).toInt())
         } else {
             null
         }
@@ -556,7 +594,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 if (exactResourceId != null) {
                     repository.materialize(exactResourceId)
                 } else {
-                    repository.materializeByIndex(checkNotNull(dialogueStepIndex))
+                    repository.materializeByIndex(checkNotNull(numericDialogueIndex))
                 }
             }
             mainHandler.post {
@@ -649,23 +687,25 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     is SystemNnnDecodedCommand.SceneUpdate -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
-                        val hasNativeBank = command.backgroundBankNamespace != null ||
-                            command.backgroundBankSlot != null
+                        validateNativeBankIdentity(
+                            command.backgroundBankNamespace,
+                            command.backgroundBankSlot
+                        )
                         if (command.backgroundResourceIndex != null) {
-                            if (hasNativeBank || command.backgroundResourceId != null) {
+                            if (command.backgroundResourceId != null) {
                                 throw IOException("Scene update has conflicting image resource references.")
                             }
                             pendingBackgroundResourceIndex = command.backgroundResourceIndex
                             pendingBackgroundResourceId = null
-                            pendingBackgroundBankNamespace = null
-                            pendingBackgroundBankSlot = null
+                            pendingBackgroundBankNamespace = command.backgroundBankNamespace
+                            pendingBackgroundBankSlot = command.backgroundBankSlot
                         } else if (command.backgroundResourceId != null) {
                             pendingBackgroundResourceId = command.backgroundResourceId
                             pendingBackgroundResourceIndex = null
                             pendingBackgroundBankNamespace = command.backgroundBankNamespace
                             pendingBackgroundBankSlot = command.backgroundBankSlot
-                        } else if (hasNativeBank) {
-                            throw IOException("A native image bank identity requires a background resource name.")
+                        } else if (command.backgroundBankNamespace != null) {
+                            throw IOException("A native image bank identity requires a background resource.")
                         }
                         // Scene updates can be numerous before the next dialogue.
                         // Keep only the final resource descriptors and decode them
@@ -744,23 +784,25 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             )
                         nextCommandOffset = command.nextCommandOffset
 
-                        val hasNativeBank = command.backgroundBankNamespace != null ||
-                            command.backgroundBankSlot != null
+                        validateNativeBankIdentity(
+                            command.backgroundBankNamespace,
+                            command.backgroundBankSlot
+                        )
                         if (command.backgroundResourceIndex != null) {
-                            if (hasNativeBank || command.backgroundResourceId != null) {
+                            if (command.backgroundResourceId != null) {
                                 throw IOException("Dialogue has conflicting image resource references.")
                             }
                             pendingBackgroundResourceIndex = command.backgroundResourceIndex
                             pendingBackgroundResourceId = null
-                            pendingBackgroundBankNamespace = null
-                            pendingBackgroundBankSlot = null
+                            pendingBackgroundBankNamespace = command.backgroundBankNamespace
+                            pendingBackgroundBankSlot = command.backgroundBankSlot
                         } else if (command.backgroundResourceId != null) {
                             pendingBackgroundResourceId = command.backgroundResourceId
                             pendingBackgroundResourceIndex = null
                             pendingBackgroundBankNamespace = command.backgroundBankNamespace
                             pendingBackgroundBankSlot = command.backgroundBankSlot
-                        } else if (hasNativeBank) {
-                            throw IOException("A native image bank identity requires a background resource name.")
+                        } else if (command.backgroundBankNamespace != null) {
+                            throw IOException("A native image bank identity requires a background resource.")
                         }
                         if (pendingBackgroundResourceId != null) {
                             sceneBackground = resolveBackground(
@@ -773,10 +815,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             val backgroundIndex =
                                 pendingBackgroundResourceIndex ?: command.backgroundResourceIndex
                             if (backgroundIndex != null) {
-                                sceneBackground = loadBitmapByIndex(backgroundIndex, resolver)
-                                    ?: throw IOException(
-                                        "Background GTB resource index " + backgroundIndex + " was not found."
-                                    )
+                                sceneBackground = resolveBackgroundIndex(
+                                    backgroundIndex,
+                                    pendingBackgroundBankNamespace,
+                                    pendingBackgroundBankSlot,
+                                    resolver
+                                )
                             }
                         }
                         if (command.sprites.isNotEmpty()) {
@@ -824,9 +868,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         }
 
                         if (pendingBackgroundResourceIndex != null) {
-                            val index = pendingBackgroundResourceIndex!!
-                            sceneBackground = loadBitmapByIndex(index, resolver)
-                                ?: throw IOException("Background GTB resource index " + index + " was not found.")
+                            sceneBackground = resolveBackgroundIndex(
+                                pendingBackgroundResourceIndex!!,
+                                pendingBackgroundBankNamespace,
+                                pendingBackgroundBankSlot,
+                                resolver
+                            )
                         } else if (pendingBackgroundResourceId != null) {
                             sceneBackground = resolveBackground(
                                 pendingBackgroundResourceId!!,
@@ -1038,8 +1085,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
         references: List<SystemNnnSpriteReference>,
         resolver: SystemNnnSceneAssetResolver
     ): List<SystemNnnSpriteBitmap> = references.map { reference ->
-        val bitmap = loadBitmap(reference.resourceId, resolver)
-            ?: throw IOException("Character sprite resource was not found.")
+        validateNativeBankIdentity(reference.nativeBankNamespace, reference.nativeBankSlot)
+        val bitmap = if (reference.nativeBankNamespace == null) {
+            loadBitmap(reference.resourceId, resolver)
+        } else {
+            loadBitmapFromNativeBank(
+                reference.nativeBankNamespace,
+                checkNotNull(reference.nativeBankSlot),
+                reference.resourceId,
+                resolver
+            )
+        } ?: throw IOException("Character sprite resource was not found.")
         SystemNnnSpriteBitmap(
             resourceId = reference.resourceId,
             bitmap = bitmap,
