@@ -77,6 +77,9 @@ class SystemNnnAssetManagerTest {
         try {
             val wgqDirectory = File(root, "wgq").apply { mkdirs() }
             val file = File(wgqDirectory, "gss01_1.wgq")
+            val mml = File(wgqDirectory, "gsstxt01.mml").apply {
+                writeText("synthetic MML metadata")
+            }
             val bytes = ByteArray(128) { ' '.code.toByte() }
             "OGG".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0)
             "PACKTYPE=6       ".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0x30)
@@ -89,6 +92,7 @@ class SystemNnnAssetManagerTest {
             ).use { manager ->
                 assertTrue(manager.catalog.imageBanks.isEmpty())
                 assertEquals(listOf("wgq/gss01_1.wgq"), manager.catalog.unindexedWgqFiles)
+                assertEquals(listOf("wgq/gsstxt01.mml"), manager.catalog.unindexedMmlFiles)
                 assertNull(manager.loadBitmapByIndex(0L))
             }
         } finally {
