@@ -127,8 +127,8 @@ class SystemNnnAssetManagerTest {
             val file = File(wgqDirectory, "gss01_1.wgq")
             File(wgqDirectory, "gsstxt01.mml").writeText("synthetic MML metadata")
             val bytes = ByteArray(128) { ' '.code.toByte() }
-            "OGG".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0)
-            "PACKTYPE=6       ".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0x30)
+            "OGG ".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0x10)
+            "PACKTYPE=6      ".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0x30)
             "OggS".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0x40)
             file.writeBytes(bytes)
 
