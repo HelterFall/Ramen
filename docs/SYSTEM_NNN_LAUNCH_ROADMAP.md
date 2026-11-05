@@ -968,3 +968,15 @@ The validated descriptor-3 pointer vector is now available as typed `SystemNnnFi
 This gives a concrete grouping key for reviewing the 511 candidates by source module and source film. It does **not** prove that any candidate performs a call/jump, or what film should be selected in the destination module.
 
 Before adding a runtime module stack, the next pass should group candidates by source-film interval and inspect their neighboring records/branch structure. A destination film selector and return rule must be demonstrated separately.
+
+
+### Archive replay result for source-film ownership
+
+An independent read-only replay over all 20 SPT modules in the new archive confirms that all 511 exact module-name references can be attached to a preceding ordinary descriptor-3 interval:
+- 511 of 511 candidates are assigned;
+- 173 distinct source-film intervals are involved;
+- 7 source modules contain candidates: 01 (2), 03 (19), akane (49), aoi (173), kiika (213), yamiko (17), yuka (38).
+
+This is a useful diagnostic partition, not proof of module navigation. The 15 same-index 0x3333/0x1A and 0x3333/0x1B module-name references still occupy different source-film intervals (13 earlier / 2 later). They are not local call/return pairs.
+
+Next: add or run a deterministic report grouped by source module, source film, record family/code, and target Pool 2 string; use surrounding record context to narrow dispatch candidates. Runtime behavior remains gated on proving a destination film and a return rule.
