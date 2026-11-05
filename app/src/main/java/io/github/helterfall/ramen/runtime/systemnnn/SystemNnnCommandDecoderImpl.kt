@@ -479,18 +479,24 @@ class SystemNnnCommandDecoderImpl(
             throw IOException("A System-NNN SETEFFECTRECT layer is outside the supported range.")
         }
         fun readRect(start: Int): SystemNnnNativeRect {
-            val x = readPayloadWord(script, record, start).toInt()
-            val y = readPayloadWord(script, record, start + 1).toInt()
-            val width = readPayloadWord(script, record, start + 2).toInt()
-            val height = readPayloadWord(script, record, start + 3).toInt()
-            if (x !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
-                y !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
-                width !in 0..MAX_EFFECT_RECT_DIMENSION ||
-                height !in 0..MAX_EFFECT_RECT_DIMENSION
+            // The native engine stores Win32 RECT edges (left, top, right, bottom),
+            // not an (x, y, width, height) tuple.
+            val left = readPayloadWord(script, record, start).toInt()
+            val top = readPayloadWord(script, record, start + 1).toInt()
+            val right = readPayloadWord(script, record, start + 2).toInt()
+            val bottom = readPayloadWord(script, record, start + 3).toInt()
+            val width = right.toLong() - left.toLong()
+            val height = bottom.toLong() - top.toLong()
+            if (left !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
+                top !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
+                right !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
+                bottom !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
+                width !in 0L..MAX_EFFECT_RECT_DIMENSION.toLong() ||
+                height !in 0L..MAX_EFFECT_RECT_DIMENSION.toLong()
             ) {
-                throw IOException("A System-NNN SETEFFECTRECT contains out-of-range coordinates.")
+                throw IOException("A System-NNN SETEFFECTRECT contains an invalid or out-of-range RECT.")
             }
-            return SystemNnnNativeRect(x, y, width, height)
+            return SystemNnnNativeRect(left, top, width.toInt(), height.toInt())
         }
         return SystemNnnDecodedCommand.SetImageLayerRect(
             nextCommandOffset = record.endOffsetExclusive,

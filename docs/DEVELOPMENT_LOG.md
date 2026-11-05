@@ -896,3 +896,10 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Kept the game viewport at a stable 4:3 fallback when a scene has no explicit background bitmap; a foreground sprite no longer changes the viewport's aspect ratio.
 - SceneUpdate now replaces the whole visual snapshot, including clearing an absent prior background. A changed SETFILM, the next scene-replay film, SCRIPTJUMP and controller reset clear inherited background/layer references; ordinary SCRIPT/SUBSCRIPT calls retain the current scene.
 - This remains a static visual approximation. Exact target-game rectangle units, effect animation and the repeated device crash are not yet verified from a GSS log or executable trace. Tests and lint were not run.
+
+
+## 2026-11-06 — decode SETEFFECTRECT as native RECT edges
+
+- Corrected the SETEFFECTRECT payload interpretation: the engine passes Win32 RECT values in left/top/right/bottom order, not x/y/width/height. Width and height are now computed as right−left and bottom−top using bounded 64-bit arithmetic before conversion.
+- Added a synthetic decoder regression case with distinct non-zero origins and right/bottom edges. It asserts the resulting 400×300 source and destination rectangles.
+- Family-level reference semantics are not proof of the target executable's complete effect behavior. This correction fixes the known rectangle field interpretation; device validation is still required. Tests and lint were not run.
