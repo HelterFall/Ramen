@@ -221,6 +221,129 @@ class SystemNnnCommandDecoderImplTest {
 
 
     @Test
+    fun skipsFalseIfAndElsifBodiesUntilTheElseBody() {
+        val script = testScript(
+            records = listOf(
+                conditional(CODE_CONTROL_IF, false),
+                record(4, CONTROL, CODE_OPEN_BRACE, 10u),
+                record(3, CONTROL, CODE_CONTROL_NOP),
+                record(3, CONTROL, CODE_CLOSE_BRACE),
+                conditional(CODE_CONTROL_ELSIF, false),
+                record(4, CONTROL, CODE_OPEN_BRACE, 10u),
+                record(3, CONTROL, CODE_CONTROL_NOP),
+                record(3, CONTROL, CODE_CLOSE_BRACE),
+                record(3, CONTROL, CODE_CONTROL_ELSE),
+                record(4, CONTROL, CODE_OPEN_BRACE, 10u),
+                record(3, CONTROL, CODE_CONTROL_NOP),
+                record(3, CONTROL, CODE_CLOSE_BRACE),
+                record(3, CONTROL, CODE_CONTROL_ENDIF)
+            ),
+            textCount = 0
+        )
+        val decoder = decoder()
+
+        // Both false conditions are skipped; execution resumes after ELSE.
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 140L),
+            decoder.decodeNext(script, RECORD_START)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 156L),
+            decoder.decodeNext(script, RECORD_START + 140L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 168L),
+            decoder.decodeNext(script, RECORD_START + 156L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 180L),
+            decoder.decodeNext(script, RECORD_START + 168L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 192L),
+            decoder.decodeNext(script, RECORD_START + 180L)
+        )
+    }
+
+    @Test
+    fun chosenIfBodySkipsRemainingElsifAndElseBodies() {
+        val script = testScript(
+            records = listOf(
+                conditional(CODE_CONTROL_IF, true),
+                record(4, CONTROL, CODE_OPEN_BRACE, 10u),
+                record(3, CONTROL, CODE_CONTROL_NOP),
+                record(3, CONTROL, CODE_CLOSE_BRACE),
+                conditional(CODE_CONTROL_ELSIF, false),
+                record(4, CONTROL, CODE_OPEN_BRACE, 10u),
+                record(3, CONTROL, CODE_CONTROL_NOP),
+                record(3, CONTROL, CODE_CLOSE_BRACE),
+                record(3, CONTROL, CODE_CONTROL_ELSE),
+                record(4, CONTROL, CODE_OPEN_BRACE, 10u),
+                record(3, CONTROL, CODE_CONTROL_NOP),
+                record(3, CONTROL, CODE_CLOSE_BRACE),
+                record(3, CONTROL, CODE_CONTROL_ENDIF)
+            ),
+            textCount = 0
+        )
+        val decoder = decoder()
+
+        // A true IF enters its body. Later alternatives are skipped after it.
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 24L),
+            decoder.decodeNext(script, RECORD_START)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 40L),
+            decoder.decodeNext(script, RECORD_START + 24L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 52L),
+            decoder.decodeNext(script, RECORD_START + 40L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 64L),
+            decoder.decodeNext(script, RECORD_START + 52L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 128L),
+            decoder.decodeNext(script, RECORD_START + 64L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 180L),
+            decoder.decodeNext(script, RECORD_START + 128L)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 192L),
+            decoder.decodeNext(script, RECORD_START + 180L)
+        )
+    }
+
+    @Test
+    fun conditionalDivisionByZeroUsesTheNativeOneDivisorFallback() {
+        val script = testScript(
+            records = listOf(
+                record(
+                    8,
+                    CONTROL,
+                    CODE_CONTROL_IF,
+                    0xA0000000u,
+                    3u,
+                    0x9000000Au,
+                    0x90000000u,
+                    0xA000002Fu
+                )
+            ),
+            textCount = 0
+        )
+
+        // Native gss.exe changes a zero divisor to 1, so 10 / 0 evaluates to 10.
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 32L),
+            decoder().decodeNext(script, RECORD_START)
+        )
+    }
+
+    @Test
     fun decodesSelectOptionsFromSecondaryPoolAndMapsThemToCaseBranches() {
         val script = testScript(
             records = listOf(
@@ -555,6 +678,16 @@ class SystemNnnCommandDecoderImplTest {
         )
     }
 
+    private fun conditional(code: UInt, value: Boolean): List<UInt> =
+        record(
+            6,
+            CONTROL,
+            code,
+            0xA0000000u,
+            1u,
+            if (value) 0x90000001u else 0x90000000u
+        )
+
     private fun record(
         lengthWords: Int,
         identifier: UInt,
@@ -600,6 +733,8 @@ class SystemNnnCommandDecoderImplTest {
         const val CODE_CONTROL_NOP = 0x55560001u
         const val CODE_CONTROL_END = 0x55560005u
         const val CODE_CONTROL_IF = 0x55560002u
+        const val CODE_CONTROL_ELSIF = 0x55560003u
+        const val CODE_CONTROL_ELSE = 0x55560004u
         const val CODE_CONTROL_ENDKOMA = 0x5556000Eu
         const val CODE_CONTROL_ENDIF = 0x55560013u
         const val CODE_CONTROL_CASE = 0x55560008u
