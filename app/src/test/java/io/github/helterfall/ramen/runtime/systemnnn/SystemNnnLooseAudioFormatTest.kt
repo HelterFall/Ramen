@@ -96,6 +96,7 @@ class SystemNnnLooseAudioFormatTest {
         val source = File(root, "wgq/theme.wgq")
         val cache = File(root, "cache")
         try {
+            source.parentFile?.mkdirs()
             val header = ByteArray(0x40) { ' '.code.toByte() }
             "OGG ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x10)
             "PACKTYPE=6      ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x30)
