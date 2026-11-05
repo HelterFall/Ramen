@@ -632,7 +632,7 @@ CONTROL RETURN встречается 1 008 раз при 1 069 SUB. Их нел
 
 ### Module executor routing now implemented
 
-The target archive confirms that SCRIPT (0x5556/0x000A), SCRIPTJUMP (0x5556/0x0015) and SUBSCRIPT (0x5556/0x0016) each have exactly one DWORD payload: a Pool 2 index. The referenced text resolves to a module token in project.xtx. The target records do not carry the second return-selector DWORD described by the external NNNLib family reference; Ramen stores the exact next-record offset in its own module frame.
+The target archive confirms that SCRIPT (0x5556/0x000A), SCRIPTJUMP (0x5556/0x0015) and SUBSCRIPT (0x5556/0x0016) each have exactly one DWORD payload: a Pool 2 index. The referenced text resolves to a module token in project.xtx. The following DWORD after that payload is the next record's length word; the external NNNLib family runtime reads this position as a script-call return selector. Ramen now preserves both this raw selector candidate and the exact next-record continuation in its module frame. The selector-to-return-PC table for this target title is still unresolved, so execution continues by the validated exact continuation rather than guessing a table lookup.
 
 Runtime behavior:
 - SCRIPT and SUBSCRIPT push the current module, stream, decoder, current film and exact command continuation; then enter the target SPT at its first record.
