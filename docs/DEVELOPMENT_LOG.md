@@ -782,3 +782,11 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - CONTROL RETURN count is 1,008, not equal to SUB count 1,069; no one-to-one pairing by file order is inferred.
 - Added SystemNnnLocalSubroutineScanner and synthetic tests. The inspector report now displays local SUB IDs and exact descriptor-3 target offsets separately from inter-module SCRIPT/SCRIPTJUMP/SUBSCRIPT records.
 - No local SUB/RETURN execution or runtime call stack has been enabled.
+## 2026-11-05 — SETFILM and sequential ENDFILM
+
+- Replayed all 20 target SPT modules by validated descriptor-3 physical intervals. All 948 ordinary intervals have exactly one type-7 0x3333/0x001A SETFILM record with payload [1, N], immediately followed by type-2 0x5556/0x000C ENDFILM.
+- In all 948 cases, N = descriptor3 tableIndex - reservedPrefixCount + 1. There are no missing, duplicate or mismatched SETFILM records in ordinary intervals.
+- NNNLib family reference SystemFunctionSetFilm stores payload DWORD minus one as the current module-local film number. ENDFILM is returned to the outer script loop; it is not the global app end. After a film subroutine's ENDFILM, the next CONTROL RETURN restores the local caller PC.
+- Ramen now decodes 0x3333/0x001A SETFILM, verifies the one-based film number against the owning descriptor-3 interval, and records currentFilmNumber in ViewModel state. ENDFILM advances sequentially; CONTROL END remains the true control-stream end.
+- Added synthetic integrated test for SUB → descriptor3 target → SETFILM → ENDFILM → RETURN → caller continuation.
+- scene.dat (69 rows), scenevoice.xtx (69 IDs), and 01.spt (69 descriptor3 entries) remain only a cardinality match; no same-index mapping is asserted. Gallery navigation, inter-module script calls, sys startup dispatch, and physical device end-to-end remain unimplemented.
