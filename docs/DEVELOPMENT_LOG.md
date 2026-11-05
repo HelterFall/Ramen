@@ -734,3 +734,12 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Added synthetic unit tests for the scene.dat envelope, CRLF scene IDs, count-only alignment, and exact candidate-reference filtering. The tests contain no game binary, dialogue, or asset payload.
 - CI for the resulting branch head is the next validation gate; no physical-device test or end-to-end gameplay is claimed.
 - Next: correlate individual scene.dat rows with descriptor-3 target payloads and @scNN IDs, then investigate candidate module references in their film/control-flow context before implementing module call/return semantics.
+
+
+## 2026-11-05 — validated source-film annotation for module-name candidates
+
+- Exposed the complete validated descriptor-3 pointer vector through SystemNnnCommandStreamReader.filmTableEntries(). Each result retains the descriptor-3 table index, ordinary film number (null for reserved-prefix entries), and exact target command offset.
+- Refactored filmStartOffset() to use the shared full-table validator, preserving its existing entry-point validation.
+- Extended SystemNnnModuleReferenceScanner so each exact module-name candidate is annotated with the nearest preceding physical film-table target. The candidate keeps both sourceFilmTableIndex and sourceFilmNumber; destination film/call semantics remain unknown.
+- Added a synthetic scanner test covering a reserved prefix, two ordinary film intervals, and a candidate reference in each interval.
+- CI run #379 failed in a negative-control fixture because one synthetic record declared a 4-DWORD length while containing 5 DWORDs. The trailing DWORD was consequently read as a new record header. The fixture is corrected to a valid 5-DWORD record whose first payload DWORD is not the candidate tag. The corrected branch head is under CI; no pass is claimed until that run completes.
