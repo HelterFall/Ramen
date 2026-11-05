@@ -659,3 +659,13 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - The 341 inline-RPN IF/ELSIF records use only variable, number, inclusive comparison, logical, and strict comparison token families. Observed operators are covered by the current evaluator; no unhandled token family appeared in this conditional set.
 - Confirmed one CALCU mismatch in native `gss.exe` at VA `0x00417690`: integer divide and modulo replace a zero divisor with 1 before the native divide operation. The same fallback is used by compound divide/modulo. Ramen now mirrors that behavior rather than throwing on a zero divisor.
 - Added synthetic tests for false IF→ELSIF→ELSE traversal, skipping later alternatives after a true IF, and the division-by-zero fallback. Tests were not run, per current direction.
+
+### 2026-11-06 — project-level System-NNN asset manager
+
+- Metadata-only inventory of the cleaned `hui(5).zip`: `hui/dwq/sc0.gtb` + `sc0.gpk` is one indexed image bank with 69 rows; `hui/cdvaw/gg.vtb` + `gg.vpk` is one indexed Ogg audio bank with 90 rows and a terminal VTB offset sentinel.
+- The same archive also contains two loose `.vaw` files (`vaw/se/asioto.vaw`, `vaw/sys/01kagami_off.vaw`) without a VTB index, plus `wgq/gss01_1.wgq` with a `PACKTYPE=6` Ogg signature and no GTB. These remain catalogued as unindexed candidates; no playback/index relationship is inferred.
+- Added `SystemNnnAssetManager`: discovers all same-stem GTB↔GPK/WGQ and VTB↔VPK/VAW pairs below the imported game directory, validates each pair through the existing bounded parsers, exposes path-derived bank IDs/counts/warnings, and keeps image/audio index spaces separate.
+- Name lookup must resolve to one bank. Unqualified numeric image/voice indexes work only with exactly one bank in that namespace; multiple banks require an explicit bank ID. No concatenated global index is invented.
+- The manager implements both the scene bitmap resolver and audio repository contract and is now injected into the player for both services. Close is idempotent because the ViewModel releases both interfaces independently.
+- Image/audio payloads remain in the imported folder; images decode on demand and selected Ogg streams are staged in app cache. Added synthetic tests for multiple image banks, duplicate-name/index ambiguity, VTB/VPK discovery, and an unindexed WGQ candidate.
+- No CI, tests, lint or APK build was run. The standalone `PACKTYPE=6` WGQ and loose VAW candidates are catalogued but not yet decoded or mapped to SPT commands.
