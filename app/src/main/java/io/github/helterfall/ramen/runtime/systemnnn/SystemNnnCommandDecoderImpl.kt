@@ -545,7 +545,7 @@ class SystemNnnCommandDecoderImpl(
     ): SystemNnnDecodedCommand.Skip {
         var condition = firstCondition
         repeat(MAX_CONDITIONAL_BRANCHES) {
-            if (evaluateCalculation(script, condition) != 0) {
+            if (evaluateCalculation(script, condition) > 0) {
                 return SystemNnnDecodedCommand.Skip(condition.endOffsetExclusive)
             }
 
