@@ -279,8 +279,8 @@ class SystemNnnCommandDecoderImplTest {
     fun rejectsLocalReturnRecordsWithUnexpectedPayload() {
         val script = localSubroutineScript(returnPayload = listOf(1u))
         val decoder = decoder()
-        val subOffset = commandOffset(script, CODE_CONTROL_SUB)
-        val returnOffset = commandOffset(script, CODE_CONTROL_RETURN)
+        val subOffset = LOCAL_SUB_OFFSET + DWORD_BYTES
+        val returnOffset = LOCAL_SUB_RETURN_OFFSET
         assertEquals(
             SystemNnnDecodedCommand.Jump(LOCAL_SUB_TARGET_OFFSET),
             decoder.decodeNext(script, subOffset)
@@ -290,15 +290,6 @@ class SystemNnnCommandDecoderImplTest {
         assertThrows(IOException::class.java) {
             decoder.decodeNext(script, returnOffset)
         }
-    }
-
-    private fun commandOffset(script: SystemNnnScript, codeId: Int): Long {
-        val stream = SystemNnnCommandStreamReader().read(script)
-        return stream.records.single {
-            it.recordKind == SystemNnnRecordKind.CONTROL &&
-                it.codeFamily == 0x5556 &&
-                it.codeId == codeId
-        }.offset
     }
 
     private fun localSubroutineScript(
