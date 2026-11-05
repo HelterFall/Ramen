@@ -20,13 +20,13 @@ import java.io.IOException
  */
 class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int,
-    private val streamReader: SystemNnnCommandStreamReader = SystemNnnCommandStreamReader()
+    private val streamReader: SystemNnnCommandStreamReader = SystemNnnCommandStreamReader(),
+    private val variables: MutableMap<Int, Int> = HashMap()
 ) : SystemNnnCommandDecoder {
 
     private var cachedScript: SystemNnnScript? = null
     private var cachedStream: SystemNnnCommandStream? = null
     private var cachedFilmTableEntries: List<io.github.helterfall.ramen.parser.SystemNnnFilmTableEntry>? = null
-    private val variables = HashMap<Int, Int>()
     private val localSubroutineStack = ArrayList<LocalSubroutineFrame>()
 
     init {
@@ -752,7 +752,6 @@ class SystemNnnCommandDecoderImpl(
             cachedStream = streamReader.read(script)
             cachedScript = script
             cachedFilmTableEntries = null
-            variables.clear()
             localSubroutineStack.clear()
         }
         return checkNotNull(cachedStream)
