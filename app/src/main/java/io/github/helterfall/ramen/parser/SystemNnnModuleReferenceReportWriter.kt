@@ -14,7 +14,8 @@ data class SystemNnnModuleReferenceProjectReport(
     val warnings: List<String> = emptyList(),
     val scriptTransfers: List<SystemNnnScriptTransferCandidate> = emptyList(),
     val unresolvedScriptTransferTargetCount: Int = 0,
-    val localSubroutineScan: SystemNnnLocalSubroutineScanResult? = null
+    val localSubroutineScan: SystemNnnLocalSubroutineScanResult? = null,
+    val resourceFunctionCandidates: List<SystemNnnResourceFunctionCandidate> = emptyList()
 )
 
 /**
@@ -40,7 +41,8 @@ class SystemNnnModuleReferenceReportWriter(
         val totalCandidates = reports.sumOf {
             it.candidates.size.toLong() +
                 it.scriptTransfers.size.toLong() +
-                (it.localSubroutineScan?.candidates?.size ?: 0).toLong()
+                (it.localSubroutineScan?.candidates?.size ?: 0).toLong() +
+                it.resourceFunctionCandidates.size.toLong()
         }
         if (totalCandidates > maxCandidates.toLong()) {
             throw IOException("The module-reference report exceeds the candidate limit.")
@@ -62,7 +64,10 @@ class SystemNnnModuleReferenceReportWriter(
                 "Targets below exactly match project.xtx module names; runtime return/startup behavior is not device-verified."
         )
         writer.appendLine(
-            "Only record metadata and opaque payload previews are included; scenario text and resource data are omitted."
+            "Only record metadata and numeric DWORD previews are included; scenario text, names and resource data are omitted."
+        )
+        writer.appendLine(
+            "Resource/audio SYSTEM_FUNCTION labels are cross-title NNNLib context only; they are candidates, not target-confirmed command semantics."
         )
 
         reports.sortedBy { it.projectPath }.forEach { report ->
@@ -97,6 +102,31 @@ class SystemNnnModuleReferenceReportWriter(
                             writer.appendLine("    PREV: ${formatContext(transfer.previousRecord)}")
                             writer.appendLine("    NEXT: ${formatContext(transfer.nextRecord)}")
                         }
+                    }
+            }
+
+            if (report.resourceFunctionCandidates.isNotEmpty()) {
+                writer.appendLine()
+                writer.appendLine("RESOURCE/AUDIO SYSTEM_FUNCTION CANDIDATES (FAMILY REFERENCE LABELS ONLY)")
+                report.resourceFunctionCandidates
+                    .sortedWith(compareBy<SystemNnnResourceFunctionCandidate> { it.sourceModuleName }
+                        .thenBy { it.commandOffset })
+                    .forEach { candidate ->
+                        val declared = candidate.declaredArgumentCount?.toString() ?: "missing"
+                        val arity = when (candidate.argumentCountMatchesRecord) {
+                            true -> "matches"
+                            false -> "MISMATCH"
+                            null -> "unknown"
+                        }
+                        val preview = candidate.payloadPreview.joinToString(",") { formatDword(it) }
+                        writer.appendLine(
+                            "  MODULE=${candidate.sourceModuleName} ${candidate.kind.familyReferenceName} " +
+                                "@${formatOffset(candidate.commandOffset)} " +
+                                "code=${formatCode(0x3333, candidate.kind.codeId)} " +
+                                "lengthWords=${candidate.recordLengthWords} " +
+                                "argc=$declared available=${candidate.availableArgumentCount} " +
+                                "arity=$arity payload=[$preview]"
+                        )
                     }
             }
 

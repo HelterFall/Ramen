@@ -836,3 +836,11 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Added optional native DWQ namespace/slot references to decoded background events and extended the scene resolver with bank-qualified lookup methods. The asset manager's existing ambiguity checks now protect the runtime call path.
 - Added optional exact voice resource name/path to decoded dialogue events. The ViewModel can now materialize a named VTB resource or loose VAW/WGQ resource through the existing repository API, while retaining the current numeric VTB path as fallback.
 - These are typed runtime plumbing only: no SPT image/audio opcode is guessed or connected, and no text/media payload is exported. Synthetic coverage was added for explicit image-bank forwarding. Tests, lint, CI and APK builds were not run by request.
+
+
+## 2026-11-06 — read-only resource/audio SYSTEM_FUNCTION inventory
+
+- Added SystemNnnResourceFunctionScanner for family-known 0x3333 resource/audio code IDs: MUSIC, VOICE, SOUND, LOADDWQ, SETCG, SETSCENE, PRELOADDWQ and selected voice/SE volume/fade controls.
+- It reports exact SPT record offsets/lengths, the raw first payload DWORD, declared-vs-available argument counts and an eight-DWORD numeric preview. No pool text, filenames, resource bytes or media are read or emitted.
+- The labels are sourced from a pinned NNNLib family reference and explicitly remain hypotheses for this title. The Resource Inspector's existing metadata-only report now includes these candidates. No runtime dispatch was enabled.
+- Synthetic scanner/report tests were added; tests, CI, lint and APK builds were not run by request.

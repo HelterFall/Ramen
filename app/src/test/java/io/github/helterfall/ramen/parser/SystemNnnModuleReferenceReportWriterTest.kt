@@ -97,6 +97,40 @@ class SystemNnnModuleReferenceReportWriterTest {
     }
 
     @Test
+    fun includesResourceFunctionMetadataAndNumericPayloadOnly() {
+        val candidate = SystemNnnResourceFunctionCandidate(
+            sourceModuleName = "03",
+            kind = SystemNnnResourceFunctionKind.LOAD_DWQ,
+            commandOffset = 0xA0L,
+            recordLengthWords = 5u,
+            declaredArgumentCount = 1u,
+            availableArgumentCount = 1,
+            argumentCountMatchesRecord = true,
+            payloadPreview = listOf(1u, 9u)
+        )
+        val output = ByteArrayOutputStream()
+
+        SystemNnnModuleReferenceReportWriter().write(
+            listOf(
+                SystemNnnModuleReferenceProjectReport(
+                    projectPath = "spt/project.xtx",
+                    moduleCount = 20,
+                    candidates = emptyList(),
+                    resourceFunctionCandidates = listOf(candidate)
+                )
+            ),
+            output
+        )
+
+        val report = output.toString(Charsets.UTF_8.name())
+        assertTrue(report.contains("RESOURCE/AUDIO SYSTEM_FUNCTION CANDIDATES"))
+        assertTrue(report.contains("MODULE=03 LOADDWQ @0xA0"))
+        assertTrue(report.contains("argc=1 available=1 arity=matches"))
+        assertTrue(report.contains("payload=[0x00000001,0x00000009]"))
+        assertTrue(report.contains("cross-title NNNLib context only"))
+    }
+
+    @Test
     fun flushesButDoesNotCloseTheCallerOwnedStream() {
         val output = CloseTrackingOutputStream()
         val candidate = candidate(

@@ -66,6 +66,8 @@ import io.github.helterfall.ramen.parser.SystemNnnScriptTransferScanner
 import io.github.helterfall.ramen.parser.SystemNnnLocalSubroutineScanner
 import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceReportWriter
 import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceProjectReport
+import io.github.helterfall.ramen.parser.SystemNnnResourceFunctionScanner
+import io.github.helterfall.ramen.parser.SystemNnnResourceFunctionCandidate
 
 import io.github.helterfall.ramen.inspection.VpkVtbArchiveParser
 import java.io.File
@@ -355,7 +357,7 @@ class ResourceInspectorActivity : ComponentActivity() {
 
         textState.value = textState.value.copy(
             isExportingModuleReferences = true,
-            exportMessage = "Собираю ссылки на имена модулей и соседние записи…"
+            exportMessage = "Собираю карту системных функций и ссылок на ресурсы…"
         )
         worker.execute {
             try {
@@ -369,6 +371,7 @@ class ResourceInspectorActivity : ComponentActivity() {
                 val scanner = SystemNnnModuleReferenceScanner(streamReader)
                 val transferScanner = SystemNnnScriptTransferScanner(streamReader)
                 val localSubroutineScanner = SystemNnnLocalSubroutineScanner(streamReader)
+                val resourceFunctionScanner = SystemNnnResourceFunctionScanner()
                 val reports = projectFiles.map { projectFile ->
                     val projectPath = projectFile.relativeTo(gameRoot).invariantSeparatorsPath
                     try {
@@ -378,6 +381,8 @@ class ResourceInspectorActivity : ComponentActivity() {
                             ArrayList<io.github.helterfall.ramen.parser.SystemNnnModuleReferenceCandidate>()
                         val scriptTransfers =
                             ArrayList<io.github.helterfall.ramen.parser.SystemNnnScriptTransferCandidate>()
+                        val resourceFunctionCandidates =
+                            ArrayList<SystemNnnResourceFunctionCandidate>()
                         var unresolvedTransferTargets = 0
                         var localSubroutineScan: io.github.helterfall.ramen.parser.SystemNnnLocalSubroutineScanResult? = null
                         val warnings = ArrayList<String>()
@@ -386,6 +391,11 @@ class ResourceInspectorActivity : ComponentActivity() {
                             try {
                                 val script = scriptLoader.load(module.scriptFile)
                                 val stream = streamReader.read(script)
+                                resourceFunctionCandidates += resourceFunctionScanner.scan(
+                                    sourceModuleName = module.name,
+                                    script = script,
+                                    stream = stream
+                                ).candidates
                                 candidates += scanner.scan(
                                     sourceModuleName = module.name,
                                     script = script,
@@ -417,7 +427,8 @@ class ResourceInspectorActivity : ComponentActivity() {
                             warnings = warnings,
                             scriptTransfers = scriptTransfers,
                             unresolvedScriptTransferTargetCount = unresolvedTransferTargets,
-                            localSubroutineScan = localSubroutineScan
+                            localSubroutineScan = localSubroutineScan,
+                            resourceFunctionCandidates = resourceFunctionCandidates
                         )
                     } catch (error: Exception) {
                         SystemNnnModuleReferenceProjectReport(

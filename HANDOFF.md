@@ -697,3 +697,11 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - Decoded dialogue/scene events can carry a bank-qualified background name. The ViewModel validates that namespace and slot are supplied together and routes the lookup to that exact bank; numeric GTB and unqualified-name behavior remains unchanged.
 - Decoded dialogue events can also carry an exact audio resource name/path. The ViewModel stages it through the audio repository by name off the UI thread; this makes the existing unique-name loose VAW/WGQ path reachable without adding fake VTB rows.
 - No target SPT opcode is wired to these new fields. The target-specific image namespace/slot and dialogue-to-voice operand mapping remain unproven, so the decoder does not populate them. Tests/CI/lint/APK builds were not run.
+
+
+### 2026-11-06 — read-only resource/audio SYSTEM_FUNCTION inventory
+
+- Added a bounded scanner for family-known resource/audio SYSTEM_FUNCTION IDs (music, voice, sound, DWQ loading, CG/scene selection and related audio controls). The labels come from the pinned NNNLib family reference, not from a target-specific proof of handler semantics.
+- The scanner records module, code ID, record offset/length, first payload DWORD as a raw declared-argument-count candidate, available argument DWORD count, and at most eight numeric payload DWORDs. It never resolves string-pool indexes, extracts filenames, reads media or executes commands.
+- Extended the Resource Inspector's existing SPT diagnostic export with this section, so the actual imported target modules can be reviewed without changing player behavior.
+- No target opcode is connected to image/audio playback. Tests were added but not run; no CI, lint or APK build was run.
