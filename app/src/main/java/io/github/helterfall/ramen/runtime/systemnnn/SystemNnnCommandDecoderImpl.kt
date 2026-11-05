@@ -400,7 +400,7 @@ class SystemNnnCommandDecoderImpl(
                 SystemNnnDecodedCommand.ModuleReturn
             }
 
-            CODE_CONTROL_ENDFILM -> SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+            CODE_CONTROL_ENDFILM -> SystemNnnDecodedCommand.EndFilm(record.endOffsetExclusive)
 
             CODE_CONTROL_END -> SystemNnnDecodedCommand.ControllerReset
 
