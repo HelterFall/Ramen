@@ -7,6 +7,7 @@ import io.github.helterfall.ramen.inspection.VpkVtbArchiveParser
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
+import java.util.Locale
 
 /**
  * Index-based audio access exposed to the player. Implementations must keep
@@ -31,11 +32,11 @@ interface SystemNnnAudioResourceRepository : Closeable {
 
 internal fun audioResourceNameMatches(candidate: String, requested: String): Boolean {
     fun key(value: String): String {
-        val normalized = value.trim().replace('\\\\', '/')
+        val normalized = value.trim().replace('\\', '/')
         val baseName = normalized.substringAfterLast('/')
         return baseName.substringBeforeLast('.', baseName).lowercase(Locale.ROOT)
     }
-    return candidate.trim().replace('\\\\', '/').equals(requested.trim().replace('\\\\', '/'), true) ||
+    return candidate.trim().replace('\\', '/').equals(requested.trim().replace('\\', '/'), true) ||
         key(candidate) == key(requested)
 }
 

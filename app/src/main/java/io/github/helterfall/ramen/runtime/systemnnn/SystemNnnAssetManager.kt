@@ -237,7 +237,7 @@ class SystemNnnAssetManager private constructor(
     override fun materialize(resourceId: String): File {
         checkOpen()
         val matchingBanks = audioBanks.filter { bank ->
-            bank.repository.entries.any { it.name.equals(resourceId, ignoreCase = true) }
+            bank.repository.entries.any { audioResourceNameMatches(it.name, resourceId) }
         }
         if (matchingBanks.size > 1) {
             throw IOException(
