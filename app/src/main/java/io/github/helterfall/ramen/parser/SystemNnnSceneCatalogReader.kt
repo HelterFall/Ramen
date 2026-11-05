@@ -149,11 +149,10 @@ class SystemNnnSceneCatalogReader(
         // ISO-8859-1 is used as a byte-preserving view. Only ASCII @scNN
         // tokens are consumed; all other CP932 bytes remain uninterpreted.
         val byteView = String(bytes, Charsets.ISO_8859_1)
-        val matcher = SCENE_ID_PATTERN.toPattern().matcher(byteView)
         val ids = ArrayList<Int>()
         val seen = HashSet<Int>()
-        while (matcher.find()) {
-            val id = matcher.group(1).toIntOrNull()
+        SCENE_ID_PATTERN.findAll(byteView).forEach { match ->
+            val id = match.groupValues[1].toIntOrNull()
                 ?: throw IOException("scenevoice.xtx contains an invalid scene identifier.")
             if (id <= 0 || !seen.add(id)) {
                 throw IOException("scenevoice.xtx contains an invalid or duplicate scene identifier.")
