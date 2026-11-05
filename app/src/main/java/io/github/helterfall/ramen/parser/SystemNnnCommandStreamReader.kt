@@ -90,6 +90,13 @@ data class SystemNnnCommandStream(
     val recordEndOffsetExclusive: Long
 )
 
+/** One validated pointer-table entry. Reserved entries have no ordinary film number. */
+data class SystemNnnFilmTableEntry(
+    val tableIndex: Int,
+    val filmNumber: Int?,
+    val targetCommandOffset: Long
+)
+
 /**
  * Reads the observed SPT record envelope without executing any command.
  *
@@ -203,6 +210,21 @@ class SystemNnnCommandStreamReader(
         if (filmNumber < 0) {
             throw IOException("The SPT film number cannot be negative.")
         }
+        return filmTableEntries(script).firstOrNull { it.filmNumber == filmNumber }
+            ?.targetCommandOffset
+            ?: throw IOException("The requested film number is outside the SPT film-entry table.")
+    }
+
+    /**
+     * Resolves and validates every entry in the third-descriptor pointer vector.
+     * The list remains in table order; consumers that need physical intervals
+     * should sort by targetCommandOffset while retaining tableIndex/filmNumber.
+     */
+    @Throws(IOException::class)
+    fun filmTableEntries(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream = read(script)
+    ): List<SystemNnnFilmTableEntry> {
         val filmTable = script.offsetTables.getOrNull(FILM_TABLE_DESCRIPTOR_INDEX)
             ?: throw IOException("The SPT film-entry descriptor is missing.")
         val reservedEntries = script.offsetTables
@@ -214,16 +236,11 @@ class SystemNnnCommandStreamReader(
         if (reservedEntries > totalEntries) {
             throw IOException("The SPT reserved-entry count exceeds the film-entry table.")
         }
-        val entryIndex = reservedEntries + filmNumber.toLong()
-        if (filmTable.entryCount == 0u || entryIndex >= totalEntries) {
-            throw IOException("The requested film number is outside the SPT film-entry table.")
+        if (totalEntries > Int.MAX_VALUE.toLong()) {
+            throw IOException("The SPT film-entry table is too large.")
         }
 
-        // Validate the whole table, not only the requested slot. In all supplied
-        // modules, the reserved prefix targets SYSTEM_FUNCTION 0x3333/0x51;
-        // all remaining slots target SYSTEM_FUNCTION 0x3333/0x50.
-        val stream = read(script)
-        var selectedTargetOffset: Long? = null
+        val entries = ArrayList<SystemNnnFilmTableEntry>(totalEntries.toInt())
         var tableIndex = 0L
         while (tableIndex < totalEntries) {
             val logicalWordIndex = filmTable.logicalBase.toLong() + tableIndex
@@ -283,14 +300,18 @@ class SystemNnnCommandStreamReader(
                 }
             }
 
-            if (tableIndex == entryIndex) {
-                selectedTargetOffset = targetOffset
-            }
+            entries += SystemNnnFilmTableEntry(
+                tableIndex = tableIndex.toInt(),
+                filmNumber = if (tableIndex < reservedEntries) {
+                    null
+                } else {
+                    (tableIndex - reservedEntries).toInt()
+                },
+                targetCommandOffset = targetOffset
+            )
             tableIndex += 1L
         }
-
-        return selectedTargetOffset
-            ?: throw IOException("The requested SPT film entry could not be resolved.")
+        return entries
     }
 
     private fun readWords(bytes: ByteArray, startOffset: Int, count: Int): List<UInt> =
