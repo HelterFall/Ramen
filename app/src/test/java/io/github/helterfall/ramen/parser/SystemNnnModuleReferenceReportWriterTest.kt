@@ -103,9 +103,9 @@ class SystemNnnModuleReferenceReportWriterTest {
             kind = SystemNnnResourceFunctionKind.LOAD_DWQ,
             commandOffset = 0xA0L,
             recordLengthWords = 5u,
-            declaredArgumentCount = 1u,
-            availableArgumentCount = 1,
-            argumentCountMatchesRecord = true,
+            leadingCountWord = 1u,
+            remainingPayloadWordCount = 1,
+            countWordEqualsRemainingPayloadWordCount = true,
             payloadPreview = listOf(1u, 9u)
         )
         val output = ByteArrayOutputStream()
@@ -125,7 +125,7 @@ class SystemNnnModuleReferenceReportWriterTest {
         val report = output.toString(Charsets.UTF_8.name())
         assertTrue(report.contains("RESOURCE/AUDIO SYSTEM_FUNCTION CANDIDATES"))
         assertTrue(report.contains("MODULE=03 LOADDWQ @0xA0"))
-        assertTrue(report.contains("argc=1 available=1 arity=matches"))
+        assertTrue(report.contains("countWord=1 remainingPayloadWords=1 countVsPayload=equal"))
         assertTrue(report.contains("payload=[0x00000001,0x00000009]"))
         assertTrue(report.contains("cross-title NNNLib context only"))
     }

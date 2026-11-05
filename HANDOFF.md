@@ -705,3 +705,5 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - The scanner records module, code ID, record offset/length, first payload DWORD as a raw declared-argument-count candidate, available argument DWORD count, and at most eight numeric payload DWORDs. It never resolves string-pool indexes, extracts filenames, reads media or executes commands.
 - Extended the Resource Inspector's existing SPT diagnostic export with this section, so the actual imported target modules can be reviewed without changing player behavior.
 - No target opcode is connected to image/audio playback. Tests were added but not run; no CI, lint or APK build was run.
+
+- Follow-up review clarified that the first payload DWORD versus remaining payload-word comparison is diagnostic only. Some family handlers can carry trailing defaults/flags; unequal counts are not treated as target-format errors.

@@ -32,24 +32,24 @@ class SystemNnnResourceFunctionScannerTest {
             result.candidates.map { it.kind }
         )
         assertEquals(listOf(0x50L, 0x64L, 0x7CL, 0x90L), result.candidates.map { it.commandOffset })
-        assertEquals(listOf(1u, 2u, 1u, 1u), result.candidates.map { it.declaredArgumentCount })
-        assertTrue(result.candidates.all { it.argumentCountMatchesRecord == true })
-        assertEquals(0, result.argumentCountMismatchCount)
+        assertEquals(listOf(1u, 2u, 1u, 1u), result.candidates.map { it.leadingCountWord })
+        assertTrue(result.candidates.all { it.countWordEqualsRemainingPayloadWordCount == true })
+        assertEquals(0, result.countWordPayloadDifferenceCount)
         assertEquals(listOf(1u, 0x1234u), result.candidates.first().payloadPreview)
     }
 
     @Test
-    fun reportsDeclaredArgumentCountMismatchWithoutReadingPastRecordBoundary() {
+    fun reportsCountWordPayloadDifferenceWithoutReadingPastRecordBoundary() {
         val script = scriptOf(records = listOf(listOf(5u, 0x66660007u, 0x33330009u, 3u, 0xFFFFu)))
         val stream = SystemNnnCommandStreamReader().read(script)
         val result = SystemNnnResourceFunctionScanner().scan("akane", script, stream)
         val candidate = result.candidates.single()
 
         assertEquals(SystemNnnResourceFunctionKind.SOUND, candidate.kind)
-        assertEquals(3u, candidate.declaredArgumentCount)
-        assertEquals(1, candidate.availableArgumentCount)
-        assertEquals(false, candidate.argumentCountMatchesRecord)
-        assertEquals(1, result.argumentCountMismatchCount)
+        assertEquals(3u, candidate.leadingCountWord)
+        assertEquals(1, candidate.remainingPayloadWordCount)
+        assertEquals(false, candidate.countWordEqualsRemainingPayloadWordCount)
+        assertEquals(1, result.countWordPayloadDifferenceCount)
         assertEquals(listOf(3u, 0xFFFFu), candidate.payloadPreview)
     }
 
@@ -59,9 +59,9 @@ class SystemNnnResourceFunctionScannerTest {
         val stream = SystemNnnCommandStreamReader().read(script)
         val candidate = SystemNnnResourceFunctionScanner().scan("01", script, stream).candidates.single()
 
-        assertNull(candidate.declaredArgumentCount)
-        assertNull(candidate.argumentCountMatchesRecord)
-        assertEquals(0, candidate.availableArgumentCount)
+        assertNull(candidate.leadingCountWord)
+        assertNull(candidate.countWordEqualsRemainingPayloadWordCount)
+        assertEquals(0, candidate.remainingPayloadWordCount)
         assertTrue(candidate.payloadPreview.isEmpty())
     }
 

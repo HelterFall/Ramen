@@ -112,11 +112,11 @@ class SystemNnnModuleReferenceReportWriter(
                     .sortedWith(compareBy<SystemNnnResourceFunctionCandidate> { it.sourceModuleName }
                         .thenBy { it.commandOffset })
                     .forEach { candidate ->
-                        val declared = candidate.declaredArgumentCount?.toString() ?: "missing"
-                        val arity = when (candidate.argumentCountMatchesRecord) {
-                            true -> "matches"
-                            false -> "MISMATCH"
-                            null -> "unknown"
+                        val leadingCount = candidate.leadingCountWord?.toString() ?: "missing"
+                        val comparison = when (candidate.countWordEqualsRemainingPayloadWordCount) {
+                            true -> "equal"
+                            false -> "different"
+                            null -> "unavailable"
                         }
                         val preview = candidate.payloadPreview.joinToString(",") { formatDword(it) }
                         writer.appendLine(
@@ -124,8 +124,8 @@ class SystemNnnModuleReferenceReportWriter(
                                 "@${formatOffset(candidate.commandOffset)} " +
                                 "code=${formatCode(0x3333, candidate.kind.codeId)} " +
                                 "lengthWords=${candidate.recordLengthWords} " +
-                                "argc=$declared available=${candidate.availableArgumentCount} " +
-                                "arity=$arity payload=[$preview]"
+                                "countWord=$leadingCount remainingPayloadWords=${candidate.remainingPayloadWordCount} " +
+                                "countVsPayload=$comparison payload=[$preview]"
                         )
                     }
             }

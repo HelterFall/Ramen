@@ -44,28 +44,28 @@ data class SystemNnnResourceFunctionCandidate(
     val kind: SystemNnnResourceFunctionKind,
     val commandOffset: Long,
     val recordLengthWords: UInt,
-    /** First payload DWORD in the family reference; retained raw. */
-    val declaredArgumentCount: UInt?,
-    /** Number of DWORDs physically available after the first payload DWORD. */
-    val availableArgumentCount: Int,
-    /** Null when the record has no payload DWORD from which to read a count. */
-    val argumentCountMatchesRecord: Boolean?,
+    /** Raw first payload DWORD; some family handlers treat it as a parameter count. */
+    val leadingCountWord: UInt?,
+    /** Physical DWORDs after the leading word; may include additional flags/defaults. */
+    val remainingPayloadWordCount: Int,
+    /** Equality hint only: false does not mean the target record is malformed. */
+    val countWordEqualsRemainingPayloadWordCount: Boolean?,
     /** Bounded numeric-only payload preview. Never resolves string/pool references. */
     val payloadPreview: List<UInt>
 )
 
 data class SystemNnnResourceFunctionScanResult(
     val candidates: List<SystemNnnResourceFunctionCandidate>,
-    val argumentCountMismatchCount: Int
+    val countWordPayloadDifferenceCount: Int
 )
 
 /**
  * Read-only inventory of family-known resource/audio SYSTEM_FUNCTION codes.
  *
- * It records the count word used by the family reference and compares that
- * declaration with the bounded record payload. A mismatch is reported, not
- * treated as a reason to reject the SPT: target-specific layouts are not yet
- * established for these functions.
+ * It records the first payload DWORD and counts the remaining bounded words.
+ * Equality is reported only as a structural comparison: family handlers may
+ * carry optional trailing values, flags or defaults, so unequal counts are not
+ * treated as a malformed record and never reject the SPT.
  */
 class SystemNnnResourceFunctionScanner(
     private val maxPreviewWords: Int = DEFAULT_PREVIEW_WORDS
@@ -92,13 +92,13 @@ class SystemNnnResourceFunctionScanner(
             ) return@forEach
 
             val kind = SystemNnnResourceFunctionKind.fromCodeId(record.codeId) ?: return@forEach
-            val available = (record.payloadWordCount - 1).coerceAtLeast(0)
-            val argumentCount = if (record.payloadWordCount > 0) {
+            val remainingPayloadWords = (record.payloadWordCount - 1).coerceAtLeast(0)
+            val leadingCountWord = if (record.payloadWordCount > 0) {
                 readPayloadWord(script, record, ARGUMENT_COUNT_PAYLOAD_INDEX)
             } else {
                 null
             }
-            val matches = argumentCount?.let { it.toLong() == available.toLong() }
+            val countEqualsRemainingPayload = leadingCountWord?.let { it.toLong() == remainingPayloadWords.toLong() }
             val previewCount = minOf(record.payloadWordCount, maxPreviewWords)
 
             candidates += SystemNnnResourceFunctionCandidate(
@@ -106,9 +106,9 @@ class SystemNnnResourceFunctionScanner(
                 kind = kind,
                 commandOffset = record.offset,
                 recordLengthWords = record.lengthWords,
-                declaredArgumentCount = argumentCount,
-                availableArgumentCount = available,
-                argumentCountMatchesRecord = matches,
+                leadingCountWord = leadingCountWord,
+                remainingPayloadWordCount = remainingPayloadWords,
+                countWordEqualsRemainingPayloadWordCount = countEqualsRemainingPayload,
                 payloadPreview = List(previewCount) { index ->
                     readPayloadWord(script, record, index)
                 }
@@ -117,7 +117,7 @@ class SystemNnnResourceFunctionScanner(
 
         return SystemNnnResourceFunctionScanResult(
             candidates = candidates,
-            argumentCountMismatchCount = candidates.count { it.argumentCountMatchesRecord == false }
+            countWordPayloadDifferenceCount = candidates.count { it.countWordEqualsRemainingPayloadWordCount == false }
         )
     }
 

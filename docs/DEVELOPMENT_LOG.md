@@ -844,3 +844,5 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - It reports exact SPT record offsets/lengths, the raw first payload DWORD, declared-vs-available argument counts and an eight-DWORD numeric preview. No pool text, filenames, resource bytes or media are read or emitted.
 - The labels are sourced from a pinned NNNLib family reference and explicitly remain hypotheses for this title. The Resource Inspector's existing metadata-only report now includes these candidates. No runtime dispatch was enabled.
 - Synthetic scanner/report tests were added; tests, CI, lint and APK builds were not run by request.
+
+- Clarified the resource-function inventory's leading count-word comparison: extra trailing fields may exist, so equality/difference is only a structural hint and never a validation error.
