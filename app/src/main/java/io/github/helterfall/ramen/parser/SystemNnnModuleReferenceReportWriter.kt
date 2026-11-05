@@ -115,6 +115,36 @@ class SystemNnnModuleReferenceReportWriter(
             if (report.resourceFunctionCandidates.isNotEmpty()) {
                 writer.appendLine()
                 writer.appendLine("RESOURCE/AUDIO SYSTEM_FUNCTION CANDIDATES (FAMILY REFERENCE LABELS ONLY)")
+                writer.appendLine("  SHAPE SUMMARY BY FUNCTION CODE")
+                report.resourceFunctionCandidates
+                    .groupBy { it.kind }
+                    .toSortedMap(compareBy<SystemNnnResourceFunctionKind> { it.codeId })
+                    .forEach { (kind, candidates) ->
+                        val lengths = candidates.groupingBy { it.recordLengthWords }
+                            .eachCount()
+                            .toSortedMap()
+                            .entries
+                            .joinToString(",") { "${it.key}:${it.value}" }
+                        val payloadSizes = candidates.groupingBy { it.remainingPayloadWordCount }
+                            .eachCount()
+                            .toSortedMap()
+                            .entries
+                            .joinToString(",") { "${it.key}:${it.value}" }
+                        val leadingValues = candidates.mapNotNull { it.leadingCountWord }
+                            .groupingBy { it }
+                            .eachCount()
+                            .toSortedMap()
+                            .entries
+                            .take(MAX_SUMMARY_VALUES)
+                            .joinToString(",") {
+                                "${formatDword(it.key)}:${it.value}"
+                            }
+                        writer.appendLine(
+                            "    ${kind.familyReferenceName} count=${candidates.size} " +
+                                "lengthWords={$lengths} remainingPayloadWords={$payloadSizes} " +
+                                "leadingWord={$leadingValues}"
+                        )
+                    }
                 report.resourceFunctionCandidates
                     .sortedWith(compareBy<SystemNnnResourceFunctionCandidate> { it.sourceModuleName }
                         .thenBy { it.commandOffset })
@@ -273,5 +303,6 @@ class SystemNnnModuleReferenceReportWriter(
 
     companion object {
         private const val DEFAULT_MAX_CANDIDATES = 20_000
+        private const val MAX_SUMMARY_VALUES = 16
     }
 }

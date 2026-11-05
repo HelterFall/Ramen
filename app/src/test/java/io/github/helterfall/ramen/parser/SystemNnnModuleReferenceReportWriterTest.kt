@@ -144,6 +144,9 @@ class SystemNnnModuleReferenceReportWriterTest {
 
         val report = output.toString(Charsets.UTF_8.name())
         assertTrue(report.contains("RESOURCE/AUDIO SYSTEM_FUNCTION CANDIDATES"))
+        assertTrue(report.contains("SHAPE SUMMARY BY FUNCTION CODE"))
+        assertTrue(report.contains("LOADDWQ count=1 lengthWords={5:1} remainingPayloadWords={1:1}"))
+        assertTrue(report.contains("leadingWord={0x00000001:1}"))
         assertTrue(report.contains("MODULE=03 LOADDWQ @0xA0"))
         assertTrue(report.contains("resource/audio functions: 1"))
         assertTrue(report.contains("count/payload differences: 0"))
