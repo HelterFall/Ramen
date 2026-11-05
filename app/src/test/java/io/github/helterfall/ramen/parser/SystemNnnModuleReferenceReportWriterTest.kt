@@ -106,7 +106,27 @@ class SystemNnnModuleReferenceReportWriterTest {
             leadingCountWord = 1u,
             remainingPayloadWordCount = 1,
             countWordEqualsRemainingPayloadWordCount = true,
-            payloadPreview = listOf(1u, 9u)
+            payloadPreview = listOf(1u, 9u),
+            sourceFilmTableIndex = 2,
+            sourceFilmNumber = 1,
+            sourceFilmStartOffset = 0x80L,
+            sourceFilmEndOffsetExclusive = 0xC0L,
+            previousRecord = SystemNnnRecordContext(
+                commandOffset = 0x90L,
+                identifierType = 2,
+                codeFamily = 0x5556,
+                codeId = 0x0001,
+                recordLengthWords = 3u,
+                payloadPreview = emptyList()
+            ),
+            nextRecord = SystemNnnRecordContext(
+                commandOffset = 0xB0L,
+                identifierType = 7,
+                codeFamily = 0x3333,
+                codeId = 0x0009,
+                recordLengthWords = 4u,
+                payloadPreview = listOf(1u)
+            )
         )
         val output = ByteArrayOutputStream()
 
@@ -130,6 +150,10 @@ class SystemNnnModuleReferenceReportWriterTest {
         assertTrue(report.contains("countWord=1 remainingPayloadWords=1 countVsPayload=equal"))
         assertTrue(report.contains("payload=[0x00000001,0x00000009]"))
         assertTrue(report.contains("cross-title NNNLib context only"))
+        assertTrue(report.contains("SOURCE FILM: film 1 (tableIndex=2)"))
+        assertTrue(report.contains("PREV: @0x90"))
+        assertTrue(report.contains("NEXT: @0xB0"))
+        assertTrue(report.contains("code=0x3333/0x0009"))
     }
 
     @Test

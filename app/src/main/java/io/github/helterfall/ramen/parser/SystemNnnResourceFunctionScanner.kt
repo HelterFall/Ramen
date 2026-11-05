@@ -51,7 +51,13 @@ data class SystemNnnResourceFunctionCandidate(
     /** Equality hint only: false does not mean the target record is malformed. */
     val countWordEqualsRemainingPayloadWordCount: Boolean?,
     /** Bounded numeric-only payload preview. Never resolves string/pool references. */
-    val payloadPreview: List<UInt>
+    val payloadPreview: List<UInt>,
+    val sourceFilmTableIndex: Int?,
+    val sourceFilmNumber: Int?,
+    val sourceFilmStartOffset: Long?,
+    val sourceFilmEndOffsetExclusive: Long?,
+    val previousRecord: SystemNnnRecordContext?,
+    val nextRecord: SystemNnnRecordContext?
 )
 
 data class SystemNnnResourceFunctionScanResult(
@@ -68,7 +74,8 @@ data class SystemNnnResourceFunctionScanResult(
  * treated as a malformed record and never reject the SPT.
  */
 class SystemNnnResourceFunctionScanner(
-    private val maxPreviewWords: Int = DEFAULT_PREVIEW_WORDS
+    private val maxPreviewWords: Int = DEFAULT_PREVIEW_WORDS,
+    private val streamReader: SystemNnnCommandStreamReader = SystemNnnCommandStreamReader()
 ) {
     init {
         require(maxPreviewWords in 0..MAX_PREVIEW_WORDS) {
@@ -83,9 +90,21 @@ class SystemNnnResourceFunctionScanner(
         stream: SystemNnnCommandStream
     ): SystemNnnResourceFunctionScanResult {
         require(sourceModuleName.isNotBlank()) { "sourceModuleName must not be blank." }
+        val orderedFilmEntries = if (script.offsetTables.size > FILM_TABLE_DESCRIPTOR_INDEX) {
+            streamReader.filmTableEntries(script, stream).sortedBy { it.targetCommandOffset }
+        } else {
+            emptyList()
+        }
+        if (orderedFilmEntries.zipWithNext().any { (left, right) ->
+                left.targetCommandOffset == right.targetCommandOffset
+            }
+        ) {
+            throw IOException("The SPT film table contains duplicate physical scene-entry offsets.")
+        }
+
         val candidates = ArrayList<SystemNnnResourceFunctionCandidate>()
 
-        stream.records.forEach { record ->
+        stream.records.forEachIndexed { recordIndex, record ->
             if (
                 record.recordKind != SystemNnnRecordKind.SYSTEM_FUNCTION ||
                 record.codeFamily != SYSTEM_FUNCTION_FAMILY
@@ -100,6 +119,17 @@ class SystemNnnResourceFunctionScanner(
             }
             val countEqualsRemainingPayload = leadingCountWord?.let { it.toLong() == remainingPayloadWords.toLong() }
             val previewCount = minOf(record.payloadWordCount, maxPreviewWords)
+            val sourceFilm = findSourceFilmEntry(record.offset, orderedFilmEntries)
+            val sourceFilmIndex = sourceFilm?.let(orderedFilmEntries::indexOf)?.takeIf { it >= 0 }
+            val sourceFilmEnd = sourceFilmIndex
+                ?.let { orderedFilmEntries.getOrNull(it + 1)?.targetCommandOffset }
+                ?: if (sourceFilm != null) stream.recordEndOffsetExclusive else null
+            val previousRecord = stream.records.getOrNull(recordIndex - 1)
+                ?.takeIf { sourceFilm == null || it.offset >= sourceFilm.targetCommandOffset }
+                ?.let { toContext(script, it) }
+            val nextRecord = stream.records.getOrNull(recordIndex + 1)
+                ?.takeIf { sourceFilmEnd == null || it.offset < sourceFilmEnd }
+                ?.let { toContext(script, it) }
 
             candidates += SystemNnnResourceFunctionCandidate(
                 sourceModuleName = sourceModuleName,
@@ -111,7 +141,13 @@ class SystemNnnResourceFunctionScanner(
                 countWordEqualsRemainingPayloadWordCount = countEqualsRemainingPayload,
                 payloadPreview = List(previewCount) { index ->
                     readPayloadWord(script, record, index)
-                }
+                },
+                sourceFilmTableIndex = sourceFilm?.tableIndex,
+                sourceFilmNumber = sourceFilm?.filmNumber,
+                sourceFilmStartOffset = sourceFilm?.targetCommandOffset,
+                sourceFilmEndOffsetExclusive = sourceFilmEnd,
+                previousRecord = previousRecord,
+                nextRecord = nextRecord
             )
         }
 
@@ -120,6 +156,39 @@ class SystemNnnResourceFunctionScanner(
             countWordPayloadDifferenceCount = candidates.count { it.countWordEqualsRemainingPayloadWordCount == false }
         )
     }
+
+    private fun findSourceFilmEntry(
+        commandOffset: Long,
+        orderedEntries: List<SystemNnnFilmTableEntry>
+    ): SystemNnnFilmTableEntry? {
+        var low = 0
+        var high = orderedEntries.lastIndex
+        var bestIndex = -1
+        while (low <= high) {
+            val middle = low + (high - low) / 2
+            if (orderedEntries[middle].targetCommandOffset <= commandOffset) {
+                bestIndex = middle
+                low = middle + 1
+            } else {
+                high = middle - 1
+            }
+        }
+        return orderedEntries.getOrNull(bestIndex)
+    }
+
+    private fun toContext(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ) = SystemNnnRecordContext(
+        commandOffset = record.offset,
+        identifierType = record.identifierType,
+        codeFamily = record.codeFamily,
+        codeId = record.codeId,
+        recordLengthWords = record.lengthWords,
+        payloadPreview = List(minOf(record.payloadWordCount, MAX_CONTEXT_PAYLOAD_WORDS)) {
+            readPayloadWord(script, record, it)
+        }
+    )
 
     private fun readPayloadWord(
         script: SystemNnnScript,
@@ -148,5 +217,7 @@ class SystemNnnResourceFunctionScanner(
         const val ARGUMENT_COUNT_PAYLOAD_INDEX = 0
         const val DEFAULT_PREVIEW_WORDS = 8
         const val MAX_PREVIEW_WORDS = 8
+        const val MAX_CONTEXT_PAYLOAD_WORDS = 4
+        const val FILM_TABLE_DESCRIPTOR_INDEX = 2
     }
 }

@@ -707,3 +707,6 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - No target opcode is connected to image/audio playback. Tests were added but not run; no CI, lint or APK build was run.
 
 - Follow-up review clarified that the first payload DWORD versus remaining payload-word comparison is diagnostic only. Some family handlers can carry trailing defaults/flags; unequal counts are not treated as target-format errors.
+
+
+- Extended resource/audio candidate rows with previous/next record contexts (numeric previews only) and, when validated descriptor-3 entries exist, source film-table index/number and the bounded film interval. Neighbour context is clipped to that interval.

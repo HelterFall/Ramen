@@ -36,6 +36,11 @@ class SystemNnnResourceFunctionScannerTest {
         assertTrue(result.candidates.all { it.countWordEqualsRemainingPayloadWordCount == true })
         assertEquals(0, result.countWordPayloadDifferenceCount)
         assertEquals(listOf(1u, 0x1234u), result.candidates.first().payloadPreview)
+        assertEquals(0x3333, result.candidates.first().nextRecord?.codeFamily)
+        assertEquals(0x0008, result.candidates.first().nextRecord?.codeId)
+        assertEquals(0x3333, result.candidates[1].previousRecord?.codeFamily)
+        assertEquals(0x0007, result.candidates[1].previousRecord?.codeId)
+        assertTrue(result.candidates.all { it.sourceFilmTableIndex == null })
     }
 
     @Test
@@ -51,6 +56,8 @@ class SystemNnnResourceFunctionScannerTest {
         assertEquals(false, candidate.countWordEqualsRemainingPayloadWordCount)
         assertEquals(1, result.countWordPayloadDifferenceCount)
         assertEquals(listOf(3u, 0xFFFFu), candidate.payloadPreview)
+        assertNull(candidate.previousRecord)
+        assertNull(candidate.nextRecord)
     }
 
     @Test

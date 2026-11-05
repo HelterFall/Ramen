@@ -846,3 +846,6 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Synthetic scanner/report tests were added; tests, CI, lint and APK builds were not run by request.
 
 - Clarified the resource-function inventory's leading count-word comparison: extra trailing fields may exist, so equality/difference is only a structural hint and never a validation error.
+
+
+- Resource/audio SPT inventory now carries up to four numeric DWORDs from the immediately previous and next records, plus source film-table identity/interval when descriptor 3 is validated. Adjacent context never crosses a known film boundary; the exported text contains no Pool 1/Pool 2 strings.

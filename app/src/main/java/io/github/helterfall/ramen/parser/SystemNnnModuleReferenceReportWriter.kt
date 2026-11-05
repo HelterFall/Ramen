@@ -134,6 +134,18 @@ class SystemNnnModuleReferenceReportWriter(
                                 "countWord=$leadingCount remainingPayloadWords=${candidate.remainingPayloadWordCount} " +
                                 "countVsPayload=$comparison payload=[$preview]"
                         )
+                        val filmLabel = when {
+                            candidate.sourceFilmTableIndex == null -> "outside indexed film intervals"
+                            candidate.sourceFilmNumber == null -> "reserved table entry ${candidate.sourceFilmTableIndex}"
+                            else -> "film ${candidate.sourceFilmNumber} (tableIndex=${candidate.sourceFilmTableIndex})"
+                        }
+                        writer.appendLine("    SOURCE FILM: $filmLabel")
+                        writer.appendLine(
+                            "    INTERVAL: ${formatOffset(candidate.sourceFilmStartOffset)} .. " +
+                                formatOffset(candidate.sourceFilmEndOffsetExclusive)
+                        )
+                        writer.appendLine("    PREV: ${formatContext(candidate.previousRecord)}")
+                        writer.appendLine("    NEXT: ${formatContext(candidate.nextRecord)}")
                     }
             }
 
