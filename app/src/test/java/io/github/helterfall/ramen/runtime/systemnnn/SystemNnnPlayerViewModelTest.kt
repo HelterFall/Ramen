@@ -80,6 +80,29 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun preservesTheCurrentFilmNumberWhenTheNextDialogueIsPublished() {
+        val offsets = recordOffsets()
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetFilm(
+                    nextCommandOffset = offsets[1],
+                    filmNumber = 7
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertEquals(7, viewModel.uiState.currentFilmNumber)
+        assertEquals("First line", viewModel.uiState.dialogueText)
+    }
+
+    @Test
     fun rejectsSkipThatTargetsTheMiddleOfARecord() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(
