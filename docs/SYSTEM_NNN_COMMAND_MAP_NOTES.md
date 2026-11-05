@@ -546,3 +546,38 @@ The candidate scanner now attaches the previous and next record from the same va
 The Resource Inspector's Text Data tab now offers "Сохранить карту ссылок на модули (.txt)" when one or more sibling project.xtx catalogs are present. Export is performed on the existing worker thread and uses the validated project catalog and SPT parsers. Every catalog is reported separately; per-module read failures are preserved as warnings rather than silently discarded.
 
 The deterministic UTF-8 report groups candidates by project → source module → source film interval → candidate record. It includes adjacent-record metadata and opaque payload previews, but no scenario dialogue, Pool 1 contents, resource payloads, or presumed control-flow labels. A 20,000-candidate cap bounds output. The report explicitly states that matching module-name strings are not proven calls/jumps/startup routes.
+
+
+## 2026-11-05 — actual script-control records identify module transfers
+
+### External NNNLib family reference (pinned, other title)
+
+A public NNNLib source tree from another title was inspected only as engine-family context:
+- `nnnUtilLib/scriptDefine.h` names `0x5556/0x000A` as SCRIPT, `0x5556/0x0015` as SCRIPTJUMP, and `0x5556/0x0016` as SUBSCRIPT.
+- It names `0x3333/0x0052` FILMTYPETIME and `0x3333/0x0053` CONFIGMASK, disproving the prior suspicion that 3333/53 is a module call.
+- `nnnLib/execscript.cpp` resolves the first transfer operand with `GetStringPtr` (Pool 2). `nnnLib/gamecallback.cpp` constructs `spt\\<name>.spt` and loads that module. In that reference implementation SCRIPT and SUBSCRIPT enter a deeper script level; SCRIPTJUMP replaces the current level. SCRIPT/SUBSCRIPT also read the DWORD after the Pool 2 operand as a return selector.
+- The reference initializes its controller with `spt\\sys.spt`.
+- Pinned source revision: `tinyan/SystemNNN@78a05053c78b3b80065a9a209c6685a7c60a2e83`. This is family-level context from another title, not a target-specific runtime specification.
+
+### Exact target-archive evidence
+
+A read-only scan of all 20 SPT modules in hui(4).zip found **29** type-2 CONTROL records in code family `0x5556`, IDs `0x000A`, `0x0015`, or `0x0016`. Every record has one DWORD operand that resolves by exact Pool 2 index to a module name declared by `project.xtx`.
+
+| Target code | Count | Source → target module |
+|---|---:|---|
+| `0x5556/0x000A SCRIPT` | 14 | `sys` → `op1, 01, 02, 03, 04, 05, 06, 07, 08, 082, akane, aoi, kiika, day` |
+| `0x5556/0x0015 SCRIPTJUMP` | 3 | `01` → `yuka`; `03` → `yamiko`; `yuka` → `yuka2` |
+| `0x5556/0x0016 SUBSCRIPT` | 12 | `03` → `_staff` (1); `akane` → `_staff` (3); `aoi` → `_staff` (3); `kiika` → `_staff` (3); `yamiko` → `_staff` (1); `yuka` → `_staff` (1) |
+
+All 29 targets match project module names exactly; all 14 SCRIPT records are in `sys.spt`. These are materially stronger than the earlier 511 generic Pool 2 string references.
+
+### Corrected interpretation of 0x3333/0x53
+
+The NNNLib family source identifies `0x3333/0x0053` as CONFIGMASK. Thirteen occurrences happened to point at the Pool 2 string `_staff`, but these are not module calls. Keep them in the generic string-reference report only. The other 511 `[1,index]` references likewise remain unclassified.
+
+### Remaining runtime proof
+
+- `sys.spt` is the strongest boot-controller candidate: it contains all 14 SCRIPT references, and the family reference starts its controller from `sys.spt`. Do not enable auto-start until the target-specific control flow is verified.
+- The target SCRIPT/SUBSCRIPT following DWORD equals the next record's length DWORD. The family reference uses that location as a return selector, but the target title's selector-to-resume table is still unknown.
+- CONTROL SUB (`0x5556/0x0009`) and RETURN (`0x5556/0x0007`) must be mapped separately from module SCRIPT/SUBSCRIPT.
+- A read-only `SystemNnnScriptTransferScanner` was added. It labels the three code families, resolves exact Pool 2 module names, and captures source offsets/film context. It does not execute a transfer.
