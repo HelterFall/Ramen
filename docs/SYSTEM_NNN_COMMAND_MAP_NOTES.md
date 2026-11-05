@@ -555,7 +555,7 @@ The deterministic UTF-8 report groups candidates by project → source module �
 A public NNNLib source tree from another title was inspected only as engine-family context:
 - `nnnUtilLib/scriptDefine.h` names `0x5556/0x000A` as SCRIPT, `0x5556/0x0015` as SCRIPTJUMP, and `0x5556/0x0016` as SUBSCRIPT.
 - It names `0x3333/0x0052` FILMTYPETIME and `0x3333/0x0053` CONFIGMASK, disproving the prior suspicion that 3333/53 is a module call.
-- `nnnLib/execscript.cpp` resolves the first transfer operand with `GetStringPtr` (Pool 2). `nnnLib/gamecallback.cpp` constructs `spt\\<name>.spt` and loads that module. In that reference implementation SCRIPT and SUBSCRIPT enter a deeper script level; SCRIPTJUMP replaces the current level. SCRIPT/SUBSCRIPT also read the DWORD after the Pool 2 operand as a return selector.
+- `nnnLib/execscript.cpp` resolves the first transfer operand with `GetStringPtr` (Pool 2). `nnnLib/gamecallback.cpp` constructs `spt\\<name>.spt` and loads that module. In that other-title reference, SCRIPT and SUBSCRIPT enter a deeper script level; SCRIPTJUMP replaces the current level. It copies the DWORD after the Pool 2 operand into `m_stack[253]`, and its `AdjustScriptCall` applies that value during save-state restoration. This is family context only; the target executable below shows a different transfer path.
 - The reference initializes its controller with `spt\\sys.spt`.
 - Pinned source revision: `tinyan/SystemNNN@78a05053c78b3b80065a9a209c6685a7c60a2e83`. This is family-level context from another title, not a target-specific runtime specification.
 
@@ -578,7 +578,7 @@ The NNNLib family source identifies `0x3333/0x0053` as CONFIGMASK. Thirteen occu
 ### Remaining runtime proof
 
 - `sys.spt` is the strongest boot-controller candidate: it contains all 14 SCRIPT references, and the family reference starts its controller from `sys.spt`. Do not enable auto-start until the target-specific control flow is verified.
-- The target SCRIPT/SUBSCRIPT following DWORD equals the next record's length DWORD. The family reference uses that location as a return selector, but the target title's selector-to-resume table is still unknown.
+- The DWORD after the one-word Pool 2 payload is the next record's length. Disassembly of the target `gss.exe` confirms that SCRIPT/SUBSCRIPT/SCRIPTJUMP handlers do not read it as a selector; see the native transfer verification section below.
 - CONTROL SUB (`0x5556/0x0009`) and RETURN (`0x5556/0x0007`) must be mapped separately from module SCRIPT/SUBSCRIPT.
 - A read-only `SystemNnnScriptTransferScanner` was added. It labels the three code families, resolves exact Pool 2 module names, and captures source offsets/film context. It does not execute a transfer.
 
@@ -632,7 +632,7 @@ CONTROL RETURN встречается 1 008 раз при 1 069 SUB. Их нел
 
 ### Module executor routing now implemented
 
-The target archive confirms that SCRIPT (0x5556/0x000A), SCRIPTJUMP (0x5556/0x0015) and SUBSCRIPT (0x5556/0x0016) each have exactly one DWORD payload: a Pool 2 index. The referenced text resolves to a module token in project.xtx. The following DWORD after that payload is the next record's length word; the external NNNLib family runtime reads this position as a script-call return selector. Ramen now preserves both this raw selector candidate and the exact next-record continuation in its module frame. The selector-to-return-PC table for this target title is still unresolved, so execution continues by the validated exact continuation rather than guessing a table lookup.
+The target archive confirms that SCRIPT (0x5556/0x000A), SCRIPTJUMP (0x5556/0x0015) and SUBSCRIPT (0x5556/0x0016) each have exactly one DWORD payload: a Pool 2 index resolving to a module token in project.xtx. Native disassembly of the target `hui/gss.exe` confirms that each transfer handler reads only that operand at record+0x0C, passes the resolved module name to the callback, and advances PC by the current record's length. It does not read record+0x10 (the following record's length) as a return selector. Ramen therefore stores only the exact post-record caller continuation in its module frame; the speculative selector candidate has been removed.
 
 Runtime behavior:
 - SCRIPT and SUBSCRIPT push the current module, stream, decoder, current film and exact command continuation; then enter the target SPT at its first record.
@@ -684,3 +684,19 @@ ENDFILM is now represented as a separate decoded event:
 - after the last scene film, replay ends.
 
 This is the engine route; a visible scene-gallery picker/UI has not yet been added. CI/tests were intentionally not run per current work direction.
+
+
+## 2026-11-05 — native target executable confirms module-transfer semantics
+
+Source: the user-provided cleaned archive `hui(5).zip`, using only SPT structural words and the native executable's code; no scenario text or media was extracted. The target `hui/gss.exe` is PE32/i386 (image base `0x00400000`).
+
+Disassembly of its interpreter shows the three target branches:
+- SCRIPT: VA `0x00417000`;
+- SUBSCRIPT: VA `0x00417059`;
+- SCRIPTJUMP: VA `0x004170B2`.
+
+Each branch reads the DWORD at active-record offset `+0x0C` (the sole Pool 2 operand), resolves that string as a module name, and passes it to the transfer callback. On return from the callback, the interpreter reads the current record's length DWORD and advances PC by that length. None of the three branches reads active-record offset `+0x10`; in the target stream that cell is simply the next record's length. Therefore this title does **not** use that cell as a SCRIPT/SUBSCRIPT return selector.
+
+This target evidence supersedes the earlier cross-title NNNLib hypothesis. The external reference stores the following DWORD in `m_stack[253]` and uses `AdjustScriptCall` while restoring saves, but that mechanism must not be transplanted into this executable. Ramen's exact `record.endOffsetExclusive` continuation is the correct normal return point for the parent module; the speculative `returnSelectorCandidate` field has been removed from decoder and module-call frames.
+
+A structural coincidence is explicitly rejected as proof: the next-record length values (3–5) can be used as low indexes into a later `DATA/TABLE` record marked `0x44440003`, and the resulting values happen to land on command-record boundaries in a few observed comparisons. The native transfer branches never perform that lookup.
