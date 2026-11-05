@@ -749,3 +749,12 @@ Per-module SELECT counts: `01=11`, `02=5`, `03=9`, `04=3`, `05=1`, `06=1`, `07=0
 The decoder already mapped option `N` to CASE `N` and returned the boundary immediately after that CASE. Its branch-body brace skip matches the native span/closing-brace behavior for the 104 observed case blocks. One mismatch was corrected: when SELECT is followed by an outer OPEN_BRACE, Ramen now skips only that opening record, matching the target `GetCase` routine, rather than skipping the entire wrapper span before scanning CASE records. A synthetic regression test covers this case.
 
 Ramen intentionally still does not expose the native time-limit/auto-select/special-flag metadata in its choice UI. The three fields are all zero across the 46 SELECT records in this cleaned archive. Tests were not run per current work direction.
+
+
+## 2026-11-06 — target IF/ELSIF/ELSE execution
+
+- Native target IF dispatch is at `gss.exe` VA `0x00416611`. It evaluates the IF/ELSIF RPN condition and tests the result with signed `jg` semantics: values greater than zero take the branch; zero and negative values follow the false path.
+- A true branch resumes at the command immediately after its IF/ELSIF record. A false branch skips the following OPEN_BRACE block by the declared DWORD span and resumes at the next ELSIF/ELSE marker. After a branch has been entered, later ELSIF/ELSE records skip their own brace-wrapped bodies. ENDIF and ENDKOMA remain sequential boundaries.
+- The Ramen decoder's branch traversal matches this target behavior on all observed condition layouts. Full primary SPT scan: 490 IF/ELSIF/ELSE records, 490 valid brace spans, and a maximum ELSIF chain of 11.
+- Native CALCU evaluator at VA `0x00417690` changes a zero divisor to 1 for integer `/` and `%`, including their compound forms. The Kotlin evaluator has been corrected to do the same.
+- Synthetic regression tests cover false IF/ELSIF fallthrough to ELSE, skipping remaining alternatives after a true IF, and `10 / 0` evaluating through the native divisor-to-one fallback. Tests remain unrun by request.
