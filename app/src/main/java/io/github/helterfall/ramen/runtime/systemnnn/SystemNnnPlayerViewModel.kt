@@ -89,7 +89,9 @@ data class SystemNnnPlayerModuleProgram(
     val name: String,
     val script: SystemNnnScript,
     val commandStream: SystemNnnCommandStream,
-    val initialCommandOffset: Long
+    val initialCommandOffset: Long,
+    /** Film starts indexed by scene.dat's zero-based filmIndex. */
+    val filmStartOffsets: List<Long> = emptyList()
 )
 
 enum class SystemNnnModuleTransferKind {
@@ -220,13 +222,15 @@ class SystemNnnPlayerViewModel : ViewModel() {
         initialAudioResourceName: String? = null,
         moduleName: String? = null,
         modulePrograms: Collection<SystemNnnPlayerModuleProgram> = emptyList(),
-        decoderFactory: ((SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder)? = null
+        decoderFactory: ((SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder)? = null,
+        controllerModuleName: String? = null,
+        initialFilmNumber: Int? = null
     ) {
         releaseAssets()
 
         moduleCallStack.clear()
         currentModuleName = moduleName
-        currentFilmNumber = null
+        currentFilmNumber = initialFilmNumber
         if (moduleName == null) {
             projectModules = emptyMap()
             moduleDecoderFactory = null
@@ -243,7 +247,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
             }
             projectModules = mappedPrograms
             moduleDecoderFactory = decoderFactory
-            controllerProgram = mappedPrograms[moduleName.lowercase(Locale.ROOT)]
+            controllerProgram = mappedPrograms[
+                (controllerModuleName ?: moduleName).lowercase(Locale.ROOT)
+            ]
             if (controllerProgram == null || decoderFactory == null) {
                 uiState = SystemNnnPlayerUiState(errorMessage = "Не удалось подготовить управляющий модуль проекта.")
                 runCatching { assetResolver.close() }
@@ -301,7 +307,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         controlModuleName: String,
         assetResolver: SystemNnnSceneAssetResolver,
         decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder,
-        audioRepository: SystemNnnVpkAudioRepository? = null
+        audioRepository: SystemNnnVpkAudioRepository? = null,
+        initialSceneRoute: SystemNnnSceneRoute? = null
     ) {
         val moduleMap = modules.associateBy { it.name.lowercase(Locale.ROOT) }
         val control = moduleMap[controlModuleName.lowercase(Locale.ROOT)]
@@ -311,15 +318,46 @@ class SystemNnnPlayerViewModel : ViewModel() {
             showStartupError("В project.xtx отсутствует управляющий модуль '$controlModuleName'.")
             return
         }
+
+        val startingProgram = if (initialSceneRoute == null) {
+            control
+        } else {
+            moduleMap[initialSceneRoute.moduleName.lowercase(Locale.ROOT)]
+                ?: run {
+                    runCatching { assetResolver.close() }
+                    runCatching { audioRepository?.close() }
+                    showStartupError(
+                        "scene.dat указывает на отсутствующий модуль '${initialSceneRoute.moduleName}'."
+                    )
+                    return
+                }
+        }
+        val startOffset = if (initialSceneRoute == null) {
+            startingProgram.initialCommandOffset
+        } else {
+            startingProgram.filmStartOffsets.getOrNull(initialSceneRoute.filmIndex)
+                ?: run {
+                    runCatching { assetResolver.close() }
+                    runCatching { audioRepository?.close() }
+                    showStartupError(
+                        "scene.dat указывает на отсутствующий film slot ${initialSceneRoute.filmIndex} " +
+                            "в модуле '${startingProgram.name}'."
+                    )
+                    return
+                }
+        }
+
         start(
-            script = control.script,
-            commandDecoder = decoderFactory(control),
+            script = startingProgram.script,
+            commandDecoder = decoderFactory(startingProgram),
             assetResolver = assetResolver,
-            initialCommandOffset = control.initialCommandOffset,
+            initialCommandOffset = startOffset,
             audioRepository = audioRepository,
-            moduleName = control.name,
+            moduleName = startingProgram.name,
             modulePrograms = modules,
-            decoderFactory = decoderFactory
+            decoderFactory = decoderFactory,
+            controllerModuleName = control.name,
+            initialFilmNumber = initialSceneRoute?.let { it.filmIndex + 1 }
         )
     }
 
