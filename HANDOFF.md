@@ -601,7 +601,7 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - Публичный NNNLib source другой игры (pinned tinyan/SystemNNN@78a05053c78b3b80065a9a209c6685a7c60a2e83) подтверждает семейные имена кодов и общий механизм загрузки spt/<module>.spt, но не доказывает target-specific return behavior. SCRIPT/SUBSCRIPT в reference используют вложенный script level; SCRIPTJUMP заменяет текущий.
 - Тот же источник определяет 0x3333/0x0053 как CONFIGMASK; предыдущие 13 совпадений _staff у этого кода — не переходы.
 - Добавлен read-only SystemNnnScriptTransferScanner и тесты. Resource Inspector экспортирует SCRIPT-переходы отдельно от общих строковых ссылок.
-- Следующий DWORD после Pool2Index в target совпадает с length DWORD следующей записи. Family reference использует эту позицию как selector возврата через script-call table. Ramen сохраняет raw selector candidate в кадре вместе с exact continuation; selector-to-PC mapping целевого title всё ещё не доказан, поэтому runtime пока возвращается на валидированную границу continuation.
+- Native transfer dispatch проверен по самому `hui/gss.exe`: SCRIPT/SUBSCRIPT/SCRIPTJUMP читают только Pool 2 DWORD по смещению record+0x0C, передают имя модуля callback и продвигают PC на длину текущей записи. DWORD по record+0x10 — начало следующей записи (её length), но target handler не использует его как selector. Поэтому ViewModel сохраняет точный caller continuation `record.endOffsetExclusive`; speculative `returnSelectorCandidate` удалён. Не переносить `AdjustScriptCall` из другого NNNLib title.
 
 
 ### 2026-11-05 — локальные SUB связаны с descriptor 3
@@ -631,3 +631,11 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - Activity готовит module list, descriptor3 offsets и scene.dat. Запуск scene route доступен через EXTRA_SCENE_CHARACTER_INDEX, EXTRA_SCENE_INDEX и необязательный EXTRA_SCENE_FILM_CHOICE_INDEX.
 - ENDFILM в normal story режиме продолжает поток; в scene replay запускает следующий фильм этой строки scene.dat, после последнего заканчивает replay.
 - Видимый gallery picker ещё не добавлен. CI/APK/автотесты не запускались по запросу.
+
+
+### 2026-11-05 — target SPT transfer return path verified from native executable
+
+- Source: cleaned user archive `hui(5).zip`; no script dialogue/media was extracted.
+- PE32/i386 `hui/gss.exe`: transfer handlers at VA `0x00417000` (SCRIPT), `0x00417059` (SUBSCRIPT), `0x004170B2` (SCRIPTJUMP). Each reads only the Pool 2 index at record+0x0C, resolves the module name, calls the transfer callback, then advances the active PC by the current record length. No selector read at record+0x10 occurs.
+- The following DWORD is only the next record length. Keep exact caller continuation in the module frame; remove any saved selector candidate. The earlier family-source interpretation of `m_stack[253]` / `AdjustScriptCall` belongs to another title/save-restore path and is not target runtime behavior.
+- Existing SCRIPT/SUBSCRIPT push and SCRIPTJUMP replace behavior remain. No CI, tests, lint or APK build were run, per current direction; no on-device/end-to-end test is claimed.
