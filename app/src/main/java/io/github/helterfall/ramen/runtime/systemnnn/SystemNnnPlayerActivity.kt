@@ -17,11 +17,12 @@ import io.github.helterfall.ramen.parser.SystemNnnScript
 import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
 
 /**
- * Launches one imported System-NNN game from the application's private library.
+ * Launches an imported System-NNN project from the application's private library.
  *
- * Script and archive parsing run off the main thread. The SPT decoder and the
- * matching GTB/GPK resolver are injected into the Compose player on the main
- * thread after all files have been validated.
+ * A project.xtx catalog is loaded as a set of sibling SPT modules and execution
+ * begins in the canonical sys controller. Script and archive parsing run off
+ * the main thread; the module router and matching GTB/GPK resolver are injected
+ * after every declared module has been validated.
  */
 class SystemNnnPlayerActivity : ComponentActivity() {
 
@@ -190,12 +191,24 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             .take(MAX_DISCOVERED_FILES)
             .toList()
 
-        if (projectFiles.size > 1) {
-            throw IOException("В импортированной папке найдено несколько project.xtx; проект неоднозначен.")
-        }
         if (projectFiles.isEmpty()) return null
 
-        val projectFile = projectFiles.single()
+        // The cleaned Steam project is the canonical spt/project.xtx. The
+        // archive also carries an alternate "!eng files/spt/project.xtx";
+        // prefer the main module set instead of whichever walk order returns.
+        val primaryProjectFiles = projectFiles.filter { file ->
+            file.relativeTo(gameDirectory).invariantSeparatorsPath
+                .equals(PRIMARY_PROJECT_MANIFEST_PATH, ignoreCase = true)
+        }
+        val projectFile = when {
+            primaryProjectFiles.size == 1 -> primaryProjectFiles.single()
+            primaryProjectFiles.size > 1 ->
+                throw IOException("В основной папке spt найдено несколько project.xtx.")
+            projectFiles.size == 1 -> projectFiles.single()
+            else -> throw IOException(
+                "Найдено несколько project.xtx, но основной spt/project.xtx отсутствует."
+            )
+        }
         val modules = SystemNnnProjectCatalog.load(projectFile).resolveModules(projectFile)
         val invalidModules = modules.filterNot { module ->
             SystemNnnScriptLoader.hasValidHeader(module.scriptFile)
@@ -298,6 +311,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         const val EXTRA_GAME_ID = "io.github.helterfall.ramen.extra.SYSTEM_NNN_GAME_ID"
         private const val MAX_GAME_SCAN_DEPTH = 12
         private const val MAX_DISCOVERED_FILES = 10_000
+        private const val PRIMARY_PROJECT_MANIFEST_PATH = "spt/project.xtx"
         private val AUDIO_ARCHIVE_EXTENSIONS = setOf("vaw", "vpk")
     }
 }
