@@ -151,9 +151,10 @@ class SystemNnnModuleReferenceReportWriter(
                             val positionValues = candidates.mapNotNull {
                                 it.payloadPreview.getOrNull(payloadPosition)
                             }
-                            val commonValues = positionValues
+                            val positionFrequencies = positionValues
                                 .groupingBy { it }
                                 .eachCount()
+                            val commonValues = positionFrequencies
                                 .entries
                                 .sortedWith(
                                     compareByDescending<Map.Entry<UInt, Int>> { it.value }
@@ -165,6 +166,7 @@ class SystemNnnModuleReferenceReportWriter(
                                 }
                             writer.appendLine(
                                 "      payload[$payloadPosition] present=${positionValues.size}/${candidates.size} " +
+                                    "distinctValues=${positionFrequencies.size} " +
                                     "common(first $MAX_SUMMARY_VALUES by frequency)={$commonValues}"
                             )
                         }
