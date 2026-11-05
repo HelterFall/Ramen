@@ -155,11 +155,10 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             val programs = projectModules.map { module ->
                 val script = scriptLoader.load(module.scriptFile)
                 val stream = commandStreamReader.read(script)
-                val startOffset = if (module.name.equals("sys", ignoreCase = true)) {
-                    stream.recordStartOffset
-                } else {
-                    commandStreamReader.filmStartOffset(script, 0)
-                }
+                // NNNLib starts every loaded SPT at PC 0. In the target file
+                // the first command record begins at stream.recordStartOffset;
+                // module-local bootstrap SUB/IF/NEXT logic lives before film 0.
+                val startOffset = stream.recordStartOffset
                 SystemNnnPlayerModuleProgram(
                     name = module.name,
                     script = script,
