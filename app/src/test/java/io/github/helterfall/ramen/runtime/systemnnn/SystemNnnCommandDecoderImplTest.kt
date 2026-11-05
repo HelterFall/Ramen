@@ -304,7 +304,7 @@ class SystemNnnCommandDecoderImplTest {
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330051u, 1u, 0u) // reserved slot 0
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330050u, 0u, 0u) // ordinary slot 1
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330052u, 0u, 0u) // continuation
-        words += record(3 + returnPayload.size, CONTROL, 0x55560007u, *returnPayload.toTypedArray()) // RETURN in local body
+        words += record(3 + returnPayload.size, CONTROL, 0x55560007u, *returnPayload.toUIntArray()) // RETURN in local body
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330050u, 0u, 0u) // ordinary slot 2
         words += listOf(5u, SYSTEM_FUNCTION, 0x33330052u, 0u, 0u)
         words += record(5, CONTROL, 0x55560009u, subTableIndex, 7u) // SUB -> descriptor3[1]
