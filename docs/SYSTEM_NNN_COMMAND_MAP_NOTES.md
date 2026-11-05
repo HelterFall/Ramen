@@ -602,3 +602,28 @@ The NNNLib family source identifies `0x3333/0x0053` as CONFIGMASK. Thirteen occu
 CONTROL RETURN встречается 1 008 раз при 1 069 SUB. Их нельзя сопоставлять один-к-одному по порядку: нужны ветвления и реальные continuations.
 
 В код добавлен read-only SystemNnnLocalSubroutineScanner. Он проверяет оба операнда, разрешает первый через валидированный descriptor-3 vector, сохраняет target function code/offset, проверяет плотность SUB ID и не исполняет SUB/RETURN.
+## 2026-11-05 — SETFILM связывает film-table slot с исполняемым блоком
+
+### Replay по всем 20 SPT модулям архива
+
+После проверки каждого ordinary descriptor-3 интервала (80 reserved entries исключены) получено:
+- **948 / 948** ordinary intervals содержат ровно одну type-7 SYSTEM_FUNCTION запись `0x3333/0x001A SETFILM`;
+- payload у каждой записи ровно `[1, N]`: один аргумент и one-based номер фильма;
+- сразу следующая запись — type-2 CONTROL `0x5556/0x000C ENDFILM`;
+- `N = descriptor3.tableIndex - reservedPrefixCount + 1` во всех 948 случаях;
+- ноль ordinary intervals без SETFILM, с несколькими SETFILM или с несовпадающим номером.
+
+Распределение SETFILM по модулям совпадает с количеством ordinary films: sys 0, backspt 19, 01 67, 02 50, 03 158, 04 54, 05 31, 06 8, 07 25, 08 12, 082 47, akane 100, aoi 82, kiika 107, yamiko 55, yuka 94, day 3, op1 20, yuka2 14, _staff 2.
+
+### Family reference semantics
+
+В NNNLib source другого title `SystemFunctionSetFilm` берёт DWORD payload и сохраняет `filmNumber - 1` как текущий film для активного SPT-модуля. `ENDFILM` возвращает управление внешнему script loop. В обычном режиме он не завершает всё приложение; для вызова из локальной подпрограммы после ENDFILM исполняется следующий `RETURN`, который восстанавливает сохранённый PC. Gallery/scene-selection обработка ENDFILM у reference отдельная и здесь пока не реализована.
+
+### Ramen implementation
+
+- Decoder теперь отдельно обрабатывает SYSTEM_FUNCTION `0x3333/0x001A`: требует ровно два DWORD payload `[1, filmNumber]`, вычисляет owning descriptor-3 entry по физическому интервалу и проверяет `filmNumber == zeroBasedFilmNumber + 1`.
+- `SETFILM` возвращает typed `SystemNnnDecodedCommand.SetFilm`; ViewModel сохраняет one-based `currentFilmNumber` в UI state.
+- CONTROL `ENDFILM` теперь sequentially advances to the next validated record; CONTROL `END` остаётся настоящим концом управляющего потока.
+- Добавлен интеграционный synthetic test: local SUB → descriptor3 ordinary target → 0x3333/0x50 → 0x3333/0x52 → SETFILM → ENDFILM → RETURN → точное продолжение caller.
+- Это связывает фильм с номером descriptor3 slot и делает локальные film subroutines исполнимыми в пределах SPT. Это **не** устанавливает связь `scene.dat row N` ↔ `@scNN` ↔ film N; она остаётся неподтверждённой.
+- Автоматический старт из sys.spt, межмодульные SCRIPT/SCRIPTJUMP/SUBSCRIPT, gallery navigation, выбор следующего фильма в режиме scene и полноценное end-to-end прохождение по-прежнему не реализованы.
