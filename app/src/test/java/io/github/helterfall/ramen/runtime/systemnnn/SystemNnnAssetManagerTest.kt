@@ -29,6 +29,8 @@ class SystemNnnAssetManagerTest {
                 )
                 assertEquals(2, manager.catalog.totalIndexedImageResources)
                 assertEquals(2, manager.resourceCount)
+                assertEquals("sc", manager.catalog.imageBanks.first().nativeNamespace)
+                assertEquals(0, manager.catalog.imageBanks.first().bankSlot)
 
                 // The same local row exists in both banks; neither name nor row
                 // number can identify one image without a bank qualifier.
