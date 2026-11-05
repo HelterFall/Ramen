@@ -60,7 +60,20 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     onChoiceSelected = playerViewModel::onChoiceSelected,
                     onTypewriterProgress = playerViewModel::onTypewriterProgress,
                     onTypewriterFinished = playerViewModel::onTypewriterFinished,
-                    onBitmapDisposed = playerViewModel::onBitmapDisposed
+                    onBitmapDisposed = playerViewModel::onBitmapDisposed,
+                    onQuickAction = { action ->
+                        val message = when (action) {
+                            SystemNnnPlayerQuickAction.SAVE ->
+                                "Слоты сохранения пока не подключены."
+                            SystemNnnPlayerQuickAction.LOAD ->
+                                "Загрузка сохранений пока не подключена."
+                        }
+                        android.widget.Toast.makeText(
+                            this,
+                            message,
+                            android.widget.Toast.LENGTH_SHORT
+                        ).show()
+                    }
                 )
             }
         }

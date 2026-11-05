@@ -27,6 +27,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -49,10 +52,19 @@ fun SystemNnnPlayerScreen(
     onTypewriterProgress: (Int) -> Unit,
     onTypewriterFinished: () -> Unit,
     onBitmapDisposed: (Bitmap) -> Unit,
+    onQuickAction: (SystemNnnPlayerQuickAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    LaunchedEffect(state.frameId, state.forceReveal) {
+    var autoMode by remember { mutableStateOf(false) }
+    var skipMode by remember { mutableStateOf(false) }
+
+    LaunchedEffect(state.frameId, state.forceReveal, skipMode) {
         if (state.dialogueText.isEmpty() || state.forceReveal) {
+            return@LaunchedEffect
+        }
+        if (skipMode) {
+            onTypewriterProgress(state.dialogueText.length)
+            onTypewriterFinished()
             return@LaunchedEffect
         }
 
@@ -61,6 +73,20 @@ fun SystemNnnPlayerScreen(
             onTypewriterProgress(visibleCount)
         }
         onTypewriterFinished()
+    }
+
+    LaunchedEffect(autoMode, skipMode, state.frameId, state.isTextComplete, state.choices, state.isEnded, state.isLoading) {
+        if ((!autoMode && !skipMode) ||
+            !state.isTextComplete ||
+            state.choices.isNotEmpty() ||
+            state.isEnded ||
+            state.isLoading
+        ) {
+            return@LaunchedEffect
+        }
+
+        delay(if (skipMode) SKIP_ADVANCE_DELAY_MILLIS else AUTO_ADVANCE_DELAY_MILLIS)
+        onScreenTap()
     }
 
     Box(
@@ -107,6 +133,24 @@ fun SystemNnnPlayerScreen(
                 )
             }
         }
+
+        QuickMenu(
+            autoEnabled = autoMode,
+            skipEnabled = skipMode,
+            onSave = { onQuickAction(SystemNnnPlayerQuickAction.SAVE) },
+            onLoad = { onQuickAction(SystemNnnPlayerQuickAction.LOAD) },
+            onAutoToggle = {
+                autoMode = !autoMode
+                if (autoMode) skipMode = false
+            },
+            onSkipToggle = {
+                skipMode = !skipMode
+                if (skipMode) autoMode = false
+            },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .padding(14.dp)
+        )
 
         if (!state.isEnded) {
             DialogueBox(
@@ -240,6 +284,64 @@ private fun DialogueBox(
     }
 }
 
+/** UI-only save/load actions; persistence is connected by the hosting Activity. */
+enum class SystemNnnPlayerQuickAction {
+    SAVE,
+    LOAD
+}
+
+@Composable
+private fun QuickMenu(
+    autoEnabled: Boolean,
+    skipEnabled: Boolean,
+    onSave: () -> Unit,
+    onLoad: () -> Unit,
+    onAutoToggle: () -> Unit,
+    onSkipToggle: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = Color(0xD9101216),
+        contentColor = Color.White,
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, Color(0x665F6875)),
+        modifier = modifier
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            QuickMenuButton(label = "SAVE", selected = false, onClick = onSave)
+            QuickMenuButton(label = "LOAD", selected = false, onClick = onLoad)
+            QuickMenuButton(label = "AUTO", selected = autoEnabled, onClick = onAutoToggle)
+            QuickMenuButton(label = "SKIP", selected = skipEnabled, onClick = onSkipToggle)
+        }
+    }
+}
+
+@Composable
+private fun QuickMenuButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        shape = RoundedCornerShape(9.dp),
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (selected) Color(0xFFB8793D) else Color(0xFF303741),
+            contentColor = Color.White
+        )
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+
 @Composable
 private fun ChoiceOverlay(
     choices: List<SystemNnnChoiceOption>,
@@ -280,3 +382,5 @@ private fun ChoiceOverlay(
 }
 
 private const val TYPEWRITER_DELAY_MILLIS = 24L
+private const val AUTO_ADVANCE_DELAY_MILLIS = 1_350L
+private const val SKIP_ADVANCE_DELAY_MILLIS = 160L

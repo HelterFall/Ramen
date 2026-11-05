@@ -856,3 +856,11 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Extended the resource/audio report summary with bounded payload-position frequency tables for the first eight positions. For each function code it lists presence counts and up to 16 most frequent numeric DWORD values per position, ordered deterministically by frequency then value. No operand values are assigned semantics.
 
 - Added a deterministic, numeric-only location summary for resource/audio SYSTEM_FUNCTION candidates, grouped by source module and validated source-film interval, with per-function counts. This is a physical-origin inventory only; it does not infer resource-bank namespaces, slot mappings or operand meanings. Synthetic coverage was added; tests, lint, CI and APK builds were not run by request.
+
+## 2026-11-06 — System-NNN player quick-menu UI
+
+- Extended the existing Jetpack Compose player screen with a top-right translucent quick menu: SAVE, LOAD, AUTO and SKIP.
+- Reused the existing full-screen background → ordered sprite layers → dialogue panel composition; the speaker name remains a distinct accent label on the translucent dialogue surface.
+- AUTO now advances completed dialogue after a short delay. SKIP reveals the current line immediately and advances quickly; AUTO and SKIP are mutually exclusive and pause while choices or loading are active.
+- SAVE/LOAD are deliberately exposed as host callbacks and currently show an explicit “not connected” message. No save-state format or load semantics are invented in this UI-only change.
+- No tests, lint, CI or APK builds were run by request.
