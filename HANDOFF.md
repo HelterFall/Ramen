@@ -601,7 +601,7 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - Публичный NNNLib source другой игры (pinned tinyan/SystemNNN@78a05053c78b3b80065a9a209c6685a7c60a2e83) подтверждает семейные имена кодов и общий механизм загрузки spt/<module>.spt, но не доказывает target-specific return behavior. SCRIPT/SUBSCRIPT в reference используют вложенный script level; SCRIPTJUMP заменяет текущий.
 - Тот же источник определяет 0x3333/0x0053 как CONFIGMASK; предыдущие 13 совпадений _staff у этого кода — не переходы.
 - Добавлен read-only SystemNnnScriptTransferScanner и тесты. Resource Inspector экспортирует SCRIPT-переходы отдельно от общих строковых ссылок.
-- Следующий DWORD после Pool2Index в target совпадает с length DWORD следующей записи; family reference использует его как selector возврата, но таблица возврата целевой игры пока не разобрана. Не включать module execution/call stack/sys auto-start до этого.
+- Следующий DWORD после Pool2Index в target совпадает с length DWORD следующей записи. Family reference использует эту позицию как selector возврата через script-call table. Ramen сохраняет raw selector candidate в кадре вместе с exact continuation; selector-to-PC mapping целевого title всё ещё не доказан, поэтому runtime пока возвращается на валидированную границу continuation.
 
 
 ### 2026-11-05 — локальные SUB связаны с descriptor 3
