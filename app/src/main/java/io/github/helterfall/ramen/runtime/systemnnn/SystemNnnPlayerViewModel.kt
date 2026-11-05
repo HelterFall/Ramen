@@ -703,6 +703,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val target = projectModules[targetModuleName.lowercase(Locale.ROOT)]
             ?: throw IOException("Модуль '$targetModuleName' отсутствует в project.xtx.")
 
+        val targetStream = target.commandStream
+        if (target.initialCommandOffset != targetStream.recordEndOffsetExclusive &&
+            targetStream.records.binarySearchBy(target.initialCommandOffset) { it.offset } < 0
+        ) {
+            throw IOException("Точка входа модуля '${target.name}' не является границей команды.")
+        }
+        val targetDecoder = factory(target)
+
         if (kind != SystemNnnModuleTransferKind.SCRIPTJUMP) {
             if (moduleCallStack.size >= MAX_NESTED_MODULE_DEPTH) {
                 throw IOException("Превышена максимальная глубина вложенных SPT-модулей.")
@@ -717,16 +725,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
             )
         }
 
-        val targetStream = target.commandStream
-        if (target.initialCommandOffset != targetStream.recordEndOffsetExclusive &&
-            targetStream.records.binarySearchBy(target.initialCommandOffset) { it.offset } < 0
-        ) {
-            throw IOException("Точка входа модуля '${target.name}' не является границей команды.")
-        }
-
         script = target.script
         commandStream = targetStream
-        decoder = factory(target)
+        decoder = targetDecoder
         nextCommandOffset = target.initialCommandOffset
         currentModuleName = target.name
         currentFilmNumber = null
