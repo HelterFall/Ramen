@@ -1007,3 +1007,12 @@ Each carries exactly one DWORD Pool 2 operand that resolves to a project.xtx mod
 The pinned NNNLib reference from another title supports the names and broad load model (SCRIPT/SUBSCRIPT nested, SCRIPTJUMP replaces), but does not prove target-specific return behavior. It also identifies `0x3333/0x0053` as CONFIGMASK; earlier matches of that code to `_staff` are not transitions.
 
 Next: prove the target return-selector table and map CONTROL SUB/RETURN. Do not yet add module execution, call stack or automatic boot from sys.
+
+
+### Local SUB table mapping
+
+Across all 20 SPT modules, all 1,069 CONTROL SUB records (0x5556/0x0009) have two DWORD operands. The first operand is in descriptor-3 range and resolves to a validated five-DWORD SYSTEM_FUNCTION target, either 0x3333/0x50 or reserved 0x3333/0x51. The second operand is a unique dense sequence 0..N−1 within each module.
+
+The Resource Inspector report now exposes each mapping as: source module + SUB ID + command offset → descriptor3 table index + target command offset + target function code.
+
+There are 1,008 CONTROL RETURN records versus 1,069 SUB records; do not pair them by occurrence order. Runtime SUB/RETURN execution remains disabled until branch behavior and return-stack semantics are proven for this title.
