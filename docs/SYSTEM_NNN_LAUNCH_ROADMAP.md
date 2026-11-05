@@ -1054,3 +1054,10 @@ The Activity accepts scene replay via EXTRA_SCENE_CHARACTER_INDEX, EXTRA_SCENE_I
 - Loose VAW files and unpaired WGQ files are retained in the catalog as unresolved candidates rather than being guessed as voice, BGM, or image resources. The supplied archive has one 69-row GPK/GTB image bank, one 90-row VPK/VTB audio bank, two loose VAW files, and one unindexed WGQ Ogg/`PACKTYPE=6` file.
 - `SystemNnnAssetManager` now replaces the two independent first-match discoveries in `SystemNnnPlayerActivity` and is passed to the ViewModel as both the scene image resolver and audio resource repository. Its close operation is idempotent.
 - Remaining asset work: identify the native command-to-resource operands for SPT backgrounds/sprites, determine how the loose VAW and WGQ `PACKTYPE=6` resources are addressed, and verify any multi-bank selection rules against target dispatch before using a global index.
+
+### WGQ / MML path findings
+
+- Target loader at `gss.exe` VA `0x0047B440` formats both `wgq/<token>.mml` and `wgq/<token>.wgq` from the same caller-supplied token. It tries MML first and falls back to WGQ when MML cannot be opened; the two are alternative input paths in this loader, not a proven pair.
+- A separate native loader at VA `0x0047B060` opens `wgq/<token>.wgq`, seeks 64 bytes into the file, then supplies the remaining stream to a dedicated reader at VA `0x0047B790`.
+- The supplied archive's `gss01_1.wgq` and `gsstxt01.mml` names do not match. The project-level asset catalog now lists loose `.mml` files separately from unindexed `.wgq`; it does not infer their relationship.
+- Ramen does not yet implement the native WGQ streaming decoder. Do not treat the Ogg capture marker as proof that the file can be played directly; the native code routes it through a dedicated reader.
