@@ -620,3 +620,14 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - Ramen декодирует SETFILM, валидирует номер относительно descriptor3 owner, сохраняет currentFilmNumber в состоянии ViewModel; ENDFILM теперь последовательный переход к следующей записи, CONTROL END остаётся концом управляющего потока.
 - Добавлен интеграционный тест: SUB → descriptor3 target → SETFILM → ENDFILM → RETURN → caller continuation.
 - Связь 69 строк scene.dat / 69 @scNN / 69 descriptor3 в 01.spt всё ещё только совпадение количества, не доказанное сопоставление по индексу. Gallery navigation, межмодульные SCRIPT, sys startup и физическое прохождение на устройстве не реализованы.
+
+### 2026-11-05 — project routing and native scene.dat
+
+- Реализована межмодульная маршрутизация по CONTROL SCRIPT (0x5556/0x0A), SUBSCRIPT (0x5556/0x16), SCRIPTJUMP (0x5556/0x15). В целевых записях один DWORD Pool 2, который разрешается в токен модуля project.xtx. Ramen сохраняет точный command continuation сам: SCRIPT/SUBSCRIPT push, SCRIPTJUMP replace, NEXT pop/return, END reset sys, EXIT завершает.
+- Подгружаются все 20 модулей основного spt/project.xtx; альтернативный !eng files выбирается только если основной отсутствует и альтернативный manifest единственный.
+- IF/ELSIF/ELSE теперь вычисляет bounded RPN и пропускает brace-block по длине. Переменные общие между module decoders, local SUB stack остаётся отдельным для каждого.
+- Исправлен scene.dat parser: layout fileSize + characterCount + character groups; внутри sceneCount, затем строки sptNumber, filmCount, filmNumbers[]. abs(sptNumber) — прямой индекс project.xtx; abs(filmNumber)-1 — нулевой film index внутри соответствующего SPT. Минус у sptNumber отмечает H-scene; минус у filmNumber отключает completion tracking, но фильм остаётся воспроизводимым.
+- В primary archive: 1 character group, 69 scene rows, 150 film references; индексы модулей: 4→03, 10→082, 11→akane, 12→aoi, 13→kiika, 14→yamiko, 15→yuka, 18→yuka2. Все 150 film refs валидны внутри descriptor3 своего модуля; 43 помечены отрицательным значением и не участвуют в completion checks.
+- Activity готовит module list, descriptor3 offsets и scene.dat. Запуск scene route доступен через EXTRA_SCENE_CHARACTER_INDEX, EXTRA_SCENE_INDEX и необязательный EXTRA_SCENE_FILM_CHOICE_INDEX.
+- ENDFILM в normal story режиме продолжает поток; в scene replay запускает следующий фильм этой строки scene.dat, после последнего заканчивает replay.
+- Видимый gallery picker ещё не добавлен. CI/APK/автотесты не запускались по запросу.
