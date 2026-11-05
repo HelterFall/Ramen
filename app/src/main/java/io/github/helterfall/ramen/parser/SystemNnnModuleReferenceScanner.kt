@@ -6,6 +6,16 @@ import java.io.IOException
  * A [1, Pool2Index] record payload that resolves exactly to a project module
  * name. This is a string reference candidate, not a proven call or jump.
  */
+data class SystemNnnRecordContext(
+    val commandOffset: Long,
+    val identifierType: Int,
+    val codeFamily: Int,
+    val codeId: Int,
+    val recordLengthWords: UInt,
+    /** First payload words only; retained as opaque unsigned values. */
+    val payloadPreview: List<UInt>
+)
+
 data class SystemNnnModuleReferenceCandidate(
     val sourceModuleName: String,
     val targetModuleName: String,
@@ -16,7 +26,11 @@ data class SystemNnnModuleReferenceCandidate(
     val pool2Index: UInt,
     val recordLengthWords: UInt,
     val sourceFilmTableIndex: Int?,
-    val sourceFilmNumber: Int?
+    val sourceFilmNumber: Int?,
+    val sourceFilmStartOffset: Long?,
+    val sourceFilmEndOffsetExclusive: Long?,
+    val previousRecord: SystemNnnRecordContext?,
+    val nextRecord: SystemNnnRecordContext?
 )
 
 /**
@@ -74,6 +88,27 @@ class SystemNnnModuleReferenceScanner(
             }
 
             val sourceFilm = findSourceFilmEntry(record.offset, filmEntries)
+            val sourceFilmIndex = sourceFilm?.let(filmEntries::indexOf)
+                ?.takeIf { it >= 0 }
+            val sourceFilmEnd = sourceFilmIndex
+                ?.let { filmEntries.getOrNull(it + 1)?.targetCommandOffset }
+                ?: if (sourceFilm != null) stream.recordEndOffsetExclusive else null
+            val recordIndex = stream.records.binarySearchBy(record.offset) { it.offset }
+            val previousRecord = if (sourceFilm != null && recordIndex > 0) {
+                stream.records.getOrNull(recordIndex - 1)
+                    ?.takeIf { it.offset >= sourceFilm.targetCommandOffset }
+                    ?.let { toContext(script, it) }
+            } else {
+                null
+            }
+            val nextRecord = if (sourceFilm != null && recordIndex >= 0) {
+                stream.records.getOrNull(recordIndex + 1)
+                    ?.takeIf { next -> sourceFilmEnd != null && next.offset < sourceFilmEnd }
+                    ?.let { toContext(script, it) }
+            } else {
+                null
+            }
+
             candidates += SystemNnnModuleReferenceCandidate(
                 sourceModuleName = sourceModuleName,
                 targetModuleName = targetName,
@@ -84,7 +119,11 @@ class SystemNnnModuleReferenceScanner(
                 pool2Index = poolIndex,
                 recordLengthWords = record.lengthWords,
                 sourceFilmTableIndex = sourceFilm?.tableIndex,
-                sourceFilmNumber = sourceFilm?.filmNumber
+                sourceFilmNumber = sourceFilm?.filmNumber,
+                sourceFilmStartOffset = sourceFilm?.targetCommandOffset,
+                sourceFilmEndOffsetExclusive = sourceFilmEnd,
+                previousRecord = previousRecord,
+                nextRecord = nextRecord
             )
         }
 
@@ -115,6 +154,21 @@ class SystemNnnModuleReferenceScanner(
         return orderedEntries.getOrNull(bestIndex)
     }
 
+    private fun toContext(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ): SystemNnnRecordContext =
+        SystemNnnRecordContext(
+            commandOffset = record.offset,
+            identifierType = record.identifierType,
+            codeFamily = record.codeFamily,
+            codeId = record.codeId,
+            recordLengthWords = record.lengthWords,
+            payloadPreview = List(
+                minOf(record.payloadWordCount, MAX_CONTEXT_PAYLOAD_WORDS)
+            ) { index -> readPayloadWord(script, record, index) }
+        )
+
     private fun readPayloadWord(
         script: SystemNnnScript,
         record: SystemNnnCommandRecord,
@@ -140,6 +194,7 @@ class SystemNnnModuleReferenceScanner(
         const val REFERENCE_PAYLOAD_WORD_COUNT = 2
         const val REFERENCE_TAG = 1u
         const val FILM_TABLE_DESCRIPTOR_INDEX = 2
+        const val MAX_CONTEXT_PAYLOAD_WORDS = 4
         const val RECORD_HEADER_BYTES = 12L
         const val UINT32_BYTES = 4L
     }
