@@ -30,6 +30,8 @@ data class SystemNnnAssetCatalog(
     val unindexedVawFiles: List<String>,
     /** VPK files without a matching VTB index; no row order is inferred. */
     val unindexedVpkFiles: List<String>,
+    /** MML files seen by the native WGQ/MML loader, but not mapped to a resource token. */
+    val unindexedMmlFiles: List<String>,
     /** WGQ files not paired with GTB and not recognized as standalone packed-BMP images. */
     val unindexedWgqFiles: List<String>,
     val warnings: List<String>
@@ -363,6 +365,11 @@ class SystemNnnAssetManager private constructor(
             val unindexedVpk = vpkFiles
                 .filter { it.canonicalPath !in pairedAudioArchives }
                 .map { relativePath(root, it) }
+            // The target executable has a separate WGQ/MML loader path. Keep MML
+            // filenames visible, but do not pair them by directory order or guess
+            // that a differently named MML file describes a given WGQ resource.
+            val unindexedMmlFiles = discoverFiles(root, "mml", warnings)
+                .map { relativePath(root, it) }
             val unindexedWgqFiles = unpairedWgq
                 .filter { it !in standaloneWgqImages }
                 .map { relativePath(root, it) }
@@ -372,6 +379,7 @@ class SystemNnnAssetManager private constructor(
                 audioBanks = audioBanks.map(AudioBank::info),
                 unindexedVawFiles = unindexedVaw,
                 unindexedVpkFiles = unindexedVpk,
+                unindexedMmlFiles = unindexedMmlFiles,
                 unindexedWgqFiles = unindexedWgqFiles,
                 warnings = warnings.toList()
             )
