@@ -1036,7 +1036,7 @@ This validates module-local film identity, but does not prove a direct mapping f
 
 - All 20 modules declared by the primary spt/project.xtx are loaded in manifest order. The canonical primary manifest wins over the alternate !eng files/spt/project.xtx.
 - Runtime starts from sys. Target SCRIPT/SUBSCRIPT push a module frame containing the caller continuation; SCRIPTJUMP replaces the current module; NEXT restores the saved parent; END resets sys; EXIT ends playback. Module names resolve from the one-word Pool 2 operand and must exist in the project catalog.
-- Project decoders share one variable map but retain independent local SUB stacks. Nested module depth is capped at three.
+- Project decoders share one variable map but retain independent local SUB stacks. Native target `gss.exe` exposes run-mode slots 0..2: normal sys-controller playback allows two nested module frames; direct scene replay begins at slot 1 and allows one nested frame. SCRIPT/SUBSCRIPT push a slot, SCRIPTJUMP replaces the current slot, and NEXT returns to the previous slot.
 - IF/ELSIF/ELSE executes the bounded RPN conditions and skips brace spans using their declared lengths.
 
 ### scene.dat scene-to-module-to-film mapping
