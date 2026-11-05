@@ -28,6 +28,8 @@ data class SystemNnnAssetCatalog(
     val audioBanks: List<SystemNnnAssetBankInfo>,
     /** Loose VAW files have no paired VTB index and are not assigned voice indexes. */
     val unindexedVawFiles: List<String>,
+    /** VPK files without a matching VTB index; no row order is inferred. */
+    val unindexedVpkFiles: List<String>,
     /** WGQ files not paired with GTB and not recognized as standalone packed-BMP images. */
     val unindexedWgqFiles: List<String>,
     val warnings: List<String>
@@ -124,6 +126,14 @@ class SystemNnnAssetManager private constructor(
     }
 
     @Throws(IOException::class)
+    fun loadBitmapFromBank(bankId: String, resourceId: String): Bitmap? {
+        checkOpen()
+        val bank = imageBanks.firstOrNull { it.info.id == bankId }
+            ?: throw IOException("Unknown image-bank ID: " + bankId)
+        return bank.repository.loadBitmap(resourceId)
+    }
+
+    @Throws(IOException::class)
     fun loadBitmapByBankIndex(bankId: String, index: Long): Bitmap? {
         checkOpen()
         val bank = imageBanks.firstOrNull { it.info.id == bankId }
@@ -162,6 +172,7 @@ class SystemNnnAssetManager private constructor(
     }
 
     @Throws(IOException::class)
+    @Synchronized
     override fun materialize(resourceId: String): File {
         checkOpen()
         val matchingBanks = audioBanks.filter { bank ->
@@ -183,6 +194,7 @@ class SystemNnnAssetManager private constructor(
     }
 
     @Throws(IOException::class)
+    @Synchronized
     override fun materializeByIndex(index: Long): File {
         checkOpen()
         return when (audioBanks.size) {
@@ -196,6 +208,16 @@ class SystemNnnAssetManager private constructor(
     }
 
     @Throws(IOException::class)
+    @Synchronized
+    fun materializeFromBank(bankId: String, resourceId: String): File {
+        checkOpen()
+        val bank = audioBanks.firstOrNull { it.info.id == bankId }
+            ?: throw IOException("Unknown audio-bank ID: " + bankId)
+        return bank.repository.materialize(resourceId)
+    }
+
+    @Throws(IOException::class)
+    @Synchronized
     fun materializeByBankIndex(bankId: String, index: Long): File {
         checkOpen()
         val bank = audioBanks.firstOrNull { it.info.id == bankId }
@@ -207,6 +229,7 @@ class SystemNnnAssetManager private constructor(
         if (closed) throw IOException("System-NNN asset manager is closed.")
     }
 
+    @Synchronized
     override fun close() {
         if (closed) return
         closed = true
@@ -336,6 +359,10 @@ class SystemNnnAssetManager private constructor(
             val unindexedVaw = vawFiles
                 .filter { it.canonicalPath !in pairedAudioArchives }
                 .map { relativePath(root, it) }
+            val vpkFiles = discoverFiles(root, "vpk", warnings)
+            val unindexedVpk = vpkFiles
+                .filter { it.canonicalPath !in pairedAudioArchives }
+                .map { relativePath(root, it) }
             val unindexedWgqFiles = unpairedWgq
                 .filter { it !in standaloneWgqImages }
                 .map { relativePath(root, it) }
@@ -344,6 +371,7 @@ class SystemNnnAssetManager private constructor(
                 imageBanks = imageBanks.map(ImageBank::info),
                 audioBanks = audioBanks.map(AudioBank::info),
                 unindexedVawFiles = unindexedVaw,
+                unindexedVpkFiles = unindexedVpk,
                 unindexedWgqFiles = unindexedWgqFiles,
                 warnings = warnings.toList()
             )
