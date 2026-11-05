@@ -57,7 +57,6 @@ data class SystemNnnSceneVoiceCatalog(
 data class SystemNnnSceneRoute(
     val characterIndex: Int,
     val sceneIndex: Int,
-    val sceneId: Int?,
     val moduleIndex: Int,
     val moduleName: String,
     val isHScene: Boolean,
@@ -262,8 +261,7 @@ class SystemNnnSceneCatalogReader(
         characterIndex: Int,
         sceneIndex: Int,
         filmChoiceIndex: Int,
-        projectModuleNames: List<String>,
-        sceneVoiceCatalog: SystemNnnSceneVoiceCatalog? = null
+        projectModuleNames: List<String>
     ): SystemNnnSceneRoute {
         if (characterIndex < 0 || sceneIndex < 0 || filmChoiceIndex < 0) {
             throw IOException("Scene route indexes must not be negative.")
@@ -276,12 +274,9 @@ class SystemNnnSceneCatalogReader(
             )
         val storedFilmNumber = scene.storedFilmNumbers.getOrNull(filmChoiceIndex)
             ?: throw IOException("The requested film choice does not exist in the scene.dat row.")
-        val sceneId = sceneVoiceCatalog?.sceneIds?.getOrNull(sceneIndex)
-
         return SystemNnnSceneRoute(
             characterIndex = characterIndex,
             sceneIndex = sceneIndex,
-            sceneId = sceneId,
             moduleIndex = scene.moduleIndex,
             moduleName = moduleName,
             isHScene = scene.isHScene,
