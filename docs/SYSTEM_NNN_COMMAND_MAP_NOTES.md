@@ -627,3 +627,60 @@ CONTROL RETURN встречается 1 008 раз при 1 069 SUB. Их нел
 - Добавлен интеграционный synthetic test: local SUB → descriptor3 ordinary target → 0x3333/0x50 → 0x3333/0x52 → SETFILM → ENDFILM → RETURN → точное продолжение caller.
 - Это связывает фильм с номером descriptor3 slot и делает локальные film subroutines исполнимыми в пределах SPT. Это **не** устанавливает связь `scene.dat row N` ↔ `@scNN` ↔ film N; она остаётся неподтверждённой.
 - Автоматический старт из sys.spt, межмодульные SCRIPT/SCRIPTJUMP/SUBSCRIPT, gallery navigation, выбор следующего фильма в режиме scene и полноценное end-to-end прохождение по-прежнему не реализованы.
+
+## 2026-11-05 — project routing and native scene.dat resolution
+
+### Module executor routing now implemented
+
+The target archive confirms that SCRIPT (0x5556/0x000A), SCRIPTJUMP (0x5556/0x0015) and SUBSCRIPT (0x5556/0x0016) each have exactly one DWORD payload: a Pool 2 index. The referenced text resolves to a module token in project.xtx. The target records do not carry the second return-selector DWORD described by the external NNNLib family reference; Ramen stores the exact next-record offset in its own module frame.
+
+Runtime behavior:
+- SCRIPT and SUBSCRIPT push the current module, stream, decoder, current film and exact command continuation; then enter the target SPT at its first record.
+- SCRIPTJUMP replaces the current SPT at the same module-stack depth.
+- NEXT returns to the saved parent continuation.
+- END resets the sys controller to its command-stream entry and clears nested module frames.
+- EXIT ends playback.
+- Each module decoder has its own local SUB/RETURN stack and film-table cache; project variables are shared across decoders, matching the reference runtime's shared variable state.
+- Maximum nested SPT frame depth is three, matching the reference runtime's run-mode limit.
+- IF/ELSIF/ELSE now evaluates the bounded RPN condition payload and walks the declared brace spans instead of blindly skipping every branch.
+
+### scene.dat: corrected native layout
+
+The previous generic type/count/values interpretation was wrong. The target's NNNLib CSceneList reads scene.dat as:
+int fileSize; int characterCount; [int sceneCount; (int sptNumber; int filmCount; int filmNumbers[filmCount])...]...
+
+Reference behavior establishes:
+- sptNumber is passed through absolute value to CNameList::GetName(sptNumber); therefore it is a direct, zero-based index into the ordered project.xtx list, not an index into descriptor3.
+- A negative sptNumber marks an H-scene.
+- Each film number is one-based. GetPlayFilmNumber takes its absolute value and subtracts one before SetPCByFilmNumber.
+- A negative film number is still playable, but GetCheckFilmNumber returns -1 and excludes it from completion checks.
+
+The parser now exposes character groups, scene rows, signed module/film values, zero-based module/film indexes, H-scene flag and completion-check flag. The runtime resolves every row through project.xtx and validates every referenced film index against that specific module's ordinary descriptor3 slots.
+
+### Actual cleaned archive map
+
+The supplied primary hui/spt/scene.dat is 1,164 bytes and parses exactly to one character group and 69 scene rows, with no trailing data. The primary project.xtx has 20 ordered modules. scene.dat uses these module indexes:
+
+| project.xtx index | Module | Scene rows | Film references | Ordinary film slots |
+|---:|---|---:|---:|---:|
+| 4 | 03 | 2 | 4 | 158 |
+| 10 | 082 | 4 | 4 | 47 |
+| 11 | akane | 15 | 23 | 100 |
+| 12 | aoi | 14 | 36 | 82 |
+| 13 | kiika | 16 | 42 | 107 |
+| 14 | yamiko | 2 | 2 | 55 |
+| 15 | yuka | 14 | 33 | 94 |
+| 18 | yuka2 | 2 | 6 | 14 |
+
+All 150 film references resolve within the descriptor3 film-table range of their owning modules. The largest referenced zero-based film indexes are 111, 45, 99, 81, 106, 54, 93 and 12 respectively. There are 43 negative film references; these remain playable and are marked completion-untracked. The parallel scenevoice file contains 69 ordered @sc01..@sc69 identifiers.
+
+### Scene replay execution
+
+When launched with the public Activity extras EXTRA_SCENE_CHARACTER_INDEX and EXTRA_SCENE_INDEX (optional EXTRA_SCENE_FILM_CHOICE_INDEX, default 0), the Activity resolves the scene.dat row to a module and selected film. The player starts at that module's descriptor3 pointer. It retains the remainder of that row's film list as a replay queue.
+
+ENDFILM is now represented as a separate decoded event:
+- normal story execution advances to the next record, matching YoyakuExecRoutine when m_sceneMode is false;
+- scene replay advances to the next film in the selected scene row;
+- after the last scene film, replay ends.
+
+This is the engine route; a visible scene-gallery picker/UI has not yet been added. CI/tests were intentionally not run per current work direction.
