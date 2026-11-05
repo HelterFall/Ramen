@@ -43,6 +43,10 @@ class SystemNnnAssetManagerTest {
                 assertThrows(IOException::class.java) {
                     manager.loadBitmapByBankIndex("missing/sc0.gtb", 0L)
                 }
+                assertThrows(IOException::class.java) {
+                    manager.loadBitmapByNativeBankIndex("sc", 0, 0L)
+                }
+                assertNull(manager.loadBitmapFromNativeBank("unknown", 0, "background"))
             }
         } finally {
             root.deleteRecursively()
