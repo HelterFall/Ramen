@@ -5,6 +5,7 @@ import java.io.IOException
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -88,7 +89,7 @@ class SystemNnnAssetManagerTest {
             ).use { manager ->
                 assertTrue(manager.catalog.imageBanks.isEmpty())
                 assertEquals(listOf("wgq/gss01_1.wgq"), manager.catalog.unindexedWgqFiles)
-                assertEquals(null, manager.loadBitmapByIndex(0L))
+                assertNull(manager.loadBitmapByIndex(0L))
             }
         } finally {
             root.deleteRecursively()
