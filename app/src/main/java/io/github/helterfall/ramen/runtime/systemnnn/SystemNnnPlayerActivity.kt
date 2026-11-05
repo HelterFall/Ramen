@@ -278,9 +278,16 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             filmChoiceIndex = intent.getIntExtra(EXTRA_SCENE_FILM_CHOICE_INDEX, 0),
             projectModuleNames = launch.projectModules.map { it.name }
         )
-        val targetModule = launch.projectModules.firstOrNull {
-            it.name.equals(route.moduleName, ignoreCase = true)
-        } ?: throw IOException("scene.dat resolved to a module absent from the loaded project.")
+        val targetModule = launch.projectModules.getOrNull(route.moduleIndex)
+            ?: throw IOException(
+                "scene.dat module index ${route.moduleIndex} is outside project.xtx."
+            )
+        if (!targetModule.name.equals(route.moduleName, ignoreCase = true)) {
+            throw IOException(
+                "scene.dat module index ${route.moduleIndex} resolves to '${targetModule.name}', " +
+                    "not '${route.moduleName}'."
+            )
+        }
         if (targetModule.filmStartOffsets.getOrNull(route.filmIndex) == null) {
             throw IOException(
                 "scene.dat resolved to film slot ${route.filmIndex} outside '${targetModule.name}'."
