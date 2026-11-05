@@ -104,6 +104,11 @@ sealed interface SystemNnnDecodedCommand {
         val nextCommandOffset: Long
     ) : SystemNnnDecodedCommand
 
+    /** A validated non-sequential local control transfer within the current SPT. */
+    data class Jump(
+        val targetCommandOffset: Long
+    ) : SystemNnnDecodedCommand
+
     data class Choice(
         val promptTextEntryOffset: Long?,
         val options: List<SystemNnnChoiceOption>,
@@ -412,6 +417,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     is SystemNnnDecodedCommand.Skip -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.Jump -> {
+                        if (!isValidCommandOffset(currentScript, command.targetCommandOffset)) {
+                            throw IOException("Local control transfer target is not a validated SPT record boundary.")
+                        }
+                        nextCommandOffset = command.targetCommandOffset
                         commandsWithoutVisibleOutput += 1
                     }
 
