@@ -8,6 +8,7 @@ import io.github.helterfall.ramen.inspection.GpkImageResource
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import io.github.helterfall.ramen.inspection.ReadOnlySourceRangeInputStream
 import io.github.helterfall.ramen.inspection.ResourceArchiveParsers
+import java.io.File
 import java.io.IOException
 
 /**
@@ -83,10 +84,34 @@ class AndroidGpkImageDecoder(
         }
     }
 
+    /** Decodes a standalone WGQ image while applying the same pixel ceiling as indexed DWQ. */
+    @Throws(IOException::class)
+    fun decodeStandaloneWgq(file: File): Bitmap {
+        val decoded = ResourceArchiveParsers.decodeBlackCycWgqFile(file, maxDecodedPixels)
+        val bitmap = try {
+            Bitmap.createBitmap(decoded.width, decoded.height, Bitmap.Config.ARGB_8888)
+        } catch (failure: RuntimeException) {
+            throw IOException("Could not allocate the decoded WGQ bitmap.", failure)
+        }
+        try {
+            bitmap.setPixels(decoded.argbPixels, 0, decoded.width, 0, 0, decoded.width, decoded.height)
+        } catch (failure: Exception) {
+            bitmap.recycle()
+            throw IOException("Could not copy decoded WGQ pixels into the bitmap.", failure)
+        }
+        return bitmap
+    }
+
     private fun decodePackedDwqBmp(
         source: ReadOnlyRandomAccessSource,
         resource: GpkImageResource
     ): Bitmap {
+        val declaredPixels = resource.widthPixels.toLong() * resource.heightPixels.toLong()
+        if (resource.widthPixels <= 0 || resource.heightPixels <= 0 ||
+            declaredPixels > maxDecodedPixels
+        ) {
+            throw IOException("Packed DWQ image exceeds the configured decoded-pixel budget.")
+        }
         if (resource.blockSizeBytes <= 0L ||
             resource.blockSizeBytes > Int.MAX_VALUE.toLong() ||
             resource.blockOffset < 0L ||
@@ -98,7 +123,7 @@ class AndroidGpkImageDecoder(
 
         val entryBytes = ByteArray(resource.blockSizeBytes.toInt())
         source.readFullyAt(resource.blockOffset, entryBytes)
-        val decoded = ResourceArchiveParsers.decodeBlackCycDwqPackedBmp(entryBytes)
+        val decoded = ResourceArchiveParsers.decodeBlackCycDwqPackedBmp(entryBytes, maxDecodedPixels)
         if (decoded.packType != resource.packType ||
             decoded.width != resource.widthPixels ||
             decoded.height != resource.heightPixels
@@ -365,7 +390,7 @@ class AndroidGpkImageDecoder(
     }
 
     companion object {
-        private const val DEFAULT_MAX_DECODED_PIXELS = Long.MAX_VALUE
+        private const val DEFAULT_MAX_DECODED_PIXELS = 8_000_000L
         private const val DWQ_PACKTYPE_1 = 1
         private const val DWQ_PACKTYPE_3 = 3
         private const val BI_RGB = 0L

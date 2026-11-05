@@ -1513,14 +1513,54 @@ object ResourceArchiveParsers {
 
     /** Reads one complete DWQ block from a standalone .wgq resource. */
     @Throws(IOException::class)
-    fun decodeBlackCycWgqFile(file: File): DecodedDwqBitmap {
+    fun decodeBlackCycWgqFile(
+        file: File,
+        maxDecodedPixels: Long = Long.MAX_VALUE
+    ): DecodedDwqBitmap {
         if (!file.isFile || java.nio.file.Files.isSymbolicLink(file.toPath())) {
             throw IOException("The WGQ image resource is not a regular file.")
         }
+        if (maxDecodedPixels <= 0L) throw IOException("Invalid decoded-pixel limit.")
         val length = file.length()
-        if (length < DWQ_HEADER_SIZE.toLong() || length > Int.MAX_VALUE.toLong()) {
+        if (length < DWQ_HEADER_SIZE.toLong() + BMP_HEADER_SIZE.toLong() ||
+            length > MAX_STANDALONE_WGQ_BYTES || length > Int.MAX_VALUE.toLong()
+        ) {
             throw IOException("The WGQ image resource is outside the supported buffer range.")
         }
+
+        // Inspect just the DWQ/BMP headers before loading the complete archive block.
+        val headerSize = (DWQ_HEADER_SIZE + BMP_HEADER_SIZE).coerceAtMost(length.toInt())
+        val header = ByteArray(headerSize)
+        FileInputStream(file).use { input ->
+            var offset = 0
+            while (offset < header.size) {
+                val read = input.read(header, offset, header.size - offset)
+                if (read < 0) throw EOFException("Truncated WGQ image header.")
+                if (read > 0) offset += read
+            }
+        }
+        val packTypeText = String(header, 0x30, 0x10, Charsets.US_ASCII).trimEnd(' ')
+        val packType = PACKTYPE_PATTERN.matchEntire(packTypeText)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            ?: throw IOException("Invalid WGQ PACKTYPE header.")
+        val width: Long
+        val height: Long
+        when (packType) {
+            1 -> {
+                width = readI32Le(header, DWQ_HEADER_SIZE + 0x12).toLong()
+                height = abs(readI32Le(header, DWQ_HEADER_SIZE + 0x16).toLong())
+            }
+            3 -> {
+                width = readU32Le(header, 0x24)
+                height = readU32Le(header, 0x28)
+            }
+            else -> throw IOException("Standalone WGQ PACKTYPE=$packType is not a supported packed BMP.")
+        }
+        if (width <= 0L || height <= 0L || width > Int.MAX_VALUE.toLong() ||
+            height > Int.MAX_VALUE.toLong() || width > maxDecodedPixels / height
+        ) {
+            throw IOException("WGQ image dimensions exceed the configured decoded-pixel budget.")
+        }
+
         val bytes = ByteArray(length.toInt())
         FileInputStream(file).use { input ->
             var offset = 0
@@ -1530,7 +1570,7 @@ object ResourceArchiveParsers {
                 if (read > 0) offset += read
             }
         }
-        return decodeBlackCycDwqPackedBmp(bytes)
+        return decodeBlackCycDwqPackedBmp(bytes, maxDecodedPixels)
     }
 
     data class DecodedDwqBitmap(
@@ -1694,7 +1734,11 @@ object ResourceArchiveParsers {
      * left to their respective decoders.
      */
     @Throws(IOException::class)
-    fun decodeBlackCycDwqPackedBmp(dwq: ByteArray): DecodedDwqBitmap {
+    fun decodeBlackCycDwqPackedBmp(
+        dwq: ByteArray,
+        maxDecodedPixels: Long = Long.MAX_VALUE
+    ): DecodedDwqBitmap {
+        if (maxDecodedPixels <= 0L) throw IOException("Invalid decoded-pixel limit.")
         if (dwq.size < DWQ_HEADER_SIZE) {
             throw EOFException("DWQ header is truncated.")
         }
@@ -1748,7 +1792,8 @@ object ResourceArchiveParsers {
         val image = decodePackedBmpSegment(
             source = dwq,
             start = imageStart,
-            endExclusive = imageEnd
+            endExclusive = imageEnd,
+            maxDecodedPixels = maxDecodedPixels
         )
 
         if (packType == 3) {
@@ -1769,7 +1814,8 @@ object ResourceArchiveParsers {
             val mask = decodePackedBmpSegment(
                 source = dwq,
                 start = imageEnd,
-                endExclusive = dwq.size
+                endExclusive = dwq.size,
+                maxDecodedPixels = maxDecodedPixels
             )
 
             if (mask.bitsPerPixel != 8 ||
@@ -1824,7 +1870,8 @@ object ResourceArchiveParsers {
     private fun decodePackedBmpSegment(
         source: ByteArray,
         start: Int,
-        endExclusive: Int
+        endExclusive: Int,
+        maxDecodedPixels: Long
     ): PackedBmpPlane {
         if (start < 0 ||
             endExclusive > source.size ||
@@ -1857,6 +1904,9 @@ object ResourceArchiveParsers {
         val pixelCount = width.toLong() * height.toLong()
         if (pixelCount > Int.MAX_VALUE.toLong()) {
             throw IOException("DWQ image exceeds the JVM pixel-array range.")
+        }
+        if (pixelCount > maxDecodedPixels) {
+            throw IOException("DWQ image exceeds the configured decoded-pixel budget.")
         }
 
         val strideLong = width.toLong() * bytesPerPixel.toLong()

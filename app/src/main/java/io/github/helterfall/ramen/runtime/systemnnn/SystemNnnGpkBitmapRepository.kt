@@ -111,27 +111,7 @@ class SystemNnnGpkBitmapRepository private constructor(
     private fun decodeWgq(index: Int): Bitmap {
         val file = wgqFiles.getOrNull(index)
             ?: throw IOException("WGQ image index is outside the resource catalog.")
-        val decoded = ResourceArchiveParsers.decodeBlackCycWgqFile(file)
-        val bitmap = try {
-            Bitmap.createBitmap(decoded.width, decoded.height, Bitmap.Config.ARGB_8888)
-        } catch (failure: RuntimeException) {
-            throw IOException("Could not allocate the decoded WGQ bitmap.", failure)
-        }
-        try {
-            bitmap.setPixels(
-                decoded.argbPixels,
-                0,
-                decoded.width,
-                0,
-                0,
-                decoded.width,
-                decoded.height
-            )
-        } catch (failure: Exception) {
-            bitmap.recycle()
-            throw IOException("Could not copy decoded WGQ pixels into the bitmap.", failure)
-        }
-        return bitmap
+        return imageDecoder.decodeStandaloneWgq(file)
     }
 
     private fun findEntry(resourceId: String): GpkImageResource? {

@@ -23,6 +23,10 @@ interface SystemNnnAudioResourceRepository : Closeable {
 
     @Throws(IOException::class)
     fun materializeByIndex(index: Long): File
+
+    /** Name-list slots: one-based MUSIC, zero-based SOUND, as in the native callback. */
+    fun musicResourceName(oneBasedNumber: Int): String? = null
+    fun soundResourceName(zeroBasedNumber: Int): String? = null
 }
 
 /**
