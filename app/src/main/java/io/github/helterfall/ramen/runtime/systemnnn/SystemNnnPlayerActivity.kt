@@ -263,8 +263,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             characterIndex = intent.getIntExtra(EXTRA_SCENE_CHARACTER_INDEX, -1),
             sceneIndex = intent.getIntExtra(EXTRA_SCENE_INDEX, -1),
             filmChoiceIndex = intent.getIntExtra(EXTRA_SCENE_FILM_CHOICE_INDEX, 0),
-            projectModuleNames = launch.projectModules.map { it.name },
-            sceneVoiceCatalog = launch.sceneVoiceCatalog
+            projectModuleNames = launch.projectModules.map { it.name }
         )
         val targetModule = launch.projectModules.firstOrNull {
             it.name.equals(route.moduleName, ignoreCase = true)
