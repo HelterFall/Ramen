@@ -108,9 +108,9 @@ class SystemNnnResourceFunctionScanner(
             if (
                 record.recordKind != SystemNnnRecordKind.SYSTEM_FUNCTION ||
                 record.codeFamily != SYSTEM_FUNCTION_FAMILY
-            ) return@forEach
+            ) return@forEachIndexed
 
-            val kind = SystemNnnResourceFunctionKind.fromCodeId(record.codeId) ?: return@forEach
+            val kind = SystemNnnResourceFunctionKind.fromCodeId(record.codeId) ?: return@forEachIndexed
             val remainingPayloadWords = (record.payloadWordCount - 1).coerceAtLeast(0)
             val leadingCountWord = if (record.payloadWordCount > 0) {
                 readPayloadWord(script, record, ARGUMENT_COUNT_PAYLOAD_INDEX)
