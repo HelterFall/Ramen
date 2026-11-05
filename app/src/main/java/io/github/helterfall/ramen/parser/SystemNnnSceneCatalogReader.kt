@@ -243,6 +243,6 @@ class SystemNnnSceneCatalogReader(
         private const val DEFAULT_MAX_RECORDS = 4096
         private const val DEFAULT_MAX_VALUES_PER_RECORD = 64
         private val SUPPORTED_VERSION = 1u
-        private val SCENE_ID_PATTERN = Regex("(?m)^[\\t ]*@sc([0-9]{2,3})[\\t ]*$")
+        private val SCENE_ID_PATTERN = Regex("(?m)^[\\t ]*@sc([0-9]{2,3})[\\t ]*\\r?$")
     }
 }
