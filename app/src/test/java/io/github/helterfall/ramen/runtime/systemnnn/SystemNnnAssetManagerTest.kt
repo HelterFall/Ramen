@@ -132,15 +132,25 @@ class SystemNnnAssetManagerTest {
             "OggS".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0x40)
             file.writeBytes(bytes)
 
+            var materialized: File? = null
             SystemNnnAssetManager.forGameDirectory(
                 gameDirectory = root,
                 cacheDirectory = File(root, "cache")
             ).use { manager ->
                 assertTrue(manager.catalog.imageBanks.isEmpty())
-                assertEquals(listOf("wgq/gss01_1.wgq"), manager.catalog.unindexedWgqFiles)
+                assertTrue(manager.catalog.unindexedWgqFiles.isEmpty())
                 assertEquals(listOf("wgq/gsstxt01.mml"), manager.catalog.unindexedMmlFiles)
+                assertEquals("wgq/gss01_1.wgq", manager.catalog.looseAudioResources.single().id)
+                assertEquals(6, manager.catalog.looseAudioResources.single().packType)
                 assertNull(manager.loadBitmapByIndex(0L))
+
+                materialized = manager.materializeLooseAudio("gss01_1")
+                assertEquals(
+                    bytes.copyOfRange(0x40, bytes.size).toList(),
+                    materialized!!.readBytes().toList()
+                )
             }
+            assertTrue(materialized?.exists() == false)
         } finally {
             root.deleteRecursively()
         }
