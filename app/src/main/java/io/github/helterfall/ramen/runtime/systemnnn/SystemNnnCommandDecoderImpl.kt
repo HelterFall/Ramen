@@ -261,6 +261,34 @@ class SystemNnnCommandDecoderImpl(
             record.codeId == CODE_CLOSE_BRACE
 
 
+    /**
+     * Target SPT transfer records carry exactly one DWORD: a Pool 2 index whose
+     * text must be a safe project module token. The target format has no second
+     * return-selector DWORD; Ramen saves the exact caller continuation.
+     */
+    private fun decodeModuleTransfer(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord,
+        kind: SystemNnnModuleTransferKind
+    ): SystemNnnDecodedCommand.ModuleTransfer {
+        if (record.payloadWordCount != MODULE_TRANSFER_PAYLOAD_WORD_COUNT) {
+            throw IOException("A System-NNN $kind record must contain exactly one Pool 2 operand.")
+        }
+        val poolIndexValue = readPayloadWord(script, record, MODULE_TRANSFER_POOL_INDEX_PAYLOAD).toLong()
+        if (poolIndexValue > Int.MAX_VALUE.toLong()) {
+            throw IOException("A System-NNN $kind target index is outside the Pool 2 range.")
+        }
+        val target = script.secondaryTextPool.getOrNull(poolIndexValue.toInt())
+            ?: throw IOException("A System-NNN $kind target references a missing Pool 2 entry.")
+        if (target.hasDecodingErrors || !MODULE_NAME_PATTERN.matches(target.text)) {
+            throw IOException("A System-NNN $kind target is not a valid module name.")
+        }
+        return SystemNnnDecodedCommand.ModuleTransfer(
+            targetModuleName = target.text,
+            kind = kind
+        )
+    }
+
     private fun decodeSystemFunction(
         script: SystemNnnScript,
         stream: SystemNnnCommandStream,
@@ -347,9 +375,30 @@ class SystemNnnCommandDecoderImpl(
 
             CODE_CONTROL_RETURN -> returnFromLocalSubroutine(stream, record)
 
+            CODE_CONTROL_SCRIPT -> decodeModuleTransfer(
+                script, record, SystemNnnModuleTransferKind.SCRIPT
+            )
+
+            CODE_CONTROL_SUBSCRIPT -> decodeModuleTransfer(
+                script, record, SystemNnnModuleTransferKind.SUBSCRIPT
+            )
+
+            CODE_CONTROL_SCRIPTJUMP -> decodeModuleTransfer(
+                script, record, SystemNnnModuleTransferKind.SCRIPTJUMP
+            )
+
+            CODE_CONTROL_NEXT -> {
+                if (record.payloadWordCount != 0 || localSubroutineStack.isNotEmpty()) {
+                    throw IOException("NEXT requires an empty local SUB stack and no payload.")
+                }
+                SystemNnnDecodedCommand.ModuleReturn
+            }
+
             CODE_CONTROL_ENDFILM -> SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
 
-            CODE_CONTROL_END -> SystemNnnDecodedCommand.End
+            CODE_CONTROL_END -> SystemNnnDecodedCommand.ControllerReset
+
+            CODE_CONTROL_EXIT -> SystemNnnDecodedCommand.End
 
             else -> throw unsupportedRecord(record)
         }
@@ -708,7 +757,15 @@ class SystemNnnCommandDecoderImpl(
 
         const val CODE_CONTROL_NOP = 0x0001
         const val CODE_CONTROL_END = 0x0005
+        const val CODE_CONTROL_NEXT = 0x0006
         const val CODE_CONTROL_ENDFILM = 0x000C
+        const val CODE_CONTROL_EXIT = 0x000B
+        const val CODE_CONTROL_SCRIPT = 0x000A
+        const val CODE_CONTROL_SCRIPTJUMP = 0x0015
+        const val CODE_CONTROL_SUBSCRIPT = 0x0016
+        const val MODULE_TRANSFER_PAYLOAD_WORD_COUNT = 1
+        const val MODULE_TRANSFER_POOL_INDEX_PAYLOAD = 0
+        val MODULE_NAME_PATTERN = Regex("[A-Za-z0-9_]{1,64}")
         const val CODE_CONTROL_ENDKOMA = 0x000E
         const val CODE_CONTROL_ENDIF = 0x0013
         const val CODE_CONTROL_CASE = 0x0008
