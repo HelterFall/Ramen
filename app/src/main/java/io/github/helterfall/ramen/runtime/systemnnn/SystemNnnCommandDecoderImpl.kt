@@ -5,6 +5,7 @@ import io.github.helterfall.ramen.parser.SystemNnnCommandStream
 import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
 import io.github.helterfall.ramen.parser.SystemNnnRecordKind
 import io.github.helterfall.ramen.parser.SystemNnnScript
+import java.io.File
 import java.io.IOException
 
 /**
@@ -24,7 +25,8 @@ import java.io.IOException
 class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int,
     private val streamReader: SystemNnnCommandStreamReader = SystemNnnCommandStreamReader(),
-    private val variables: MutableMap<Int, Int> = HashMap()
+    private val variables: MutableMap<Int, Int> = HashMap(),
+    private val debugLogFile: File? = null
 ) : SystemNnnCommandDecoder {
 
     private var cachedScript: SystemNnnScript? = null
@@ -55,26 +57,30 @@ class SystemNnnCommandDecoderImpl(
         }
         val record = stream.records[recordIndex]
 
-        return when (record.recordKind) {
-            SystemNnnRecordKind.DATA ->
-                SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+        return try {
+            when (record.recordKind) {
+                SystemNnnRecordKind.DATA ->
+                    SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
 
-            SystemNnnRecordKind.SYSTEM_FUNCTION ->
-                decodeSystemFunction(script, stream, record)
+                SystemNnnRecordKind.SYSTEM_FUNCTION ->
+                    decodeSystemFunction(script, stream, record)
 
-            SystemNnnRecordKind.SYSTEM_COMMAND -> decodeSystemCommand(script, record)
+                SystemNnnRecordKind.SYSTEM_COMMAND -> decodeSystemCommand(script, record)
 
-            SystemNnnRecordKind.CONTROL -> decodeControl(script, stream, record)
+                SystemNnnRecordKind.CONTROL -> decodeControl(script, stream, record)
 
-            SystemNnnRecordKind.CALCULATION -> {
-                evaluateCalculation(script, record)
-                SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+                SystemNnnRecordKind.CALCULATION -> {
+                    evaluateCalculation(script, record)
+                    SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+                }
+
+                SystemNnnRecordKind.FUNCTION -> decodeUserFunction(script, record)
+
+                SystemNnnRecordKind.COMMAND,
+                null -> skipUnsupported(record, "unknown record identifier")
             }
-
-            SystemNnnRecordKind.FUNCTION -> decodeUserFunction(script, record)
-
-            SystemNnnRecordKind.COMMAND,
-            null -> throw unsupportedRecord(record)
+        } catch (failure: UnsupportedSystemNnnRecordException) {
+            skipUnsupported(record, failure.message ?: "unsupported command payload")
         }
     }
 
@@ -83,7 +89,7 @@ class SystemNnnCommandDecoderImpl(
         record: SystemNnnCommandRecord
     ): SystemNnnDecodedCommand {
         if (record.codeFamily != SYSTEM_COMMAND_FAMILY) {
-            throw unsupportedRecord(record)
+            return skipUnsupported(record, "unknown or unsupported command code")
         }
 
         return when (record.codeId) {
@@ -112,11 +118,11 @@ class SystemNnnCommandDecoderImpl(
             // payload to its drawing callback, but Ramen has no verified
             // target-specific payload schema/renderer yet. Skip only this
             // already-bounded record rather than interpreting unknown operands.
-            CODE_DRAW -> SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+            CODE_DRAW -> skipUnsupported(record, "DRAW command is not implemented")
 
             CODE_SELECT -> decodeSelect(script, streamFor(script), record)
 
-            else -> throw unsupportedRecord(record)
+            else -> return skipUnsupported(record, "unknown or unsupported command code")
         }
     }
 
@@ -323,7 +329,7 @@ class SystemNnnCommandDecoderImpl(
             record.payloadWordCount != USER_FUNCTION_ARGUMENT_COUNT_WORDS ||
             readPayloadWord(script, record, USER_FUNCTION_ARGUMENT_COUNT_PAYLOAD) != 0u
         ) {
-            throw unsupportedRecord(record)
+            return skipUnsupported(record, "unknown or unsupported command code")
         }
         return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
     }
@@ -334,12 +340,12 @@ class SystemNnnCommandDecoderImpl(
         record: SystemNnnCommandRecord
     ): SystemNnnDecodedCommand {
         if (record.codeFamily != SYSTEM_FUNCTION_FAMILY) {
-            throw unsupportedRecord(record)
+            return skipUnsupported(record, "unknown or unsupported command code")
         }
 
         return when (record.codeId) {
             CODE_SYSTEMFUNCTION_SETFILM -> decodeSetFilm(script, stream, record)
-            else -> SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+            else -> skipUnsupported(record, "unknown system function code")
         }
     }
 
@@ -395,10 +401,10 @@ class SystemNnnCommandDecoderImpl(
             if (record.codeId == CODE_OPEN_BRACE || record.codeId == CODE_CLOSE_BRACE) {
                 return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
             }
-            throw unsupportedRecord(record)
+            return skipUnsupported(record, "unknown or unsupported command code")
         }
         if (record.codeFamily != CONTROL_FAMILY) {
-            throw unsupportedRecord(record)
+            return skipUnsupported(record, "unknown or unsupported command code")
         }
 
         return when (record.codeId) {
@@ -443,7 +449,7 @@ class SystemNnnCommandDecoderImpl(
 
             CODE_CONTROL_EXIT -> SystemNnnDecodedCommand.End
 
-            else -> throw unsupportedRecord(record)
+            else -> return skipUnsupported(record, "unknown or unsupported command code")
         }
     }
 
@@ -663,7 +669,7 @@ class SystemNnnCommandDecoderImpl(
                     )
                 }
 
-                else -> throw IOException(
+                else -> throw UnsupportedSystemNnnRecordException(
                     "Unsupported System-NNN CALCU token 0x" + token.toString(16) + "."
                 )
             }
@@ -722,7 +728,7 @@ class SystemNnnCommandDecoderImpl(
                 OP_BIT_AND -> ExpressionValue(left.value and right.value)
                 OP_BIT_XOR -> ExpressionValue(left.value xor right.value)
                 OP_BIT_OR -> ExpressionValue(left.value or right.value)
-                else -> throw IOException("Unsupported System-NNN CALCU operator 0x" + operator.toString(16) + ".")
+                else -> throw UnsupportedSystemNnnRecordException("Unsupported System-NNN CALCU operator 0x" + operator.toString(16) + ".")
             }
 
             SCRIPT_CALCU_COMPOUND_FAMILY -> {
@@ -746,7 +752,7 @@ class SystemNnnCommandDecoderImpl(
                         OP_BIT_AND -> left.value and right.value
                         OP_BIT_XOR -> left.value xor right.value
                         OP_BIT_OR -> left.value or right.value
-                        else -> throw IOException("Unsupported System-NNN compound operator.")
+                        else -> throw UnsupportedSystemNnnRecordException("Unsupported System-NNN compound operator.")
                     }
                     variables[destination] = updated
                     ExpressionValue(updated, destination)
@@ -759,7 +765,7 @@ class SystemNnnCommandDecoderImpl(
                     OP_BIT_AND -> left.value != 0 && right.value != 0
                     OP_BIT_OR -> left.value != 0 || right.value != 0
                     OP_BIT_XOR -> (left.value != 0) xor (right.value != 0)
-                    else -> throw IOException("Unsupported System-NNN logical operator.")
+                    else -> throw UnsupportedSystemNnnRecordException("Unsupported System-NNN logical operator.")
                 }
                 ExpressionValue(if (value) 1 else 0)
             }
@@ -768,7 +774,7 @@ class SystemNnnCommandDecoderImpl(
                 val value = when (operator) {
                     OP_LESS -> left.value < right.value
                     OP_GREATER -> left.value > right.value
-                    else -> throw IOException("Unsupported System-NNN comparison operator.")
+                    else -> throw UnsupportedSystemNnnRecordException("Unsupported System-NNN comparison operator.")
                 }
                 ExpressionValue(if (value) 1 else 0)
             }
@@ -779,12 +785,12 @@ class SystemNnnCommandDecoderImpl(
                     OP_GREATER -> left.value >= right.value
                     OP_EQUAL -> left.value == right.value
                     OP_NOT -> left.value != right.value
-                    else -> throw IOException("Unsupported System-NNN inclusive comparison operator.")
+                    else -> throw UnsupportedSystemNnnRecordException("Unsupported System-NNN inclusive comparison operator.")
                 }
                 ExpressionValue(if (value) 1 else 0)
             }
 
-            else -> throw IOException("Unsupported System-NNN CALCU operator family.")
+            else -> throw UnsupportedSystemNnnRecordException("Unsupported System-NNN CALCU operator family.")
         }
         stack += result
     }
@@ -821,13 +827,40 @@ class SystemNnnCommandDecoderImpl(
             ((bytes[3].toInt() and 0xFF).toUInt() shl 24)
     }
 
-    private fun unsupportedRecord(record: SystemNnnCommandRecord): IOException =
-        IOException(
-            "Unsupported System-NNN record at 0x" +
-                record.offset.toString(16) +
-                " (identifier=0x" + record.identifier.toString(16) +
-                ", code=0x" + record.code.toString(16) + ")."
-        )
+    private fun skipUnsupported(
+        record: SystemNnnCommandRecord,
+        reason: String
+    ): SystemNnnDecodedCommand.Skip {
+        appendDebugLog(record, reason)
+        return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+    }
+
+    /**
+     * Best-effort diagnostics must never turn a safely skippable record into
+     * a visible runtime failure.
+     */
+    private fun appendDebugLog(record: SystemNnnCommandRecord, reason: String) {
+        val destination = debugLogFile ?: return
+        val safeReason = reason.replace('\n', ' ').replace('\r', ' ')
+        val line = "unsupported_record address=0x${record.offset.toString(16)} " +
+            "identifier=0x${record.identifier.toString(16)} " +
+            "code=0x${record.code.toString(16)} " +
+            "kind=${record.recordKind?.name ?: "UNKNOWN"} reason=$safeReason\n"
+
+        runCatching {
+            synchronized(DEBUG_LOG_LOCK) {
+                destination.parentFile?.let { parent ->
+                    if (!parent.exists()) parent.mkdirs()
+                }
+                if (destination.exists() && destination.length() >= MAX_DEBUG_LOG_BYTES) {
+                    destination.writeText("ramen_debug.log rotated after reaching the size limit.\n", Charsets.UTF_8)
+                }
+                destination.appendText(line, Charsets.UTF_8)
+            }
+        }
+    }
+
+    private class UnsupportedSystemNnnRecordException(message: String) : IOException(message)
 
     private companion object {
         const val DWORD_BYTES = 4L
@@ -910,5 +943,7 @@ class SystemNnnCommandDecoderImpl(
 
         const val MESSAGE_INDEX_PAYLOAD_WORD = 0
         const val MESSAGE_REFERENCE_WORD_COUNT = 2
+        const val MAX_DEBUG_LOG_BYTES = 1L * 1024L * 1024L
+        val DEBUG_LOG_LOCK = Any()
     }
 }

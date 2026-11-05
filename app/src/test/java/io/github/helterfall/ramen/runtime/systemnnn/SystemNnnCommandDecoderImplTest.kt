@@ -3,14 +3,59 @@ package io.github.helterfall.ramen.runtime.systemnnn
 import io.github.helterfall.ramen.parser.SystemNnnScript
 import io.github.helterfall.ramen.parser.SystemNnnOffsetTable
 import io.github.helterfall.ramen.parser.SystemNnnTextEntry
+import java.io.File
 import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 @OptIn(ExperimentalUnsignedTypes::class)
 class SystemNnnCommandDecoderImplTest {
+
+    @Test
+    fun skipsAndLogsUnknownIdentifiersAndUnsupportedSystemCommands() {
+        val logFile = File.createTempFile("ramen-debug-", ".log").apply { delete() }
+        try {
+            val script = testScript(
+                records = listOf(
+                    record(3, 0x66660008u, 0x55560005u),
+                    record(3, SYSTEM_COMMAND, 0x22220005u),
+                    record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
+                ),
+                textCount = 1
+            )
+            val decoder = SystemNnnCommandDecoderImpl(
+                gtbResourceCount = 8,
+                debugLogFile = logFile
+            )
+            val unknownIdentifierEnd = RECORD_START + 12L
+            val unsupportedCommandEnd = unknownIdentifierEnd + 12L
+
+            assertEquals(
+                SystemNnnDecodedCommand.Skip(unknownIdentifierEnd),
+                decoder.decodeNext(script, RECORD_START)
+            )
+            assertEquals(
+                SystemNnnDecodedCommand.Skip(unsupportedCommandEnd),
+                decoder.decodeNext(script, unknownIdentifierEnd)
+            )
+            assertEquals(
+                SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = unsupportedCommandEnd + 20L,
+                    textEntryOffset = script.textPool.single().offset
+                ),
+                decoder.decodeNext(script, unsupportedCommandEnd)
+            )
+
+            val log = logFile.readText()
+            assertTrue(log.contains("address=0x50 identifier=0x66660008 code=0x55560005"))
+            assertTrue(log.contains("address=0x5c identifier=0x66660006 code=0x22220005"))
+        } finally {
+            logFile.delete()
+        }
+    }
 
     @Test
     fun decodesPrintAsTheExactPrimaryPoolEntry() {

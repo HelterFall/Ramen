@@ -111,7 +111,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                             SystemNnnCommandDecoderImpl(
                                 gtbResourceCount = assetManagerToTransfer.resourceCount,
                                 streamReader = commandStreamReader,
-                                variables = projectVariables
+                                variables = projectVariables,
+                                debugLogFile = File(filesDir, "ramen_debug.log")
                             )
                         }
                         if (launch.projectModules != null) {
@@ -128,7 +129,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                                 script = checkNotNull(launch.standaloneScript),
                                 commandDecoder = SystemNnnCommandDecoderImpl(
                                     gtbResourceCount = assetManagerToTransfer.resourceCount,
-                                    streamReader = commandStreamReader
+                                    streamReader = commandStreamReader,
+                                    debugLogFile = File(filesDir, "ramen_debug.log")
                                 ),
                                 assetResolver = assetManagerToTransfer,
                                 initialCommandOffset = launch.initialCommandOffset,

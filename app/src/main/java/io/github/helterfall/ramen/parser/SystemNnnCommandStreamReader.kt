@@ -106,7 +106,8 @@ data class SystemNnnFilmTableEntry(
  *   length, 0x6666xxxx identifier, command/code DWORD.
  *
  * Only the record envelope is decoded. Payload words, command meanings,
- * branch targets and resource operands remain opaque.
+ * branch targets and resource operands remain opaque. Unknown identifier
+ * values are retained for safe, bounded skipping by the runtime.
  */
 class SystemNnnCommandStreamReader(
     private val preambleWordCount: Int = DEFAULT_PREAMBLE_WORD_COUNT,
@@ -167,13 +168,9 @@ class SystemNnnCommandStreamReader(
                 throw IOException("A System-NNN command record extends beyond the code region.")
             }
 
+            // Preserve unknown identifier values in the validated stream. The
+            // decoder can skip their complete record using this checked length.
             val identifier = readUInt32LE(bytes, cursor + DWORD_BYTES.toInt())
-            val identifierFamily = (identifier shr 16).toInt() and 0xFFFF
-            val identifierType = (identifier and 0xFFFFu).toInt()
-            if (identifierFamily != IDENTIFIER_FAMILY || identifierType !in MIN_IDENTIFIER_TYPE..MAX_IDENTIFIER_TYPE) {
-                throw IOException("The SPT command record has an unsupported identifier.")
-            }
-
             val code = readUInt32LE(bytes, cursor + (2L * DWORD_BYTES).toInt())
             val absoluteOffset = script.commandStartOffset + cursor.toLong()
             val endOffset = absoluteOffset + lengthBytes
@@ -329,9 +326,6 @@ class SystemNnnCommandStreamReader(
         const val DWORD_BYTES = 4L
         const val RECORD_HEADER_WORD_COUNT = 3
         const val RECORD_HEADER_BYTES = RECORD_HEADER_WORD_COUNT * DWORD_BYTES.toInt()
-        const val IDENTIFIER_FAMILY = 0x6666
-        const val MIN_IDENTIFIER_TYPE = 1
-        const val MAX_IDENTIFIER_TYPE = 7
         const val DEFAULT_PREAMBLE_WORD_COUNT = 4
         const val DEFAULT_TRAILER_WORD_COUNT = 4
         const val FILM_TABLE_DESCRIPTOR_INDEX = 2

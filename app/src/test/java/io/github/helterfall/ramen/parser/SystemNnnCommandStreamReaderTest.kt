@@ -85,20 +85,24 @@ class SystemNnnCommandStreamReaderTest {
     }
 
     @Test
-    fun rejectsUnknownIdentifierFamiliesAndTypes() {
+    fun preservesUnknownIdentifierFamiliesAndTypesForBoundedSkipping() {
         val wrongFamily = scriptOf(
             records = listOf(listOf(3u, 0x12340002u, 0x55560006u))
         )
         val wrongType = scriptOf(
             records = listOf(listOf(3u, 0x66660008u, 0x55560006u))
         )
+        val reader = SystemNnnCommandStreamReader()
 
-        assertThrows(IOException::class.java) {
-            SystemNnnCommandStreamReader().read(wrongFamily)
-        }
-        assertThrows(IOException::class.java) {
-            SystemNnnCommandStreamReader().read(wrongType)
-        }
+        val familyRecord = reader.read(wrongFamily).records.single()
+        assertEquals(0x12340002u, familyRecord.identifier)
+        assertEquals(null, familyRecord.recordKind)
+        assertEquals(0x5CL, familyRecord.endOffsetExclusive)
+
+        val typeRecord = reader.read(wrongType).records.single()
+        assertEquals(0x66660008u, typeRecord.identifier)
+        assertEquals(null, typeRecord.recordKind)
+        assertEquals(0x5CL, typeRecord.endOffsetExclusive)
     }
 
     @Test
