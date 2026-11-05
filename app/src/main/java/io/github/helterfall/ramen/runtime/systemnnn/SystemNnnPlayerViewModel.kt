@@ -884,6 +884,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
 
         moduleCallStack.clear()
+        sceneReplayModuleName = null
+        sceneReplayFilms = emptyList()
+        sceneReplayFilmCursor = 0
         val stream = controller.commandStream
         script = controller.script
         commandStream = stream
