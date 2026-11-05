@@ -284,6 +284,7 @@ class SystemNnnCommandDecoderImpl(
             throw IOException("A System-NNN $kind target is not a valid module name.")
         }
         return SystemNnnDecodedCommand.ModuleTransfer(
+            nextCommandOffset = record.endOffsetExclusive,
             targetModuleName = target.text,
             kind = kind
         )
