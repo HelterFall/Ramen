@@ -284,7 +284,7 @@ private fun DialogueBox(
     }
 }
 
-/** UI-only save/load actions; persistence is connected by the hosting Activity. */
+/** Save/load UI actions are forwarded to the Activity; persistence is not part of this screen. */
 enum class SystemNnnPlayerQuickAction {
     SAVE,
     LOAD
