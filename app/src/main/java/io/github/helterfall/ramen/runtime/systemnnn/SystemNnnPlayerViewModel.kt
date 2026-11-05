@@ -158,6 +158,26 @@ sealed interface SystemNnnDecodedCommand {
         val nextCommandOffset: Long
     ) : SystemNnnDecodedCommand
 
+    data class Music(
+        val nextCommandOffset: Long,
+        /** Native MUSIC track number: positive is one-based, -1 stops, -2 changes volume only. */
+        val musicNumber: Int,
+        val loopCount: Int = 0
+    ) : SystemNnnDecodedCommand
+
+    data class Voice(
+        val nextCommandOffset: Long,
+        val resourceId: String?,
+        val channel: Int
+    ) : SystemNnnDecodedCommand
+
+    data class Sound(
+        val nextCommandOffset: Long,
+        /** Native SE name-list slot; -1 stops this channel. */
+        val soundNumber: Int,
+        val channel: Int
+    ) : SystemNnnDecodedCommand
+
     data class Skip(
         val nextCommandOffset: Long
     ) : SystemNnnDecodedCommand
@@ -245,8 +265,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val currentFilmNumber: Int?
     )
     private var audioRepository: SystemNnnAudioResourceRepository? = null
+    /** Dedicated player for background music / optional launch track. */
     private var audioPlayer: SystemNnnAudioPlayer? = null
+    private val channelAudioPlayers = LinkedHashMap<String, SystemNnnAudioPlayer>()
+    private val channelAudioRequestIds = HashMap<String, Long>()
     private var audioRequestId: Long = 0L
+    private var musicRequestId: Long = 0L
     private val voiceExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler by lazy(LazyThreadSafetyMode.NONE) {
         Handler(Looper.getMainLooper())
@@ -572,58 +596,67 @@ class SystemNnnPlayerViewModel : ViewModel() {
             )
     }
 
-    /**
-     * Replaces the previous voice for every visible dialogue. File extraction runs
-     * off the UI thread; stale extraction results are discarded before playback.
-     */
-    private fun playVoice(dialogueStepIndex: Long?, voiceResourceId: String?) {
-        val repository = audioRepository ?: return
-        val player = audioPlayer ?: return
+    private fun nextAudioRequestId(): Long = ++audioRequestId
 
-        val requestId = ++audioRequestId
-        player.stop()
-
-        val exactResourceId = voiceResourceId?.trim()?.takeIf { it.isNotEmpty() }
-        if (exactResourceId == null && dialogueStepIndex == null) return
-        val numericDialogueIndex = dialogueStepIndex
-        if (exactResourceId == null &&
-            (numericDialogueIndex == null ||
-                numericDialogueIndex < 0L ||
-                numericDialogueIndex > Int.MAX_VALUE.toLong())
-        ) {
-            uiState = uiState.copy(audioWarning = "Индекс голосового ресурса выходит за допустимый диапазон.")
-            return
-        }
-
-        val indexedResource = if (exactResourceId == null) {
-            repository.entries.getOrNull(checkNotNull(numericDialogueIndex).toInt())
-        } else {
-            null
-        }
-        if (exactResourceId == null && indexedResource == null) {
-            uiState = uiState.copy(
-                audioWarning = "Для диалога №" + (dialogueStepIndex!! + 1L) +
-                    " нет соответствующей записи VAW/VTB."
-            )
-            return
-        }
-        val displayName = indexedResource?.name ?: exactResourceId!!
-
-        voiceExecutor.execute {
-            val staged = runCatching {
-                if (exactResourceId != null) {
-                    repository.materialize(exactResourceId)
-                } else {
-                    repository.materializeByIndex(checkNotNull(numericDialogueIndex))
+    private fun channelAudioPlayer(key: String): SystemNnnAudioPlayer =
+        channelAudioPlayers.getOrPut(key) {
+            SystemNnnAudioPlayer { status ->
+                if (status.state == SystemNnnAudioPlaybackState.ERROR) {
+                    uiState = uiState.copy(
+                        audioWarning = "Не удалось воспроизвести '" + status.resourceName + "': " +
+                            (status.message ?: "ошибка аудио.")
+                    )
                 }
             }
+        }
+
+    private fun playChannelResource(key: String, resourceId: String) {
+        val repository = audioRepository ?: return
+        val normalizedId = resourceId.trim().takeIf { it.isNotEmpty() } ?: return
+        val requestId = nextAudioRequestId()
+        channelAudioRequestIds[key] = requestId
+        val player = channelAudioPlayer(key)
+
+        voiceExecutor.execute {
+            val staged = runCatching { repository.materialize(normalizedId) }
             mainHandler.post {
-                if (requestId != audioRequestId) {
+                if (channelAudioRequestIds[key] != requestId) {
                     staged.getOrNull()?.delete()
                     return@post
                 }
                 staged.onSuccess { file ->
-                    runCatching { player.play(file, displayName) }
+                    runCatching { player.play(file, normalizedId) }
+                        .onFailure { error ->
+                            uiState = uiState.copy(
+                                audioWarning = "Не удалось запустить '" + normalizedId + "': " +
+                                    (error.message ?: "ошибка воспроизведения.")
+                            )
+                        }
+                }.onFailure { error ->
+                    uiState = uiState.copy(
+                        audioWarning = "Не удалось подготовить '" + normalizedId + "': " +
+                            (error.message ?: "ресурс не найден.")
+                    )
+                }
+            }
+        }
+    }
+
+    private fun playChannelIndex(key: String, index: Long) {
+        val repository = audioRepository ?: return
+        if (index < 0L) return
+        val requestId = nextAudioRequestId()
+        channelAudioRequestIds[key] = requestId
+        val player = channelAudioPlayer(key)
+        voiceExecutor.execute {
+            val staged = runCatching { repository.materializeByIndex(index) }
+            mainHandler.post {
+                if (channelAudioRequestIds[key] != requestId) {
+                    staged.getOrNull()?.delete()
+                    return@post
+                }
+                staged.onSuccess { file ->
+                    runCatching { player.play(file, "voice-index-" + index) }
                         .onFailure { error ->
                             uiState = uiState.copy(
                                 audioWarning = "Не удалось запустить голосовую дорожку: " +
@@ -633,10 +666,60 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 }.onFailure { error ->
                     uiState = uiState.copy(
                         audioWarning = "Не удалось подготовить голосовую дорожку: " +
-                            (error.message ?: "ошибка чтения архива.")
+                            (error.message ?: "индекс не найден.")
                     )
                 }
             }
+        }
+    }
+
+    private fun stopChannelResource(key: String) {
+        channelAudioRequestIds[key] = nextAudioRequestId()
+        channelAudioPlayers[key]?.stop()
+    }
+
+    private fun playMusicResource(resourceId: String) {
+        val repository = audioRepository ?: return
+        val player = audioPlayer ?: return
+        val requestId = ++musicRequestId
+        player.stop()
+        voiceExecutor.execute {
+            val staged = runCatching { repository.materialize(resourceId) }
+            mainHandler.post {
+                if (requestId != musicRequestId) {
+                    staged.getOrNull()?.delete()
+                    return@post
+                }
+                staged.onSuccess { file ->
+                    runCatching { player.play(file, resourceId) }
+                        .onFailure { error ->
+                            uiState = uiState.copy(
+                                audioWarning = "Не удалось запустить фоновую музыку: " +
+                                    (error.message ?: "ошибка воспроизведения.")
+                            )
+                        }
+                }.onFailure { error ->
+                    uiState = uiState.copy(
+                        audioWarning = "Не удалось подготовить музыку '" + resourceId + "': " +
+                            (error.message ?: "ресурс не найден.")
+                    )
+                }
+            }
+        }
+    }
+
+    private fun stopAllAudio() {
+        musicRequestId += 1L
+        audioPlayer?.stop()
+        channelAudioPlayers.keys.toList().forEach(::stopChannelResource)
+    }
+
+    /** Uses the actual VOICE Pool 2 name when available; otherwise no guessed index is played. */
+    private fun playVoice(dialogueStepIndex: Long?, voiceResourceId: String?) {
+        val exactResourceId = voiceResourceId?.trim()?.takeIf { it.isNotEmpty() }
+        when {
+            exactResourceId != null -> playChannelResource("voice:0", exactResourceId)
+            dialogueStepIndex != null -> playChannelIndex("voice:0", dialogueStepIndex)
         }
     }
 
@@ -791,6 +874,61 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         nextCommandOffset = command.nextCommandOffset
                         pendingSpriteLayers.clear()
                         pendingSpriteLayersChanged = true
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.Music -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        nextCommandOffset = command.nextCommandOffset
+                        when {
+                            command.musicNumber == -1 -> {
+                                musicRequestId += 1L
+                                audioPlayer?.stop()
+                            }
+                            command.musicNumber == -2 -> {
+                                uiState = uiState.copy(
+                                    audioWarning = "Изменение громкости музыки отдельной командой пока не поддерживается."
+                                )
+                            }
+                            else -> {
+                                val resourceId = audioRepository?.musicResourceName(command.musicNumber)
+                                if (resourceId.isNullOrBlank()) {
+                                    uiState = uiState.copy(
+                                        audioWarning = "В spt/bgmlist.xtx не найден музыкальный слот " + command.musicNumber + "."
+                                    )
+                                } else {
+                                    playMusicResource(resourceId)
+                                }
+                            }
+                        }
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.Voice -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        nextCommandOffset = command.nextCommandOffset
+                        val key = "voice:" + command.channel
+                        if (command.resourceId == null) stopChannelResource(key)
+                        else playChannelResource(key, command.resourceId)
+                        commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.Sound -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        nextCommandOffset = command.nextCommandOffset
+                        val key = "sound:" + command.channel
+                        if (command.soundNumber == -1) {
+                            stopChannelResource(key)
+                        } else {
+                            val resourceId = audioRepository?.soundResourceName(command.soundNumber)
+                            if (resourceId.isNullOrBlank()) {
+                                uiState = uiState.copy(
+                                    audioWarning = "В spt/selist.xtx не найден звуковой слот " + command.soundNumber + "."
+                                )
+                            } else {
+                                playChannelResource(key, resourceId)
+                            }
+                        }
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -1009,7 +1147,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     SystemNnnDecodedCommand.End -> {
-                        audioPlayer?.stop()
+                        stopAllAudio()
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter + 1L,
                             isEnded = true,
@@ -1131,7 +1269,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         sceneReplayFilms = emptyList()
         sceneReplayFilmCursor = 0
         moduleCallStack.clear()
-        audioPlayer?.stop()
+        stopAllAudio()
         uiState = SystemNnnPlayerUiState(
             frameId = frameCounter + 1L,
             isEnded = true,
@@ -1148,7 +1286,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val controller = controllerProgram
         val factory = moduleDecoderFactory
         if (controller == null || factory == null) {
-            audioPlayer?.stop()
+            stopAllAudio()
             uiState = SystemNnnPlayerUiState(
                 frameId = frameCounter + 1L,
                 isEnded = true,
@@ -1203,6 +1341,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val existingByLayer = existingSprites.associateBy { it.layerIndex }
         val resolved = ArrayList<SystemNnnSpriteBitmap>(references.size)
         val warnings = ArrayList<String>()
+        var activePixelCount = 0L
 
         references.forEach { reference ->
             val layer = reference.layerIndex
@@ -1221,6 +1360,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 existing.nativeBankSlot == reference.nativeBankSlot
             ) {
                 resolved += existing
+                activePixelCount += existing.bitmap.width.toLong() * existing.bitmap.height.toLong()
                 return@forEach
             }
 
@@ -1248,6 +1388,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 }
                 return@forEach
             }
+            val bitmapPixels = bitmap.width.toLong() * bitmap.height.toLong()
+            if (bitmapPixels > MAX_ACTIVE_SPRITE_PIXELS - activePixelCount) {
+                bitmapOwners.remove(bitmap)
+                runCatching { resolver.releaseBitmap(bitmap) }
+                warnings += "Layer " + layer + " ('" + reference.resourceId + "') was skipped: active sprite pixel budget exceeded."
+                return@forEach
+            }
+            activePixelCount += bitmapPixels
             resolved += SystemNnnSpriteBitmap(
                 resourceId = reference.resourceId,
                 bitmap = bitmap,
@@ -1301,9 +1449,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
         sceneReplayFilms = emptyList()
         sceneReplayFilmCursor = 0
         audioRequestId += 1L
+        musicRequestId += 1L
         val player = audioPlayer
         audioPlayer = null
         runCatching { player?.close() }
+        channelAudioPlayers.values.forEach { channelPlayer -> runCatching { channelPlayer.close() } }
+        channelAudioPlayers.clear()
+        channelAudioRequestIds.clear()
 
         val audio = audioRepository
         audioRepository = null
@@ -1324,6 +1476,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_SCENE_COMMANDS_PER_ADVANCE = 2_048
         private const val MAX_IMAGE_LAYERS = 32
         private const val MAX_IMAGE_WARNING_COUNT = 4
+        private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
         // and one nested SPT executor. A direct scene starts in slot 1.
         private const val MAX_NESTED_MODULE_CALL_DEPTH = 2

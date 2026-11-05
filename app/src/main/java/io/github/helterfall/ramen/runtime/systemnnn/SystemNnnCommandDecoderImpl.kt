@@ -344,6 +344,9 @@ class SystemNnnCommandDecoderImpl(
         }
 
         return when (record.codeId) {
+            CODE_SYSTEMFUNCTION_MUSIC -> decodeMusic(script, record)
+            CODE_SYSTEMFUNCTION_VOICE -> decodeVoice(script, record)
+            CODE_SYSTEMFUNCTION_SOUND -> decodeSound(script, record)
             CODE_SYSTEMFUNCTION_SETFILM -> decodeSetFilm(script, stream, record)
             CODE_SYSTEMFUNCTION_LOADDWQ -> decodeLoadDwq(script, record)
             CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER -> decodeClearEffectLayer(script, record)
@@ -355,6 +358,90 @@ class SystemNnnCommandDecoderImpl(
                 SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
             else -> skipUnsupported(record, "unknown system function code")
         }
+    }
+
+    /**
+     * MUSIC/VOICE/SOUND carry an argument-count DWORD followed by their native
+     * parameters. These operand positions follow the pinned System-NNN family
+     * reference; resource banks are resolved separately by the asset manager.
+     */
+    private fun readDeclaredArgumentCount(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord,
+        minimum: Int,
+        maximum: Int,
+        label: String
+    ): Int {
+        if (record.payloadWordCount < 2) {
+            throw IOException("A System-NNN $label record has no argument payload.")
+        }
+        val count = readPayloadWord(script, record, 0).toLong()
+        if (count !in minimum.toLong()..maximum.toLong() ||
+            count + 1L > record.payloadWordCount.toLong()
+        ) {
+            throw IOException("A System-NNN $label record has an invalid argument count.")
+        }
+        return count.toInt()
+    }
+
+    private fun decodeMusic(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.Music {
+        val argumentCount = readDeclaredArgumentCount(script, record, 1, MAX_AUDIO_ARGUMENTS, "MUSIC")
+        val number = readPayloadWord(script, record, 1).toInt()
+        if (number == 0 || number < -2) {
+            throw IOException("A System-NNN MUSIC command has an invalid track number.")
+        }
+        return SystemNnnDecodedCommand.Music(
+            nextCommandOffset = record.endOffsetExclusive,
+            musicNumber = number,
+            loopCount = if (argumentCount >= 2) readPayloadWord(script, record, 2).toInt() else 0
+        )
+    }
+
+    private fun decodeVoice(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.Voice {
+        readDeclaredArgumentCount(script, record, 2, MAX_AUDIO_ARGUMENTS, "VOICE")
+        val resourceIndex = readPayloadWord(script, record, 1).toInt()
+        val channel = readPayloadWord(script, record, 2).toLong()
+        if (channel !in 0L..MAX_AUDIO_CHANNEL.toLong()) {
+            throw IOException("A System-NNN VOICE channel is outside the supported range.")
+        }
+        val resourceId = if (resourceIndex == -1) {
+            null
+        } else {
+            if (resourceIndex < 0) throw IOException("A System-NNN VOICE resource index is negative.")
+            script.secondaryTextPool.getOrNull(resourceIndex)?.let { entry ->
+                if (entry.hasDecodingErrors || entry.text.isBlank() ||
+                    entry.text.any { character -> character.isISOControl() }
+                ) null else entry.text
+            } ?: throw IOException("A System-NNN VOICE command references a missing Pool 2 resource.")
+        }
+        return SystemNnnDecodedCommand.Voice(
+            nextCommandOffset = record.endOffsetExclusive,
+            resourceId = resourceId,
+            channel = channel.toInt()
+        )
+    }
+
+    private fun decodeSound(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.Sound {
+        readDeclaredArgumentCount(script, record, 2, MAX_AUDIO_ARGUMENTS, "SOUND")
+        val soundNumber = readPayloadWord(script, record, 1).toInt()
+        val channel = readPayloadWord(script, record, 2).toLong()
+        if (soundNumber < -1 || channel !in 0L..MAX_AUDIO_CHANNEL.toLong()) {
+            throw IOException("A System-NNN SOUND command has an invalid sound number or channel.")
+        }
+        return SystemNnnDecodedCommand.Sound(
+            nextCommandOffset = record.endOffsetExclusive,
+            soundNumber = soundNumber,
+            channel = channel.toInt()
+        )
     }
 
     /**
@@ -934,6 +1021,9 @@ class SystemNnnCommandDecoderImpl(
         const val USER_FUNCTION_ARGUMENT_COUNT_WORDS = 1
         const val USER_FUNCTION_ARGUMENT_COUNT_PAYLOAD = 0
         const val SYSTEM_FUNCTION_FAMILY = 0x3333
+        const val CODE_SYSTEMFUNCTION_MUSIC = 0x0007
+        const val CODE_SYSTEMFUNCTION_VOICE = 0x0008
+        const val CODE_SYSTEMFUNCTION_SOUND = 0x0009
         const val CODE_SYSTEMFUNCTION_SETFILM = 0x001A
         const val CODE_SYSTEMFUNCTION_CLEARALLEFFECT = 0x0012
         const val CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER = 0x0014
@@ -945,6 +1035,8 @@ class SystemNnnCommandDecoderImpl(
         const val CLEAR_EFFECT_LAYER_PAYLOAD_WORD_COUNT = 1
         const val CLEAR_EFFECT_LAYER_LAYER_PAYLOAD = 0
         const val MAX_IMAGE_LAYERS = 32
+        const val MAX_AUDIO_ARGUMENTS = 16
+        const val MAX_AUDIO_CHANNEL = 15
         const val SETFILM_PAYLOAD_WORD_COUNT = 2
         const val SETFILM_ARGUMENT_COUNT_PAYLOAD = 0
         const val SETFILM_FILM_NUMBER_PAYLOAD = 1

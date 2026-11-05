@@ -67,6 +67,8 @@ class SystemNnnAssetManager private constructor(
     private val imageBanks: List<ImageBank>,
     private val audioBanks: List<AudioBank>,
     private val looseAudioRepository: SystemNnnLooseAudioRepository,
+    private val musicResourceNames: List<String>,
+    private val soundResourceNames: List<String>,
     val catalog: SystemNnnAssetCatalog
 ) : SystemNnnSceneAssetResolver, SystemNnnAudioResourceRepository {
 
@@ -252,6 +254,20 @@ class SystemNnnAssetManager private constructor(
         return looseAudioRepository.materialize(resourceId)
     }
 
+    override fun musicResourceName(oneBasedNumber: Int): String? {
+        checkOpen()
+        if (oneBasedNumber <= 0) return null
+        val slot = (oneBasedNumber.toLong() - 1L) * 2L
+        return musicResourceNames.getOrNull(slot.toInt())?.takeIf { it.isNotBlank() }
+    }
+
+    override fun soundResourceName(zeroBasedNumber: Int): String? {
+        checkOpen()
+        if (zeroBasedNumber < 0) return null
+        val slot = zeroBasedNumber.toLong() * 2L
+        return soundResourceNames.getOrNull(slot.toInt())?.takeIf { it.isNotBlank() }
+    }
+
     @Throws(IOException::class)
     @Synchronized
     override fun materializeByIndex(index: Long): File {
@@ -308,6 +324,8 @@ class SystemNnnAssetManager private constructor(
     companion object {
         private const val MAX_GAME_SCAN_DEPTH = 12
         private const val MAX_DISCOVERED_FILES = 10_000
+        private const val MAX_NAME_LIST_BYTES = 4L * 1024L * 1024L
+        private const val MAX_NAME_LIST_ENTRIES = 100_000
         private val INDEXED_IMAGE_ARCHIVE_EXTENSIONS = setOf("gpk", "wgq")
         private val INDEXED_AUDIO_ARCHIVE_EXTENSIONS = setOf("vaw", "vpk")
 
@@ -322,6 +340,8 @@ class SystemNnnAssetManager private constructor(
             }
             val root = gameDirectory.canonicalFile
             val warnings = ArrayList<String>()
+            val musicResourceNames = readGameNameList(root, "bgmlist.xtx", warnings)
+            val soundResourceNames = readGameNameList(root, "selist.xtx", warnings)
             val imageBanks = ArrayList<ImageBank>()
             val audioBanks = ArrayList<AudioBank>()
             val pairedImageArchives = HashSet<String>()
@@ -495,8 +515,38 @@ class SystemNnnAssetManager private constructor(
                 imageBanks = imageBanks.toList(),
                 audioBanks = audioBanks.toList(),
                 looseAudioRepository = looseAudioRepository,
+                musicResourceNames = musicResourceNames,
+                soundResourceNames = soundResourceNames,
                 catalog = catalog
             )
+        }
+
+        private fun readGameNameList(
+            root: File,
+            fileName: String,
+            warnings: MutableList<String>
+        ): List<String> {
+            val scriptDirectory = root.listFiles()?.firstOrNull {
+                it.isDirectory && it.name.equals("spt", ignoreCase = true)
+            } ?: return emptyList()
+            val source = scriptDirectory.listFiles()?.firstOrNull {
+                it.isFile && it.name.equals(fileName, ignoreCase = true)
+            } ?: return emptyList()
+            if (source.length() > MAX_NAME_LIST_BYTES) {
+                warnings += relativePath(root, source) + ": name list exceeds the supported size and was ignored."
+                return emptyList()
+            }
+            return runCatching {
+                val text = source.readText(Charsets.UTF_8).removePrefix("\uFEFF")
+                Regex("[^,\\s]+").findAll(text)
+                    .map { it.value.trim() }
+                    .filter { it.isNotEmpty() && it.none { character -> character.isISOControl() } }
+                    .take(MAX_NAME_LIST_ENTRIES)
+                    .toList()
+            }.onFailure { error ->
+                warnings += relativePath(root, source) + ": could not read name list: " +
+                    (error.message ?: error.javaClass.simpleName)
+            }.getOrDefault(emptyList())
         }
 
         private fun discoverFiles(
