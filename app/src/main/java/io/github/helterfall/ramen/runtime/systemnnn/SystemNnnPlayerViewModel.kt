@@ -932,6 +932,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter,
                             isLoading = false,
+                            backgroundBitmap = sceneBackground,
+                            sprites = sceneSprites,
                             speakerName = command.speakerName,
                             dialogueText = text,
                             visibleCharacterCount = 0,
