@@ -11,7 +11,9 @@ data class SystemNnnModuleReferenceProjectReport(
     val projectPath: String,
     val moduleCount: Int,
     val candidates: List<SystemNnnModuleReferenceCandidate>,
-    val warnings: List<String> = emptyList()
+    val warnings: List<String> = emptyList(),
+    val scriptTransfers: List<SystemNnnScriptTransferCandidate> = emptyList(),
+    val unresolvedScriptTransferTargetCount: Int = 0
 )
 
 /**
@@ -34,16 +36,24 @@ class SystemNnnModuleReferenceReportWriter(
         reports: Collection<SystemNnnModuleReferenceProjectReport>,
         output: OutputStream
     ) {
-        val totalCandidates = reports.sumOf { it.candidates.size.toLong() }
+        val totalCandidates = reports.sumOf {
+            it.candidates.size.toLong() + it.scriptTransfers.size.toLong()
+        }
         if (totalCandidates > maxCandidates.toLong()) {
             throw IOException("The module-reference report exceeds the candidate limit.")
         }
 
+        val totalTransfers = reports.sumOf { it.scriptTransfers.size.toLong() }
+        val unresolvedTransfers = reports.sumOf { it.unresolvedScriptTransferTargetCount.toLong() }
         val writer = BufferedWriter(OutputStreamWriter(output, Charsets.UTF_8))
-        writer.appendLine("SYSTEM-NNN MODULE-REFERENCE CANDIDATES")
-        writer.appendLine("Projects: ${reports.size} · candidates: $totalCandidates")
+        writer.appendLine("SYSTEM-NNN SCRIPT TRANSFERS AND MODULE-NAME REFERENCES")
         writer.appendLine(
-            "NOTICE: these are exact Pool 2 module-name references, not proven calls, jumps, or startup routes."
+            "Projects: ${reports.size} · script-transfer candidates: $totalTransfers · " +
+                "unclassified references: ${reports.sumOf { it.candidates.size }} · unresolved transfer targets: $unresolvedTransfers"
+        )
+        writer.appendLine(
+            "SCRIPT/SCRIPTJUMP/SUBSCRIPT names are cross-title NNNLib engine context. " +
+                "Targets below exactly match project.xtx module names; runtime return/startup behavior is not device-verified."
         )
         writer.appendLine(
             "Only record metadata and opaque payload previews are included; scenario text and resource data are omitted."
@@ -52,7 +62,46 @@ class SystemNnnModuleReferenceReportWriter(
         reports.sortedBy { it.projectPath }.forEach { report ->
             writer.appendLine()
             writer.appendLine("PROJECT: ${report.projectPath}")
-            writer.appendLine("Modules: ${report.moduleCount} · candidates: ${report.candidates.size}")
+            writer.appendLine(
+                "Modules: ${report.moduleCount} · transfers: ${report.scriptTransfers.size} · " +
+                    "unclassified references: ${report.candidates.size}"
+            )
+
+            if (report.scriptTransfers.isNotEmpty()) {
+                writer.appendLine()
+                writer.appendLine("SCRIPT TRANSFER RECORDS")
+                report.scriptTransfers
+                    .groupBy { it.sourceModuleName }
+                    .toSortedMap()
+                    .forEach { (sourceModule, transfers) ->
+                        writer.appendLine("SOURCE MODULE: $sourceModule")
+                        transfers.sortedBy { it.commandOffset }.forEach { transfer ->
+                            val filmLabel = when {
+                                transfer.sourceFilmTableIndex == null -> "outside indexed film intervals"
+                                transfer.sourceFilmNumber == null -> "reserved table entry ${transfer.sourceFilmTableIndex}"
+                                else -> "film ${transfer.sourceFilmNumber}"
+                            }
+                            writer.appendLine(
+                                "  ${transfer.kind.name} @${formatOffset(transfer.commandOffset)} " +
+                                    "($filmLabel) -> ${transfer.targetModuleName} " +
+                                    "pool2=${transfer.pool2Index} " +
+                                    "lengthWords=${transfer.recordLengthWords} " +
+                                    "followingLengthWord=${transfer.followingRecordLengthWord ?: "—"}"
+                            )
+                            writer.appendLine("    PREV: ${formatContext(transfer.previousRecord)}")
+                            writer.appendLine("    NEXT: ${formatContext(transfer.nextRecord)}")
+                        }
+                    }
+            }
+
+            if (report.unresolvedScriptTransferTargetCount > 0) {
+                writer.appendLine(
+                    "UNRESOLVED SCRIPT CONTROL TARGETS: ${report.unresolvedScriptTransferTargetCount}"
+                )
+            }
+
+            writer.appendLine()
+            writer.appendLine("UNCLASSIFIED POOL 2 MODULE-NAME REFERENCES")
 
             val groups = report.candidates
                 .groupBy { candidate ->
@@ -88,7 +137,7 @@ class SystemNnnModuleReferenceReportWriter(
 
                 candidates.sortedBy { it.commandOffset }.forEach { candidate ->
                     writer.appendLine(
-                        "  CANDIDATE @${formatOffset(candidate.commandOffset)} " +
+                        "  REFERENCE @${formatOffset(candidate.commandOffset)} " +
                             "type=${candidate.identifierType} " +
                             "code=${formatCode(candidate.codeFamily, candidate.codeId)} " +
                             "target=${candidate.targetModuleName} " +
