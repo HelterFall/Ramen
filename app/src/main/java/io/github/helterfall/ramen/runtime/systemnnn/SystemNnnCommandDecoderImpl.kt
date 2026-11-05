@@ -69,7 +69,7 @@ class SystemNnnCommandDecoderImpl(
                 SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
             }
 
-            SystemNnnRecordKind.FUNCTION -> decodeUserFunction(record)
+            SystemNnnRecordKind.FUNCTION -> decodeUserFunction(script, record)
 
             SystemNnnRecordKind.COMMAND,
             null -> throw unsupportedRecord(record)
@@ -300,11 +300,13 @@ class SystemNnnCommandDecoderImpl(
      * remain unsupported rather than being guessed.
      */
     private fun decodeUserFunction(
+        script: SystemNnnScript,
         record: SystemNnnCommandRecord
     ): SystemNnnDecodedCommand.Skip {
         if (record.codeFamily != USER_FUNCTION_FAMILY ||
             record.codeId != USER_FUNCTION_STOP_F5 ||
-            record.payloadWordCount != USER_FUNCTION_ZERO_ARGUMENT_COUNT
+            record.payloadWordCount != USER_FUNCTION_ARGUMENT_COUNT_WORDS ||
+            readPayloadWord(script, record, USER_FUNCTION_ARGUMENT_COUNT_PAYLOAD) != 0u
         ) {
             throw unsupportedRecord(record)
         }
@@ -812,7 +814,8 @@ class SystemNnnCommandDecoderImpl(
         const val SYSTEM_COMMAND_FAMILY = 0x2222
         const val USER_FUNCTION_FAMILY = 0x0000
         const val USER_FUNCTION_STOP_F5 = 0x0002
-        const val USER_FUNCTION_ZERO_ARGUMENT_COUNT = 1
+        const val USER_FUNCTION_ARGUMENT_COUNT_WORDS = 1
+        const val USER_FUNCTION_ARGUMENT_COUNT_PAYLOAD = 0
         const val SYSTEM_FUNCTION_FAMILY = 0x3333
         const val CODE_SYSTEMFUNCTION_SETFILM = 0x001A
         const val SETFILM_PAYLOAD_WORD_COUNT = 2
