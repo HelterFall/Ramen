@@ -790,3 +790,15 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Ramen now decodes 0x3333/0x001A SETFILM, verifies the one-based film number against the owning descriptor-3 interval, and records currentFilmNumber in ViewModel state. ENDFILM advances sequentially; CONTROL END remains the true control-stream end.
 - Added synthetic integrated test for SUB → descriptor3 target → SETFILM → ENDFILM → RETURN → caller continuation.
 - scene.dat (69 rows), scenevoice.xtx (69 IDs), and 01.spt (69 descriptor3 entries) remain only a cardinality match; no same-index mapping is asserted. Gallery navigation, inter-module script calls, sys startup dispatch, and physical device end-to-end remain unimplemented.
+
+## 2026-11-05 — project router and scene.dat parser connected
+
+- Decoder now interprets CONTROL SCRIPT/SUBSCRIPT/SCRIPTJUMP using the one-DWORD Pool 2 module reference verified in the target archive. SCRIPT and SUBSCRIPT push a module frame with exact caller continuation; SCRIPTJUMP replaces the current frame; NEXT restores the caller; END returns to the sys controller; EXIT ends playback.
+- ViewModel keeps per-module script/stream/decoder/PC/film state, a bounded three-level inter-module stack, and shared project variables. Local SUB stacks remain per module decoder.
+- IF/ELSIF/ELSE evaluates RPN condition payloads and follows bounded brace spans for sys routing branches.
+- Replaced the incorrect generic scene.dat parser with native CSceneList layout: file size, character count, per-character scene count, then signed SPT module number plus film count and signed one-based film numbers.
+- Direct scene.dat semantics: abs(sptNumber) is an index into project.xtx; abs(filmNumber)−1 is the module-local descriptor3 film index. Negative sptNumber marks H-scene; negative filmNumber disables completion tracking but still plays.
+- Actual archive: one character group, 69 scene rows, 150 film references. Module index distribution: 4/03 (2 rows, 4 refs), 10/082 (4,4), 11/akane (15,23), 12/aoi (14,36), 13/kiika (16,42), 14/yamiko (2,2), 15/yuka (14,33), 18/yuka2 (2,6). All 150 references fit each module's descriptor3 ordinary film count; 43 are negative completion-untracked references.
+- Activity prepares all modules, all descriptor3 film offsets and scene.dat; scene launch is available through EXTRA_SCENE_CHARACTER_INDEX + EXTRA_SCENE_INDEX + optional EXTRA_SCENE_FILM_CHOICE_INDEX. A visible scene picker is not part of this engine change.
+- ENDFILM is a mode-dependent decoded event: sequential in normal story mode, next-film dispatch during scene replay, finish after the last film.
+- CI, APK and automated tests deliberately not run as requested.
