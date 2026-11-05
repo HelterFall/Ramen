@@ -818,3 +818,12 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Same-stem archive fallback now tries GPK before WGQ and VAW before VPK, validating each candidate in turn rather than failing on the first corrupt file. Added synthetic fallback tests.
 - The native WGQ/MML loader first tries a same-token `.mml` path and falls back to `.wgq`; another WGQ path opens the file, skips its 64-byte preamble, and passes the stream to a dedicated reader. `.mml` names are catalogued separately; the supplied `gsstxt01.mml` and `gss01_1.wgq` are not associated by guesswork.
 - The SPT operand that selects among DWQ namespaces/slots is still unresolved, so global image index addressing remains disabled when multiple banks exist. No direct WGQ stream decoder has been added.
+
+
+## 2026-11-06 — loose VAW/WGQ audio reader connected to Asset Manager
+
+- Added a standalone loose-audio parser/materializer for Black Cyc PACKTYPE=0/1/2/6 resources. It validates the 64-byte wrapper, exact payload offsets and media markers before staging a requested stream.
+- PACKTYPE=1 is decoded incrementally as differential signed 16-bit PCM with an LSB-first reader; only the final WAVE output is staged. PACKTYPE=2 and PACKTYPE=6 expose Ogg payload after the respective native wrapper, while PACKTYPE=0 exposes WAVE at 0x40.
+- SystemNnnAssetManager now owns the loose VAW/WGQ repository and surfaces validated loose-resource metadata. Lookup is by unique path/name only; loose resources are deliberately not assigned fake VTB row numbers.
+- The indexed gg.vtb/gg.vpk 90-row voice catalog and its materializeByIndex behavior remain unchanged. Existing indexed image loading remains demand-decoded from GTB/GPK.
+- Added synthetic tests for WAVE, differential PCM, and PACKTYPE=6 WGQ materialization, including temp-file cleanup. Tests, lint, CI and APK builds were not run by request. Commercial binaries, extracted scenario text and game media remain outside Git.
