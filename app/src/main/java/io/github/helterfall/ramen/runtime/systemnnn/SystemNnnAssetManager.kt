@@ -156,7 +156,7 @@ class SystemNnnAssetManager private constructor(
      * infer a namespace from an SPT operand until that operand's semantics are proven.
      */
     @Throws(IOException::class)
-    fun loadBitmapFromNativeBank(
+    override fun loadBitmapFromNativeBank(
         namespace: String,
         slot: Int,
         resourceId: String
@@ -181,7 +181,7 @@ class SystemNnnAssetManager private constructor(
 
     /** Resolves a zero-based resource row in an explicitly selected native bank. */
     @Throws(IOException::class)
-    fun loadBitmapByNativeBankIndex(namespace: String, slot: Int, index: Long): Bitmap? {
+    override fun loadBitmapByNativeBankIndex(namespace: String, slot: Int, index: Long): Bitmap? {
         checkOpen()
         if (namespace.isBlank() || slot < 0) {
             throw IOException("A native image namespace and non-negative slot are required.")

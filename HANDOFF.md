@@ -689,3 +689,11 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 
 
 - Added explicit `loadBitmapFromNativeBank(namespace, slot, name)` and `loadBitmapByNativeBankIndex(namespace, slot, row)` APIs. They resolve only a unique metadata-matched bank and fail closed on duplicate namespace/slot pairs; no SPT operand is assumed to choose the namespace.
+
+
+### 2026-11-06 — explicit resource identity plumbing in the player
+
+- Extended the scene asset resolver contract with optional native DWQ namespace/slot methods; the asset manager now implements the contract through its existing ambiguity-checked bank lookup.
+- Decoded dialogue/scene events can carry a bank-qualified background name. The ViewModel validates that namespace and slot are supplied together and routes the lookup to that exact bank; numeric GTB and unqualified-name behavior remains unchanged.
+- Decoded dialogue events can also carry an exact audio resource name/path. The ViewModel stages it through the audio repository by name off the UI thread; this makes the existing unique-name loose VAW/WGQ path reachable without adding fake VTB rows.
+- No target SPT opcode is wired to these new fields. The target-specific image namespace/slot and dialogue-to-voice operand mapping remain unproven, so the decoder does not populate them. Tests/CI/lint/APK builds were not run.

@@ -829,3 +829,10 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Added synthetic tests for WAVE, differential PCM, and PACKTYPE=6 WGQ materialization, including temp-file cleanup. Tests, lint, CI and APK builds were not run by request. Commercial binaries, extracted scenario text and game media remain outside Git.
 
 - Added explicit native image-bank lookup by namespace and numbered slot. Duplicate matches remain ambiguous and require the path-derived bank ID; this API does not infer an SPT-to-namespace mapping.
+
+
+## 2026-11-06 — explicit resource identities passed through player runtime
+
+- Added optional native DWQ namespace/slot references to decoded background events and extended the scene resolver with bank-qualified lookup methods. The asset manager's existing ambiguity checks now protect the runtime call path.
+- Added optional exact voice resource name/path to decoded dialogue events. The ViewModel can now materialize a named VTB resource or loose VAW/WGQ resource through the existing repository API, while retaining the current numeric VTB path as fallback.
+- These are typed runtime plumbing only: no SPT image/audio opcode is guessed or connected, and no text/media payload is exported. Synthetic coverage was added for explicit image-bank forwarding. Tests, lint, CI and APK builds were not run by request.
