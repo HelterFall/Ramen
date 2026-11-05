@@ -127,9 +127,12 @@ class SystemNnnCommandDecoderImpl(
         }
         val optionCount = optionCountValue.toInt()
 
-        // Reference runtime: old format stores count + option refs only.
-        // Newer records append timing/serial fields and put message-prefix count
-        // in the final DWORD.
+        // Native gss.exe treats length == optionCount + 5 as the legacy
+        // zero-prefix form. Extended records store prefix count in the final
+        // DWORD and keep three opaque metadata DWORDs before it. The native
+        // SELECT handler forwards two metadata words to the UI callback but
+        // does not read the earlier word (the suspected selectSerial field).
+        // No nonzero metadata values occur in the cleaned primary SPT set.
         val prefixCount = if (record.lengthWords.toLong() == optionCountValue + 5L) {
             0
         } else {
