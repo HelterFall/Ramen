@@ -641,7 +641,7 @@ Runtime behavior:
 - END resets the sys controller to its command-stream entry and clears nested module frames.
 - EXIT ends playback.
 - Each module decoder has its own local SUB/RETURN stack and film-table cache; project variables are shared across decoders, matching the reference runtime's shared variable state.
-- Maximum nested SPT frame depth is three, matching the reference runtime's run-mode limit.
+- Native target `gss.exe` has three executor slots selected by `scriptRunMode` 0, 1 and 2. Initialization loads `sys.spt` into slot 0; SCRIPT/SUBSCRIPT move to the next slot, SCRIPTJUMP stays at the current slot, and NEXT decrements the mode. Therefore normal controller execution permits at most two nested module frames; direct scene playback begins at slot 1 and permits one. Ramen now enforces these two target-specific limits rather than the unrelated family-reference depth of three.
 - IF/ELSIF/ELSE now evaluates the bounded RPN condition payload and walks the declared brace spans instead of blindly skipping every branch.
 
 ### scene.dat: corrected native layout
@@ -700,3 +700,20 @@ Each branch reads the DWORD at active-record offset `+0x0C` (the sole Pool 2 ope
 This target evidence supersedes the earlier cross-title NNNLib hypothesis. The external reference stores the following DWORD in `m_stack[253]` and uses `AdjustScriptCall` while restoring saves, but that mechanism must not be transplanted into this executable. Ramen's exact `record.endOffsetExclusive` continuation is the correct normal return point for the parent module; the speculative `returnSelectorCandidate` field has been removed from decoder and module-call frames.
 
 A structural coincidence is explicitly rejected as proof: the next-record length values (3–5) can be used as low indexes into a later `DATA/TABLE` record marked `0x44440003`, and the resulting values happen to land on command-record boundaries in a few observed comparisons. The native transfer branches never perform that lookup.
+
+
+## 2026-11-06 — target-native SPT executor depth
+
+The cleaned target `hui/gss.exe` confirms that the executor stack is not the four-level stack from the other-title NNNLib reference:
+- Startup initializes `scriptRunMode` to 0 and loads `spt\\sys.spt` into the executor object at `this+0x3660` (initialization code around VA `0x00409ACC`).
+- The selector at VA `0x0040E560` maps modes 0, 1 and 2 to executor objects at `this+0x3660`, `this+0x3664` and `this+0x3668` respectively.
+- The transfer callback at VA `0x00411CB0` increments the mode for SCRIPT and SUBSCRIPT, but not SCRIPTJUMP. When the mode is already 2 it formats the warning `これ以上、下のスクリプトはよべません` (no further lower-level script can be called) and does not increase the mode.
+- The scheduler at VA `0x004106E0` decrements the mode on NEXT; END resets it to 0 and resets the controller PC.
+
+Consequences for Ramen:
+- Normal project playback starts in sys slot 0, so it may push at most two module frames (slots 1 and 2).
+- A direct scene replay starts from the selected story module, corresponding to slot 1, so it may push at most one nested module frame (slot 2).
+- SCRIPT and SUBSCRIPT share the same depth increase. SCRIPTJUMP replaces the current module at the same depth. NEXT restores the saved caller continuation and decrements one level.
+- At the native overflow boundary the executable warns and reuses its final executor slot. Ramen instead rejects the extra push with a bounded error rather than silently overwriting the active nested frame.
+
+This is based on the target executable, not the NNNLib source from another title. No CI/tests/lint/APK build was run for this change.
