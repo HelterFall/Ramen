@@ -264,8 +264,8 @@ class SystemNnnCommandDecoderImplTest {
 
         val decoded = decoder().decodeNext(script, RECORD_START) as SystemNnnDecodedCommand.Choice
 
-        assertEquals(RECORD_START + 40L + 16L, decoded.options[0].targetCommandOffset)
-        assertEquals(RECORD_START + 40L + 16L + 16L + 28L + 12L + 16L, decoded.options[1].targetCommandOffset)
+        assertEquals(RECORD_START + 40L + 16L + 16L, decoded.options[0].targetCommandOffset)
+        assertEquals(RECORD_START + 40L + 16L + 16L + 16L + 12L + 12L + 16L, decoded.options[1].targetCommandOffset)
     }
 
     @Test
