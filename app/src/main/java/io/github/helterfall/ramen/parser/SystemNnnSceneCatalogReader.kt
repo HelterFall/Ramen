@@ -4,17 +4,63 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 
-/** One opaque variable-length row from scene.dat. */
+/**
+ * One FILMDATA row from scene.dat.
+ *
+ * The original engine uses [type] as the zero-based index into project.xtx
+ * (its old comment says 1-based, but CNameList::GetName consumes it directly).
+ * A negative value marks a special/H scene; its absolute value is still the
+ * module index. Each [values] item is a signed, one-based film number; its
+ * absolute value selects the film, while a negative value disables completion
+ * checking for that film.
+ */
 data class SystemNnnSceneDataRecord(
     val type: UInt,
-    val values: List<UInt>
+    val values: List<UInt>,
+    val characterIndex: Int = -1,
+    val sceneIndex: Int = -1
+) {
+    val sptNumber: Int
+        get() = type.toInt()
+
+    val moduleIndex: Int
+        get() = kotlin.math.abs(sptNumber.toLong()).toInt()
+
+    val isSpecialScene: Boolean
+        get() = sptNumber < 0
+
+    val filmNumbers: List<Int>
+        get() = values.map(UInt::toInt)
+}
+
+data class SystemNnnResolvedSceneFilm(
+    val storedFilmNumber: Int,
+    /** Zero-based ordinary film index used by SetPCByFilmNumber. */
+    val filmIndex: Int,
+    /** Negative scene.dat entries play normally but are ignored for completion checks. */
+    val checkForCompletion: Boolean
 )
 
-/** Parsed scene.dat container. Row types and values are preserved without assigning semantics. */
+data class SystemNnnResolvedSceneRoute(
+    val characterIndex: Int,
+    val sceneIndex: Int,
+    val moduleIndex: Int,
+    val moduleName: String,
+    val isSpecialScene: Boolean,
+    val films: List<SystemNnnResolvedSceneFilm>
+)
+
+/**
+ * Parsed scene.dat. The legacy [version] property now preserves the second
+ * header DWORD, which is the character count in the reference CSceneList.
+ */
 data class SystemNnnSceneData(
     val version: UInt,
     val records: List<SystemNnnSceneDataRecord>
 ) {
+    val characterCount: Int
+        get() = version.toInt()
+
     val recordCount: Int
         get() = records.size
 }
@@ -59,9 +105,16 @@ data class SystemNnnSceneCatalogAlignment(
 /**
  * Bounded read-only readers for the scene metadata sidecars.
  *
- * scene.dat is parsed as:
- *   u32 fileSize, u32 version, u32 recordCount,
- *   repeated { u32 type, u32 valueCount, valueCount * u32 values }.
+ * scene.dat follows CSceneList:
+ *   u32 fileSize, u32 characterCount,
+ *   repeated per character { u32 sceneCount,
+ *     repeated per scene { i32 projectModuleIndex, i32 filmCount,
+ *       filmCount * i32 oneBasedFilmNumbers } }.
+ *
+ * projectModuleIndex is zero-based because the reference passes it directly
+ * to CNameList::GetName. Negative module values flag special scenes. Negative
+ * film values are played by absolute one-based number but ignored for
+ * completion checks.
  *
  * scenevoice.xtx is scanned only for ASCII @scNN identifiers. Its CP932
  * display/header text is not decoded or copied into the resulting model.
@@ -97,44 +150,125 @@ class SystemNnnSceneCatalogReader(
             throw IOException("scene.dat declared size does not match its file size.")
         }
 
-        val version = readUInt32LE(bytes, UINT32_BYTES)
-        if (version != SUPPORTED_VERSION) {
-            throw IOException("scene.dat uses an unsupported version.")
-        }
-
-        val recordCountValue = readUInt32LE(bytes, UINT32_BYTES * 2L).toLong()
-        if (recordCountValue > maxRecords.toLong()) {
-            throw IOException("scene.dat contains too many records.")
+        val characterCountValue = readUInt32LE(bytes, UINT32_BYTES).toLong()
+        if (characterCountValue > MAX_CHARACTERS.toLong()) {
+            throw IOException("scene.dat contains too many character groups.")
         }
 
         var cursor = HEADER_BYTES
-        val records = ArrayList<SystemNnnSceneDataRecord>(recordCountValue.toInt())
-        repeat(recordCountValue.toInt()) {
-            ensureAvailable(bytes, cursor, RECORD_HEADER_BYTES, "scene.dat record header")
-            val type = readUInt32LE(bytes, cursor.toLong())
-            val valueCount = readUInt32LE(bytes, cursor.toLong() + UINT32_BYTES).toLong()
-            cursor += RECORD_HEADER_BYTES
-
-            if (valueCount > maxValuesPerRecord.toLong()) {
-                throw IOException("A scene.dat record exceeds the value-count limit.")
-            }
-            val valueBytes = valueCount * UINT32_BYTES
-            if (valueBytes > (bytes.size - cursor).toLong()) {
-                throw IOException("A scene.dat record has truncated values.")
+        var totalSceneCount = 0
+        val records = ArrayList<SystemNnnSceneDataRecord>()
+        repeat(characterCountValue.toInt()) { characterIndex ->
+            ensureAvailable(bytes, cursor, UINT32_BYTES.toInt(), "scene.dat character header")
+            val sceneCountValue = readUInt32LE(bytes, cursor.toLong()).toLong()
+            cursor += UINT32_BYTES.toInt()
+            if (sceneCountValue > (maxRecords - totalSceneCount).toLong()) {
+                throw IOException("scene.dat contains too many scene rows.")
             }
 
-            val values = ArrayList<UInt>(valueCount.toInt())
-            repeat(valueCount.toInt()) { index ->
-                values += readUInt32LE(bytes, cursor.toLong() + index.toLong() * UINT32_BYTES)
+            repeat(sceneCountValue.toInt()) { sceneIndex ->
+                ensureAvailable(bytes, cursor, RECORD_HEADER_BYTES, "scene.dat scene row")
+                val moduleIndex = readUInt32LE(bytes, cursor.toLong()).toInt()
+                val filmCountValue = readUInt32LE(
+                    bytes,
+                    cursor.toLong() + UINT32_BYTES
+                ).toLong()
+                cursor += RECORD_HEADER_BYTES
+
+                if (filmCountValue > maxValuesPerRecord.toLong()) {
+                    throw IOException("A scene.dat scene row exceeds the film-count limit.")
+                }
+                if (filmCountValue * UINT32_BYTES > (bytes.size - cursor).toLong()) {
+                    throw IOException("A scene.dat scene row has truncated film numbers.")
+                }
+
+                val filmNumbers = ArrayList<UInt>(filmCountValue.toInt())
+                repeat(filmCountValue.toInt()) { filmIndex ->
+                    val raw = readUInt32LE(
+                        bytes,
+                        cursor.toLong() + filmIndex.toLong() * UINT32_BYTES
+                    )
+                    if (raw.toInt() == 0 || raw.toInt() == Int.MIN_VALUE) {
+                        throw IOException("scene.dat contains an invalid zero or overflowing film number.")
+                    }
+                    filmNumbers += raw
+                }
+                cursor += (filmCountValue * UINT32_BYTES).toInt()
+                records += SystemNnnSceneDataRecord(
+                    type = moduleIndex.toUInt(),
+                    values = filmNumbers,
+                    characterIndex = characterIndex,
+                    sceneIndex = sceneIndex
+                )
+                totalSceneCount += 1
             }
-            cursor += valueBytes.toInt()
-            records += SystemNnnSceneDataRecord(type, values)
         }
 
         if (cursor != bytes.size) {
-            throw IOException("scene.dat has trailing bytes after its declared records.")
+            throw IOException("scene.dat has trailing bytes after its declared character and scene rows.")
         }
-        return SystemNnnSceneData(version, records)
+        return SystemNnnSceneData(characterCountValue.toUInt(), records)
+    }
+
+    /**
+     * Resolves scene.dat's zero-based SPT module index through project.xtx and
+     * validates every one-based film number against that module's ordinary
+     * descriptor-3 film slots. This is the concrete scene → module → film map.
+     */
+    @Throws(IOException::class)
+    fun resolveRoutes(
+        sceneData: SystemNnnSceneData,
+        projectModuleNames: List<String>,
+        scriptsByModuleName: Map<String, SystemNnnScript>
+    ): List<SystemNnnResolvedSceneRoute> {
+        val scripts = scriptsByModuleName.entries.associate {
+            it.key.lowercase(java.util.Locale.ROOT) to it.value
+        }
+        return sceneData.records.map { row ->
+            val moduleIndex = row.moduleIndex
+            val moduleName = projectModuleNames.getOrNull(moduleIndex)
+                ?: throw IOException(
+                    "scene.dat row ${row.characterIndex}/${row.sceneIndex} references project module index $moduleIndex."
+                )
+            val script = scripts[moduleName.lowercase(java.util.Locale.ROOT)]
+                ?: throw IOException("scene.dat references module '$moduleName', but its SPT was not loaded.")
+            val filmTableCount = script.offsetTables.getOrNull(FILM_TABLE_DESCRIPTOR_INDEX)
+                ?.entryCount
+                ?.toLong()
+                ?: throw IOException("Module '$moduleName' has no descriptor-3 film table.")
+            val reservedCount = script.offsetTables.getOrNull(RESERVED_FILM_ENTRIES_DESCRIPTOR_INDEX)
+                ?.entryCount
+                ?.toLong()
+                ?: 0L
+            if (reservedCount > filmTableCount) {
+                throw IOException("Module '$moduleName' has an invalid reserved-film prefix.")
+            }
+            val ordinaryFilmCount = filmTableCount - reservedCount
+
+            val films = row.filmNumbers.map { storedFilmNumber ->
+                val filmIndex = kotlin.math.abs(storedFilmNumber.toLong()) - 1L
+                if (filmIndex < 0L || filmIndex >= ordinaryFilmCount) {
+                    throw IOException(
+                        "scene.dat row ${row.characterIndex}/${row.sceneIndex} selects " +
+                            "film $storedFilmNumber outside module '$moduleName'."
+                    )
+                }
+                SystemNnnResolvedSceneFilm(
+                    storedFilmNumber = storedFilmNumber,
+                    filmIndex = filmIndex.toInt(),
+                    checkForCompletion = storedFilmNumber > 0
+                )
+            }
+
+            SystemNnnResolvedSceneRoute(
+                characterIndex = row.characterIndex,
+                sceneIndex = row.sceneIndex,
+                moduleIndex = moduleIndex,
+                moduleName = moduleName,
+                isSpecialScene = row.isSpecialScene,
+                films = films
+            )
+        }
     }
 
     @Throws(IOException::class)
