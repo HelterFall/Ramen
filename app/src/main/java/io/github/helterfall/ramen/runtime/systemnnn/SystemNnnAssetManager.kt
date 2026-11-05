@@ -30,7 +30,7 @@ data class SystemNnnAssetBankInfo(
 data class SystemNnnAssetCatalog(
     val imageBanks: List<SystemNnnAssetBankInfo>,
     val audioBanks: List<SystemNnnAssetBankInfo>,
-    /** Loose VAW files have no paired VTB index and are not assigned voice indexes. */
+    /** Loose VAW files that could not be decoded as a supported native audio wrapper. */
     val unindexedVawFiles: List<String>,
     /** VPK files without a matching VTB index; no row order is inferred. */
     val unindexedVpkFiles: List<String>,
@@ -60,7 +60,8 @@ data class SystemNnnAssetCatalog(
  * archive indexes into an invented global resource order.
  *
  * Archive payloads stay on disk. Image banks decode only the requested image;
- * audio banks stage only the requested Ogg stream into the app cache.
+ * indexed audio banks stage only the requested Ogg row, while loose VAW/WGQ
+ * resources are materialized by unique path/name without invented voice indexes.
  */
 class SystemNnnAssetManager private constructor(
     private val imageBanks: List<ImageBank>,
