@@ -1016,3 +1016,18 @@ Across all 20 SPT modules, all 1,069 CONTROL SUB records (0x5556/0x0009) have tw
 The Resource Inspector report now exposes each mapping as: source module + SUB ID + command offset → descriptor3 table index + target command offset + target function code.
 
 There are 1,008 CONTROL RETURN records versus 1,069 SUB records; do not pair them by occurrence order. Runtime SUB/RETURN execution remains disabled until branch behavior and return-stack semantics are proven for this title.
+## 2026-11-05 — film-table sequence and SETFILM execution
+
+A full read-only replay across all 20 SPT modules found a consistent pattern for all **948 ordinary descriptor-3 film entries**:
+- exactly one SYSTEM_FUNCTION `0x3333/0x001A SETFILM` per ordinary physical film interval;
+- its two payload DWORDs are `[1, N]`;
+- the next record is CONTROL `0x5556/0x000C ENDFILM`;
+- the one-based `N` equals `descriptor3 tableIndex - reservedPrefixCount + 1`;
+- no ordinary interval failed this check.
+
+Ramen now validates SETFILM against its physical descriptor-3 owner, reports the current one-based film number in ViewModel state, and treats ENDFILM as a sequential film boundary rather than terminating the player. Local SUB/RETURN remains responsible for restoring the caller after a film subroutine. Gallery/scene-selection behavior is not implemented.
+
+The decoder has an integrated test for the target shape:
+`SUB → descriptor3 film target → SETFILM → ENDFILM → RETURN → caller continuation`.
+
+This validates module-local film identity, but does not prove a direct mapping from `scene.dat` rows or `@scNN` identifiers to a descriptor-3 film slot. The 69-count correlation remains only cardinality evidence.
