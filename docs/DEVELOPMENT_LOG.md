@@ -772,3 +772,13 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Added SystemNnnScriptTransferScanner and synthetic tests. It accepts only type-2 CONTROL records, family 0x5556, IDs 0x0A/0x15/0x16, one Pool 2 operand and exact project module-name matches; unresolved target strings are counted but not exposed.
 - Resource Inspector's Text Data export now reports these typed transfer candidates separately from the older unclassified module-name references. Runtime transfer behavior is still disabled.
 - In the target SPTs the DWORD after the Pool 2 operand is the next record's length. The family reference uses that slot as a return selector; the target's selector-to-resume mapping is not yet known, so no call stack has been added.
+
+
+## 2026-11-05 — local SUB targets validated against descriptor 3
+
+- NNNLib family reference code identifies CONTROL SUB (0x5556/0x0009) as a local call through descriptor-3 jump vector: payload[0] selects the table entry, payload[1] is the local SUB ID; CONTROL RETURN (0x5556/0x0007) restores the local stack. This source is another title and remains family-level context.
+- Read-only replay across all 20 target SPTs: all 1,069 SUB records have two DWORD operands, first operand in descriptor-3 range, and each selected vector target is a validated five-DWORD SYSTEM_FUNCTION 0x3333/0x50 or 0x3333/0x51 record.
+- In every module the second operand forms a unique dense sequence 0..SUBCount−1. Per-module counts: sys9, backspt22, 01 65, 02 50, 03 182, 04 67, 05 37, 06 9, 07 27, 08 16, 082 58, akane105, aoi89, kiika115, yamiko68, yuka109, day8, op119, yuka2 13, _staff1.
+- CONTROL RETURN count is 1,008, not equal to SUB count 1,069; no one-to-one pairing by file order is inferred.
+- Added SystemNnnLocalSubroutineScanner and synthetic tests. The inspector report now displays local SUB IDs and exact descriptor-3 target offsets separately from inter-module SCRIPT/SCRIPTJUMP/SUBSCRIPT records.
+- No local SUB/RETURN execution or runtime call stack has been enabled.
