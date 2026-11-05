@@ -51,6 +51,11 @@ class SystemNnnModuleReferenceScannerTest {
         assertEquals(listOf(0, 1), references.map { it.sourceFilmNumber })
         assertEquals(listOf(1, 2), references.map { it.sourceFilmTableIndex })
         assertEquals(listOf(0xA4L, 0xE0L), references.map { it.commandOffset })
+        assertEquals(listOf(0x7CL, 0xB8L), references.map { it.sourceFilmStartOffset })
+        assertEquals(listOf(0xB8L, null), references.map { it.sourceFilmEndOffsetExclusive })
+        assertEquals(listOf(0x3333, 0x3333), references.map { it.previousRecord?.codeFamily })
+        assertEquals(listOf(0x52, 0x52), references.map { it.previousRecord?.codeId })
+        assertEquals(listOf(null, null), references.map { it.nextRecord })
     }
 
     @Test
