@@ -192,7 +192,9 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             } else {
                 null
             }
-            val sceneVoiceFile = File(gameDirectory, "nya/scenevoice.xtx")
+            val installRoot = sptDirectory.parentFile
+                ?: throw IOException("Каталог установки System-NNN не найден.")
+            val sceneVoiceFile = File(installRoot, "nya/scenevoice.xtx")
             val sceneVoiceCatalog = if (sceneVoiceFile.isFile) {
                 SystemNnnSceneCatalogReader().readSceneVoiceCatalog(sceneVoiceFile)
             } else {
@@ -295,16 +297,32 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         // archive also carries an alternate "!eng files/spt/project.xtx";
         // prefer the main module set instead of whichever walk order returns.
         val primaryProjectFiles = projectFiles.filter { file ->
-            file.relativeTo(gameDirectory).invariantSeparatorsPath
-                .equals(PRIMARY_PROJECT_MANIFEST_PATH, ignoreCase = true)
+            val segments = file.relativeTo(gameDirectory).invariantSeparatorsPath.split('/')
+            segments.size >= 2 &&
+                segments.takeLast(2).joinToString("/").equals(
+                    PRIMARY_PROJECT_MANIFEST_SUFFIX,
+                    ignoreCase = true
+                ) &&
+                segments.none { it.equals(ALTERNATE_PROJECT_DIRECTORY, ignoreCase = true) }
+        }
+        val shallowestPrimaryDepth = primaryProjectFiles.minOfOrNull { file ->
+            file.relativeTo(gameDirectory).invariantSeparatorsPath.count { it == '/' }
+        }
+        val shallowestPrimaryFiles = if (shallowestPrimaryDepth == null) {
+            emptyList()
+        } else {
+            primaryProjectFiles.filter { file ->
+                file.relativeTo(gameDirectory).invariantSeparatorsPath.count { it == '/' } ==
+                    shallowestPrimaryDepth
+            }
         }
         val projectFile = when {
-            primaryProjectFiles.size == 1 -> primaryProjectFiles.single()
-            primaryProjectFiles.size > 1 ->
-                throw IOException("В основной папке spt найдено несколько project.xtx.")
+            shallowestPrimaryFiles.size == 1 -> shallowestPrimaryFiles.single()
+            shallowestPrimaryFiles.size > 1 ->
+                throw IOException("Найдено несколько основных spt/project.xtx.")
             projectFiles.size == 1 -> projectFiles.single()
             else -> throw IOException(
-                "Найдено несколько project.xtx, но основной spt/project.xtx отсутствует."
+                "Найдено несколько project.xtx, но основной каталог SPT не определён."
             )
         }
         val modules = SystemNnnProjectCatalog.load(projectFile).resolveModules(projectFile)
@@ -435,7 +453,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         const val EXTRA_SCENE_FILM_CHOICE_INDEX = "io.github.helterfall.ramen.extra.SYSTEM_NNN_SCENE_FILM_CHOICE_INDEX"
         private const val MAX_GAME_SCAN_DEPTH = 12
         private const val MAX_DISCOVERED_FILES = 10_000
-        private const val PRIMARY_PROJECT_MANIFEST_PATH = "spt/project.xtx"
+        private const val PRIMARY_PROJECT_MANIFEST_SUFFIX = "spt/project.xtx"
+        private const val ALTERNATE_PROJECT_DIRECTORY = "!eng files"
         private val AUDIO_ARCHIVE_EXTENSIONS = setOf("vaw", "vpk")
     }
 }
