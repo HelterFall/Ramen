@@ -261,11 +261,11 @@ Observed type counts: type 10 = 4; 11 = 15; 12 = 14; 13 = 16; 14 = 2; 15 = 14; 1
 
 - Descriptor 3 has different count/base pairs in all 20 SPT files; its count is 69 only in 01.spt.
 - In every one of the 20 samples, the first decoded DWORD at physical file offset 0x40 equals descriptor3.logicalBase + descriptor3.entryCount.
-- The next DWORD at 0x44 varies by module and is not yet mapped.
+- The next DWORD at 0x44 varies by module; follow-up analysis of the clean `hui(5).zip` archive shows that it points to the second DATA/TABLE record immediately following the first one.
 - Searching the files for a 4-byte-aligned, strictly increasing UInt32 table beginning with descriptor3.logicalBase + descriptor3.entryCount found **no valid table in any of the 20 files** under the same rule that successfully locates Pool 1 and Pool 2.
 - The fact that 01.spt descriptor 3 count equals scene.dat record count (69) is an interesting one-file correlation, not proof that the descriptor points to scene.dat. The other 19 descriptor counts differ.
 
-This is a new exact cross-field invariant, but descriptor 3 is not yet understood as a third string pool or an address table.
+At this initial checkpoint descriptor 3 had not yet been classified; later 20-module analysis below establishes it as a DWORD pointer vector for film targets, not a third string pool.
 
 ### Descriptor 4
 
@@ -289,10 +289,10 @@ A simple equality comparison between scene.dat record type/valueCount fields and
 - The semantic meaning of the four pair families and their parameter fields.
 - Whether each `0x2222` pair maps to a Pool 1 entry in simple occurrence order.
 - Exact instruction lengths where additional operands/data follow the two-cell prefix.
-- Resource/background/audio command references, branching, waits, choices and module transitions.
+- Resource/background/audio command references, branching, waits and choices; module transfers are resolved in the later native-executable section below.
 - The startup module and true execution order for this specific title.
 
-No Kotlin code or tests were changed during this analysis. The VM decoder remains disabled. No runtime behavior or game launch is claimed.
+This paragraph records the state at that earlier diagnostic checkpoint only. Later sections document subsequent parser/VM work and native-confirmed module routing; no device launch or end-to-end result is claimed.
 
 ## Next diagnostic step
 
