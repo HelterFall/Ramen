@@ -51,12 +51,11 @@ class SystemNnnCommandDecoderImpl(
         val record = stream.records[recordIndex]
 
         return when (record.recordKind) {
-            SystemNnnRecordKind.DATA,
-            SystemNnnRecordKind.SYSTEM_FUNCTION -> {
-                // Data records are metadata. System functions are non-blocking
-                // in the reference VM; visual/audio effects are added separately.
+            SystemNnnRecordKind.DATA ->
                 SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
-            }
+
+            SystemNnnRecordKind.SYSTEM_FUNCTION ->
+                decodeSystemFunction(script, stream, record)
 
             SystemNnnRecordKind.SYSTEM_COMMAND -> decodeSystemCommand(script, record)
 
@@ -259,6 +258,65 @@ class SystemNnnCommandDecoderImpl(
             record.codeFamily == EXPRESSION_FAMILY &&
             record.codeId == CODE_CLOSE_BRACE
 
+
+    private fun decodeSystemFunction(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand {
+        if (record.codeFamily != SYSTEM_FUNCTION_FAMILY) {
+            throw unsupportedRecord(record)
+        }
+
+        return when (record.codeId) {
+            CODE_SYSTEMFUNCTION_SETFILM -> decodeSetFilm(script, stream, record)
+            else -> SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+        }
+    }
+
+    /**
+     * SETFILM stores the one-based film number associated with the descriptor-3
+     * interval that contains this record. This is a metadata update, not a PC
+     * jump: ENDFILM is the sequential boundary handled by the outer script loop.
+     */
+    private fun decodeSetFilm(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.SetFilm {
+        if (record.payloadWordCount != SETFILM_PAYLOAD_WORD_COUNT) {
+            throw IOException("A System-NNN SETFILM record must contain an argument count and one film number.")
+        }
+        val argumentCount = readPayloadWord(script, record, SETFILM_ARGUMENT_COUNT_PAYLOAD)
+        if (argumentCount != SETFILM_ARGUMENT_COUNT.toUInt()) {
+            throw IOException("A System-NNN SETFILM record must declare exactly one argument.")
+        }
+
+        val filmNumberValue = readPayloadWord(script, record, SETFILM_FILM_NUMBER_PAYLOAD).toLong()
+        if (filmNumberValue !in 1L..Int.MAX_VALUE.toLong()) {
+            throw IOException("A System-NNN SETFILM number is outside the supported range.")
+        }
+
+        val owner = filmTableEntriesFor(script, stream)
+            .asSequence()
+            .filter { it.targetCommandOffset <= record.offset }
+            .maxByOrNull { it.targetCommandOffset }
+            ?: throw IOException("A System-NNN SETFILM record is outside a descriptor-3 film interval.")
+
+        val expectedFilmNumber = owner.filmNumber?.toLong()?.plus(1L)
+            ?: throw IOException("A System-NNN SETFILM record belongs to a reserved descriptor-3 entry.")
+        if (filmNumberValue != expectedFilmNumber) {
+            throw IOException(
+                "SETFILM number $filmNumberValue does not match descriptor-3 film number $expectedFilmNumber."
+            )
+        }
+
+        return SystemNnnDecodedCommand.SetFilm(
+            nextCommandOffset = record.endOffsetExclusive,
+            filmNumber = filmNumberValue.toInt()
+        )
+    }
+
     private fun decodeControl(
         script: SystemNnnScript,
         stream: SystemNnnCommandStream,
@@ -287,8 +345,9 @@ class SystemNnnCommandDecoderImpl(
 
             CODE_CONTROL_RETURN -> returnFromLocalSubroutine(stream, record)
 
-            CODE_CONTROL_END,
-            CODE_CONTROL_ENDFILM -> SystemNnnDecodedCommand.End
+            CODE_CONTROL_ENDFILM -> SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+
+            CODE_CONTROL_END -> SystemNnnDecodedCommand.End
 
             else -> throw unsupportedRecord(record)
         }
@@ -632,6 +691,12 @@ class SystemNnnCommandDecoderImpl(
         const val DWORD_BYTES = 4L
         const val RECORD_HEADER_WORDS = 3
         const val SYSTEM_COMMAND_FAMILY = 0x2222
+        const val SYSTEM_FUNCTION_FAMILY = 0x3333
+        const val CODE_SYSTEMFUNCTION_SETFILM = 0x001A
+        const val SETFILM_PAYLOAD_WORD_COUNT = 2
+        const val SETFILM_ARGUMENT_COUNT_PAYLOAD = 0
+        const val SETFILM_FILM_NUMBER_PAYLOAD = 1
+        const val SETFILM_ARGUMENT_COUNT = 1
         const val CONTROL_FAMILY = 0x5556
         const val EXPRESSION_FAMILY = 0xA000
 
