@@ -263,8 +263,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         releaseAssets()
 
         moduleCallStack.clear()
-        sceneReplayModuleName = null
-        sceneReplayFilms = emptyList()
+        this.sceneReplayModuleName = null
+        this.sceneReplayFilms = emptyList()
         sceneReplayFilmCursor = 0
         currentModuleName = moduleName
         currentFilmNumber = initialFilmNumber

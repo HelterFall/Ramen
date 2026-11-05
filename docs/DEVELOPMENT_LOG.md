@@ -864,3 +864,10 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - AUTO now advances completed dialogue after a short delay. SKIP reveals the current line immediately and advances quickly; AUTO and SKIP are mutually exclusive and pause while choices or loading are active.
 - SAVE/LOAD are deliberately exposed as host callbacks and currently show an explicit “not connected” message. No save-state format or load semantics are invented in this UI-only change.
 - No tests, lint, CI or APK builds were run by request.
+
+## 2026-11-06 — dedicated debug APK workflow
+
+- Kept the Android GitHub Actions workflow enabled for pull-request updates and manual dispatch.
+- Narrowed the build job to `assembleDebug` only; unit tests and lint are not invoked in this APK-only workflow. The debug APK artifact is uploaded after a successful assembly.
+- Fixed a Kotlin compile blocker in `SystemNnnPlayerViewModel.start()`: reset the shadowed scene-replay properties through `this.sceneReplayModuleName` and `this.sceneReplayFilms`.
+- The workflow runs on the next PR synchronize event; no tests or lint tasks are part of this APK-only run.
