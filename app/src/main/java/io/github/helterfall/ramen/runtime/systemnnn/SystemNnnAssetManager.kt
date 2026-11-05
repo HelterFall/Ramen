@@ -36,7 +36,7 @@ data class SystemNnnAssetCatalog(
     val unindexedVpkFiles: List<String>,
     /** MML files seen by the native WGQ/MML loader, but not mapped to a resource token. */
     val unindexedMmlFiles: List<String>,
-    /** WGQ files not paired with GTB and not recognized as standalone packed-BMP images. */
+    /** WGQ files not recognized as either standalone packed-BMP or supported loose audio. */
     val unindexedWgqFiles: List<String>,
     /** Loose .vaw/.wgq resources with a validated native audio wrapper. */
     val looseAudioResources: List<SystemNnnLooseAudioResourceInfo> = emptyList(),
