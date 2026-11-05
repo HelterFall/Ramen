@@ -38,6 +38,8 @@ data class SystemNnnAssetCatalog(
     val unindexedMmlFiles: List<String>,
     /** WGQ files not paired with GTB and not recognized as standalone packed-BMP images. */
     val unindexedWgqFiles: List<String>,
+    /** Loose .vaw/.wgq resources with a validated native audio wrapper. */
+    val looseAudioResources: List<SystemNnnLooseAudioResourceInfo> = emptyList(),
     val warnings: List<String>
 ) {
     val totalIndexedImageResources: Int
@@ -63,6 +65,7 @@ data class SystemNnnAssetCatalog(
 class SystemNnnAssetManager private constructor(
     private val imageBanks: List<ImageBank>,
     private val audioBanks: List<AudioBank>,
+    private val looseAudioRepository: SystemNnnLooseAudioRepository,
     val catalog: SystemNnnAssetCatalog
 ) : SystemNnnSceneAssetResolver, SystemNnnAudioResourceRepository {
 
@@ -193,10 +196,10 @@ class SystemNnnAssetManager private constructor(
         if (matchingBanks.size == 1) {
             return matchingBanks.single().repository.materialize(resourceId)
         }
-        if (audioBanks.size == 1) {
+        if (audioBanks.size == 1 && audioBanks.single().repository.findResource(resourceId) != null) {
             return audioBanks.single().repository.materialize(resourceId)
         }
-        throw IOException("Audio resource was not found or its bank is ambiguous: " + resourceId)
+        return looseAudioRepository.materialize(resourceId)
     }
 
     @Throws(IOException::class)
@@ -211,6 +214,14 @@ class SystemNnnAssetManager private constructor(
                     " banks; use materializeByBankIndex(bankId, index)."
             )
         }
+    }
+
+    /** Materializes a validated loose VAW/WGQ resource by unique name or relative path. */
+    @Throws(IOException::class)
+    @Synchronized
+    fun materializeLooseAudio(resourceId: String): File {
+        checkOpen()
+        return looseAudioRepository.materialize(resourceId)
     }
 
     @Throws(IOException::class)
@@ -241,6 +252,7 @@ class SystemNnnAssetManager private constructor(
         closed = true
         imageBanks.forEach { runCatching { it.repository.close() } }
         audioBanks.forEach { runCatching { it.repository.close() } }
+        runCatching { looseAudioRepository.close() }
     }
 
     companion object {
@@ -394,9 +406,7 @@ class SystemNnnAssetManager private constructor(
             }
 
             val vawFiles = discoverFiles(root, "vaw", warnings)
-            val unindexedVaw = vawFiles
-                .filter { it.canonicalPath !in pairedAudioArchives }
-                .map { relativePath(root, it) }
+            val looseVawFiles = vawFiles.filter { it.canonicalPath !in pairedAudioArchives }
             val vpkFiles = discoverFiles(root, "vpk", warnings)
             val unindexedVpk = vpkFiles
                 .filter { it.canonicalPath !in pairedAudioArchives }
@@ -406,9 +416,20 @@ class SystemNnnAssetManager private constructor(
             // that a differently named MML file describes a given WGQ resource.
             val unindexedMmlFiles = discoverFiles(root, "mml", warnings)
                 .map { relativePath(root, it) }
-            val unindexedWgqFiles = unpairedWgq
-                .filter { it !in standaloneWgqImages }
+            val looseWgqFiles = unpairedWgq.filter { it !in standaloneWgqImages }
+            val looseAudioRepository = SystemNnnLooseAudioRepository(
+                gameDirectory = root,
+                candidateFiles = looseVawFiles + looseWgqFiles,
+                cacheDirectory = cacheDirectory
+            )
+            warnings += looseAudioRepository.warnings
+            val recognizedLooseAudio = looseAudioRepository.resources.map { it.id }.toSet()
+            val unindexedVaw = looseVawFiles
                 .map { relativePath(root, it) }
+                .filterNot { it in recognizedLooseAudio }
+            val unindexedWgqFiles = looseWgqFiles
+                .map { relativePath(root, it) }
+                .filterNot { it in recognizedLooseAudio }
 
             val catalog = SystemNnnAssetCatalog(
                 imageBanks = imageBanks.map(ImageBank::info),
@@ -417,11 +438,13 @@ class SystemNnnAssetManager private constructor(
                 unindexedVpkFiles = unindexedVpk,
                 unindexedMmlFiles = unindexedMmlFiles,
                 unindexedWgqFiles = unindexedWgqFiles,
+                looseAudioResources = looseAudioRepository.resources,
                 warnings = warnings.toList()
             )
             return SystemNnnAssetManager(
                 imageBanks = imageBanks.toList(),
                 audioBanks = audioBanks.toList(),
+                looseAudioRepository = looseAudioRepository,
                 catalog = catalog
             )
         }
