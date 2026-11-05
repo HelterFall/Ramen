@@ -103,3 +103,6 @@ The raw marker `0x44440003` is named `TYPE_TABLE_LABEL` in the inspected NNNLib 
 The target `hui/gss.exe` disassembly separately settles transfer behavior: its SCRIPT, SUBSCRIPT and SCRIPTJUMP handlers read only the single Pool 2 operand at record+0x0C and advance PC by the current record length. The following DWORD is the next record length and is not read as a return selector. The earlier experiment where values 3–5 indexed the second DATA/TABLE record and happened to resolve to command boundaries is therefore not an execution rule and must not be used for module returns.
 
 This follow-up supersedes the earlier note that the `0x44` word was still unmapped. It does not establish every purpose of the two DATA/TABLE records; their broader label-table consumers remain a separate format question.
+
+
+The target's native scheduler also corroborates the module-stack behavior: its dispatch loop treats SCRIPT, SUBSCRIPT and SCRIPTJUMP as transfer events, while NEXT reduces the active script-run depth before the parent execution continues. The application therefore keeps the current SCRIPT/SUBSCRIPT push and SCRIPTJUMP replace behavior; the key correction made here is only that the next-record length is not a return selector.
