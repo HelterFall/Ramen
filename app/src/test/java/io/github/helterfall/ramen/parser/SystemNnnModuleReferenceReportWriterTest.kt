@@ -39,6 +39,29 @@ class SystemNnnModuleReferenceReportWriterTest {
             previousRecord = null,
             nextRecord = null
         )
+        val localScan = SystemNnnLocalSubroutineScanResult(
+            candidates = listOf(
+                SystemNnnLocalSubroutineCandidate(
+                    sourceModuleName = "01",
+                    commandOffset = 0x70L,
+                    subroutineId = 0,
+                    targetTableIndex = 1,
+                    targetCommandOffset = 0x90L,
+                    targetFunctionCodeId = 0x50,
+                    targetFilmNumber = 0,
+                    sourceFilmTableIndex = 1,
+                    sourceFilmNumber = 0,
+                    sourceFilmStartOffset = 0x60L,
+                    sourceFilmEndOffsetExclusive = 0xA0L,
+                    previousRecord = null,
+                    nextRecord = null
+                )
+            ),
+            subroutineIdsAreDense = true,
+            missingSubroutineIds = emptyList(),
+            duplicateSubroutineIds = emptyList(),
+            unresolvedTargetCount = 0
+        )
         val output = ByteArrayOutputStream()
 
         SystemNnnModuleReferenceReportWriter().write(
@@ -47,7 +70,8 @@ class SystemNnnModuleReferenceReportWriterTest {
                     projectPath = "spt/project.xtx",
                     moduleCount = 20,
                     candidates = listOf(first, second),
-                    scriptTransfers = listOf(transfer)
+                    scriptTransfers = listOf(transfer),
+                    localSubroutineScan = localScan
                 )
             ),
             output
@@ -61,6 +85,9 @@ class SystemNnnModuleReferenceReportWriterTest {
         assertTrue(report.contains("PREV:"))
         assertTrue(report.contains("NEXT:"))
         assertTrue(report.contains("SCRIPT TRANSFER RECORDS"))
+        assertTrue(report.contains("LOCAL SUBROUTINE TABLE TARGETS"))
+        assertTrue(report.contains("SUB id=0"))
+        assertTrue(report.contains("descriptor3[1]"))
         assertTrue(report.contains("SCRIPT @0x50"))
         assertTrue(report.contains("-> op1"))
         assertTrue(report.contains("UNCLASSIFIED POOL 2 MODULE-NAME REFERENCES"))
