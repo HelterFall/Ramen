@@ -264,13 +264,13 @@ class SystemNnnCommandDecoderImpl(
 
 
     /**
-     * Target SPT transfer records carry exactly one DWORD: a Pool 2 index whose
-     * text must be a safe project module token. The target format has no second
-     * return-selector DWORD; Ramen saves the exact caller continuation.
+     * The target gss.exe transfer handlers read exactly one DWORD at record+0x0C:
+     * a Pool 2 module-name index. They then advance the active PC by this record's
+     * own length. The following DWORD is the next record's length, not a target
+     * return selector. The ViewModel preserves this exact caller continuation.
      */
     private fun decodeModuleTransfer(
         script: SystemNnnScript,
-        stream: SystemNnnCommandStream,
         record: SystemNnnCommandRecord,
         kind: SystemNnnModuleTransferKind
     ): SystemNnnDecodedCommand.ModuleTransfer {
@@ -286,17 +286,10 @@ class SystemNnnCommandDecoderImpl(
         if (target.hasDecodingErrors || !MODULE_NAME_PATTERN.matches(target.text)) {
             throw IOException("A System-NNN $kind target is not a valid module name.")
         }
-        val returnSelectorCandidate = if (kind == SystemNnnModuleTransferKind.SCRIPTJUMP) {
-            null
-        } else {
-            val nextRecordIndex = stream.records.binarySearchBy(record.endOffsetExclusive) { it.offset }
-            stream.records.getOrNull(nextRecordIndex)?.lengthWords
-        }
         return SystemNnnDecodedCommand.ModuleTransfer(
             nextCommandOffset = record.endOffsetExclusive,
             targetModuleName = target.text,
-            kind = kind,
-            returnSelectorCandidate = returnSelectorCandidate
+            kind = kind
         )
     }
 
@@ -412,15 +405,15 @@ class SystemNnnCommandDecoderImpl(
             CODE_CONTROL_RETURN -> returnFromLocalSubroutine(stream, record)
 
             CODE_CONTROL_SCRIPT -> decodeModuleTransfer(
-                script, stream, record, SystemNnnModuleTransferKind.SCRIPT
+                script, record, SystemNnnModuleTransferKind.SCRIPT
             )
 
             CODE_CONTROL_SUBSCRIPT -> decodeModuleTransfer(
-                script, stream, record, SystemNnnModuleTransferKind.SUBSCRIPT
+                script, record, SystemNnnModuleTransferKind.SUBSCRIPT
             )
 
             CODE_CONTROL_SCRIPTJUMP -> decodeModuleTransfer(
-                script, stream, record, SystemNnnModuleTransferKind.SCRIPTJUMP
+                script, record, SystemNnnModuleTransferKind.SCRIPTJUMP
             )
 
             CODE_CONTROL_NEXT -> {
