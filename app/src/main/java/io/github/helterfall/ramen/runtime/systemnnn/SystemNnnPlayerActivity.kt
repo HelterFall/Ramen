@@ -86,10 +86,12 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                         resolverToTransfer.close()
                         preparedAudio?.repository?.close()
                     } else {
+                        val projectVariables = HashMap<Int, Int>()
                         val decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder = {
                             SystemNnnCommandDecoderImpl(
                                 gtbResourceCount = resolverToTransfer.resourceCount,
-                                streamReader = commandStreamReader
+                                streamReader = commandStreamReader,
+                                variables = projectVariables
                             )
                         }
                         if (launch.projectModules != null) {
