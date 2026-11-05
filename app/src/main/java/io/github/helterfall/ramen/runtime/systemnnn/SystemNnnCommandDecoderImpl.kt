@@ -108,6 +108,12 @@ class SystemNnnCommandDecoderImpl(
                 )
             }
 
+            // NNNLib names 0x22220004 DRAW. The native handler forwards an opaque
+            // payload to its drawing callback, but Ramen has no verified
+            // target-specific payload schema/renderer yet. Skip only this
+            // already-bounded record rather than interpreting unknown operands.
+            CODE_DRAW -> SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+
             CODE_SELECT -> decodeSelect(script, streamFor(script), record)
 
             else -> throw unsupportedRecord(record)
@@ -843,6 +849,7 @@ class SystemNnnCommandDecoderImpl(
         const val CODE_PRINT = 0x0001
         const val CODE_LPRINT = 0x0002
         const val CODE_APPEND = 0x0003
+        const val CODE_DRAW = 0x0004
 
         const val CODE_CONTROL_NOP = 0x0001
         const val CODE_CONTROL_IF = 0x0002

@@ -84,6 +84,31 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun skipsDrawSystemCommandAndContinuesAtTheNextRecord() {
+        val script = testScript(
+            listOf(
+                record(5, SYSTEM_COMMAND, CODE_DRAW, 1u, 3u),
+                record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
+            ),
+            textCount = 1
+        )
+        val decoder = decoder()
+        val drawEndOffset = RECORD_START + 20L
+
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(drawEndOffset),
+            decoder.decodeNext(script, RECORD_START)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Dialogue(
+                nextCommandOffset = drawEndOffset + 20L,
+                textEntryOffset = script.textPool.single().offset
+            ),
+            decoder.decodeNext(script, drawEndOffset)
+        )
+    }
+
+    @Test
     fun skipsEndKomaAndEndIfControlRecords() {
         for (code in listOf(CODE_CONTROL_ENDKOMA, CODE_CONTROL_ENDIF, CODE_CONTROL_NOP)) {
             val script = testScript(
@@ -729,6 +754,7 @@ class SystemNnnCommandDecoderImplTest {
         const val CODE_PRINT = 0x22220001u
         const val CODE_LPRINT = 0x22220002u
         const val CODE_APPEND = 0x22220003u
+        const val CODE_DRAW = 0x22220004u
         const val CODE_SELECT = 0x22220006u
         const val CODE_CONTROL_NOP = 0x55560001u
         const val CODE_CONTROL_END = 0x55560005u

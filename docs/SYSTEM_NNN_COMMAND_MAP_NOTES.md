@@ -758,3 +758,28 @@ Ramen intentionally still does not expose the native time-limit/auto-select/spec
 - The Ramen decoder's branch traversal matches this target behavior on all observed condition layouts. Full primary SPT scan: 490 IF/ELSIF/ELSE records, 490 valid brace spans, and a maximum ELSIF chain of 11.
 - Native CALCU evaluator at VA `0x00417690` changes a zero divisor to 1 for integer `/` and `%`, including their compound forms. The Kotlin evaluator has been corrected to do the same.
 - Synthetic regression tests cover false IF/ELSIF fallthrough to ELSE, skipping remaining alternatives after a true IF, and `10 / 0` evaluating through the native divisor-to-one fallback. Tests remain unrun by request.
+
+
+## SYSTEM_COMMAND DRAW (`0x22220004`)
+
+The runtime warning at SPT offset `0x13080` identifies a type-6 record
+(`identifier=0x66660006`, `SYSTEM_COMMAND`) with code
+`0x22220004`. In the pinned NNNLib family reference,
+`scriptDefine.h` names this code `CODE_SYSTEMCOMMAND_DRAW` / `DRAW`.
+This is a system command, not a `0x3333` SYSTEM_FUNCTION, so it is outside
+the scope of `SystemNnnResourceFunctionScanner`.
+
+The reference `execscript.cpp` forwards the record's opaque drawing payload
+to the native script callback, advances the program counter by the record's
+declared length, and yields a DRAW event when its draw-count field is nonzero.
+That describes the family reference implementation; the cleaned Ramen
+repository does not contain the target `gss.exe` or a verified
+Gore-Screaming-Show-specific DRAW payload schema.
+
+Ramen therefore treats `0x22220004` as a bounded no-op for now: the command
+stream reader validates the complete record boundary, and the decoder returns
+`Skip(record.endOffsetExclusive)` without reading any payload DWORDs. This
+prevents the unsupported-record stop and continues at the next record, but
+does not render any graphics encoded by DRAW. A target-specific renderer
+remains future work; no payload values are reclassified as resource indices
+or module references.

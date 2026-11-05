@@ -871,3 +871,11 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Narrowed the build job to `assembleDebug` only; unit tests and lint are not invoked in this APK-only workflow. The debug APK artifact is uploaded after a successful assembly.
 - Fixed a Kotlin compile blocker in `SystemNnnPlayerViewModel.start()`: reset the shadowed scene-replay properties through `this.sceneReplayModuleName` and `this.sceneReplayFilms`.
 - The workflow runs on the next PR synchronize event; no tests or lint tasks are part of this APK-only run.
+
+
+## 2026-11-06 — bounded skip for SYSTEM_COMMAND DRAW
+
+- Classified the reported record at SPT offset `0x13080`: identifier `0x66660006` is SYSTEM_COMMAND, and code `0x22220004` is DRAW in the pinned NNNLib family reference. It is not a SYSTEM_FUNCTION candidate and therefore is not covered by Resource Function Scanner.
+- The family reference dispatches DRAW through an opaque native drawing callback and advances by the declared record length. The Ramen repository does not include the target `gss.exe` or a verified target-specific DRAW payload layout.
+- Decoder now safely skips the complete, already-bounded DRAW record without reading or guessing at its payload, allowing the next SPT record to execute. Graphics represented by that DRAW record are not rendered yet.
+- Added synthetic coverage for DRAW followed by PRINT. Tests, lint, CI and APK builds were not run.
