@@ -400,7 +400,8 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val nativeRect = sprite.nativeRect
     val fromRect = sprite.nativeRectFrom
     val hasRectMotion = fromRect != null && nativeRect != null && effectId != null
-    val durationFrames = (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+    val defaultDurationFrames = if (effectId == 62 || effectId == 119) 1 else 20
+    val durationFrames = (parameters.firstOrNull() ?: defaultDurationFrames).coerceIn(1, 9_999)
     val animationKey = listOf(sprite.resourceId, sprite.layerIndex, sprite.nativeEffectCommandOffset,
         fromRect, nativeRect, effectId, parameters)
     val progress = remember(animationKey) {
