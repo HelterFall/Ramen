@@ -1516,17 +1516,20 @@ object ResourceArchiveParsers {
     @Throws(IOException::class)
     fun decodeBlackCycWgqFile(
         file: File,
-        maxDecodedPixels: Long = Long.MAX_VALUE
+        maxDecodedPixels: Long = Long.MAX_VALUE,
+        maxPackedBlockBytes: Long = MAX_STANDALONE_WGQ_BYTES
     ): DecodedDwqBitmap {
         if (!file.isFile || java.nio.file.Files.isSymbolicLink(file.toPath())) {
             throw IOException("The WGQ image resource is not a regular file.")
         }
         if (maxDecodedPixels <= 0L) throw IOException("Invalid decoded-pixel limit.")
+        if (maxPackedBlockBytes <= 0L) throw IOException("Invalid packed-block byte limit.")
         val length = file.length()
         if (length < DWQ_HEADER_SIZE.toLong() + BMP_HEADER_SIZE.toLong() ||
-            length > MAX_STANDALONE_WGQ_BYTES || length > Int.MAX_VALUE.toLong()
+            length > minOf(MAX_STANDALONE_WGQ_BYTES, maxPackedBlockBytes) ||
+            length > Int.MAX_VALUE.toLong()
         ) {
-            throw IOException("The WGQ image resource is outside the supported buffer range.")
+            throw IOException("The WGQ image resource exceeds the configured block-size budget or supported buffer range.")
         }
 
         // Inspect just the DWQ/BMP headers before loading the complete archive block.
