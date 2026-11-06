@@ -430,13 +430,13 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val t = progress.value.coerceIn(0f, 1f)
     val frame = (t * durationFrames).roundToInt().coerceIn(0, durationFrames)
     val cycleFrame = (cycle.value * cycleFrames).roundToInt().coerceIn(0, cycleFrames)
-    val rectX = if (fromRect != null && nativeRect != null) (fromRect.x + (nativeRect.x - fromRect.x) * t).roundToInt()
-        else nativeRect?.x ?: 0
-    val rectY = if (fromRect != null && nativeRect != null) (fromRect.y + (nativeRect.y - fromRect.y) * t).roundToInt()
-        else nativeRect?.y ?: 0
-    // Native CalcuZahyo interpolates origin only; size remains at the source until completion.
-    val rectWidth = if (fromRect != null && nativeRect != null && t < 1f) fromRect.width else nativeRect?.width ?: sprite.bitmap.width
-    val rectHeight = if (fromRect != null && nativeRect != null && t < 1f) fromRect.height else nativeRect?.height ?: sprite.bitmap.height
+    val movedRect = if (fromRect != null && nativeRect != null) {
+        SystemNnnVisualEffectMath.moveRect(frame, durationFrames, fromRect, nativeRect)
+    } else nativeRect
+    val rectX = movedRect?.x ?: 0
+    val rectY = movedRect?.y ?: 0
+    val rectWidth = movedRect?.width ?: sprite.bitmap.width
+    val rectHeight = movedRect?.height ?: sprite.bitmap.height
 
     val alpha = when (effectId) {
         8 -> ((parameters.getOrNull(1) ?: 50) / 100f).coerceIn(0f, 1f)
