@@ -410,6 +410,20 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         }
     }
 
+    override fun onPause() {
+        if (::playerViewModel.isInitialized) {
+            playerViewModel.onHostPaused()
+        }
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (::playerViewModel.isInitialized) {
+            playerViewModel.onHostResumed()
+        }
+    }
+
     override fun onDestroy() {
         if (::startupExecutor.isInitialized) {
             startupExecutor.shutdownNow()
