@@ -885,6 +885,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 pendingSpriteLayersChanged = true
             }
 
+            fun appendImageStatusMessage(message: String?) {
+                if (message.isNullOrBlank()) return
+                imageStatusMessage = listOfNotNull(imageStatusMessage, message)
+                    .joinToString(separator = "\n")
+            }
+
             var commandsWithoutVisibleOutput = 0
 
             while (commandsWithoutVisibleOutput < MAX_SCENE_COMMANDS_PER_ADVANCE) {
@@ -1204,7 +1210,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 resolver = resolver
                             )
                             sceneSprites = resolution.sprites
-                            imageStatusMessage = resolution.statusMessage
+                            appendImageStatusMessage(resolution.statusMessage)
                         }
 
                         val dialogueStepIndex = command.dialogueStepIndex
@@ -1267,7 +1273,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 resolver = resolver
                             )
                             sceneSprites = resolution.sprites
-                            imageStatusMessage = resolution.statusMessage
+                            appendImageStatusMessage(resolution.statusMessage)
                         }
 
                         frameCounter += 1L
