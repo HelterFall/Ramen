@@ -472,38 +472,60 @@ class SystemNnnCommandDecoderImpl(
     private fun decodeSetEffectRect(
         script: SystemNnnScript,
         record: SystemNnnCommandRecord
-    ): SystemNnnDecodedCommand.SetImageLayerRect {
-        readDeclaredArgumentCount(script, record, 9, 9, "SETEFFECTRECT")
-        val layer = readPayloadWord(script, record, 1).toLong()
-        if (layer !in 0L until MAX_IMAGE_LAYERS.toLong()) {
-            throw IOException("A System-NNN SETEFFECTRECT layer is outside the supported range.")
-        }
-        fun readRect(start: Int): SystemNnnNativeRect {
-            // The native engine stores Win32 RECT edges (left, top, right, bottom),
-            // not an (x, y, width, height) tuple.
-            val left = readPayloadWord(script, record, start).toInt()
-            val top = readPayloadWord(script, record, start + 1).toInt()
-            val right = readPayloadWord(script, record, start + 2).toInt()
-            val bottom = readPayloadWord(script, record, start + 3).toInt()
-            val width = right.toLong() - left.toLong()
-            val height = bottom.toLong() - top.toLong()
-            if (left !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
-                top !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
-                right !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
-                bottom !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
-                width !in 0L..MAX_EFFECT_RECT_DIMENSION.toLong() ||
-                height !in 0L..MAX_EFFECT_RECT_DIMENSION.toLong()
-            ) {
-                throw IOException("A System-NNN SETEFFECTRECT contains an invalid or out-of-range RECT.")
+    ): SystemNnnDecodedCommand {
+        // Family builds use para1 as a variable operand count. The native callback
+        // reads the first nine operands (layer + two RECTs) and ignores extras.
+        // Keep this command fail-open: malformed/unusual rectangles must not stop
+        // the script player from reaching the next visible dialogue.
+        return try {
+            val argumentCount = readDeclaredArgumentCount(
+                script, record, 9, MAX_EFFECT_ARGUMENTS, "SETEFFECTRECT"
+            )
+            if (argumentCount < 9) {
+                return skipUnsupported(record, "SETEFFECTRECT has fewer than nine required operands")
             }
-            return SystemNnnNativeRect(left, top, width.toInt(), height.toInt())
+            val layer = readPayloadWord(script, record, 1).toLong()
+            if (layer !in 0L until MAX_IMAGE_LAYERS.toLong()) {
+                return skipUnsupported(record, "SETEFFECTRECT layer is outside the supported range")
+            }
+
+            fun readRect(start: Int): SystemNnnNativeRect? {
+                // The native engine stores Win32 RECT edges (left, top, right, bottom).
+                val left = readPayloadWord(script, record, start).toInt()
+                val top = readPayloadWord(script, record, start + 1).toInt()
+                val right = readPayloadWord(script, record, start + 2).toInt()
+                val bottom = readPayloadWord(script, record, start + 3).toInt()
+                val width = right.toLong() - left.toLong()
+                val height = bottom.toLong() - top.toLong()
+
+                // Preserve signed origins. Treat empty, inverted or unrepresentably
+                // large rectangles as unsupported rather than fatal runtime errors.
+                if (width !in 1L..Int.MAX_VALUE.toLong() ||
+                    height !in 1L..Int.MAX_VALUE.toLong()
+                ) {
+                    return null
+                }
+                return SystemNnnNativeRect(left, top, width.toInt(), height.toInt())
+            }
+
+            val fromRect = readRect(2)
+                ?: return skipUnsupported(record, "SETEFFECTRECT source RECT is not renderable")
+            val toRect = readRect(6)
+                ?: return skipUnsupported(record, "SETEFFECTRECT destination RECT is not renderable")
+
+            SystemNnnDecodedCommand.SetImageLayerRect(
+                nextCommandOffset = record.endOffsetExclusive,
+                layerIndex = layer.toInt(),
+                fromRect = fromRect,
+                toRect = toRect
+            )
+        } catch (failure: IOException) {
+            skipUnsupported(
+                record,
+                "SETEFFECTRECT could not be applied safely: " +
+                    (failure.message ?: failure.javaClass.simpleName)
+            )
         }
-        return SystemNnnDecodedCommand.SetImageLayerRect(
-            nextCommandOffset = record.endOffsetExclusive,
-            layerIndex = layer.toInt(),
-            fromRect = readRect(2),
-            toRect = readRect(6)
-        )
     }
 
     /**

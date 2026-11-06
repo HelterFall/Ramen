@@ -910,3 +910,10 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Removed automatic layer clearing on SETFILM, SCRIPTJUMP, scene-replay ENDFILM and controller reset. The pinned family reference shows SETFILM only updates the saved film index and SCRIPT/SCRIPTJUMP only switches the active SPT; neither callback clears the effect compositor.
 - Active DWQ layers now remain until explicit CLEAREFFECTLAYER, CLEARALLEFFECT, SETEFFECT with effect −1, or a complete SceneUpdate snapshot. This avoids deleting valid stage layers based on an unverified scene-boundary assumption.
 - The separate SETEFFECTRECT correction remains: payload RECTs are absolute left/top/right/bottom edges, converted to width/height. Tests and lint were not run.
+
+
+## 2026-11-06 — make SETEFFECTRECT non-fatal for unsupported payloads
+
+- The latest device screenshot reproduced a player halt caused by strict SETEFFECTRECT validation. Changed this decoder path to fail open: invalid layer IDs, undersized/oversized argument lists, empty/inverted rectangles, and read errors are logged and skipped at the already-validated record boundary rather than stopping the script.
+- Accepts the first nine native operands while allowing extra declared arguments, matching the family callback's fixed reads from a variable-length parameter block. Signed left/top origins are preserved; right/bottom still convert to width/height with 64-bit arithmetic.
+- Added regression cases for inverted RECT skip, extra operands, and negative origins. Tests and lint were not run.

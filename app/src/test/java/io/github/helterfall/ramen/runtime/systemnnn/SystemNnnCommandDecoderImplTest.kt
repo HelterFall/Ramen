@@ -104,6 +104,58 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun malformedSetEffectRectIsSkippedInsteadOfStoppingTheScript() {
+        val script = testScript(
+            records = listOf(
+                record(
+                    13,
+                    SYSTEM_FUNCTION,
+                    CODE_SYSTEMFUNCTION_SETEFFECTRECT,
+                    9u,
+                    3u,
+                    100u, 100u, 50u, 50u,
+                    10u, 20u, 410u, 320u
+                )
+            ),
+            textCount = 0
+        )
+
+        assertEquals(
+            SystemNnnDecodedCommand.Skip(RECORD_START + 52L),
+            decoder().decodeNext(script, RECORD_START)
+        )
+    }
+
+    @Test
+    fun setEffectRectAcceptsNativeExtraArgumentsAndSignedOrigins() {
+        val script = testScript(
+            records = listOf(
+                record(
+                    14,
+                    SYSTEM_FUNCTION,
+                    CODE_SYSTEMFUNCTION_SETEFFECTRECT,
+                    10u,
+                    3u,
+                    0xFFFF_FFF6u, 20u, 410u, 320u,
+                    30u, 40u, 430u, 340u,
+                    99u
+                )
+            ),
+            textCount = 0
+        )
+
+        assertEquals(
+            SystemNnnDecodedCommand.SetImageLayerRect(
+                nextCommandOffset = RECORD_START + 56L,
+                layerIndex = 3,
+                fromRect = SystemNnnNativeRect(-10, 20, 420, 300),
+                toRect = SystemNnnNativeRect(30, 40, 400, 300)
+            ),
+            decoder().decodeNext(script, RECORD_START)
+        )
+    }
+
+    @Test
     fun decodesClearEffectLayerAndClearAllEffect() {
         val clearOne = testScript(
             records = listOf(record(4, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER, 5u)),
