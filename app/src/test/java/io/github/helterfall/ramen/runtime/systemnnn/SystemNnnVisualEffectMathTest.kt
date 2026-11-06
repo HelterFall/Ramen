@@ -87,6 +87,18 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(30f, end.y, 0.001f)
     }
 
+
+    @Test
+    fun bezierAndBSplineUseNativeDefaultControlPointsAndDuration() {
+        val bezierEnd = SystemNnnVisualEffectMath.bezierOffset(1, emptyList())
+        val bSplineEnd = SystemNnnVisualEffectMath.bSpline2Offset(1, emptyList())
+
+        assertEquals(400f, bezierEnd.x, 0.001f)
+        assertEquals(100f, bezierEnd.y, 0.001f)
+        assertEquals(400f, bSplineEnd.x, 0.001f)
+        assertEquals(100f, bSplineEnd.y, 0.001f)
+    }
+
     @Test
     fun nativeShakePatternMovesTheEntireFrameOnTheRequestedAxis() {
         val horizontal = (0..3).map {
