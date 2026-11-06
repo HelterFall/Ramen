@@ -539,6 +539,56 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun warnsThatChangeEffectIsOnlyAnApproximation() {
+        val offsets = recordOffsets()
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 0,
+                    effectId = 40
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertTrue(viewModel.uiState.statusMessage?.contains("(40)") == true)
+        assertTrue(viewModel.uiState.statusMessage?.contains("не поддерживается полностью") == true)
+    }
+
+    @Test
+    fun warnsThatMoveEffectHasNoRenderer() {
+        val offsets = recordOffsets()
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 0,
+                    effectId = 52
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertTrue(viewModel.uiState.statusMessage?.contains("(52)") == true)
+        assertTrue(viewModel.uiState.statusMessage?.contains("не поддерживается полностью") == true)
+    }
+
+    @Test
     fun invalidChoiceTargetIsRejected() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(
