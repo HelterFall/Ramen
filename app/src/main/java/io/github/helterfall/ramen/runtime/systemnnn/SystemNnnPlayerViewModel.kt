@@ -1616,6 +1616,22 @@ class SystemNnnPlayerViewModel : ViewModel() {
             )
         }
 
+        val resolvedByLayer = resolved.associateBy { it.layerIndex }
+        references.filter { it.nativeEffectId == 40 }.forEach { reference ->
+            val partnerLayer = reference.nativeEffectParameters.getOrNull(1)
+            val partner = partnerLayer?.let(resolvedByLayer::get)
+            val primary = resolvedByLayer[reference.layerIndex]
+            when {
+                partnerLayer == null -> Unit // Reported when the command is decoded.
+                partner == null -> warnings +=
+                    "CHANGE (40) on layer ${reference.layerIndex} cannot run: second layer ${partnerLayer} is missing."
+                primary != null && (
+                    partner.bitmap.width != primary.bitmap.width ||
+                        partner.bitmap.height != primary.bitmap.height
+                ) -> warnings +=
+                    "CHANGE (40) on layer ${reference.layerIndex} cannot run: both layer images must have the same dimensions."
+            }
+        }
         return SpriteResolution(
             sprites = resolved.sortedBy { it.layerIndex },
             statusMessage = warnings.take(MAX_IMAGE_WARNING_COUNT).takeIf { it.isNotEmpty() }
