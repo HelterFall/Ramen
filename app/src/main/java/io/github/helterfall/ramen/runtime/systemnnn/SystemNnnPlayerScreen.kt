@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -321,7 +322,7 @@ private fun DialogueBox(
  * left/top from source to destination while keeping right/bottom as dimensions.
  */
 @Composable
-private fun SystemNnnAnimatedSpriteLayer(
+private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     sprite: SystemNnnSpriteBitmap,
     viewportWidth: androidx.compose.ui.unit.Dp,
     viewportHeight: androidx.compose.ui.unit.Dp,
@@ -372,12 +373,14 @@ private fun SystemNnnAnimatedSpriteLayer(
         55 -> 24
         132 -> (parameters.getOrNull(3) ?: 8).coerceIn(1, 60)
         18 -> (parameters.getOrNull(0) ?: 20).coerceIn(1, 60)
+        39 -> (parameters.firstOrNull() ?: 20).coerceIn(1, 60)
         else -> 1
     }
     val effectCycle = remember(animationKey) { Animatable(0f) }
     LaunchedEffect(animationKey) {
         if (effectId == 55 || effectId == 132 ||
-            (effectId == 18 && parameters.getOrNull(2) != 0)
+            (effectId == 18 && parameters.getOrNull(2) != 0) ||
+            (effectId == 39 && parameters.getOrNull(3) != 0)
         ) {
             while (true) {
                 effectCycle.animateTo(
