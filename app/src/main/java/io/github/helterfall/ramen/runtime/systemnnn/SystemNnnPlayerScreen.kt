@@ -81,7 +81,7 @@ fun SystemNnnPlayerScreen(
         val effectId = state.screenEffectId ?: return@LaunchedEffect
         val parameters = state.screenEffectParameters
         val duration = (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
-        val repeats = effectId == 55 || (effectId == 18 && parameters.getOrNull(2) != 0)
+        val repeats = effectId == 55 || (effectId == 18 && (parameters.getOrNull(2) ?: 0) != 0)
         if (repeats) {
             while (true) {
                 delay(16L)
@@ -159,7 +159,7 @@ fun SystemNnnPlayerScreen(
                     SystemNnnVisualEffectMath.shakeOffset(
                         frame = screenEffectFrame,
                         frameCount = (state.screenEffectParameters.firstOrNull() ?: 20).coerceAtLeast(1),
-                        vertical = state.screenEffectParameters.getOrNull(1) != 0
+                        vertical = (state.screenEffectParameters.getOrNull(1) ?: 0) != 0
                     )
                 } else SystemNnnVisualOffset(0f, 0f)
 
@@ -416,7 +416,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     }
     val cycle = remember(animationKey) { Animatable(0f) }
     LaunchedEffect(animationKey) {
-        if ((effectId == 39 && parameters.getOrNull(3) != 0) || effectId == 132) {
+        if ((effectId == 39 && (parameters.getOrNull(3) ?: 0) != 0) || effectId == 132) {
             while (true) {
                 cycle.animateTo(1f, tween((cycleFrames * 16).coerceIn(16, 60_000), easing = LinearEasing))
                 cycle.snapTo(0f)
