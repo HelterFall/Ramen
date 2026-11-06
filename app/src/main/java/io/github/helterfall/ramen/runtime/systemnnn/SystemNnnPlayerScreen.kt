@@ -36,23 +36,26 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawImage
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
-import kotlin.math.cos
 import kotlin.math.roundToInt
-import kotlin.math.sin
 
 /**
  * Presentational SPT scene. Scene commands and resource IDs are decoded by the
@@ -71,6 +74,26 @@ fun SystemNnnPlayerScreen(
 ) {
     var autoMode by remember { mutableStateOf(false) }
     var skipMode by remember { mutableStateOf(false) }
+    val screenEffectKey = listOf(state.screenEffectId, state.screenEffectParameters, state.screenEffectCommandOffset)
+    var screenEffectFrame by remember(screenEffectKey) { mutableIntStateOf(0) }
+
+    LaunchedEffect(screenEffectKey) {
+        val effectId = state.screenEffectId ?: return@LaunchedEffect
+        val parameters = state.screenEffectParameters
+        val duration = (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+        val repeats = effectId == 55 || (effectId == 18 && parameters.getOrNull(2) != 0)
+        if (repeats) {
+            while (true) {
+                delay(16L)
+                screenEffectFrame = (screenEffectFrame + 1) % duration
+            }
+        } else {
+            for (frame in 0..duration) {
+                screenEffectFrame = frame
+                if (frame < duration) delay(16L)
+            }
+        }
+    }
 
     LaunchedEffect(state.frameId, state.forceReveal, skipMode) {
         if (state.dialogueText.isEmpty() || state.forceReveal) {
@@ -126,39 +149,74 @@ fun SystemNnnPlayerScreen(
             }
 
             BoxWithConstraints(
-                modifier = viewportModifier.align(Alignment.Center)
+                modifier = viewportModifier.align(Alignment.Center).clipToBounds()
             ) {
-                val referenceWidth = state.backgroundBitmap?.width?.toFloat()
-                    ?: state.sprites.firstOrNull()?.bitmap?.width?.toFloat()
-                    ?: 800f
-                val referenceHeight = state.backgroundBitmap?.height?.toFloat()
-                    ?: state.sprites.firstOrNull()?.bitmap?.height?.toFloat()
-                    ?: 600f
-
-                state.backgroundBitmap?.let { background ->
-                    DisposableEffect(background) {
-                        onDispose { onBitmapDisposed(background) }
-                    }
-                    Image(
-                        bitmap = background.asImageBitmap(),
-                        contentDescription = "Scene background",
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = ContentScale.FillBounds,
-                        alignment = Alignment.TopStart
+                val referenceWidth = (state.backgroundBitmap?.width
+                    ?: state.sprites.firstOrNull()?.bitmap?.width ?: 800).toFloat()
+                val referenceHeight = (state.backgroundBitmap?.height
+                    ?: state.sprites.firstOrNull()?.bitmap?.height ?: 600).toFloat()
+                val screenShake = if (state.screenEffectId == 18) {
+                    SystemNnnVisualEffectMath.shakeOffset(
+                        frame = screenEffectFrame,
+                        frameCount = (state.screenEffectParameters.firstOrNull() ?: 20).coerceAtLeast(1),
+                        vertical = state.screenEffectParameters.getOrNull(1) != 0
                     )
-                }
+                } else SystemNnnVisualOffset(0f, 0f)
 
-                state.sprites.forEach { sprite ->
-                    key(sprite.layerIndex) {
-                        SystemNnnAnimatedSpriteLayer(
-                            sprite = sprite,
-                            viewportWidth = maxWidth,
-                            viewportHeight = maxHeight,
-                            referenceWidth = referenceWidth,
-                            referenceHeight = referenceHeight,
-                            onBitmapDisposed = onBitmapDisposed
+                val changePartners = state.sprites.mapNotNull { sprite ->
+                    if (sprite.nativeEffectId != 40) return@mapNotNull null
+                    val partnerLayer = sprite.nativeEffectParameters.getOrNull(1) ?: return@mapNotNull null
+                    val partner = state.sprites.firstOrNull { it.layerIndex == partnerLayer } ?: return@mapNotNull null
+                    if (partner.bitmap.width != sprite.bitmap.width || partner.bitmap.height != sprite.bitmap.height) {
+                        return@mapNotNull null
+                    }
+                    sprite.layerIndex to partner
+                }.toMap()
+                val hiddenPartnerLayers = changePartners.values.map { it.layerIndex }.toSet()
+
+                Box(
+                    modifier = Modifier.fillMaxSize().graphicsLayer {
+                        translationX = maxWidth.toPx() * (screenShake.x / referenceWidth.coerceAtLeast(1f))
+                        translationY = maxHeight.toPx() * (screenShake.y / referenceHeight.coerceAtLeast(1f))
+                    }
+                ) {
+                    state.backgroundBitmap?.let { background ->
+                        DisposableEffect(background) {
+                            onDispose { onBitmapDisposed(background) }
+                        }
+                        Image(
+                            bitmap = background.asImageBitmap(),
+                            contentDescription = "Scene background",
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = ContentScale.FillBounds,
+                            alignment = Alignment.TopStart
                         )
                     }
+                    state.sprites.forEach { sprite ->
+                        if (sprite.layerIndex !in hiddenPartnerLayers) {
+                            key(sprite.layerIndex) {
+                                SystemNnnAnimatedSpriteLayer(
+                                    sprite = sprite,
+                                    changePartner = changePartners[sprite.layerIndex],
+                                    viewportWidth = maxWidth,
+                                    viewportHeight = maxHeight,
+                                    referenceWidth = referenceWidth,
+                                    referenceHeight = referenceHeight,
+                                    onBitmapDisposed = onBitmapDisposed
+                                )
+                            }
+                        }
+                    }
+                }
+                state.screenEffectId?.let { effectId ->
+                    SystemNnnScreenEffectOverlay(
+                        effectId = effectId,
+                        parameters = state.screenEffectParameters,
+                        frame = screenEffectFrame,
+                        referenceWidth = referenceWidth,
+                        referenceHeight = referenceHeight,
+                        modifier = Modifier.fillMaxSize()
+                    )
                 }
             }
         }
@@ -323,14 +381,16 @@ private fun DialogueBox(
 @Composable
 private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     sprite: SystemNnnSpriteBitmap,
+    changePartner: SystemNnnSpriteBitmap?,
     viewportWidth: androidx.compose.ui.unit.Dp,
     viewportHeight: androidx.compose.ui.unit.Dp,
     referenceWidth: Float,
     referenceHeight: Float,
     onBitmapDisposed: (Bitmap) -> Unit
 ) {
-    DisposableEffect(sprite.bitmap) {
-        onDispose { onBitmapDisposed(sprite.bitmap) }
+    DisposableEffect(sprite.bitmap) { onDispose { onBitmapDisposed(sprite.bitmap) } }
+    if (changePartner != null && changePartner.bitmap !== sprite.bitmap) {
+        DisposableEffect(changePartner.bitmap) { onDispose { onBitmapDisposed(changePartner.bitmap) } }
     }
 
     val effectId = sprite.nativeEffectId
@@ -338,211 +398,183 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val nativeRect = sprite.nativeRect
     val fromRect = sprite.nativeRectFrom
     val hasRectMotion = fromRect != null && nativeRect != null && effectId != null
-    val durationFrames = when (effectId) {
-        8 -> 1
-        55 -> 9_999
-        else -> (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
-    }
-    val animationKey = listOf(
-        sprite.resourceId,
-        sprite.layerIndex,
-        sprite.nativeEffectCommandOffset,
-        fromRect,
-        nativeRect,
-        effectId,
-        parameters
-    )
-
+    val durationFrames = (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+    val animationKey = listOf(sprite.resourceId, sprite.layerIndex, sprite.nativeEffectCommandOffset,
+        fromRect, nativeRect, effectId, parameters)
     val progress = remember(animationKey) {
-        Animatable(if (hasRectMotion || effectId in setOf(9, 10, 11, 39, 40, 62, 119)) 0f else 1f)
+        Animatable(if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 119)) 0f else 1f)
     }
     LaunchedEffect(animationKey) {
-        if (hasRectMotion || effectId in setOf(9, 10, 11, 39, 40, 62, 119)) {
-            progress.animateTo(
-                targetValue = 1f,
-                animationSpec = tween(
-                    durationMillis = (durationFrames * 16).coerceIn(16, 60_000),
-                    easing = LinearEasing
-                )
-            )
+        if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 119)) {
+            progress.animateTo(1f, tween((durationFrames * 16).coerceIn(16, 60_000), easing = LinearEasing))
         }
     }
-
-    val effectCycleFrames = when (effectId) {
-        55 -> 24
+    val cycleFrames = when (effectId) {
+        39 -> (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
         132 -> (parameters.getOrNull(3) ?: 8).coerceIn(1, 60)
-        18 -> (parameters.getOrNull(0) ?: 20).coerceIn(1, 60)
-        39 -> (parameters.firstOrNull() ?: 20).coerceIn(1, 60)
         else -> 1
     }
-    val effectCycle = remember(animationKey) { Animatable(0f) }
+    val cycle = remember(animationKey) { Animatable(0f) }
     LaunchedEffect(animationKey) {
-        if (effectId == 55 || effectId == 132 ||
-            (effectId == 18 && parameters.getOrNull(2) != 0) ||
-            (effectId == 39 && parameters.getOrNull(3) != 0)
-        ) {
+        if ((effectId == 39 && parameters.getOrNull(3) != 0) || effectId == 132) {
             while (true) {
-                effectCycle.animateTo(
-                    targetValue = 1f,
-                    animationSpec = tween(
-                        durationMillis = (effectCycleFrames * 16).coerceIn(50, 2_000),
-                        easing = LinearEasing
-                    )
-                )
-                effectCycle.snapTo(0f)
+                cycle.animateTo(1f, tween((cycleFrames * 16).coerceIn(16, 60_000), easing = LinearEasing))
+                cycle.snapTo(0f)
             }
-        } else {
-            effectCycle.snapTo(1f)
-        }
+        } else cycle.snapTo(1f)
     }
 
     val t = progress.value.coerceIn(0f, 1f)
-    val cycle = effectCycle.value.coerceIn(0f, 1f)
-    val rectX = if (fromRect != null && nativeRect != null) {
-        (fromRect.x + (nativeRect.x - fromRect.x) * t).roundToInt()
-    } else nativeRect?.x ?: 0
-    val rectY = if (fromRect != null && nativeRect != null) {
-        (fromRect.y + (nativeRect.y - fromRect.y) * t).roundToInt()
-    } else nativeRect?.y ?: 0
-    // Native PrintLayers uses right/bottom as sizes, not Win32 absolute edges.
-    val rectWidth = if (fromRect != null && nativeRect != null && t < 1f) {
-        fromRect.width
-    } else nativeRect?.width ?: sprite.bitmap.width
-    val rectHeight = if (fromRect != null && nativeRect != null && t < 1f) {
-        fromRect.height
-    } else nativeRect?.height ?: sprite.bitmap.height
+    val frame = (t * durationFrames).roundToInt().coerceIn(0, durationFrames)
+    val cycleFrame = (cycle.value * cycleFrames).roundToInt().coerceIn(0, cycleFrames)
+    val rectX = if (fromRect != null && nativeRect != null) (fromRect.x + (nativeRect.x - fromRect.x) * t).roundToInt()
+        else nativeRect?.x ?: 0
+    val rectY = if (fromRect != null && nativeRect != null) (fromRect.y + (nativeRect.y - fromRect.y) * t).roundToInt()
+        else nativeRect?.y ?: 0
+    // Native CalcuZahyo interpolates origin only; size remains at the source until completion.
+    val rectWidth = if (fromRect != null && nativeRect != null && t < 1f) fromRect.width else nativeRect?.width ?: sprite.bitmap.width
+    val rectHeight = if (fromRect != null && nativeRect != null && t < 1f) fromRect.height else nativeRect?.height ?: sprite.bitmap.height
 
     val alpha = when (effectId) {
         8 -> ((parameters.getOrNull(1) ?: 50) / 100f).coerceIn(0f, 1f)
-        9 -> {
-            val start = (parameters.getOrNull(2) ?: 100).coerceIn(0, 100)
-            val end = (parameters.getOrNull(1) ?: 50).coerceIn(0, 100)
-            (start + (end - start) * t) / 100f
-        }
-        10 -> t
-        11, 40 -> 1f - t
+        9 -> SystemNnnVisualEffectMath.nativeSpeedValue(
+            frame, durationFrames,
+            (parameters.getOrNull(2) ?: 100).coerceIn(0, 100),
+            (parameters.getOrNull(1) ?: 50).coerceIn(0, 100),
+            parameters.getOrNull(4) ?: 0,
+            parameters.getOrNull(3) ?: 0
+        ).coerceIn(0, 100) / 100f
         else -> 1f
-    }.coerceIn(0f, 1f)
-
-    val shakeX = when (effectId) {
-        132 -> sin(cycle * Math.PI * 4.0).toFloat() *
-            (parameters.getOrNull(1) ?: 4).coerceIn(0, 64)
-        18 -> sin(cycle * Math.PI * 4.0).toFloat() * 16f
-        else -> 0f
     }
-    val shakeY = when (effectId) {
-        132 -> cos(cycle * Math.PI * 4.0).toFloat() *
-            (parameters.getOrNull(2) ?: 4).coerceIn(0, 64)
-        18 -> if (parameters.getOrNull(1) == 1) {
-            cos(cycle * Math.PI * 4.0).toFloat() * 12f
-        } else 0f
-        else -> 0f
+    val characterJitter = if (effectId == 132) {
+        SystemNnnVisualEffectMath.charaBureOffset(
+            cycleFrame.toLong(), parameters,
+            sprite.resourceId.hashCode() xor (sprite.nativeEffectCommandOffset?.toInt() ?: 0)
+        )
+    } else SystemNnnVisualOffset(0f, 0f)
+    val pathOffset = when (effectId) {
+        62 -> SystemNnnVisualEffectMath.bezierOffset(frame, parameters)
+        119 -> SystemNnnVisualEffectMath.bSpline2Offset(frame, parameters)
+        else -> SystemNnnVisualOffset(0f, 0f)
     }
-
-    var moveX = 0f
-    var moveY = 0f
-    when (effectId) {
-        39 -> {
-            val scrollT = if (parameters.getOrNull(3) != 0) cycle else t
-            moveX = (parameters.getOrNull(1) ?: 0) * durationFrames * scrollT
-            moveY = (parameters.getOrNull(2) ?: 0) * durationFrames * scrollT
-        }
-        62 -> {
-            if (parameters.size >= 9) {
-                val u = t
-                val inv = 1f - u
-                val x1 = parameters[1].toFloat()
-                val y1 = parameters[2].toFloat()
-                val x2 = parameters[3].toFloat()
-                val y2 = parameters[4].toFloat()
-                val x3 = parameters[5].toFloat()
-                val y3 = parameters[6].toFloat()
-                val x4 = parameters[7].toFloat()
-                val y4 = parameters[8].toFloat()
-                moveX = inv * inv * inv * x1 +
-                    3f * inv * inv * u * x2 +
-                    3f * inv * u * u * x3 +
-                    u * u * u * x4
-                moveY = inv * inv * inv * y1 +
-                    3f * inv * inv * u * y2 +
-                    3f * inv * u * u * y3 +
-                    u * u * u * y4
-            }
-        }
-        119 -> {
-            if (parameters.size >= 7) {
-                val u = t
-                val inv = 1f - u
-                moveX = inv * inv * parameters[1] +
-                    2f * inv * u * parameters[3] + u * u * parameters[5]
-                moveY = inv * inv * parameters[2] +
-                    2f * inv * u * parameters[4] + u * u * parameters[6]
-            }
-        }
-    }
-
     val safeReferenceWidth = referenceWidth.coerceAtLeast(1f)
     val safeReferenceHeight = referenceHeight.coerceAtLeast(1f)
-    val xOffset = viewportWidth * ((rectX + shakeX + moveX) / safeReferenceWidth)
-    val yOffset = viewportHeight * ((rectY + shakeY + moveY) / safeReferenceHeight)
+    val isScroll = effectId == 39
+    val xOffset = viewportWidth * ((rectX + characterJitter.x + pathOffset.x) / safeReferenceWidth)
+    val yOffset = viewportHeight * ((rectY + characterJitter.y + pathOffset.y) / safeReferenceHeight)
     val width = viewportWidth * (rectWidth.coerceAtLeast(1).toFloat() / safeReferenceWidth)
     val height = viewportHeight * (rectHeight.coerceAtLeast(1).toFloat() / safeReferenceHeight)
-
-    val spriteModifier = if (nativeRect != null) {
-        Modifier
-            .align(Alignment.TopStart)
-            .offset(x = xOffset, y = yOffset)
-            .width(width)
-            .height(height)
-    } else {
-        Modifier
-            .align(Alignment.BottomCenter)
+    val spriteModifier = when {
+        isScroll -> Modifier.align(Alignment.TopStart).fillMaxSize()
+        nativeRect != null -> Modifier.align(Alignment.TopStart).offset(xOffset, yOffset).width(width).height(height)
+        else -> Modifier.align(Alignment.BottomCenter)
             .width(viewportWidth * sprite.widthFraction.coerceIn(0.1f, 1f))
             .height(viewportHeight * sprite.heightFraction.coerceIn(0.1f, 1f))
             .offset(
                 x = viewportWidth * (sprite.centerXFraction.coerceIn(0f, 1f) - 0.5f) +
-                    viewportWidth * ((shakeX + moveX) / safeReferenceWidth),
-                y = viewportHeight * ((shakeY + moveY) / safeReferenceHeight)
+                    viewportWidth * ((characterJitter.x + pathOffset.x) / safeReferenceWidth),
+                y = viewportHeight * ((characterJitter.y + pathOffset.y) / safeReferenceHeight)
             )
     }
 
-    Box(
-        modifier = spriteModifier.graphicsLayer {
-            this.alpha = alpha
-        }
-    ) {
-        Image(
-            bitmap = sprite.bitmap.asImageBitmap(),
-            contentDescription = sprite.contentDescription,
-            modifier = Modifier.fillMaxSize(),
-            contentScale = if (nativeRect != null) ContentScale.FillBounds else ContentScale.Fit,
-            alignment = Alignment.TopStart
-        )
-
-        // OLDFILM is persistent in the family renderer and emits moving scratches.
-        if (effectId == 55) {
-            val lineCount = (parameters.getOrNull(5) ?: 3).coerceIn(1, 10)
-            val lineWidth = (parameters.getOrNull(6) ?: 1).coerceIn(1, 4)
-            val lineAlpha = ((parameters.getOrNull(13) ?: 100).coerceIn(0, 100) / 100f) * 0.16f
-            Canvas(modifier = Modifier.fillMaxSize()) {
-                repeat(lineCount) { index ->
-                    val phase = (cycle + index.toFloat() / lineCount) % 1f
-                    val x = phase * size.width
-                    drawRect(
-                        color = Color.White.copy(alpha = lineAlpha),
-                        topLeft = Offset(x, 0f),
-                        size = Size(lineWidth.dp.toPx(), size.height)
+    Box(modifier = spriteModifier.graphicsLayer { this.alpha = alpha }) {
+        when {
+            isScroll -> {
+                val wrapped = SystemNnnVisualEffectMath.scrollOffset(
+                    if (parameters.getOrNull(3) != 0) cycleFrame else frame,
+                    parameters, safeReferenceWidth.roundToInt().coerceAtLeast(1),
+                    safeReferenceHeight.roundToInt().coerceAtLeast(1)
+                )
+                val dx = viewportWidth * (wrapped.x / safeReferenceWidth)
+                val dy = viewportHeight * (wrapped.y / safeReferenceHeight)
+                for (xRepeat in 0..1) for (yRepeat in 0..1) {
+                    Image(
+                        bitmap = sprite.bitmap.asImageBitmap(),
+                        contentDescription = sprite.contentDescription,
+                        modifier = Modifier.offset(dx - viewportWidth * xRepeat, dy - viewportHeight * yRepeat)
+                            .width(viewportWidth).height(viewportHeight),
+                        contentScale = ContentScale.FillBounds,
+                        alignment = Alignment.TopStart
                     )
                 }
-                var y = 2.dp.toPx()
-                while (y < size.height) {
-                    drawLine(
-                        color = Color.Black.copy(alpha = 0.045f),
-                        start = Offset(0f, y),
-                        end = Offset(size.width, y),
-                        strokeWidth = 0.6.dp.toPx()
-                    )
-                    y += 3.dp.toPx()
+            }
+            effectId == 40 && changePartner != null -> {
+                val blend = SystemNnnVisualEffectMath.changeBlend(frame, parameters)
+                Canvas(Modifier.fillMaxSize()) {
+                    val dst = IntSize(size.width.roundToInt(), size.height.roundToInt())
+                    drawImage(sprite.bitmap.asImageBitmap(), dstSize = dst, alpha = blend.primaryAlpha)
+                    drawImage(changePartner.bitmap.asImageBitmap(), dstSize = dst,
+                        alpha = blend.secondaryAlpha, blendMode = BlendMode.Plus)
+                }
+            }
+            else -> Image(
+                bitmap = sprite.bitmap.asImageBitmap(),
+                contentDescription = sprite.contentDescription,
+                modifier = Modifier.fillMaxSize(),
+                contentScale = if (nativeRect != null) ContentScale.FillBounds else ContentScale.Fit,
+                alignment = Alignment.TopStart
+            )
+        }
+    }
+}
+
+@Composable
+private fun SystemNnnScreenEffectOverlay(
+    effectId: Int,
+    parameters: List<Int>,
+    frame: Int,
+    referenceWidth: Float,
+    referenceHeight: Float,
+    modifier: Modifier = Modifier
+) {
+    when (effectId) {
+        10, 11 -> {
+            val duration = (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+            val progress = SystemNnnVisualEffectMath.nativeSpeedValue(
+                frame, duration, 0, 100, parameters.getOrNull(5) ?: 0, parameters.getOrNull(4) ?: 0
+            ).coerceIn(0, 100) / 100f
+            val alpha = if (effectId == 10) 1f - progress else progress
+            val red = (parameters.getOrNull(1) ?: 0).coerceIn(0, 255) / 255f
+            val green = (parameters.getOrNull(2) ?: 0).coerceIn(0, 255) / 255f
+            val blue = (parameters.getOrNull(3) ?: 0).coerceIn(0, 255) / 255f
+            Box(modifier.background(Color(red, green, blue, alpha)))
+        }
+        54 -> {
+            val red = (parameters.getOrNull(1) ?: 0).coerceIn(0, 255) / 255f
+            val green = (parameters.getOrNull(2) ?: 0).coerceIn(0, 255) / 255f
+            val blue = (parameters.getOrNull(3) ?: 0).coerceIn(0, 255) / 255f
+            Box(modifier.background(Color(red, green, blue, 1f)))
+        }
+        55 -> {
+            val left = (parameters.getOrNull(1) ?: 0).coerceIn(0, referenceWidth.toInt())
+            val top = (parameters.getOrNull(2) ?: 0).coerceIn(0, referenceHeight.toInt())
+            val width = (parameters.getOrNull(3) ?: referenceWidth.toInt()).coerceAtLeast(1)
+            val height = (parameters.getOrNull(4) ?: referenceHeight.toInt()).coerceAtLeast(1)
+            val lineCount = (parameters.getOrNull(5) ?: 3).coerceIn(1, 10)
+            val lineWidth = (parameters.getOrNull(6) ?: 1).coerceIn(1, 4)
+            val red = (parameters.getOrNull(7) ?: 128).coerceIn(0, 255) / 255f
+            val green = (parameters.getOrNull(8) ?: 128).coerceIn(0, 255) / 255f
+            val blue = (parameters.getOrNull(9) ?: 128).coerceIn(0, 255) / 255f
+            val alpha = ((parameters.getOrNull(13) ?: 100).coerceIn(0, 100) / 100f) * 0.22f
+            Canvas(modifier) {
+                val sx = size.width / referenceWidth.coerceAtLeast(1f)
+                val sy = size.height / referenceHeight.coerceAtLeast(1f)
+                val x = left * sx
+                val y = top * sy
+                val w = (width * sx).coerceAtMost(size.width - x)
+                val h = (height * sy).coerceAtMost(size.height - y)
+                if (w <= 0f || h <= 0f) return@Canvas
+                repeat(lineCount) { index ->
+                    val phase = (frame.toLong() * 17L + index * 997L) % width.toLong()
+                    drawRect(Color(red, green, blue, alpha),
+                        topLeft = Offset(x + phase * sx, y),
+                        size = Size(lineWidth * sx, h))
+                }
+                var scanY = y
+                while (scanY < y + h) {
+                    drawLine(Color.Black.copy(alpha = 0.035f),
+                        start = Offset(x, scanY), end = Offset(x + w, scanY), strokeWidth = 0.6f)
+                    scanY += 3f * sy
                 }
             }
         }
