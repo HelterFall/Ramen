@@ -20,7 +20,6 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.matchParentSize
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -525,7 +524,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
             val lineCount = (parameters.getOrNull(5) ?: 3).coerceIn(1, 10)
             val lineWidth = (parameters.getOrNull(6) ?: 1).coerceIn(1, 4)
             val lineAlpha = ((parameters.getOrNull(13) ?: 100).coerceIn(0, 100) / 100f) * 0.16f
-            Canvas(modifier = Modifier.matchParentSize()) {
+            Canvas(modifier = Modifier.fillMaxSize()) {
                 repeat(lineCount) { index ->
                     val phase = (cycle + index.toFloat() / lineCount) % 1f
                     val x = phase * size.width
