@@ -100,7 +100,7 @@ internal object SystemNnnVisualEffectMath {
      */
     fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean {
         return when (effectId) {
-            2, 8, 9, 19, 27, 40, 54, 61, 65, 66, 82,
+            2, 8, 9, 19, 27, 40, 54, 61, 65, 66, 82, 90,
             93, 94, 95, 99, 107, 110, 113, 124, 125, 126, 127, 131, 132 -> false
             // HAIKEIYURE only draws the layer picture when its native layer flag is set.
             100 -> (parameters.getOrNull(5) ?: 0) != 0
