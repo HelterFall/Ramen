@@ -941,3 +941,11 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 
 - Fixed playlist ownership: a completed WGQ Ogg segment is no longer deleted immediately when advancing to the next segment. All staged segments stay available for finite MUSIC repeats and MML [0:...] infinite loops, then are deleted together when the playlist stops, completes, or errors.
 - This fixes a statically identified defect in the first playlist implementation. No device playback claim is made.
+
+
+## 2026-11-06 — scope assets to the selected System-NNN installation
+
+- The ZIP importer intentionally preserves archive paths. When a ZIP contains a single top-level directory (for example `hui/spt/project.xtx`), project discovery finds the nested project, but the player previously passed the outer extraction folder to the asset manager. Name lists and MML/SE paths are relative to the actual installation root, so this made valid audio resources appear missing.
+- The launch preparation now carries the selected project's install root. The asset manager opens that root, not the outer import wrapper. The alternate `!eng files/spt` project set resolves its shared data root one level above `!eng files`.
+- Asset discovery now prunes a nested directory containing its own direct `spt/project.xtx` (except the known alternate `!eng files` directory). This prevents the main installation from accidentally aggregating a bundled secondary game/demo's GPK/VPK/VAW/WGQ banks and creating false index/name ambiguity.
+- Static source audit only; no test or device-playback claim. APK-only build is the next compilation check.

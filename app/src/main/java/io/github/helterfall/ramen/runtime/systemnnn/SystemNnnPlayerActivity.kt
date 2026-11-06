@@ -37,6 +37,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         val projectModules: List<SystemNnnPlayerModuleProgram>?,
         val standaloneScript: SystemNnnScript?,
         val initialCommandOffset: Long,
+        /** Directory containing the selected install's spt/, dwq/, vaw/, wgq/, etc. */
+        val assetRootDirectory: File,
         val sceneData: SystemNnnSceneData? = null,
         val sceneVoiceCatalog: SystemNnnSceneVoiceCatalog? = null,
         val initialVariables: Map<Int, Int> = emptyMap()
@@ -97,7 +99,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                 )
                 val initialSceneRoute = resolveRequestedSceneRoute(launch)
                 val assetManagerToTransfer = SystemNnnAssetManager.forGameDirectory(
-                    gameDirectory = gameDirectory,
+                    gameDirectory = launch.assetRootDirectory,
                     cacheDirectory = File(cacheDir, "systemnnn-audio")
                 )
                 assetResolver = assetManagerToTransfer
@@ -210,8 +212,15 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             } else {
                 null
             }
-            val installRoot = sptDirectory.parentFile
+            val sptParent = sptDirectory.parentFile
                 ?: throw IOException("Каталог установки System-NNN не найден.")
+            // Some distributions wrap the alternate script set in "!eng files".
+            // Its shared data (nya/, dwq/, vaw/, wgq/, movie/) remains beside it.
+            val installRoot = if (sptParent.name.equals(ALTERNATE_PROJECT_DIRECTORY, ignoreCase = true)) {
+                sptParent.parentFile ?: sptParent
+            } else {
+                sptParent
+            }
             val sceneVoiceFile = File(installRoot, "nya/scenevoice.xtx")
             val sceneVoiceCatalog = if (sceneVoiceFile.isFile) {
                 SystemNnnSceneCatalogReader().readSceneVoiceCatalog(sceneVoiceFile)
@@ -228,6 +237,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                 projectModules = programs,
                 standaloneScript = null,
                 initialCommandOffset = 0L,
+                assetRootDirectory = installRoot,
                 sceneData = sceneData,
                 sceneVoiceCatalog = sceneVoiceCatalog,
                 initialVariables = initialVariables
@@ -236,10 +246,24 @@ class SystemNnnPlayerActivity : ComponentActivity() {
 
         val standaloneFile = findStandaloneSystemNnnScript(gameDirectory)
         val script = scriptLoader.load(standaloneFile)
+        val scriptParent = standaloneFile.parentFile
+        val standaloneSptParent = if (scriptParent?.name.equals("spt", ignoreCase = true)) {
+            scriptParent.parentFile ?: scriptParent
+        } else {
+            scriptParent ?: gameDirectory
+        }
+        val standaloneAssetRoot = if (
+            standaloneSptParent.name.equals(ALTERNATE_PROJECT_DIRECTORY, ignoreCase = true)
+        ) {
+            standaloneSptParent.parentFile ?: standaloneSptParent
+        } else {
+            standaloneSptParent
+        }
         return PreparedScriptLaunch(
             projectModules = null,
             standaloneScript = script,
-            initialCommandOffset = commandStreamReader.filmStartOffset(script, 0)
+            initialCommandOffset = commandStreamReader.filmStartOffset(script, 0),
+            assetRootDirectory = standaloneAssetRoot
         )
     }
 

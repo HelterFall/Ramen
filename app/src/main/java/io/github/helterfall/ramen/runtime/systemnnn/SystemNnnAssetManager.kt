@@ -394,6 +394,7 @@ class SystemNnnAssetManager private constructor(
         private const val MAX_NAME_LIST_BYTES = 4L * 1024L * 1024L
         private const val MAX_NAME_LIST_ENTRIES = 100_000
         private const val MAX_MML_BYTES = 4L * 1024L * 1024L
+        private const val ALTERNATE_PROJECT_DIRECTORY = "!eng files"
 
         private fun normalizeNativeResourceToken(value: String, kind: String): String {
             val token = value.trim().replace('\\', '/')
@@ -643,7 +644,14 @@ class SystemNnnAssetManager private constructor(
         ): List<File> {
             val discovered = root.walkTopDown()
                 .maxDepth(MAX_GAME_SCAN_DEPTH)
-                .onEnter { directory -> !Files.isSymbolicLink(directory.toPath()) }
+                .onEnter { directory ->
+                    !Files.isSymbolicLink(directory.toPath()) &&
+                        (
+                            directory == root ||
+                                directory.name.equals(ALTERNATE_PROJECT_DIRECTORY, ignoreCase = true) ||
+                                !hasDirectSystemNnnProject(directory)
+                            )
+                }
                 .filter { file ->
                     file.isFile &&
                         !Files.isSymbolicLink(file.toPath()) &&
@@ -657,6 +665,24 @@ class SystemNnnAssetManager private constructor(
                 warnings += "Asset discovery for .$extension was truncated at $MAX_DISCOVERED_FILES files."
             }
             return discovered.take(MAX_DISCOVERED_FILES)
+        }
+
+        /**
+         * A selected game folder can itself contain another complete installation
+         * (for example a bundled demo). Its archives must not be merged into the
+         * active project's bank catalog: SPT indexes are local to their install.
+         */
+        private fun hasDirectSystemNnnProject(directory: File): Boolean {
+            val sptDirectory = directory.listFiles()?.firstOrNull { candidate ->
+                candidate.isDirectory &&
+                    !Files.isSymbolicLink(candidate.toPath()) &&
+                    candidate.name.equals("spt", ignoreCase = true)
+            } ?: return false
+            return sptDirectory.listFiles()?.any { candidate ->
+                candidate.isFile &&
+                    !Files.isSymbolicLink(candidate.toPath()) &&
+                    candidate.name.equals("project.xtx", ignoreCase = true)
+            } == true
         }
 
         private fun matchingSiblings(indexFile: File, extensions: Set<String>): List<File> =
