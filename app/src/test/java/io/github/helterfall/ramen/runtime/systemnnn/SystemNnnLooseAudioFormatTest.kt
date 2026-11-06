@@ -54,7 +54,7 @@ class SystemNnnLooseAudioFormatTest {
             "WAVE".toByteArray(Charsets.US_ASCII).copyInto(waveHeader, 8)
             "fmt ".toByteArray(Charsets.US_ASCII).copyInto(waveHeader, 12)
             putU32(waveHeader, 16, 16)
-            val packedSample = byteArrayOf(0x11) // one-bit code 1 decodes to a zero sample delta.
+            val packedSample = byteArrayOf(0) // zero-bit sample code decodes to a zero delta.
             source.writeBytes(wrapper + waveHeader + packedSample)
 
             val repository = SystemNnnLooseAudioRepository(root, listOf(source), cache)
