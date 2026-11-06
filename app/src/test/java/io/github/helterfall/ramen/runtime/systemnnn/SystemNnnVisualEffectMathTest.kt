@@ -9,6 +9,36 @@ import org.junit.Test
 class SystemNnnVisualEffectMathTest {
 
     @Test
+    fun nativeEffectContinuationAndUnregisteredIdsDoNotReplaceThePreviousEffect() {
+        for (effectId in listOf(1, 4, 5, 6, 7)) {
+            assertFalse(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))
+        }
+        for (effectId in listOf(0, 8, 9, 66, 82)) {
+            assertTrue(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))
+        }
+    }
+
+    @Test
+    fun nativeEffectsThatDrawTheirOwnPixelsDoNotFallBackToTheRawLayerBitmap() {
+        val hiddenNativeEffects = listOf(
+            2, 8, 9, 19, 27, 40, 54, 61, 65, 66, 82,
+            93, 94, 95, 99, 107, 110, 113, 124, 125, 126, 127, 131, 132
+        )
+        for (effectId in hiddenNativeEffects) {
+            assertFalse(
+                "effect $effectId must not draw its untouched source bitmap",
+                SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(effectId, emptyList())
+            )
+        }
+
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(100, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(100, listOf(20, 0, 0, 0, 0, 1)))
+        assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(null, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(0, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(29, emptyList()))
+    }
+
+    @Test
     fun nativeLinearSpeedUsesTheFullFrameRange() {
         assertEquals(
             0,
