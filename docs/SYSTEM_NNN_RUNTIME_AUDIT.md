@@ -1,11 +1,11 @@
 # System-NNN runtime audit
 
-## Current follow-up — 2026-11-07: visual compositor pass
+## Current follow-up — 2026-11-07: visual compositor and audio lifecycle pass
 
-**Current code snapshot:** `2800a570b9e95495c0d99d4122787a06ac5f3c43`  
+**Current code snapshot:** `023eba2b45cdf1eff8f0dbe6586ea98128d7b5ca`  
 **Branch / PR:** `docs/system-nnn-launch-roadmap` / Draft PR #28  
-**Validation:** GitHub Actions run [#653](https://github.com/HelterFall/Ramen/actions/runs/42273396300) passed. It ran only `./gradlew --no-daemon --stacktrace testDebugUnitTest`. No APK was assembled in this run; no lint or device test was run.  
-**Scope:** source review against the pinned System-NNN family reference plus JVM unit tests. The family reference is not an exact specification for every target-title parameter, and this pass does not claim visual acceptance on the target game/device.
+**Validation:** GitHub Actions run [#670](https://github.com/HelterFall/Ramen/actions/runs/42288086817) passed. It ran only `./gradlew --no-daemon --stacktrace testDebugUnitTest` (`BUILD SUCCESSFUL`). No APK was assembled; lint and physical-device tests were not run.  
+**Scope:** source review against the pinned System-NNN family reference plus JVM unit tests. The family reference is not an exact specification for every target-title parameter, and this pass does not claim visual or audible acceptance on the target game/device.
 
 ### Visual compositor changes
 
@@ -35,9 +35,26 @@ The following are still partial or unsupported:
 
 Warnings are retained for known approximations and missing dependencies. A warning being absent is not proof that every target-specific parameter is correct.
 
+### Audio resource and lifecycle changes
+
+- BGM/SE name-list handling is covered with synthetic filename/display-name pairs. The filename occupies the even-position entry, matching the native `GetName(n*2)` usage; BGM command numbers map from one-based slots and SE indices remain zero-based.
+- Added an asset-manager test that resolves BGM and SE names, stages a two-segment MML/WGQ playlist, materializes a loose `vaw/se` sound, and checks temporary-file cleanup.
+- The player Activity now forwards `onPause` / `onResume` to the ViewModel, which pauses and resumes all active music, voice, and sound-effect players together.
+- Added a playback gate for asynchronous `MediaPlayer.prepareAsync()`: a pause received before preparation completes prevents background start; a resume received before completion allows playback to start once preparation finishes. Unit tests cover these state transitions.
+- The VOICE routing path itself was not changed. The user has observed that dialogue voices play normally alongside the text; no active voice-playback issue is being pursued.
+
+### Audio compatibility boundary
+
+The new tests establish the local filename-to-resource-to-temporary-file path using synthetic files. They do **not** prove that the actual target game's BGM and SE have been heard on Android. Remaining audio gaps:
+
+- Confirm BGM and SE playback with the actual imported game on a physical Android device.
+- Playlist segments advance through sequential Android MediaPlayer preparation, so gapless transitions are not guaranteed.
+- An explicit Android Audio Focus policy is not implemented or verified.
+- Target-specific MML/WGQ/VAW variants and native playback timing still require comparison with the actual game.
+
 ### Other runtime findings carried forward
 
-1. **Audio:** MML playlist parsing and the Android player path exist, but background music and sound effects are still reported as absent in the user's current gameplay experience. Music segment transitions are not guaranteed gapless. Android Audio Focus and lifecycle pause/resume are not verified. This is the next major functional audit after the visual pass.
+1. **Audio:** synthetic tests now cover BGM/SE name-list mapping and MML/WGQ/VAW materialization, and the Activity lifecycle now pauses/resumes all audio channels, including while asynchronous preparation is pending. Audible restoration on the actual game/device is not confirmed. Music segment transitions are not guaranteed gapless and explicit Android Audio Focus is not implemented.
 2. **Voice:** the user has observed that dialogue voices play normally alongside the text in novellas. No active voice-playback bug is reported, so numeric bank-routing investigation is not being treated as a current blocker unless a reproducible symptom appears.
 3. **Movies:** the inventory contains an MPG file, but no connected Android movie event/player surface is implemented.
 4. **Unimplemented commands:** DRAW and PRELOADDWQ remain no-ops.
@@ -47,7 +64,7 @@ Warnings are retained for known approximations and missing dependencies. A warni
 
 ### Recommended next order
 
-1. Audit and restore background music and sound effects end-to-end (resource discovery, BGM/SE name lists, MML/WGQ and VAW materialization, Android playback).
+1. Validate BGM and SE audibly on a physical Android device with the actual imported game, including pause/resume and interruption behavior. Only then decide whether gapless playback or Audio Focus changes are needed.
 2. Perform a visual acceptance pass on the target game/device for compositor effects used by the actual sample.
 3. Continue with movie support, DRAW/PRELOADDWQ, compressed-image peak memory, fonts, save/load, and native UI modes.
 
