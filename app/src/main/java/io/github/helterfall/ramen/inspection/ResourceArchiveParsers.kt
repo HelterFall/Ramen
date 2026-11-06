@@ -1837,7 +1837,8 @@ object ResourceArchiveParsers {
                     val red = (paletteColor ushr 16) and 0xFF
                     val green = (paletteColor ushr 8) and 0xFF
                     val blue = paletteColor and 0xFF
-                    (red + green + blue) / 3
+                    // CPicture::LoadMask stores rgbquad[index].rgbRed as alpha.
+                    red
                 } else {
                     // GARbro leaves an out-of-range palette index unchanged.
                     paletteIndex
