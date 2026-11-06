@@ -1822,30 +1822,15 @@ object ResourceArchiveParsers {
                 maxDecodedPixels = maxDecodedPixels
             )
 
-            if (mask.bitsPerPixel != 8 ||
-                mask.width != image.width ||
-                mask.height != image.height
-            ) {
-                throw IOException("Invalid DWQ alpha mask dimensions or bit depth.")
-            }
-
+            val alphaValues = decodeBlackCycDwqAlphaMask(
+                dwq.copyOfRange(imageEnd, dwq.size),
+                image.width,
+                image.height,
+                maxDecodedPixels
+            )
             for (index in argbPixels.indices) {
-                val paletteIndex = mask.pixels[index].toInt() and 0xFF
-                val paletteColor = mask.paletteArgb.getOrNull(paletteIndex)
-
-                val alpha = if (paletteColor != null) {
-                    val red = (paletteColor ushr 16) and 0xFF
-                    val green = (paletteColor ushr 8) and 0xFF
-                    val blue = paletteColor and 0xFF
-                    // CPicture::LoadMask stores rgbquad[index].rgbRed as alpha.
-                    red
-                } else {
-                    // GARbro leaves an out-of-range palette index unchanged.
-                    paletteIndex
-                }
-
                 argbPixels[index] =
-                    (argbPixels[index] and 0x00FFFFFF) or (alpha shl 24)
+                    (argbPixels[index] and 0x00FFFFFF) or (alphaValues[index] shl 24)
             }
         }
 
@@ -1855,6 +1840,48 @@ object ResourceArchiveParsers {
             packType = packType,
             argbPixels = argbPixels
         )
+    }
+
+    /**
+     * Decodes the packed 8-bit DWQ mask that follows an image. The native
+     * CPicture::LoadMask routine takes rgbquad[index].rgbRed as the alpha value.
+     */
+    @Throws(IOException::class)
+    fun decodeBlackCycDwqAlphaMask(
+        maskSegment: ByteArray,
+        expectedWidth: Int,
+        expectedHeight: Int,
+        maxDecodedPixels: Long = Long.MAX_VALUE
+    ): IntArray {
+        if (expectedWidth <= 0 || expectedHeight <= 0) {
+            throw IOException("Invalid expected DWQ alpha-mask dimensions.")
+        }
+        val expectedPixels = expectedWidth.toLong() * expectedHeight.toLong()
+        if (expectedPixels > maxDecodedPixels || expectedPixels > Int.MAX_VALUE.toLong()) {
+            throw IOException("DWQ alpha mask exceeds the configured decoded-pixel budget.")
+        }
+        val mask = decodePackedBmpSegment(
+            source = maskSegment,
+            start = 0,
+            endExclusive = maskSegment.size,
+            maxDecodedPixels = maxDecodedPixels
+        )
+        if (mask.bitsPerPixel != 8 ||
+            mask.width != expectedWidth ||
+            mask.height != expectedHeight
+        ) {
+            throw IOException("Invalid DWQ alpha mask dimensions or bit depth.")
+        }
+        return IntArray(mask.width * mask.height) { index ->
+            val paletteIndex = mask.pixels[index].toInt() and 0xFF
+            val paletteColor = mask.paletteArgb.getOrNull(paletteIndex)
+            if (paletteColor != null) {
+                (paletteColor ushr 16) and 0xFF
+            } else {
+                // Match the native code's byte value when no palette color exists.
+                paletteIndex
+            }
+        }
     }
 
     private data class PackedBmpPlane(
