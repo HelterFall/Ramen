@@ -43,7 +43,9 @@ internal object SystemNnnMmlPlaylistParser {
                         val loopCount = readLoopCount()
                         val nested = parseSequence(depth + 1, stopAtClose = true)
                         val start = segments.size
-                        // The nested parser already counted its expanded segments. Copy its\n                        // result into this parent without charging the same segments twice.\n                        segments.addAll(nested.segmentNames)\n                        if (nested.infiniteLoopStartIndex != null) {
+                        // The nested parser already counted its expanded segments. Copy its
+                        // result into this parent without charging the same segments twice.
+                        segments.addAll(nested.segmentNames)\n                        if (nested.infiniteLoopStartIndex != null) {
                             return ParseResult(segments, start + nested.infiniteLoopStartIndex)
                         }
                         if (loopCount == 0) {
@@ -67,7 +69,10 @@ internal object SystemNnnMmlPlaylistParser {
             while (cursor < source.length && source[cursor].isDigit()) cursor++
             val digits = source.substring(start, cursor)
             if (cursor < source.length && source[cursor] == ':') cursor++
-            if (digits.isEmpty()) return 0\n            return digits.toIntOrNull()\n                ?: throw IOException("The BGM MML loop count is outside the supported integer range.")\n        }
+            if (digits.isEmpty()) return 0
+            return digits.toIntOrNull()
+                ?: throw IOException("The BGM MML loop count is outside the supported integer range.")
+        }
 
         private fun readSegmentName(): String {
             val start = cursor
