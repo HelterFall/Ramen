@@ -128,8 +128,8 @@ class SystemNnnAssetManagerTest {
         val root = Files.createTempDirectory("ramen-systemnnn-audio-routing").toFile()
         try {
             val spt = File(root, "spt").apply { mkdirs() }
-            File(spt, "bgmlist.xtx").writeText("OpeningTheme,bgm_open,QuietTheme,bgm_quiet")
-            File(spt, "selist.xtx").writeText("Door,door01,Footstep,step02")
+            File(spt, "bgmlist.xtx").writeText("bgm_open,OpeningTheme,bgm_quiet,QuietTheme")
+            File(spt, "selist.xtx").writeText("door01,Door,step02,Footstep")
 
             val wgq = File(root, "wgq").apply { mkdirs() }
             File(wgq, "bgm_open.mml").writeText("intro loop")
