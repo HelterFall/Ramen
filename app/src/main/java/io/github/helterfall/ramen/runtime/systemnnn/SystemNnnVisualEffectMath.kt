@@ -85,6 +85,29 @@ internal object SystemNnnVisualEffectMath {
     fun scrollUsesLoopFrame(parameters: List<Int>): Boolean =
         (parameters.getOrNull(3) ?: 0) != 0
 
+    /**
+     * Native CAllEffect::SetEffectScript treats MAE as a continuation marker.
+     * IDs 4..7 have no registered native effect object and are rejected without
+     * replacing the layer's previous effect.
+     */
+    fun shouldApplyNativeLayerEffectCommand(effectId: Int): Boolean =
+        effectId !in setOf(1, 4, 5, 6, 7)
+
+    /**
+     * Native PrintLayers asks each effect whether its source picture should be
+     * drawn before the effect's own Print routine. These effects draw from the
+     * layer internally, so drawing the untouched bitmap as a fallback is wrong.
+     */
+    fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean {
+        return when (effectId) {
+            2, 8, 9, 19, 27, 40, 54, 61, 65, 66, 82,
+            93, 94, 95, 99, 107, 110, 113, 124, 125, 126, 127, 131, 132 -> false
+            // HAIKEIYURE only draws the layer picture when its native layer flag is set.
+            100 -> (parameters.getOrNull(5) ?: 0) != 0
+            else -> true
+        }
+    }
+
     fun nativeSpeedValue(
         count: Int,
         countMax: Int,
