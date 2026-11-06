@@ -1,5 +1,49 @@
 # System-NNN runtime audit
 
+## Current follow-up — 2026-11-07
+
+**Current code snapshot:** `35facde855ddfd0b21b2bab5a10b8ac604998cac`  
+**Branch / PR:** `docs/system-nnn-launch-roadmap` / Draft PR #28  
+**Validation:** GitHub Actions run [#585](https://github.com/HelterFall/Ramen/actions/runs/42257026496) passed. It ran only `./gradlew --no-daemon --stacktrace testDebugUnitTest` (230 unit tests; no failures). It did **not** run `assembleDebug`, create an APK, or run lint.  
+**Scope:** source review and JVM unit tests. No claim of physical-device gameplay or complete compatibility with the target executable.
+
+### Changes made during this follow-up
+
+- CI now runs unit tests only; APK assembly and artifact upload were removed from the routine PR workflow.
+- Loose VAW/WGQ parsing now matches the already-trimmed `PACKTYPE` header correctly.
+- Image-bank discovery rejects a candidate archive if every indexed image row is invalid, allowing a valid same-stem fallback archive to be selected.
+- MML expansion no longer counts nested segments twice. An overflowing numeric loop count now raises a bounded parse error instead of silently becoming an infinite loop.
+- Added dedicated MML parser tests for finite/infinite loops, nested expansion, malformed input, integer overflow, and the 10,000-segment bound.
+- Updated stale synthetic fixtures and expectations for the current `scene.dat` structure and SPT control-record semantics.
+- Added ViewModel tests for `SCRIPT`, `SUBSCRIPT`, `SCRIPTJUMP`, and module return through `NEXT`.
+- Effects 40 and 52 are no longer presented as fully supported. The player now preserves the unsupported-effect warning when the sprite list is resolved for the next dialogue.
+
+### Current audit findings
+
+**Better covered by unit tests now:** bounded SPT record parsing; command decoding for the implemented subset; local SUB/RETURN; module call/replace/return flow; scene catalog parsing and route validation; project/module loading helpers; asset-bank indexing and fallback; loose audio wrapper parsing; MML playlist expansion; and ViewModel dialogue/choice/resource progression.
+
+**Still incomplete or not proven against the target runtime:**
+
+1. **Visual compositor:** effect 40 (`CHANGE`) is still a one-layer alpha approximation rather than a verified two-layer transition. Effect 52 (`MOVE`) still has no renderer. Effects 10/11, 18, and 39 also remain approximations (sprite alpha versus screen-level fade, sprite shake versus screen-buffer shake, and translation without verified native clipping/wrap). They are now reported as incomplete where applicable; the warning is not evidence that their native behavior has been implemented.
+2. **Voice routing:** the Activity reads `nya/scenevoice.xtx`, but the resulting catalog is not passed into the ViewModel/audio-routing path. The matching 69-entry counts in `scene.dat`, `scenevoice.xtx`, and the examined film table do not prove index correspondence. Multiple VTB banks still have no proven global numeric ordering; ambiguous lookups are deliberately refused.
+3. **Audio playback:** the MML parser is covered, but Android segment playback is not guaranteed gapless. A new voice on a channel is prepared asynchronously before replacing the old player. Explicit Android Audio Focus handling and pause/resume behavior across Activity lifecycle transitions were not established by this source review.
+4. **Unimplemented commands/media:** `DRAW` and `PRELOADDWQ` remain no-ops. The inventory contains an MPG file, but the System-NNN player has no connected movie event/player surface.
+5. **Memory and decoding:** packed DWQ decoding can still hold a compressed block, an intermediate pixel array, and a Bitmap at once. Per-image and active-sprite pixel limits help, but a stricter compressed-block budget or streaming decoder is still warranted.
+6. **Text/fonts:** XTX/MML use CP932/Windows-31J handling, while the SPT pool uses Shift-JIS; `sjis_ext.bin` is not integrated into the SPT decoder. MFT font compatibility with the target sample is also not established.
+7. **Application modes:** save/load controls remain placeholders; native title/system menus and the complete gallery experience are not implemented.
+
+### Recommended next audit order
+
+1. Trace the target's `VOICE` operand through Pool 2, the voice catalog, and VTB bank selection; do not infer a global index from file order.
+2. Build a small visual conformance set for the effects used by the sample. Correct or explicitly keep disabled the effects whose target parameters are not verified.
+3. Add bounded parser tests for remaining MML/WGQ and packed-DWQ edge cases, then address compressed-image peak memory.
+4. Validate background playback, channel replacement, pause/resume, and movie absence on an Android device with the user's emulator/sample setup.
+
+The earlier material below is the historical audit snapshot `f4eda6eb494e5ebebcc852dd18b68901657f07ad`. Its statements that tests had not run and that module transfers were unimplemented are historical and are superseded by this follow-up and the current source/tests. The PR remains open and Draft; `main` was not changed.
+
+---
+
+
 **Audit snapshot:** `f4eda6eb494e5ebebcc852dd18b68901657f07ad`  
 **Development branch:** `docs/system-nnn-launch-roadmap`  
 **PR:** #28 (must remain open and Draft)  
