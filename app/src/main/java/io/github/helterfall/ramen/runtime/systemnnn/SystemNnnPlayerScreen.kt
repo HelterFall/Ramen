@@ -202,8 +202,8 @@ fun SystemNnnPlayerScreen(
                                 SystemNnnAnimatedSpriteLayer(
                                     sprite = sprite,
                                     changePartner = changePartners[sprite.layerIndex],
-                                    viewportWidth = maxWidth,
-                                    viewportHeight = maxHeight,
+                                    viewportWidth = viewportDpWidth,
+                                    viewportHeight = viewportDpHeight,
                                     referenceWidth = referenceWidth,
                                     referenceHeight = referenceHeight,
                                     onBitmapDisposed = onBitmapDisposed
