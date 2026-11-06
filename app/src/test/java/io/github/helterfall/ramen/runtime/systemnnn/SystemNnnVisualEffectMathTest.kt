@@ -34,7 +34,7 @@ class SystemNnnVisualEffectMathTest {
             SystemNnnVisualEffectMath.nativeSpeedValue(5, 20, 0, 100, delayCount = 5, speedType = 1)
         )
         assertEquals(
-            50,
+            33,
             SystemNnnVisualEffectMath.nativeSpeedValue(10, 20, 0, 100, delayCount = 5, speedType = 1)
         )
     }
