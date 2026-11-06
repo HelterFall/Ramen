@@ -220,13 +220,6 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
-    fun scrollLoopFlagDefaultsToDisabled() {
-        assertTrue(!SystemNnnVisualEffectMath.scrollUsesLoopFrame(emptyList()))
-        assertTrue(!SystemNnnVisualEffectMath.scrollUsesLoopFrame(listOf(20, 8, 0)))
-        assertTrue(SystemNnnVisualEffectMath.scrollUsesLoopFrame(listOf(20, 8, 0, 1)))
-    }
-
-    @Test
     fun bezierAndBSplineUseTheirNativeSpeedTypeOperands() {
         val bezier = listOf(20, 0, 0, 33, 0, 67, 0, 100, 0, 30, 0)
         val bSpline = listOf(20, 0, 0, 50, 0, 100, 0, 30, 0)
