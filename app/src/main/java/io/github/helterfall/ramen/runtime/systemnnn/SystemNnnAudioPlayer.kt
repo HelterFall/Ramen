@@ -13,11 +13,44 @@ data class SystemNnnAudioPlaybackStatus(
     val message: String? = null
 )
 
+/** Tracks lifecycle pause requests that may arrive before MediaPlayer finishes preparing. */
+internal class SystemNnnAudioPlaybackGate {
+    private var prepared = false
+    private var pauseRequested = false
+
+    fun beginPreparation() {
+        prepared = false
+    }
+
+    fun markPrepared(): Boolean {
+        prepared = true
+        return !pauseRequested
+    }
+
+    fun requestPause() {
+        pauseRequested = true
+    }
+
+    fun requestResume() {
+        pauseRequested = false
+    }
+
+    fun isPrepared(): Boolean = prepared
+
+    fun shouldStartPreparedPlayer(): Boolean = prepared && !pauseRequested
+
+    fun reset() {
+        prepared = false
+        pauseRequested = false
+    }
+}
+
 /** Plays native WGQ Ogg segments in order and owns every staged file. */
 class SystemNnnAudioPlayer(
     private val onStatusChanged: (SystemNnnAudioPlaybackStatus) -> Unit = {}
 ) : Closeable {
     private var mediaPlayer: MediaPlayer? = null
+    private val playbackGate = SystemNnnAudioPlaybackGate()
     private var currentFile: File? = null
     private var playlistFiles: List<File> = emptyList()
     private var playlistIndex = 0
@@ -73,11 +106,14 @@ class SystemNnnAudioPlayer(
         val player = MediaPlayer()
         mediaPlayer = player
 
+        playbackGate.beginPreparation()
         player.setOnPreparedListener { prepared ->
-            if (mediaPlayer === prepared) {
+            if (mediaPlayer === prepared && playbackGate.markPrepared()) {
                 runCatching { prepared.start() }
                     .onSuccess { publish(SystemNnnAudioPlaybackState.PLAYING) }
                     .onFailure { error -> fail(error.message) }
+            } else if (mediaPlayer === prepared) {
+                publish(SystemNnnAudioPlaybackState.PAUSED)
             }
         }
         player.setOnCompletionListener { completed ->
@@ -127,21 +163,21 @@ class SystemNnnAudioPlayer(
 
     fun pause() {
         val player = mediaPlayer ?: return
+        playbackGate.requestPause()
+        if (!playbackGate.isPrepared()) return
         runCatching {
-            if (player.isPlaying) {
-                player.pause()
-                publish(SystemNnnAudioPlaybackState.PAUSED)
-            }
+            if (player.isPlaying) player.pause()
+            publish(SystemNnnAudioPlaybackState.PAUSED)
         }.onFailure { error -> fail(error.message) }
     }
 
     fun resume() {
         val player = mediaPlayer ?: return
+        playbackGate.requestResume()
+        if (!playbackGate.isPrepared()) return
         runCatching {
-            if (!player.isPlaying) {
-                player.start()
-                publish(SystemNnnAudioPlaybackState.PLAYING)
-            }
+            if (!player.isPlaying) player.start()
+            publish(SystemNnnAudioPlaybackState.PLAYING)
         }.onFailure { error -> fail(error.message) }
     }
 
@@ -164,6 +200,7 @@ class SystemNnnAudioPlayer(
         completedPasses = 1
         repeatCount = 1
         infiniteLoopStartIndex = null
+        playbackGate.reset()
     }
 
     private fun releaseCurrent(deleteFile: Boolean) {
