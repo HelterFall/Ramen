@@ -935,3 +935,9 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Added exact vaw/se path lookup for SOUND and changed loose audio matching so an exact relative path takes precedence over other files sharing its basename.
 - Changed unmarked XTX/MML text decoding to Windows-31J (CP932), matching the original Japanese Windows byte-string runtime; UTF-8 remains available when a BOM is present.
 - Added bounded, path-safe resource resolution and regression tests for the native list encoding, SE directory, exact-path disambiguation, and MML playlists. Tests/lint were not run; APK-only build is the next validation.
+
+
+## 2026-11-06 — retain WGQ segments across MML playlist repeats
+
+- Fixed playlist ownership: a completed WGQ Ogg segment is no longer deleted immediately when advancing to the next segment. All staged segments stay available for finite MUSIC repeats and MML [0:...] infinite loops, then are deleted together when the playlist stops, completes, or errors.
+- This fixes a statically identified defect in the first playlist implementation. No device playback claim is made.

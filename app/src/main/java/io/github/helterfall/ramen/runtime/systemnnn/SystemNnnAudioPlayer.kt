@@ -99,7 +99,9 @@ class SystemNnnAudioPlayer(
     }
 
     private fun advanceAfterSegment() {
-        releaseCurrent(deleteFile = true)
+        // Keep completed segment files until the whole playlist ends. A later
+        // finite repeat or an MML [0:...] loop may need to play them again.
+        releaseCurrent(deleteFile = false)
         when {
             playlistIndex < playlistFiles.lastIndex -> playlistIndex++
             infiniteLoopStartIndex != null -> playlistIndex = checkNotNull(infiniteLoopStartIndex)
@@ -108,6 +110,7 @@ class SystemNnnAudioPlayer(
                 playlistIndex = 0
             }
             else -> {
+                playlistFiles.forEach { runCatching { it.delete() } }
                 playlistFiles = emptyList()
                 playlistIndex = 0
                 infiniteLoopStartIndex = null
