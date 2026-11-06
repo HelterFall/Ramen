@@ -1,45 +1,57 @@
 # System-NNN runtime audit
 
-## Current follow-up — 2026-11-07
+## Current follow-up — 2026-11-07: visual compositor pass
 
-**Current code snapshot:** `35facde855ddfd0b21b2bab5a10b8ac604998cac`  
+**Current code snapshot:** `2800a570b9e95495c0d99d4122787a06ac5f3c43`  
 **Branch / PR:** `docs/system-nnn-launch-roadmap` / Draft PR #28  
-**Validation:** GitHub Actions run [#585](https://github.com/HelterFall/Ramen/actions/runs/42257026496) passed. It ran only `./gradlew --no-daemon --stacktrace testDebugUnitTest` (230 unit tests; no failures). It did **not** run `assembleDebug`, create an APK, or run lint.  
-**Scope:** source review and JVM unit tests. No claim of physical-device gameplay or complete compatibility with the target executable.
+**Validation:** GitHub Actions run [#653](https://github.com/HelterFall/Ramen/actions/runs/42273396300) passed. It ran only `./gradlew --no-daemon --stacktrace testDebugUnitTest`. No APK was assembled in this run; no lint or device test was run.  
+**Scope:** source review against the pinned System-NNN family reference plus JVM unit tests. The family reference is not an exact specification for every target-title parameter, and this pass does not claim visual acceptance on the target game/device.
 
-### Changes made during this follow-up
+### Visual compositor changes
 
-- CI now runs unit tests only; APK assembly and artifact upload were removed from the routine PR workflow.
-- Loose VAW/WGQ parsing now matches the already-trimmed `PACKTYPE` header correctly.
-- Image-bank discovery rejects a candidate archive if every indexed image row is invalid, allowing a valid same-stem fallback archive to be selected.
-- MML expansion no longer counts nested segments twice. An overflowing numeric loop count now raises a bounded parse error instead of silently becoming an infinite loop.
-- Added dedicated MML parser tests for finite/infinite loops, nested expansion, malformed input, integer overflow, and the 10,000-segment bound.
-- Updated stale synthetic fixtures and expectations for the current `scene.dat` structure and SPT control-record semantics.
-- Added ViewModel tests for `SCRIPT`, `SUBSCRIPT`, `SCRIPTJUMP`, and module return through `NEXT`.
-- Effects 40 and 52 are no longer presented as fully supported. The player now preserves the unsupported-effect warning when the sprite list is resolved for the next dialogue.
+- Screen-buffer effects are now kept separately from ordinary image-layer effects. The reserved layer 31 path publishes screen effects to the viewport compositor instead of applying them to one character sprite.
+- FADEIN/FADEOUT (10/11) now use a whole-viewport color overlay, with the native direction and color defaults.
+- SHAKE (18) now moves the entire game viewport, not an individual sprite.
+- FILL (54) now paints the entire viewport with the native channel defaults.
+- SCROLL (39) now tiles the active image in both directions and wraps its offset at the viewport edges; the native loop flag defaults to off.
+- CHANGE (40) now combines the specified second image layer with the current layer using an offscreen composition surface. The pair is only used when both layers exist, have different layer indices, and have matching dimensions; otherwise the runtime reports the malformed/missing dependency instead of hiding an image or showing an empty scene.
+- MOVE (52) now uses SETEFFECTRECT's source and destination rectangles. Position interpolation uses integer rounding; image size remains at the source size until the last frame, matching the family reference.
+- CTRANS (9) now uses shared native speed interpolation for alpha. Optional clipping and color-add modes remain unsupported and produce a warning.
+- BEZIERMOVE (62) and BSPLINE2 (119) now use native control-point and speed-type operands; default frame duration/control points are covered by tests.
+- OLDFILM (55) now uses the configured region, line count, width, color, lifetime, appearance probability, and transparency range. Its random sequence is deterministic on Android and is **not** an exact reproduction of the original Windows random generator.
+- CHARABURE (132) now applies repeatable character jitter based on its parameters. Its random sequence is likewise an approximation, not a bit-for-bit match to the original runtime.
+- Layer effect/rectangle configuration is persisted across command advances and can be applied when a bitmap is loaded later. Scene reset and layer-clear commands remove the related state.
+- Added unit coverage for interpolation, two-layer weights, screen fades/colors, scrolling, movement rectangles, Bezier/B-spline paths, shake, deterministic jitter, and layer-configuration persistence. ViewModel tests cover screen-effect state publication/clearing and malformed CHANGE/MOVE cases.
 
-### Current audit findings
+### Current visual compatibility boundary
 
-**Better covered by unit tests now:** bounded SPT record parsing; command decoding for the implemented subset; local SUB/RETURN; module call/replace/return flow; scene catalog parsing and route validation; project/module loading helpers; asset-bank indexing and fallback; loose audio wrapper parsing; MML playlist expansion; and ViewModel dialogue/choice/resource progression.
+The viewport compositor now handles the listed effects at the code level, but **the actual target title still needs a visual device pass** to confirm command operands, timing, clipping, layer ordering, and blend output. The native reference belongs to the System-NNN family and may differ from the target executable.
 
-**Still incomplete or not proven against the target runtime:**
+The following are still partial or unsupported:
+- CTRANS clipping and color-add options;
+- exact Windows random behavior for OLDFILM and CHARABURE;
+- effects outside the implemented/approximated subset, including native animation and DRAW behavior;
+- exact target-specific interpretations not yet confirmed from the target executable.
 
-1. **Visual compositor:** effect 40 (`CHANGE`) is still a one-layer alpha approximation rather than a verified two-layer transition. Effect 52 (`MOVE`) still has no renderer. Effects 10/11, 18, and 39 also remain approximations (sprite alpha versus screen-level fade, sprite shake versus screen-buffer shake, and translation without verified native clipping/wrap). They are now reported as incomplete where applicable; the warning is not evidence that their native behavior has been implemented.
-2. **Voice routing:** the Activity reads `nya/scenevoice.xtx`, but the resulting catalog is not passed into the ViewModel/audio-routing path. The matching 69-entry counts in `scene.dat`, `scenevoice.xtx`, and the examined film table do not prove index correspondence. Multiple VTB banks still have no proven global numeric ordering; ambiguous lookups are deliberately refused.
-3. **Audio playback:** the MML parser is covered, but Android segment playback is not guaranteed gapless. A new voice on a channel is prepared asynchronously before replacing the old player. Explicit Android Audio Focus handling and pause/resume behavior across Activity lifecycle transitions were not established by this source review.
-4. **Unimplemented commands/media:** `DRAW` and `PRELOADDWQ` remain no-ops. The inventory contains an MPG file, but the System-NNN player has no connected movie event/player surface.
-5. **Memory and decoding:** packed DWQ decoding can still hold a compressed block, an intermediate pixel array, and a Bitmap at once. Per-image and active-sprite pixel limits help, but a stricter compressed-block budget or streaming decoder is still warranted.
-6. **Text/fonts:** XTX/MML use CP932/Windows-31J handling, while the SPT pool uses Shift-JIS; `sjis_ext.bin` is not integrated into the SPT decoder. MFT font compatibility with the target sample is also not established.
+Warnings are retained for known approximations and missing dependencies. A warning being absent is not proof that every target-specific parameter is correct.
+
+### Other runtime findings carried forward
+
+1. **Audio:** MML playlist parsing and the Android player path exist, but background music and sound effects are still reported as absent in the user's current gameplay experience. Music segment transitions are not guaranteed gapless. Android Audio Focus and lifecycle pause/resume are not verified. This is the next major functional audit after the visual pass.
+2. **Voice:** the user has observed that dialogue voices play normally alongside the text in novellas. No active voice-playback bug is reported, so numeric bank-routing investigation is not being treated as a current blocker unless a reproducible symptom appears.
+3. **Movies:** the inventory contains an MPG file, but no connected Android movie event/player surface is implemented.
+4. **Unimplemented commands:** DRAW and PRELOADDWQ remain no-ops.
+5. **Memory/decoding:** packed DWQ decoding can retain a compressed block, an intermediate pixel array, and a Bitmap simultaneously; stricter compressed-block budgeting or streaming decode remains desirable.
+6. **Text/fonts:** XTX/MML use CP932/Windows-31J handling, while the SPT pool uses Shift-JIS; `sjis_ext.bin` is not integrated into the SPT decoder. MFT font compatibility is not established.
 7. **Application modes:** save/load controls remain placeholders; native title/system menus and the complete gallery experience are not implemented.
 
-### Recommended next audit order
+### Recommended next order
 
-1. Trace the target's `VOICE` operand through Pool 2, the voice catalog, and VTB bank selection; do not infer a global index from file order.
-2. Build a small visual conformance set for the effects used by the sample. Correct or explicitly keep disabled the effects whose target parameters are not verified.
-3. Add bounded parser tests for remaining MML/WGQ and packed-DWQ edge cases, then address compressed-image peak memory.
-4. Validate background playback, channel replacement, pause/resume, and movie absence on an Android device with the user's emulator/sample setup.
+1. Audit and restore background music and sound effects end-to-end (resource discovery, BGM/SE name lists, MML/WGQ and VAW materialization, Android playback).
+2. Perform a visual acceptance pass on the target game/device for compositor effects used by the actual sample.
+3. Continue with movie support, DRAW/PRELOADDWQ, compressed-image peak memory, fonts, save/load, and native UI modes.
 
-The earlier material below is the historical audit snapshot `f4eda6eb494e5ebebcc852dd18b68901657f07ad`. Its statements that tests had not run and that module transfers were unimplemented are historical and are superseded by this follow-up and the current source/tests. The PR remains open and Draft; `main` was not changed.
+The earlier material below is the historical audit snapshot `f4eda6eb494e5ebebcc852dd18b68901657f07ad`. Its old visual-compositor and voice-routing statements should be read as historical findings, not as the current code snapshot. The PR remains open and Draft; `main` was not changed.
 
 ---
 
