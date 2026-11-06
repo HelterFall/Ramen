@@ -223,7 +223,7 @@ internal object SystemNnnVisualEffectMath {
     }
 
     fun bezierOffset(frame: Int, parameters: List<Int>): SystemNnnVisualOffset {
-        if (parameters.size < 9) return SystemNnnVisualOffset(0f, 0f)
+        // Native defaults from CEffectBezierMove::SetParam.
         val duration = (parameters.getOrNull(0) ?: 1).coerceAtLeast(1)
         val speed = nativeSpeedValue(
             frame, duration, 0, 10_000,
@@ -232,14 +232,14 @@ internal object SystemNnnVisualEffectMath {
         )
         val t = speed / 10_000f
         val inverse = 1f - t
-        val x1 = parameters[1].toFloat()
-        val y1 = parameters[2].toFloat()
-        val x2 = parameters[3].toFloat()
-        val y2 = parameters[4].toFloat()
-        val x3 = parameters[5].toFloat()
-        val y3 = parameters[6].toFloat()
-        val x4 = parameters[7].toFloat()
-        val y4 = parameters[8].toFloat()
+        val x1 = (parameters.getOrNull(1) ?: 0).toFloat()
+        val y1 = (parameters.getOrNull(2) ?: 0).toFloat()
+        val x2 = (parameters.getOrNull(3) ?: 200).toFloat()
+        val y2 = (parameters.getOrNull(4) ?: -100).toFloat()
+        val x3 = (parameters.getOrNull(5) ?: 300).toFloat()
+        val y3 = (parameters.getOrNull(6) ?: -200).toFloat()
+        val x4 = (parameters.getOrNull(7) ?: 400).toFloat()
+        val y4 = (parameters.getOrNull(8) ?: 100).toFloat()
         return SystemNnnVisualOffset(
             inverse * inverse * inverse * x1 +
                 3f * t * inverse * inverse * x2 +
@@ -253,7 +253,7 @@ internal object SystemNnnVisualEffectMath {
     }
 
     fun bSpline2Offset(frame: Int, parameters: List<Int>): SystemNnnVisualOffset {
-        if (parameters.size < 7) return SystemNnnVisualOffset(0f, 0f)
+        // Native defaults from CEffectBSpline2::SetParam.
         val duration = (parameters.getOrNull(0) ?: 1).coerceAtLeast(1)
         val speed = nativeSpeedValue(
             frame, duration, 0, 10_000,
@@ -262,13 +262,19 @@ internal object SystemNnnVisualEffectMath {
         )
         val t = speed / 10_000f
         val inverse = 1f - t
+        val x1 = parameters.getOrNull(1) ?: 0
+        val y1 = parameters.getOrNull(2) ?: 0
+        val x2 = parameters.getOrNull(3) ?: 200
+        val y2 = parameters.getOrNull(4) ?: -200
+        val x3 = parameters.getOrNull(5) ?: 400
+        val y3 = parameters.getOrNull(6) ?: 100
         return SystemNnnVisualOffset(
-            inverse * inverse * parameters[1] +
-                2f * inverse * t * parameters[3] +
-                t * t * parameters[5],
-            inverse * inverse * parameters[2] +
-                2f * inverse * t * parameters[4] +
-                t * t * parameters[6]
+            inverse * inverse * x1 +
+                2f * inverse * t * x2 +
+                t * t * x3,
+            inverse * inverse * y1 +
+                2f * inverse * t * y2 +
+                t * t * y3
         )
     }
 
