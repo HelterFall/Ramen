@@ -291,6 +291,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var sceneReplayModuleName: String? = null
     private var sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList()
     private var sceneReplayFilmCursor: Int = 0
+    private val visualLayerConfigurationStore = SystemNnnVisualLayerConfigurationStore()
 
     private data class ModuleCallFrame(
         val moduleName: String,
@@ -341,6 +342,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList()
     ) {
         releaseAssets()
+        visualLayerConfigurationStore.clear()
 
         moduleCallStack.clear()
         this.sceneReplayModuleName = null
@@ -854,10 +856,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
             var pendingScreenEffectParameters = uiState.screenEffectParameters
             var pendingScreenEffectCommandOffset = uiState.screenEffectCommandOffset
             val pendingSpriteLayers = LinkedHashMap<Int, SystemNnnSpriteReference>()
-            val pendingLayerRects = HashMap<Int, Pair<SystemNnnNativeRect, SystemNnnNativeRect>>()
-            val pendingLayerEffects = HashMap<Int, Int>()
-            val pendingLayerEffectParameters = HashMap<Int, List<Int>>()
-            val pendingLayerEffectCommandOffsets = HashMap<Int, Long>()
+            val pendingLayerVisuals = visualLayerConfigurationStore.snapshot()
             sceneSprites.forEach { sprite ->
                 pendingSpriteLayers[sprite.layerIndex] = SystemNnnSpriteReference(
                     resourceId = sprite.resourceId,
@@ -888,10 +887,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 pendingScreenEffectParameters = emptyList()
                 pendingScreenEffectCommandOffset = null
                 pendingSpriteLayers.clear()
-                pendingLayerRects.clear()
-                pendingLayerEffects.clear()
-                pendingLayerEffectParameters.clear()
-                pendingLayerEffectCommandOffsets.clear()
+                pendingLayerVisuals.clear()
                 pendingSpriteLayersChanged = true
             }
 
@@ -957,6 +953,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             throw IOException("LOADDWQ supplied an invalid effect layer.")
                         }
                         nextCommandOffset = command.nextCommandOffset
+                        val layerVisuals = pendingLayerVisuals[command.layerIndex]
                         pendingSpriteLayers[command.layerIndex] = SystemNnnSpriteReference(
                             resourceId = command.resourceId,
                             centerXFraction = 0.5f,
@@ -964,11 +961,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             heightFraction = 1f,
                             contentDescription = "Image layer " + command.layerIndex,
                             layerIndex = command.layerIndex,
-                            nativeRect = pendingLayerRects[command.layerIndex]?.second,
-                            nativeEffectId = pendingLayerEffects[command.layerIndex],
-                            nativeRectFrom = pendingLayerRects[command.layerIndex]?.first,
-                            nativeEffectParameters = pendingLayerEffectParameters[command.layerIndex].orEmpty(),
-                            nativeEffectCommandOffset = pendingLayerEffectCommandOffsets[command.layerIndex]
+                            nativeRect = layerVisuals?.destinationRect,
+                            nativeEffectId = layerVisuals?.effectId,
+                            nativeRectFrom = layerVisuals?.sourceRect,
+                            nativeEffectParameters = layerVisuals?.effectParameters.orEmpty(),
+                            nativeEffectCommandOffset = layerVisuals?.effectCommandOffset
                         )
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
@@ -980,16 +977,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             throw IOException("CLEAREFFECTLAYER supplied an invalid layer.")
                         }
                         nextCommandOffset = command.nextCommandOffset
+                        pendingLayerVisuals.remove(command.layerIndex)
                         if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX) {
                             pendingScreenEffectId = null
                             pendingScreenEffectParameters = emptyList()
                             pendingScreenEffectCommandOffset = null
                         } else {
                             pendingSpriteLayers.remove(command.layerIndex)
-                            pendingLayerRects.remove(command.layerIndex)
-                            pendingLayerEffects.remove(command.layerIndex)
-                            pendingLayerEffectParameters.remove(command.layerIndex)
-                            pendingLayerEffectCommandOffsets.remove(command.layerIndex)
                             pendingSpriteLayersChanged = true
                         }
                         commandsWithoutVisibleOutput += 1
@@ -999,10 +993,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
                         pendingSpriteLayers.clear()
-                        pendingLayerRects.clear()
-                        pendingLayerEffects.clear()
-                        pendingLayerEffectParameters.clear()
-                        pendingLayerEffectCommandOffsets.clear()
+                        pendingLayerVisuals.clear()
                         pendingScreenEffectId = null
                         pendingScreenEffectParameters = emptyList()
                         pendingScreenEffectCommandOffset = null
@@ -1013,7 +1004,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     is SystemNnnDecodedCommand.SetImageLayerRect -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
-                        pendingLayerRects[command.layerIndex] = command.fromRect to command.toRect
+                        val currentLayerVisuals = pendingLayerVisuals[command.layerIndex]
+                            ?: SystemNnnVisualLayerConfiguration()
+                        pendingLayerVisuals[command.layerIndex] = currentLayerVisuals.copy(
+                            sourceRect = command.fromRect,
+                            destinationRect = command.toRect
+                        )
                         pendingSpriteLayers[command.layerIndex]?.let { reference ->
                             pendingSpriteLayers[command.layerIndex] = reference.copy(
                                 nativeRectFrom = command.fromRect,
@@ -1034,9 +1030,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             pendingScreenEffectParameters = command.parameters
                             pendingScreenEffectCommandOffset = command.nextCommandOffset
                         } else {
-                            pendingLayerEffects[command.layerIndex] = command.effectId
-                            pendingLayerEffectParameters[command.layerIndex] = command.parameters
-                            pendingLayerEffectCommandOffsets[command.layerIndex] = command.nextCommandOffset
+                            val currentLayerVisuals = pendingLayerVisuals[command.layerIndex]
+                                ?: SystemNnnVisualLayerConfiguration()
+                            pendingLayerVisuals[command.layerIndex] = currentLayerVisuals.copy(
+                                effectId = command.effectId,
+                                effectParameters = command.parameters,
+                                effectCommandOffset = command.nextCommandOffset
+                            )
                             pendingSpriteLayers[command.layerIndex]?.let { reference ->
                                 pendingSpriteLayers[command.layerIndex] = reference.copy(
                                     nativeEffectId = command.effectId,
@@ -1263,6 +1263,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             appendImageStatusMessage(resolution.statusMessage)
                         }
 
+                        visualLayerConfigurationStore.replaceWith(pendingLayerVisuals)
                         val dialogueStepIndex = command.dialogueStepIndex
                         frameCounter += 1L
                         uiState = SystemNnnPlayerUiState(
@@ -1329,6 +1330,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             appendImageStatusMessage(resolution.statusMessage)
                         }
 
+                        visualLayerConfigurationStore.replaceWith(pendingLayerVisuals)
                         frameCounter += 1L
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter,
