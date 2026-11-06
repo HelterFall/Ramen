@@ -982,6 +982,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             pendingScreenEffectId = null
                             pendingScreenEffectParameters = emptyList()
                             pendingScreenEffectCommandOffset = null
+                            if (pendingSpriteLayers.remove(command.layerIndex) != null) {
+                                pendingSpriteLayersChanged = true
+                            }
                         } else {
                             pendingSpriteLayers.remove(command.layerIndex)
                             pendingSpriteLayersChanged = true
