@@ -1044,12 +1044,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                     nativeEffectCommandOffset = command.nextCommandOffset
                                 )
                             }
-                            if (command.effectId == 52 && pendingLayerRects[command.layerIndex] == null) {
-                                appendImageStatusMessage(
-                                    "MOVE (52) on layer " + command.layerIndex +
-                                        " has no SETEFFECTRECT destination and cannot move yet."
-                                )
-                            }
                             if (command.effectId == 40 && command.parameters.getOrNull(1) == null) {
                                 appendImageStatusMessage(
                                     "CHANGE (40) on layer " + command.layerIndex +
@@ -1617,6 +1611,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
 
         val resolvedByLayer = resolved.associateBy { it.layerIndex }
+        references.filter { it.nativeEffectId == 52 }.forEach { reference ->
+            if (reference.nativeRectFrom == null || reference.nativeRect == null) {
+                warnings += "MOVE (52) on layer ${reference.layerIndex} has no SETEFFECTRECT destination and cannot move yet."
+            }
+        }
         references.filter { it.nativeEffectId == 40 }.forEach { reference ->
             val partnerLayer = reference.nativeEffectParameters.getOrNull(1)
             val partner = partnerLayer?.let(resolvedByLayer::get)
