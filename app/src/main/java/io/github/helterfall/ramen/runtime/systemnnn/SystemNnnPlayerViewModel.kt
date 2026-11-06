@@ -1057,54 +1057,60 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     is SystemNnnDecodedCommand.SetImageLayerEffect -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
-                        if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX &&
-                            command.effectId in SCREEN_BUFFER_EFFECT_IDS
-                        ) {
-                            pendingScreenEffectId = command.effectId
-                            pendingScreenEffectParameters = command.parameters
-                            pendingScreenEffectCommandOffset = command.nextCommandOffset
-                        } else {
-                            val currentLayerVisuals = pendingLayerVisuals[command.layerIndex]
-                                ?: SystemNnnVisualLayerConfiguration()
-                            pendingLayerVisuals[command.layerIndex] = currentLayerVisuals.copy(
-                                effectId = command.effectId,
-                                effectParameters = command.parameters,
-                                effectCommandOffset = command.nextCommandOffset
-                            )
-                            pendingSpriteLayers[command.layerIndex]?.let { reference ->
-                                pendingSpriteLayers[command.layerIndex] = reference.copy(
-                                    nativeEffectId = command.effectId,
-                                    nativeEffectParameters = command.parameters,
-                                    nativeEffectCommandOffset = command.nextCommandOffset
+
+                        // Native MAE is a continuation marker, while IDs 4..7 are
+                        // unregistered native effects. Neither replaces the layer's
+                        // currently active effect.
+                        if (SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)) {
+                            if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX &&
+                                command.effectId in SCREEN_BUFFER_EFFECT_IDS
+                            ) {
+                                pendingScreenEffectId = command.effectId
+                                pendingScreenEffectParameters = command.parameters
+                                pendingScreenEffectCommandOffset = command.nextCommandOffset
+                            } else {
+                                val currentLayerVisuals = pendingLayerVisuals[command.layerIndex]
+                                    ?: SystemNnnVisualLayerConfiguration()
+                                pendingLayerVisuals[command.layerIndex] = currentLayerVisuals.copy(
+                                    effectId = command.effectId,
+                                    effectParameters = command.parameters,
+                                    effectCommandOffset = command.nextCommandOffset
+                                )
+                                pendingSpriteLayers[command.layerIndex]?.let { reference ->
+                                    pendingSpriteLayers[command.layerIndex] = reference.copy(
+                                        nativeEffectId = command.effectId,
+                                        nativeEffectParameters = command.parameters,
+                                        nativeEffectCommandOffset = command.nextCommandOffset
+                                    )
+                                }
+                                if (command.effectId == 40 && command.parameters.getOrNull(1) == null) {
+                                    appendImageStatusMessage(
+                                        "CHANGE (40) on layer " + command.layerIndex +
+                                            " has no second-layer operand."
+                                    )
+                                }
+                                pendingSpriteLayersChanged = true
+                            }
+                            when {
+                                command.effectId == 9 &&
+                                    ((command.parameters.getOrNull(5) ?: 0) != 0 || (command.parameters.getOrNull(14) ?: 0) != 0) ->
+                                    appendImageStatusMessage(
+                                        "CTRANS (9) alpha and speed are implemented, but its optional clipping and color-add modes are not yet reproduced."
+                                    )
+                                command.effectId == 55 ->
+                                    appendImageStatusMessage(
+                                        "OLDFILM (55) is a deterministic screen-scratch approximation; native randomized scratch timing is not exact."
+                                    )
+                                command.effectId == 132 ->
+                                    appendImageStatusMessage(
+                                        "CHARABURE (132) uses repeatable jitter; its random sequence does not match the original runtime."
+                                    )
+                            }
+                            if (command.effectId !in SUPPORTED_NATIVE_VISUAL_EFFECTS) {
+                                appendImageStatusMessage(
+                                    "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока не поддерживается полностью."
                                 )
                             }
-                            if (command.effectId == 40 && command.parameters.getOrNull(1) == null) {
-                                appendImageStatusMessage(
-                                    "CHANGE (40) on layer " + command.layerIndex +
-                                        " has no second-layer operand."
-                                )
-                            }
-                            pendingSpriteLayersChanged = true
-                        }
-                        when {
-                            command.effectId == 9 &&
-                                ((command.parameters.getOrNull(5) ?: 0) != 0 || (command.parameters.getOrNull(14) ?: 0) != 0) ->
-                                appendImageStatusMessage(
-                                    "CTRANS (9) alpha and speed are implemented, but its optional clipping and color-add modes are not yet reproduced."
-                                )
-                            command.effectId == 55 ->
-                                appendImageStatusMessage(
-                                    "OLDFILM (55) is a deterministic screen-scratch approximation; native randomized scratch timing is not exact."
-                                )
-                            command.effectId == 132 ->
-                                appendImageStatusMessage(
-                                    "CHARABURE (132) uses repeatable jitter; its random sequence does not match the original runtime."
-                                )
-                        }
-                        if (command.effectId !in SUPPORTED_NATIVE_VISUAL_EFFECTS) {
-                            appendImageStatusMessage(
-                                "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока не поддерживается полностью."
-                            )
                         }
                         commandsWithoutVisibleOutput += 1
                     }
