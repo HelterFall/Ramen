@@ -25,30 +25,6 @@ data class SystemNnnNativeRect(
     val height: Int
 )
 
-/** Native visual state is configured independently from the image resource on a layer. */
-internal data class SystemNnnVisualLayerConfiguration(
-    val sourceRect: SystemNnnNativeRect? = null,
-    val destinationRect: SystemNnnNativeRect? = null,
-    val effectId: Int? = null,
-    val effectParameters: List<Int> = emptyList(),
-    val effectCommandOffset: Long? = null
-)
-
-/** Commits layer configuration at visible dialogue/choice boundaries. */
-internal class SystemNnnVisualLayerConfigurationStore {
-    private val layers = LinkedHashMap<Int, SystemNnnVisualLayerConfiguration>()
-
-    fun snapshot(): LinkedHashMap<Int, SystemNnnVisualLayerConfiguration> =
-        LinkedHashMap(layers)
-
-    fun replaceWith(snapshot: Map<Int, SystemNnnVisualLayerConfiguration>) {
-        layers.clear()
-        layers.putAll(snapshot)
-    }
-
-    fun clear() = layers.clear()
-}
-
 data class SystemNnnSpriteBitmap(
     val resourceId: String,
     val bitmap: Bitmap,
