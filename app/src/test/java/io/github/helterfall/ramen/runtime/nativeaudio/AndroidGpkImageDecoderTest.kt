@@ -3,7 +3,9 @@ package io.github.helterfall.ramen.runtime.nativeaudio
 import io.github.helterfall.ramen.inspection.GpkImageFormat
 import io.github.helterfall.ramen.inspection.GpkImageResource
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
+import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -48,9 +50,62 @@ class AndroidGpkImageDecoderTest {
         assertEquals("Could not allocate the decoded DWQ bitmap.", failure.message)
     }
 
+    @Test
+    fun rejectsIndexedPackedDwqBlocksAboveConfiguredBudgetBeforeReading() {
+        val source = ByteArraySource(ByteArray(65))
+        val resource = GpkImageResource(
+            name = "oversized",
+            format = GpkImageFormat.BMP,
+            blockOffset = 0L,
+            blockSizeBytes = 65L,
+            payloadOffset = 0x40L,
+            payloadSizeBytes = 1L,
+            widthPixels = 1,
+            heightPixels = 1,
+            packType = 1,
+            dwqPackedBmp = true
+        )
+
+        val failure = assertThrows(IOException::class.java) {
+            AndroidGpkImageDecoder(
+                maxDecodedPixels = 1L,
+                maxPackedBlockBytes = 64L
+            ).decode(source, resource)
+        }
+
+        assertEquals("Packed DWQ resource exceeds the configured block-size budget.", failure.message)
+        assertEquals(0, source.readCalls)
+    }
+
+    @Test
+    fun appliesConfiguredBlockBudgetToStandaloneWgqFiles() {
+        val directory = Files.createTempDirectory("ramen-wgq-block-budget").toFile()
+        try {
+            val image = File(directory, "oversized.wgq").apply {
+                writeBytes(ByteArray(0x76))
+            }
+            val failure = assertThrows(IOException::class.java) {
+                AndroidGpkImageDecoder(
+                    maxDecodedPixels = 1L,
+                    maxPackedBlockBytes = 0x75L
+                ).decodeStandaloneWgq(image)
+            }
+
+            assertEquals(
+                "The WGQ image resource exceeds the configured block-size budget or supported buffer range.",
+                failure.message
+            )
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
     private class ByteArraySource(
         private val bytes: ByteArray
     ) : ReadOnlyRandomAccessSource {
+        var readCalls: Int = 0
+            private set
+
         override val sizeBytes: Long
             get() = bytes.size.toLong()
 
@@ -60,6 +115,7 @@ class AndroidGpkImageDecoderTest {
             targetOffset: Int,
             length: Int
         ): Int {
+            readCalls++
             require(position >= 0L)
             require(targetOffset >= 0 && targetOffset <= target.size)
             require(length >= 0 && length <= target.size - targetOffset)
