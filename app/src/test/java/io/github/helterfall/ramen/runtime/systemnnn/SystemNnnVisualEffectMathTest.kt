@@ -21,7 +21,7 @@ class SystemNnnVisualEffectMathTest {
     @Test
     fun nativeEffectsThatDrawTheirOwnPixelsDoNotFallBackToTheRawLayerBitmap() {
         val hiddenNativeEffects = listOf(
-            2, 8, 9, 19, 27, 40, 54, 61, 65, 66, 82,
+            2, 8, 9, 19, 27, 40, 54, 61, 65, 66, 82, 90,
             93, 94, 95, 99, 107, 110, 113, 124, 125, 126, 127, 131, 132
         )
         for (effectId in hiddenNativeEffects) {
