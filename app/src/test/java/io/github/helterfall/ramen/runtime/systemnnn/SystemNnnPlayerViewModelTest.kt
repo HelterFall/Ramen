@@ -400,6 +400,145 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun scriptTransferPushesCallerAndNextReturnsToItsContinuation() {
+        val sysScript = testScript()
+        val mainScript = testScript()
+        val reader = io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader()
+        val sysStream = reader.read(sysScript)
+        val mainStream = reader.read(mainScript)
+        val sysOffsets = sysStream.records.map { it.offset }
+        val mainOffset = mainStream.recordStartOffset
+        val sysDecoder = FakeDecoder(
+            mapOf(
+                sysOffsets[0] to SystemNnnDecodedCommand.ModuleTransfer(
+                    nextCommandOffset = sysOffsets[1],
+                    targetModuleName = "main",
+                    kind = SystemNnnModuleTransferKind.SCRIPT
+                ),
+                sysOffsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = sysOffsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val mainDecoder = FakeDecoder(mapOf(mainOffset to SystemNnnDecodedCommand.ModuleReturn))
+        val programs = listOf(
+            SystemNnnPlayerModuleProgram("sys", sysScript, sysStream, sysStream.recordStartOffset),
+            SystemNnnPlayerModuleProgram("main", mainScript, mainStream, mainStream.recordStartOffset)
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.startProject(
+            modules = programs,
+            controlModuleName = "sys",
+            assetResolver = EmptyAssets,
+            decoderFactory = { program ->
+                when (program.name) {
+                    "sys" -> sysDecoder
+                    "main" -> mainDecoder
+                    else -> error("Unexpected module ${program.name}")
+                }
+            }
+        )
+
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertNull(viewModel.uiState.errorMessage)
+        assertEquals(listOf(sysOffsets[0], sysOffsets[1]), sysDecoder.requestedOffsets)
+        assertEquals(listOf(mainOffset), mainDecoder.requestedOffsets)
+    }
+
+    @Test
+    fun subscriptTransferAlsoReturnsToTheSavedCaller() {
+        val sysScript = testScript()
+        val childScript = testScript()
+        val reader = io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader()
+        val sysStream = reader.read(sysScript)
+        val childStream = reader.read(childScript)
+        val sysOffsets = sysStream.records.map { it.offset }
+        val childOffset = childStream.recordStartOffset
+        val sysDecoder = FakeDecoder(
+            mapOf(
+                sysOffsets[0] to SystemNnnDecodedCommand.ModuleTransfer(
+                    nextCommandOffset = sysOffsets[1],
+                    targetModuleName = "child",
+                    kind = SystemNnnModuleTransferKind.SUBSCRIPT
+                ),
+                sysOffsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = sysOffsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val childDecoder = FakeDecoder(mapOf(childOffset to SystemNnnDecodedCommand.ModuleReturn))
+        val programs = listOf(
+            SystemNnnPlayerModuleProgram("sys", sysScript, sysStream, sysStream.recordStartOffset),
+            SystemNnnPlayerModuleProgram("child", childScript, childStream, childStream.recordStartOffset)
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.startProject(
+            modules = programs,
+            controlModuleName = "sys",
+            assetResolver = EmptyAssets,
+            decoderFactory = { program -> if (program.name == "sys") sysDecoder else childDecoder }
+        )
+
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertNull(viewModel.uiState.errorMessage)
+        assertEquals(listOf(sysOffsets[0], sysOffsets[1]), sysDecoder.requestedOffsets)
+        assertEquals(listOf(childOffset), childDecoder.requestedOffsets)
+    }
+
+    @Test
+    fun scriptJumpReplacesTheCurrentModuleWithoutReturningToTheOldContinuation() {
+        val sysScript = testScript()
+        val jumpScript = testScript()
+        val reader = io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader()
+        val sysStream = reader.read(sysScript)
+        val jumpStream = reader.read(jumpScript)
+        val sysOffsets = sysStream.records.map { it.offset }
+        val jumpOffsets = jumpStream.records.map { it.offset }
+        val sysDecoder = FakeDecoder(
+            mapOf(
+                sysOffsets[0] to SystemNnnDecodedCommand.ModuleTransfer(
+                    nextCommandOffset = sysOffsets[1],
+                    targetModuleName = "jump",
+                    kind = SystemNnnModuleTransferKind.SCRIPTJUMP
+                ),
+                sysOffsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = sysOffsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val jumpDecoder = FakeDecoder(
+            mapOf(
+                jumpOffsets[0] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = jumpOffsets[1],
+                    textEntryOffset = textOffset(2)
+                )
+            )
+        )
+        val programs = listOf(
+            SystemNnnPlayerModuleProgram("sys", sysScript, sysStream, sysStream.recordStartOffset),
+            SystemNnnPlayerModuleProgram("jump", jumpScript, jumpStream, jumpStream.recordStartOffset)
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.startProject(
+            modules = programs,
+            controlModuleName = "sys",
+            assetResolver = EmptyAssets,
+            decoderFactory = { program -> if (program.name == "sys") sysDecoder else jumpDecoder }
+        )
+
+        assertEquals("Left branch", viewModel.uiState.dialogueText)
+        assertNull(viewModel.uiState.errorMessage)
+        assertEquals(listOf(sysOffsets[0]), sysDecoder.requestedOffsets)
+        assertEquals(listOf(jumpOffsets[0]), jumpDecoder.requestedOffsets)
+    }
+
+    @Test
     fun invalidChoiceTargetIsRejected() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(
@@ -479,11 +618,13 @@ class SystemNnnPlayerViewModelTest {
         private val branchOffset: Long? = null
     ) : SystemNnnCommandDecoder {
         var lastRequestedBranch: String? = null
+        val requestedOffsets = mutableListOf<Long>()
 
         override fun decodeNext(
             script: SystemNnnScript,
             commandOffset: Long
         ): SystemNnnDecodedCommand {
+            requestedOffsets += commandOffset
             if (commandOffset == branchOffset) lastRequestedBranch = "left"
             return commands[commandOffset] ?: throw IOException("No fake command at " + commandOffset)
         }
