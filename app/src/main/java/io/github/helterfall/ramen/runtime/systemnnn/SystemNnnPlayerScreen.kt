@@ -519,13 +519,17 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                         alpha = blend.secondaryAlpha, blendMode = BlendMode.Plus)
                 }
             }
-            else -> Image(
-                bitmap = sprite.bitmap.asImageBitmap(),
-                contentDescription = sprite.contentDescription,
-                modifier = Modifier.fillMaxSize(),
-                contentScale = if (nativeRect != null) ContentScale.FillBounds else ContentScale.Fit,
-                alignment = Alignment.TopStart
-            )
+            else -> {
+                if (SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(effectId, parameters)) {
+                    Image(
+                        bitmap = sprite.bitmap.asImageBitmap(),
+                        contentDescription = sprite.contentDescription,
+                        modifier = Modifier.fillMaxSize(),
+                        contentScale = if (nativeRect != null) ContentScale.FillBounds else ContentScale.Fit,
+                        alignment = Alignment.TopStart
+                    )
+                }
+            }
         }
     }
 }
