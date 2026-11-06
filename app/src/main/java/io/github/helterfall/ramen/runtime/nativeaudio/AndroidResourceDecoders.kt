@@ -20,10 +20,12 @@ import java.io.IOException
  * bounded BI_RGB or BI_RLE4/BI_RLE8 pixel fallback reads only the indexed payload range.
  */
 class AndroidGpkImageDecoder(
-    private val maxDecodedPixels: Long = DEFAULT_MAX_DECODED_PIXELS
+    private val maxDecodedPixels: Long = DEFAULT_MAX_DECODED_PIXELS,
+    private val maxPackedBlockBytes: Long = DEFAULT_MAX_PACKED_BLOCK_BYTES
 ) {
     init {
         require(maxDecodedPixels > 0L)
+        require(maxPackedBlockBytes > 0L)
     }
 
     @Throws(IOException::class)
@@ -84,10 +86,14 @@ class AndroidGpkImageDecoder(
         }
     }
 
-    /** Decodes a standalone WGQ image while applying the same pixel ceiling as indexed DWQ. */
+    /** Decodes a standalone WGQ image using the same pixel and packed-block budgets as indexed DWQ. */
     @Throws(IOException::class)
     fun decodeStandaloneWgq(file: File): Bitmap {
-        val decoded = ResourceArchiveParsers.decodeBlackCycWgqFile(file, maxDecodedPixels)
+        val decoded = ResourceArchiveParsers.decodeBlackCycWgqFile(
+            file,
+            maxDecodedPixels,
+            maxPackedBlockBytes
+        )
         val bitmap = try {
             Bitmap.createBitmap(decoded.width, decoded.height, Bitmap.Config.ARGB_8888)
         } catch (failure: RuntimeException) {
@@ -111,6 +117,9 @@ class AndroidGpkImageDecoder(
             declaredPixels > maxDecodedPixels
         ) {
             throw IOException("Packed DWQ image exceeds the configured decoded-pixel budget.")
+        }
+        if (resource.blockSizeBytes > maxPackedBlockBytes) {
+            throw IOException("Packed DWQ resource exceeds the configured block-size budget.")
         }
         if (resource.blockSizeBytes <= 0L ||
             resource.blockSizeBytes > Int.MAX_VALUE.toLong() ||
@@ -391,6 +400,8 @@ class AndroidGpkImageDecoder(
 
     companion object {
         private const val DEFAULT_MAX_DECODED_PIXELS = 8_000_000L
+        // Match the standalone WGQ hard limit; check before copying an indexed GPK block.
+        private const val DEFAULT_MAX_PACKED_BLOCK_BYTES = 128L * 1024L * 1024L
         private const val DWQ_PACKTYPE_1 = 1
         private const val DWQ_PACKTYPE_3 = 3
         private const val BI_RGB = 0L
