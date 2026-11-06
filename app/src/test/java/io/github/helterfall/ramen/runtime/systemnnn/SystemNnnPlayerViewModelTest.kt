@@ -564,6 +564,37 @@ class SystemNnnPlayerViewModelTest {
         assertTrue(viewModel.uiState.statusMessage?.contains("second-layer operand") == true)
     }
 
+
+    @Test
+    fun warnsWhenChangeEffectReferencesItsOwnLayer() {
+        val offsets = recordOffsets()
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 0,
+                    effectId = 40,
+                    parameters = listOf(20, 0)
+                ),
+                offsets[1] to SystemNnnDecodedCommand.LoadImageLayer(
+                    nextCommandOffset = offsets[2],
+                    layerIndex = 0,
+                    resourceId = "self-change"
+                ),
+                offsets[2] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[3],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertTrue(viewModel.uiState.statusMessage?.contains("same layer") == true)
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
     @Test
     fun warnsWhenMoveEffectHasNoDestinationRectangle() {
         val offsets = recordOffsets()
