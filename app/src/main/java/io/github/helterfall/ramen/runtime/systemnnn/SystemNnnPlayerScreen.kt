@@ -427,6 +427,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         } else cycle.snapTo(1f)
     }
 
+    val t = progress.value.coerceIn(0f, 1f)
     val frame = (t * durationFrames).roundToInt().coerceIn(0, durationFrames)
     val cycleFrame = (cycle.value * cycleFrames).roundToInt().coerceIn(0, cycleFrames)
     val movedRect = if (fromRect != null && nativeRect != null) {
