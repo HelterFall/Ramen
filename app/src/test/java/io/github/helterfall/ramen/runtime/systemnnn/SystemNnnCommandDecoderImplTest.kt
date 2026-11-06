@@ -757,7 +757,7 @@ class SystemNnnCommandDecoderImplTest {
     fun nextClearsStaleLocalSubFramesAndIgnoresItsPayload() {
         val script = localSubroutineScript(
             returnPayload = listOf(0xDEADBEEFu),
-            returnCode = CODE_CONTROL_NEXT
+            returnCode = 0x0006u
         )
         val decoder = decoder()
 
