@@ -79,7 +79,8 @@ fun SystemNnnPlayerScreen(
     LaunchedEffect(screenEffectKey) {
         val effectId = state.screenEffectId ?: return@LaunchedEffect
         val parameters = state.screenEffectParameters
-        val duration = (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+        val duration = if (effectId == 55) 9_999
+            else (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
         val repeats = effectId == 55 || (effectId == 18 && (parameters.getOrNull(2) ?: 0) != 0)
         if (repeats) {
             while (true) {
@@ -519,6 +520,14 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     }
 }
 
+private fun visualEffectRandom(value: Int): Int {
+    var mixed = value
+    mixed = (mixed xor (mixed ushr 16)) * 0x7feb352d
+    mixed = (mixed xor (mixed ushr 15)) * 0x846ca68b.toInt()
+    mixed = mixed xor (mixed ushr 16)
+    return mixed and Int.MAX_VALUE
+}
+
 @Composable
 private fun SystemNnnScreenEffectOverlay(
     effectId: Int,
@@ -556,7 +565,16 @@ private fun SystemNnnScreenEffectOverlay(
             val red = (parameters.getOrNull(7) ?: 128).coerceIn(0, 255) / 255f
             val green = (parameters.getOrNull(8) ?: 128).coerceIn(0, 255) / 255f
             val blue = (parameters.getOrNull(9) ?: 128).coerceIn(0, 255) / 255f
-            val alpha = ((parameters.getOrNull(13) ?: 100).coerceIn(0, 100) / 100f) * 0.22f
+            val baseLifetime = (parameters.getOrNull(10) ?: 200).coerceIn(1, 10_000)
+            val lifetimeRandom = (parameters.getOrNull(11) ?: 80).coerceIn(0, 100)
+            val printRandom = (parameters.getOrNull(12) ?: 30).coerceIn(0, 100)
+            val minTransparency = (parameters.getOrNull(13) ?: 100).coerceIn(0, 100)
+            val maxTransparency = (parameters.getOrNull(14) ?: 100).coerceIn(0, 100)
+            val lowTransparency = minOf(minTransparency, maxTransparency)
+            val highTransparency = maxOf(minTransparency, maxTransparency)
+            val variation = (baseLifetime * lifetimeRandom / 100).coerceAtLeast(1)
+            val minLifetime = (baseLifetime - variation).coerceAtLeast(1)
+            val maxLifetime = (baseLifetime + variation).coerceAtMost(20_000)
             Canvas(modifier) {
                 val sx = size.width / referenceWidth.coerceAtLeast(1f)
                 val sy = size.height / referenceHeight.coerceAtLeast(1f)
@@ -566,16 +584,38 @@ private fun SystemNnnScreenEffectOverlay(
                 val h = (height * sy).coerceAtMost(size.height - y)
                 if (w <= 0f || h <= 0f) return@Canvas
                 repeat(lineCount) { index ->
-                    val phase = (frame.toLong() * 17L + index * 997L) % width.toLong()
-                    drawRect(Color(red, green, blue, alpha),
-                        topLeft = Offset(x + phase * sx, y),
-                        size = Size(lineWidth * sx, h))
-                }
-                var scanY = y
-                while (scanY < y + h) {
-                    drawLine(Color.Black.copy(alpha = 0.035f),
-                        start = Offset(x, scanY), end = Offset(x + w, scanY), strokeWidth = 0.6f)
-                    scanY += 3f * sy
+                    val lineSeed = visualEffectRandom(index * 0x45d9f3b)
+                    val lifeRange = (maxLifetime - minLifetime + 1).coerceAtLeast(1)
+                    val lifetime = minLifetime + lineSeed % lifeRange
+                    val lifeCycle = frame / lifetime
+                    val age = frame % lifetime
+                    val seed = visualEffectRandom(index * 0x119de1f3 xor (lifeCycle * 0x3449f5))
+                    val xSpan = (width - lineWidth).coerceAtLeast(1)
+                    var linePosition = (seed % xSpan).toFloat()
+                    var remaining = age
+                    var segment = 0
+                    while (remaining > 0 && segment < 512) {
+                        val segmentSeed = visualEffectRandom(seed xor (segment * 0x27d4eb2d))
+                        val segmentLength = minOf(remaining, 10 + segmentSeed % 20)
+                        val speed = 0.5f + (segmentSeed % 1_024) / 256f
+                        val direction = if ((segmentSeed and 0x1000) == 0) 1f else -1f
+                        linePosition += direction * speed * segmentLength
+                        val period = (xSpan * 2).coerceAtLeast(1)
+                        val folded = Math.floorMod(linePosition.roundToInt(), period)
+                        linePosition = if (folded <= xSpan) folded.toFloat()
+                            else (period - folded).toFloat()
+                        remaining -= segmentLength
+                        segment++
+                    }
+                    val drawSeed = visualEffectRandom(seed xor frame xor 0x5f356495)
+                    if (drawSeed % 100 >= printRandom) return@repeat
+                    val alphaRange = (highTransparency - lowTransparency + 1).coerceAtLeast(1)
+                    val transparency = lowTransparency + drawSeed / 100 % alphaRange
+                    drawRect(
+                        color = Color(red, green, blue, transparency / 100f),
+                        topLeft = Offset(x + linePosition * sx, y),
+                        size = Size(lineWidth * sx, h)
+                    )
                 }
             }
         }
