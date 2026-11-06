@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  build:
-    name: Build and check
+  tests:
+    name: Unit tests only
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
@@ -38,14 +38,5 @@ jobs:
       - name: Verify Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v6
 
-      - name: Assemble debug APK
-        run: ./gradlew --no-daemon --stacktrace assembleDebug
-
-      - name: Upload debug APK
-        if: success()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ramen-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 7
+      - name: Run local unit tests
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest
