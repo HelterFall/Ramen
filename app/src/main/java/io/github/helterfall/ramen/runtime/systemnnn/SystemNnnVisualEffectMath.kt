@@ -294,6 +294,39 @@ internal object SystemNnnVisualEffectMath {
         }
     }
 
+
+    fun moveRect(
+        frame: Int,
+        durationFrames: Int,
+        from: SystemNnnNativeRect,
+        to: SystemNnnNativeRect
+    ): SystemNnnNativeRect {
+        val duration = durationFrames.coerceAtLeast(1)
+        val count = frame.coerceIn(0, duration)
+        if (count >= duration) return to
+
+        fun interpolate(start: Int, end: Int): Int {
+            val delta = (end.toLong() - start.toLong()) * count.toLong()
+            val half = duration / 2L
+            val roundedDelta = if (delta >= 0L) {
+                (delta + half) / duration
+            } else {
+                -((-delta + half) / duration)
+            }
+            return (start.toLong() + roundedDelta)
+                .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
+                .toInt()
+        }
+
+        // Native CalcuOnly moves only the origin until the final frame.
+        return SystemNnnNativeRect(
+            x = interpolate(from.x, to.x),
+            y = interpolate(from.y, to.y),
+            width = from.width,
+            height = from.height
+        )
+    }
+
     fun scrollOffset(
         frame: Int,
         parameters: List<Int>,
