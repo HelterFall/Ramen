@@ -1639,6 +1639,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
             val primary = resolvedByLayer[reference.layerIndex]
             when {
                 partnerLayer == null -> Unit // Reported when the command is decoded.
+                partnerLayer == reference.layerIndex -> warnings +=
+                    "CHANGE (40) on layer " + reference.layerIndex + " cannot use the same layer as both transition images."
                 partner == null -> warnings +=
                     "CHANGE (40) on layer ${reference.layerIndex} cannot run: second layer ${partnerLayer} is missing."
                 primary != null && (
