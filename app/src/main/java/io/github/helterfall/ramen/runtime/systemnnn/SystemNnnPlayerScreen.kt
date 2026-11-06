@@ -44,6 +44,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
@@ -504,7 +505,14 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
             }
             effectId == 40 && changePartner != null -> {
                 val blend = SystemNnnVisualEffectMath.changeBlend(frame, parameters)
-                Canvas(Modifier.fillMaxSize()) {
+                Canvas(
+                    Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            // Blend both source images offscreen before composing over the scene.
+                            compositingStrategy = CompositingStrategy.Offscreen
+                        }
+                ) {
                     val dst = IntSize(size.width.roundToInt(), size.height.roundToInt())
                     drawImage(sprite.bitmap.asImageBitmap(), dstSize = dst, alpha = blend.primaryAlpha)
                     drawImage(changePartner.bitmap.asImageBitmap(), dstSize = dst,
