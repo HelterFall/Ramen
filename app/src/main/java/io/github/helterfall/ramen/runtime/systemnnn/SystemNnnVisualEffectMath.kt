@@ -71,7 +71,7 @@ internal object SystemNnnVisualEffectMath {
         if (effectId != 10 && effectId != 11) return null
         val duration = (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
         val progress = nativeSpeedValue(
-            frame = frame,
+            count = frame,
             countMax = duration,
             startData = 0,
             endData = 100,
