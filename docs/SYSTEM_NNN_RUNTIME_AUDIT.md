@@ -1,10 +1,10 @@
 # System-NNN runtime audit
 
-## Current follow-up — 2026-11-07: visual compositor and audio lifecycle pass
+## Current follow-up — 2026-11-07: visual compositor, audio lifecycle, and packed-image budget pass
 
-**Current code snapshot:** `023eba2b45cdf1eff8f0dbe6586ea98128d7b5ca`  
+**Current code snapshot:** `38b9c59c17daac7c12b989e9932f3c0ecf38de38`  
 **Branch / PR:** `docs/system-nnn-launch-roadmap` / Draft PR #28  
-**Validation:** GitHub Actions run [#670](https://github.com/HelterFall/Ramen/actions/runs/42288086817) passed. It ran only `./gradlew --no-daemon --stacktrace testDebugUnitTest` (`BUILD SUCCESSFUL`). No APK was assembled; lint and physical-device tests were not run.  
+**Validation:** GitHub Actions run [#678](https://github.com/HelterFall/Ramen/actions/runs/42289795365) passed. It ran only `./gradlew --no-daemon --stacktrace testDebugUnitTest`. No APK was assembled; lint and physical-device tests were not run.  
 **Scope:** source review against the pinned System-NNN family reference plus JVM unit tests. The family reference is not an exact specification for every target-title parameter, and this pass does not claim visual or audible acceptance on the target game/device.
 
 ### Visual compositor changes
@@ -35,6 +35,13 @@ The following are still partial or unsupported:
 
 Warnings are retained for known approximations and missing dependencies. A warning being absent is not proof that every target-specific parameter is correct.
 
+### Packed image allocation guard
+
+- Indexed packed DWQ blocks are now checked against a configurable byte budget before the decoder copies the complete block into a `ByteArray`. The default is 128 MiB.
+- Standalone WGQ decoding receives the same configured budget and retains the existing 128 MiB hard ceiling.
+- Added tests confirming an oversized indexed block is rejected before any source read and an oversized standalone WGQ file is rejected before the header/full-file read.
+- This bounds the compressed input allocation; it does **not** eliminate the remaining peak-memory overlap. A valid in-budget packed image can still retain the compressed block, a decoded pixel array, and the Android `Bitmap` at the same time. Streaming or direct-to-bitmap decoding remains open.
+
 ### Audio resource and lifecycle changes
 
 - BGM/SE name-list handling is covered with synthetic filename/display-name pairs. The filename occupies the even-position entry, matching the native `GetName(n*2)` usage; BGM command numbers map from one-based slots and SE indices remain zero-based.
@@ -58,7 +65,7 @@ The new tests establish the local filename-to-resource-to-temporary-file path us
 2. **Voice:** the user has observed that dialogue voices play normally alongside the text in novellas. No active voice-playback bug is reported, so numeric bank-routing investigation is not being treated as a current blocker unless a reproducible symptom appears.
 3. **Movies:** the inventory contains an MPG file, but no connected Android movie event/player surface is implemented.
 4. **Unimplemented commands:** DRAW and PRELOADDWQ remain no-ops.
-5. **Memory/decoding:** packed DWQ decoding can retain a compressed block, an intermediate pixel array, and a Bitmap simultaneously; stricter compressed-block budgeting or streaming decode remains desirable.
+5. **Memory/decoding:** packed DWQ decoding now rejects blocks larger than 128 MiB before allocating the input buffer. Within that bound it can still retain the compressed block, an intermediate pixel array, and the Bitmap simultaneously; streaming/direct-to-bitmap decoding remains desirable.
 6. **Text/fonts:** XTX/MML use CP932/Windows-31J handling, while the SPT pool uses Shift-JIS; `sjis_ext.bin` is not integrated into the SPT decoder. MFT font compatibility is not established.
 7. **Application modes:** save/load controls remain placeholders; native title/system menus and the complete gallery experience are not implemented.
 
@@ -66,7 +73,7 @@ The new tests establish the local filename-to-resource-to-temporary-file path us
 
 1. Validate BGM and SE audibly on a physical Android device with the actual imported game, including pause/resume and interruption behavior. Only then decide whether gapless playback or Audio Focus changes are needed.
 2. Perform a visual acceptance pass on the target game/device for compositor effects used by the actual sample.
-3. Continue with movie support, DRAW/PRELOADDWQ, compressed-image peak memory, fonts, save/load, and native UI modes.
+3. Continue with movie support, DRAW/PRELOADDWQ, streaming/direct-to-bitmap image decoding, fonts, save/load, and native UI modes.
 
 The earlier material below is the historical audit snapshot `f4eda6eb494e5ebebcc852dd18b68901657f07ad`. Its old visual-compositor and voice-routing statements should be read as historical findings, not as the current code snapshot. The PR remains open and Draft; `main` was not changed.
 
