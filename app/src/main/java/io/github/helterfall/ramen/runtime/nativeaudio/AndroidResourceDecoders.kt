@@ -72,7 +72,7 @@ class AndroidGpkImageDecoder(
         // directly to preserve the original engine's orientation.
         if (resource.packType == DWQ_PACKTYPE_0 &&
             resource.bmpCompression == BI_RGB &&
-            resource.bmpBitsPerPixel in DWQ_SEQUENTIAL_BITS_PER_PIXEL
+            resource.bmpBitsPerPixel?.let(DWQ_SEQUENTIAL_BITS_PER_PIXEL::contains) == true
         ) {
             return decodeSequentialDwqBmp(source, resource)
         }
