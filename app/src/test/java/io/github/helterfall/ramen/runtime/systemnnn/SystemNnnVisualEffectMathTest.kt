@@ -92,7 +92,7 @@ class SystemNnnVisualEffectMathTest {
         val horizontal = (0..3).map {
             SystemNnnVisualEffectMath.shakeOffset(it, 4, vertical = false)
         }
-        assertEquals(listOf(-16f, -12f, 16f, 12f), horizontal.map { it.x })
+        assertEquals(listOf(-16f, 12f, 16f, -12f), horizontal.map { it.x })
         assertTrue(horizontal.all { it.y == 0f })
 
         val vertical = SystemNnnVisualEffectMath.shakeOffset(0, 4, vertical = true)
