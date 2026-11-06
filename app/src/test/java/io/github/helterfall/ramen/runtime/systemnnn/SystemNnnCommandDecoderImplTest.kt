@@ -766,7 +766,7 @@ class SystemNnnCommandDecoderImplTest {
 
         assertEquals(
             SystemNnnDecodedCommand.Jump(LOCAL_SUB_TARGET_OFFSET),
-            decoder.decodeNext(script, LOCAL_SUB_OFFSET)
+            decoder.decodeNext(script, LOCAL_SUB_OFFSET + 4L)
         )
         assertEquals(
             SystemNnnDecodedCommand.Skip(LOCAL_SUB_TARGET_OFFSET + 20L),
