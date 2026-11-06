@@ -91,7 +91,7 @@ internal object SystemNnnVisualEffectMath {
      * replacing the layer's previous effect.
      */
     fun shouldApplyNativeLayerEffectCommand(effectId: Int): Boolean =
-        effectId !in setOf(1, 4, 5, 6, 7)
+        effectId !in setOf(-1, 1, 4, 5, 6, 7)
 
     /**
      * Native PrintLayers asks each effect whether its source picture should be
