@@ -36,7 +36,7 @@ internal object SystemNnnLooseAudioFormat {
     private const val PACKTYPE_OFFSET = 0x30
     private const val MAX_SOURCE_BYTES = 512L * 1024L * 1024L
     private const val MAX_PCM_BYTES = 256L * 1024L * 1024L
-    private val PACKTYPE = Regex("^PACKTYPE=(\\d+)(A?) +$")
+    private val PACKTYPE = Regex("^PACKTYPE=(\\d+)(A?)$")
 
     fun inspect(file: File, root: File): SystemNnnLooseAudioPayload? {
         if (!file.isFile || Files.isSymbolicLink(file.toPath())) return null
