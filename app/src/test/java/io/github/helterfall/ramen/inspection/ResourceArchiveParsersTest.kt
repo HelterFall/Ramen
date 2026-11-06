@@ -743,8 +743,9 @@ class ResourceArchiveParsersTest {
         putU32(mask, 22, 2)
         putU16(mask, 28, 8)
         putU32(mask, 46, 2)
-        // Two grayscale palette entries: transparent black and opaque white.
-        byteArrayOf(0, 0, 0, 0, -1, -1, -1, 0).copyInto(mask, 0x36)
+        // Native LoadMask reads only the red palette channel as alpha.
+        // The opaque entry is deliberately red-only to distinguish that from RGB averaging.
+        byteArrayOf(0, 0, 0, 0, 0, 0, -1, 0).copyInto(mask, 0x36)
         // First row is a one-byte zero run; second row is palette index 1.
         byteArrayOf(0, 1, 1).copyInto(mask, 0x3E)
 
