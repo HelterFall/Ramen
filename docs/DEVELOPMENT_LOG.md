@@ -926,3 +926,12 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Added per-layer frame interpolation from SETEFFECTRECT's source origin to destination origin, using the native effect frame parameter where available. Width/height remain the source dimensions during motion and switch to destination dimensions at completion, matching the reference compositor.
 - Added bounded Compose approximations for layer opacity (TRANS/CTRANS/FADEIN/FADEOUT), character shake (CHARABURE/SHAKE), scroll, Bezier/B-spline movement, and persistent old-film scratches/scan lines. These are family-derived approximations, not bit-exact ports of every native effect shader.
 - Added a decoder regression case for preserving SETEFFECT parameter operands. Tests and lint were not run; the next validation is an APK-only build and device playback.
+
+
+## 2026-11-06 — restore native WGQ/MML music routing and SE paths
+
+- Rechecked the reference callback: MUSIC resolves the even token in bgmlist.xtx, then CWaveMusic reads wgq/<track>.mml or falls back to wgq/<track>.wgq. Each MML token is streamed from wgq/<segment>.wgq. SOUND resolves its even selist.xtx token under vaw/se/<name>.vaw.
+- Added native MML playlist parsing for segment order, finite bracket loops, and infinite [0:...] loops. The Android audio player now advances between staged Ogg segments and honours the native repeat count.
+- Added exact vaw/se path lookup for SOUND and changed loose audio matching so an exact relative path takes precedence over other files sharing its basename.
+- Changed unmarked XTX/MML text decoding to Windows-31J (CP932), matching the original Japanese Windows byte-string runtime; UTF-8 remains available when a BOM is present.
+- Added bounded, path-safe resource resolution and regression tests for the native list encoding, SE directory, exact-path disambiguation, and MML playlists. Tests/lint were not run; APK-only build is the next validation.

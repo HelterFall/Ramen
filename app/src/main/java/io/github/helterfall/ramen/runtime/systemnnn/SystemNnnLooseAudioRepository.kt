@@ -39,13 +39,15 @@ class SystemNnnLooseAudioRepository(
     }
 
     fun matches(id: String): List<SystemNnnLooseAudioResourceInfo> {
-        val query = id.trim().replace('\\', '/')
-        val queryBase = query.substringAfterLast('/').substringBeforeLast('.')
+        val query = id.trim().replace('\\', '/').trimStart('/')
+        if (query.isEmpty()) return emptyList()
+        val exactPath = resources.filter { it.id.replace('\\', '/').equals(query, true) }
+        if (exactPath.isNotEmpty() || '/' in query) return exactPath
+        val exactFileName = resources.filter { it.fileName.equals(query, true) }
+        if (exactFileName.isNotEmpty()) return exactFileName
+        val queryBase = query.substringBeforeLast('.', query)
         return resources.filter { resource ->
-            val resourcePath = resource.id.replace('\\', '/')
-            resourcePath.equals(query, true) ||
-                resource.fileName.equals(query.substringAfterLast('/'), true) ||
-                resource.fileName.substringBeforeLast('.', resource.fileName).equals(queryBase, true)
+            resource.fileName.substringBeforeLast('.', resource.fileName).equals(queryBase, true)
         }
     }
 
@@ -53,8 +55,10 @@ class SystemNnnLooseAudioRepository(
     fun materialize(id: String): File {
         checkOpen()
         val matches = matches(id)
-        if (matches.size != 1) {
-            throw IOException("Loose audio lookup must resolve to exactly one VAW/WGQ file.")
+        if (matches.isEmpty()) throw IOException("Loose audio resource was not found: " + id)
+        if (matches.size > 1) {
+            val paths = matches.take(8).joinToString(", ") { it.id }
+            throw IOException("Loose audio resource '" + id + "' is ambiguous: " + paths)
         }
         val resource = payloads[matches.single().id.lowercase(Locale.ROOT)]
             ?: throw IOException("Loose audio catalog entry is unavailable.")

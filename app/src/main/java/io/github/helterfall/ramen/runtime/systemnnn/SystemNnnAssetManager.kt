@@ -64,6 +64,7 @@ data class SystemNnnAssetCatalog(
  * resources are materialized by unique path/name without invented voice indexes.
  */
 class SystemNnnAssetManager private constructor(
+    private val gameRoot: File,
     private val imageBanks: List<ImageBank>,
     private val audioBanks: List<AudioBank>,
     private val looseAudioRepository: SystemNnnLooseAudioRepository,
@@ -254,6 +255,70 @@ class SystemNnnAssetManager private constructor(
         return looseAudioRepository.materialize(resourceId)
     }
 
+    @Throws(IOException::class)
+    @Synchronized
+    override fun materializeSound(resourceId: String): File {
+        checkOpen()
+        val token = normalizeNativeResourceToken(resourceId, "SE")
+            .removeSuffixIgnoreCase(".vaw")
+            .removePrefixIgnoreCase("vaw/")
+            .removePrefixIgnoreCase("se/")
+        if (token.isBlank()) throw IOException("SE list contains an empty resource name.")
+        return looseAudioRepository.materialize("vaw/se/" + token + ".vaw")
+    }
+
+    @Throws(IOException::class)
+    @Synchronized
+    override fun materializeMusic(resourceId: String, repeatCount: Int): SystemNnnMusicPlaylist {
+        checkOpen()
+        if (repeatCount < 0) throw IOException("The native BGM repeat count is invalid.")
+        val token = normalizeNativeResourceToken(resourceId, "BGM")
+            .removeSuffixIgnoreCase(".mml")
+            .removeSuffixIgnoreCase(".wgq")
+            .removePrefixIgnoreCase("wgq/")
+        if (token.isBlank()) throw IOException("BGM list contains an empty resource name.")
+
+        val mmlPath = "wgq/" + token + ".mml"
+        val mmlFile = File(gameRoot, mmlPath)
+        val canonicalMml = mmlFile.canonicalFile
+        if (!canonicalMml.toPath().startsWith(gameRoot.toPath()) ||
+            Files.isSymbolicLink(mmlFile.toPath()) ||
+            !canonicalMml.isFile
+        ) {
+            val single = looseAudioRepository.materialize("wgq/" + token + ".wgq")
+            return SystemNnnMusicPlaylist(listOf(single), repeatCount)
+        }
+        if (canonicalMml.length() > MAX_MML_BYTES) {
+            throw IOException("BGM MML playlist exceeds the supported size: " + mmlPath)
+        }
+
+        val sequence = SystemNnnMmlPlaylistParser.parse(
+            SystemNnnLegacyText.decode(canonicalMml.readBytes())
+        )
+        val staged = ArrayList<File>(sequence.segmentNames.size)
+        try {
+            sequence.segmentNames.forEach { name ->
+                val segment = normalizeNativeResourceToken(name, "WGQ segment")
+                staged += looseAudioRepository.materialize("wgq/" + segment + ".wgq")
+            }
+            return SystemNnnMusicPlaylist(
+                files = staged,
+                repeatCount = repeatCount,
+                infiniteLoopStartIndex = sequence.infiniteLoopStartIndex
+            )
+        } catch (error: Exception) {
+            staged.forEach { runCatching { it.delete() } }
+            if (error is IOException) {
+                throw IOException(
+                    "BGM '" + resourceId + "' references a WGQ segment that could not be prepared: " +
+                        (error.message ?: "resource not found."),
+                    error
+                )
+            }
+            throw IOException("Could not prepare native BGM playlist '" + resourceId + "'.", error)
+        }
+    }
+
     override fun musicResourceName(oneBasedNumber: Int): String? {
         checkOpen()
         if (oneBasedNumber <= 0) return null
@@ -328,6 +393,25 @@ class SystemNnnAssetManager private constructor(
         private const val MAX_DISCOVERED_FILES = 10_000
         private const val MAX_NAME_LIST_BYTES = 4L * 1024L * 1024L
         private const val MAX_NAME_LIST_ENTRIES = 100_000
+        private const val MAX_MML_BYTES = 4L * 1024L * 1024L
+
+        private fun normalizeNativeResourceToken(value: String, kind: String): String {
+            val token = value.trim().replace('\\', '/')
+            if (token.isBlank() || token.startsWith('/') || token.length > 255 || ':' in token ||
+                token.split('/').any { it.isBlank() || it == "." || it == ".." } ||
+                token.any { it.isISOControl() }
+            ) {
+                throw IOException(kind + " resource name is invalid.")
+            }
+            return token
+        }
+
+        private fun String.removeSuffixIgnoreCase(suffix: String): String =
+            if (endsWith(suffix, ignoreCase = true)) dropLast(suffix.length) else this
+
+        private fun String.removePrefixIgnoreCase(prefix: String): String =
+            if (startsWith(prefix, ignoreCase = true)) drop(prefix.length) else this
+
         private val INDEXED_IMAGE_ARCHIVE_EXTENSIONS = setOf("gpk", "wgq")
         private val INDEXED_AUDIO_ARCHIVE_EXTENSIONS = setOf("vaw", "vpk")
 
@@ -514,6 +598,7 @@ class SystemNnnAssetManager private constructor(
                 warnings = warnings.toList()
             )
             return SystemNnnAssetManager(
+                gameRoot = root,
                 imageBanks = imageBanks.toList(),
                 audioBanks = audioBanks.toList(),
                 looseAudioRepository = looseAudioRepository,
@@ -539,7 +624,7 @@ class SystemNnnAssetManager private constructor(
                 return emptyList()
             }
             return runCatching {
-                val text = source.readText(Charsets.UTF_8).removePrefix("\uFEFF")
+                val text = SystemNnnLegacyText.decode(source.readBytes())
                 Regex("[^,\\s]+").findAll(text)
                     .map { it.value.trim() }
                     .filter { it.isNotEmpty() && it.none { character -> character.isISOControl() } }

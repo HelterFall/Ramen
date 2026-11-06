@@ -14,6 +14,12 @@ import java.util.Locale
  * bank-local indexes explicit; a catalog containing several banks must not
  * silently concatenate them into a guessed global voice table.
  */
+data class SystemNnnMusicPlaylist(
+    val files: List<File>,
+    val repeatCount: Int,
+    val infiniteLoopStartIndex: Int? = null
+)
+
 interface SystemNnnAudioResourceRepository : Closeable {
     val entries: List<VpkAudioResource>
 
@@ -25,7 +31,13 @@ interface SystemNnnAudioResourceRepository : Closeable {
     @Throws(IOException::class)
     fun materializeByIndex(index: Long): File
 
-    /** Name-list slots: one-based MUSIC, zero-based SOUND, as in the native callback. */
+    @Throws(IOException::class)
+    fun materializeSound(resourceId: String): File = materialize(resourceId)
+
+    @Throws(IOException::class)
+    fun materializeMusic(resourceId: String, repeatCount: Int): SystemNnnMusicPlaylist =
+        SystemNnnMusicPlaylist(listOf(materialize(resourceId)), repeatCount.coerceAtLeast(0))
+
     fun musicResourceName(oneBasedNumber: Int): String? = null
     fun soundResourceName(zeroBasedNumber: Int): String? = null
 }

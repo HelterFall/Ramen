@@ -710,29 +710,68 @@ class SystemNnnPlayerViewModel : ViewModel() {
         channelAudioPlayers[key]?.stop()
     }
 
-    private fun playMusicResource(resourceId: String) {
+    private fun playMusicResource(resourceId: String, repeatCount: Int) {
         val repository = audioRepository ?: return
         val player = audioPlayer ?: return
         val requestId = ++musicRequestId
         player.stop()
         voiceExecutor.execute {
-            val staged = runCatching { repository.materialize(resourceId) }
+            val staged = runCatching { repository.materializeMusic(resourceId, repeatCount) }
             mainHandler.post {
                 if (requestId != musicRequestId) {
+                    staged.getOrNull()?.files?.forEach { it.delete() }
+                    return@post
+                }
+                staged.onSuccess { playlist ->
+                    runCatching {
+                        player.playPlaylist(
+                            files = playlist.files,
+                            resourceName = resourceId,
+                            repeatCount = playlist.repeatCount,
+                            infiniteLoopStartIndex = playlist.infiniteLoopStartIndex
+                        )
+                    }.onFailure { error ->
+                        playlist.files.forEach { it.delete() }
+                        uiState = uiState.copy(
+                            audioWarning = "Не удалось запустить фоновую музыку '" + resourceId + "': " +
+                                (error.message ?: "ошибка воспроизведения.")
+                        )
+                    }
+                }.onFailure { error ->
+                    uiState = uiState.copy(
+                        audioWarning = "Не удалось подготовить музыку '" + resourceId + "': " +
+                            (error.message ?: "ресурс не найден.")
+                    )
+                }
+            }
+        }
+    }
+
+    private fun playSoundResource(key: String, resourceId: String) {
+        val repository = audioRepository ?: return
+        val normalizedId = resourceId.trim().takeIf { it.isNotEmpty() } ?: return
+        val requestId = nextAudioRequestId()
+        channelAudioRequestIds[key] = requestId
+        val player = channelAudioPlayer(key)
+        voiceExecutor.execute {
+            val staged = runCatching { repository.materializeSound(normalizedId) }
+            mainHandler.post {
+                if (channelAudioRequestIds[key] != requestId) {
                     staged.getOrNull()?.delete()
                     return@post
                 }
                 staged.onSuccess { file ->
-                    runCatching { player.play(file, resourceId) }
+                    runCatching { player.play(file, normalizedId) }
                         .onFailure { error ->
+                            file.delete()
                             uiState = uiState.copy(
-                                audioWarning = "Не удалось запустить фоновую музыку: " +
+                                audioWarning = "Не удалось запустить SE '" + normalizedId + "': " +
                                     (error.message ?: "ошибка воспроизведения.")
                             )
                         }
                 }.onFailure { error ->
                     uiState = uiState.copy(
-                        audioWarning = "Не удалось подготовить музыку '" + resourceId + "': " +
+                        audioWarning = "Не удалось подготовить SE '" + normalizedId + "': " +
                             (error.message ?: "ресурс не найден.")
                     )
                 }
@@ -1000,7 +1039,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                         audioWarning = "В spt/bgmlist.xtx не найден музыкальный слот " + command.musicNumber + "."
                                     )
                                 } else {
-                                    playMusicResource(resourceId)
+                                    playMusicResource(resourceId, command.loopCount)
                                 }
                             }
                         }
@@ -1029,7 +1068,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                     audioWarning = "В spt/selist.xtx не найден звуковой слот " + command.soundNumber + "."
                                 )
                             } else {
-                                playChannelResource(key, resourceId)
+                                playSoundResource(key, resourceId)
                             }
                         }
                         commandsWithoutVisibleOutput += 1
