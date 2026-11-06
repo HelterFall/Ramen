@@ -539,14 +539,15 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
-    fun warnsThatChangeEffectIsOnlyAnApproximation() {
+    fun warnsWhenChangeEffectDoesNotNameItsSecondLayer() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(
             mapOf(
                 offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
                     nextCommandOffset = offsets[1],
                     layerIndex = 0,
-                    effectId = 40
+                    effectId = 40,
+                    parameters = listOf(20)
                 ),
                 offsets[1] to SystemNnnDecodedCommand.Dialogue(
                     nextCommandOffset = offsets[2],
@@ -560,11 +561,11 @@ class SystemNnnPlayerViewModelTest {
 
         assertEquals("First line", viewModel.uiState.dialogueText)
         assertTrue(viewModel.uiState.statusMessage?.contains("(40)") == true)
-        assertTrue(viewModel.uiState.statusMessage?.contains("не поддерживается полностью") == true)
+        assertTrue(viewModel.uiState.statusMessage?.contains("second-layer operand") == true)
     }
 
     @Test
-    fun warnsThatMoveEffectHasNoRenderer() {
+    fun warnsWhenMoveEffectHasNoDestinationRectangle() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(
             mapOf(
@@ -585,7 +586,90 @@ class SystemNnnPlayerViewModelTest {
 
         assertEquals("First line", viewModel.uiState.dialogueText)
         assertTrue(viewModel.uiState.statusMessage?.contains("(52)") == true)
-        assertTrue(viewModel.uiState.statusMessage?.contains("не поддерживается полностью") == true)
+        assertTrue(viewModel.uiState.statusMessage?.contains("SETEFFECTRECT") == true)
+    }
+
+    @Test
+    fun screenLayerFadeIsPublishedAsAViewportEffect() {
+        val offsets = recordOffsets()
+        val parameters = listOf(24, 16, 32, 48, 0, 0)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 31,
+                    effectId = 10,
+                    parameters = parameters
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertEquals(10, viewModel.uiState.screenEffectId)
+        assertEquals(parameters, viewModel.uiState.screenEffectParameters)
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
+    @Test
+    fun clearingTheScreenLayerRemovesItsActiveViewportEffect() {
+        val offsets = recordOffsets()
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 31,
+                    effectId = 11,
+                    parameters = listOf(12, 0, 0, 0, 0, 0)
+                ),
+                offsets[1] to SystemNnnDecodedCommand.ClearImageLayer(
+                    nextCommandOffset = offsets[2],
+                    layerIndex = 31
+                ),
+                offsets[2] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[3],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertNull(viewModel.uiState.screenEffectId)
+        assertTrue(viewModel.uiState.screenEffectParameters.isEmpty())
+    }
+
+    @Test
+    fun clearingAllImageLayersAlsoClearsTheViewportEffect() {
+        val offsets = recordOffsets()
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 31,
+                    effectId = 18,
+                    parameters = listOf(8, 0, 0)
+                ),
+                offsets[1] to SystemNnnDecodedCommand.ClearAllImageLayers(
+                    nextCommandOffset = offsets[2]
+                ),
+                offsets[2] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[3],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertNull(viewModel.uiState.screenEffectId)
     }
 
     @Test
