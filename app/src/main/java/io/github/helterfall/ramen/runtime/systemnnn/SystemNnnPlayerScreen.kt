@@ -168,6 +168,7 @@ fun SystemNnnPlayerScreen(
                 val changePartners = state.sprites.mapNotNull { sprite ->
                     if (sprite.nativeEffectId != 40) return@mapNotNull null
                     val partnerLayer = sprite.nativeEffectParameters.getOrNull(1) ?: return@mapNotNull null
+                    if (partnerLayer == sprite.layerIndex) return@mapNotNull null
                     val partner = state.sprites.firstOrNull { it.layerIndex == partnerLayer } ?: return@mapNotNull null
                     if (partner.bitmap.width != sprite.bitmap.width || partner.bitmap.height != sprite.bitmap.height) {
                         return@mapNotNull null
