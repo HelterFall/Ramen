@@ -1,6 +1,7 @@
 package io.github.helterfall.ramen.runtime.systemnnn
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -53,6 +54,48 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(0.5f, middle.secondaryAlpha, 0.001f)
         assertEquals(0f, end.primaryAlpha, 0.001f)
         assertEquals(1f, end.secondaryAlpha, 0.001f)
+    }
+
+    @Test
+    fun screenFadeInStartsWithColorAndEndsOnTheScene() {
+        val parameters = listOf(20, 24, 32, 48, 0, 0)
+
+        val start = SystemNnnVisualEffectMath.screenFade(10, 0, parameters)
+        val end = SystemNnnVisualEffectMath.screenFade(10, 20, parameters)
+
+        assertEquals(1f, checkNotNull(start).alpha, 0.001f)
+        assertEquals(0f, checkNotNull(end).alpha, 0.001f)
+        assertEquals(SystemNnnVisualColor(24, 32, 48), start.color)
+    }
+
+    @Test
+    fun screenFadeOutStartsOnTheSceneAndEndsWithColor() {
+        val parameters = listOf(20, 10, 20, 30, 0, 0)
+
+        val start = SystemNnnVisualEffectMath.screenFade(11, 0, parameters)
+        val end = SystemNnnVisualEffectMath.screenFade(11, 20, parameters)
+
+        assertEquals(0f, checkNotNull(start).alpha, 0.001f)
+        assertEquals(1f, checkNotNull(end).alpha, 0.001f)
+    }
+
+    @Test
+    fun nativeScreenColorInheritsMissingGreenAndBlueComponents() {
+        assertEquals(
+            SystemNnnVisualColor(42, 42, 42),
+            SystemNnnVisualEffectMath.nativeScreenColor(listOf(20, 42))
+        )
+        assertEquals(
+            SystemNnnVisualColor(42, 17, 17),
+            SystemNnnVisualEffectMath.nativeScreenColor(listOf(20, 42, 17))
+        )
+    }
+
+    @Test
+    fun scrollLoopFlagDefaultsToDisabled() {
+        assertFalse(SystemNnnVisualEffectMath.scrollUsesLoopFrame(emptyList()))
+        assertFalse(SystemNnnVisualEffectMath.scrollUsesLoopFrame(listOf(20, 32, 0)))
+        assertTrue(SystemNnnVisualEffectMath.scrollUsesLoopFrame(listOf(20, 32, 0, 1)))
     }
 
     @Test
