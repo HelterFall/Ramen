@@ -308,6 +308,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private val channelAudioRequestIds = HashMap<String, Long>()
     private var audioRequestId: Long = 0L
     private var musicRequestId: Long = 0L
+    private var audioPausedForLifecycle: Boolean = false
     private val voiceExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler by lazy(LazyThreadSafetyMode.NONE) {
         Handler(Looper.getMainLooper())
@@ -548,6 +549,26 @@ class SystemNnnPlayerViewModel : ViewModel() {
         bitmapOwners[bitmap] = resolver
     }
 
+    /** Pauses all active native audio channels while the player Activity is not visible. */
+    fun onHostPaused() {
+        if (audioPausedForLifecycle) return
+        audioPausedForLifecycle = true
+        audioPlayer?.pause()
+        channelAudioPlayers.values.forEach(SystemNnnAudioPlayer::pause)
+    }
+
+    /** Resumes only players that were paused by the Activity lifecycle. */
+    fun onHostResumed() {
+        if (!audioPausedForLifecycle) return
+        audioPausedForLifecycle = false
+        audioPlayer?.resume()
+        channelAudioPlayers.values.forEach(SystemNnnAudioPlayer::resume)
+    }
+
+    private fun pauseAudioIfNeeded(player: SystemNnnAudioPlayer) {
+        if (audioPausedForLifecycle) player.pause()
+    }
+
     private fun startAudio(track: File?, resourceName: String?) {
         audioPlayer = SystemNnnAudioPlayer { status ->
             if (status.state == SystemNnnAudioPlaybackState.ERROR) {
@@ -559,7 +580,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
         if (track != null) {
             runCatching {
-                audioPlayer?.play(track, resourceName ?: track.name)
+                audioPlayer?.let { player ->
+                    player.play(track, resourceName ?: track.name)
+                    pauseAudioIfNeeded(player)
+                }
             }.onFailure { error ->
                 uiState = uiState.copy(
                     audioWarning = "Не удалось запустить фоновый трек: " +
@@ -663,8 +687,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     return@post
                 }
                 staged.onSuccess { file ->
-                    runCatching { player.play(file, normalizedId) }
-                        .onFailure { error ->
+                    runCatching {
+                        player.play(file, normalizedId)
+                        pauseAudioIfNeeded(player)
+                    }.onFailure { error ->
                             uiState = uiState.copy(
                                 audioWarning = "Не удалось запустить '" + normalizedId + "': " +
                                     (error.message ?: "ошибка воспроизведения.")
@@ -694,8 +720,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     return@post
                 }
                 staged.onSuccess { file ->
-                    runCatching { player.play(file, "voice-index-" + index) }
-                        .onFailure { error ->
+                    runCatching {
+                        player.play(file, "voice-index-" + index)
+                        pauseAudioIfNeeded(player)
+                    }.onFailure { error ->
                             uiState = uiState.copy(
                                 audioWarning = "Не удалось запустить голосовую дорожку: " +
                                     (error.message ?: "ошибка воспроизведения.")
@@ -736,6 +764,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             repeatCount = playlist.repeatCount,
                             infiniteLoopStartIndex = playlist.infiniteLoopStartIndex
                         )
+                        pauseAudioIfNeeded(player)
                     }.onFailure { error ->
                         playlist.files.forEach { it.delete() }
                         uiState = uiState.copy(
@@ -767,8 +796,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     return@post
                 }
                 staged.onSuccess { file ->
-                    runCatching { player.play(file, normalizedId) }
-                        .onFailure { error ->
+                    runCatching {
+                        player.play(file, normalizedId)
+                        pauseAudioIfNeeded(player)
+                    }.onFailure { error ->
                             file.delete()
                             uiState = uiState.copy(
                                 audioWarning = "Не удалось запустить SE '" + normalizedId + "': " +
