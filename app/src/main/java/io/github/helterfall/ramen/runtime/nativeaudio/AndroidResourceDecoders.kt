@@ -66,6 +66,17 @@ class AndroidGpkImageDecoder(
             return decodeWithBitmapFactory(source, resource)
         }
 
+        // Native CPicture::LoadDWQData consumes ordinary DWQ rows in file
+        // order; unlike a standalone BMP, a positive biHeight is not flipped.
+        // Android BitmapFactory normalizes that row order, so decode DWQ PACKTYPE=0
+        // directly to preserve the original engine's orientation.
+        if (resource.packType == DWQ_PACKTYPE_0 &&
+            resource.bmpCompression == BI_RGB &&
+            resource.bmpBitsPerPixel in DWQ_SEQUENTIAL_BITS_PER_PIXEL
+        ) {
+            return decodeSequentialDwqBmp(source, resource)
+        }
+
         val bitmapFactoryFailure = try {
             return decodeWithBitmapFactory(source, resource)
         } catch (failure: IOException) {
@@ -223,9 +234,73 @@ class AndroidGpkImageDecoder(
      * Decodes the supported BMP layouts whose DIB metadata was validated by
      * GpkGtbArchiveParser: uncompressed 24/32-bit BGR(X), or indexed RLE4/RLE8.
      */
-    private fun decodeRawBmpPixels(
+    private fun decodeSequentialDwqBmp(
         source: ReadOnlyRandomAccessSource,
         resource: GpkImageResource
+    ): Bitmap {
+        val bitmap = decodeRawBmpPixels(source, resource, preserveStoredRowOrder = true)
+        if (!resource.hasAlpha) return bitmap
+
+        try {
+            val pixelOffset = resource.bmpPixelDataOffsetBytes
+                ?: throw IOException("DWQ image has no validated pixel-data offset.")
+            val bitsPerPixel = resource.bmpBitsPerPixel
+                ?: throw IOException("DWQ image has no validated bit-depth metadata.")
+            val rowBytes = (resource.widthPixels.toLong() * (bitsPerPixel / 8).toLong() + 3L) and -4L
+            val imageEnd = pixelOffset + rowBytes * resource.heightPixels.toLong()
+            if (imageEnd < pixelOffset || imageEnd > resource.payloadSizeBytes) {
+                throw IOException("DWQ image rows extend beyond the indexed payload.")
+            }
+            val maskSize = resource.payloadSizeBytes - imageEnd
+            if (maskSize <= 0L ||
+                maskSize > maxPackedBlockBytes ||
+                maskSize > Int.MAX_VALUE.toLong()
+            ) {
+                throw IOException("DWQ alpha mask is missing or exceeds the configured block-size budget.")
+            }
+
+            val maskBytes = ByteArray(maskSize.toInt())
+            source.readFullyAt(resource.payloadOffset + imageEnd, maskBytes)
+            val alphaValues = ResourceArchiveParsers.decodeBlackCycDwqAlphaMask(
+                maskBytes,
+                resource.widthPixels,
+                resource.heightPixels,
+                maxDecodedPixels
+            )
+            val pixels = IntArray(resource.widthPixels * resource.heightPixels)
+            bitmap.getPixels(
+                pixels,
+                0,
+                resource.widthPixels,
+                0,
+                0,
+                resource.widthPixels,
+                resource.heightPixels
+            )
+            for (index in pixels.indices) {
+                pixels[index] = (pixels[index] and 0x00FFFFFF) or (alphaValues[index] shl 24)
+            }
+            bitmap.setPixels(
+                pixels,
+                0,
+                resource.widthPixels,
+                0,
+                0,
+                resource.widthPixels,
+                resource.heightPixels
+            )
+            return bitmap
+        } catch (failure: Exception) {
+            bitmap.recycle()
+            if (failure is IOException) throw failure
+            throw IOException("Could not apply the DWQ alpha mask.", failure)
+        }
+    }
+
+    private fun decodeRawBmpPixels(
+        source: ReadOnlyRandomAccessSource,
+        resource: GpkImageResource,
+        preserveStoredRowOrder: Boolean = false
     ): Bitmap {
         val pixelDataOffset = resource.bmpPixelDataOffsetBytes
             ?: throw IOException("BMP has no validated raw pixel-data offset.")
@@ -276,7 +351,11 @@ class AndroidGpkImageDecoder(
 
         try {
             for (destinationY in 0 until height) {
-                val storedY = if (topDown) destinationY else height - 1 - destinationY
+                val storedY = if (preserveStoredRowOrder || topDown) {
+                    destinationY
+                } else {
+                    height - 1 - destinationY
+                }
                 val rowOffset = resource.payloadOffset + pixelDataOffset +
                     storedY.toLong() * rowStride
                 source.readFullyAt(rowOffset, rawRow)
@@ -402,8 +481,10 @@ class AndroidGpkImageDecoder(
         private const val DEFAULT_MAX_DECODED_PIXELS = 8_000_000L
         // Match the standalone WGQ hard limit; check before copying an indexed GPK block.
         private const val DEFAULT_MAX_PACKED_BLOCK_BYTES = 128L * 1024L * 1024L
+        private const val DWQ_PACKTYPE_0 = 0
         private const val DWQ_PACKTYPE_1 = 1
         private const val DWQ_PACKTYPE_3 = 3
+        private val DWQ_SEQUENTIAL_BITS_PER_PIXEL = setOf(24, 32)
         private const val BI_RGB = 0L
         private const val BI_RLE8 = 1L
         private const val BI_RLE4 = 2L
