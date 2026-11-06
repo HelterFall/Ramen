@@ -45,7 +45,8 @@ internal object SystemNnnMmlPlaylistParser {
                         val start = segments.size
                         // The nested parser already counted its expanded segments. Copy its
                         // result into this parent without charging the same segments twice.
-                        segments.addAll(nested.segmentNames)\n                        if (nested.infiniteLoopStartIndex != null) {
+                        segments.addAll(nested.segmentNames)
+                        if (nested.infiniteLoopStartIndex != null) {
                             return ParseResult(segments, start + nested.infiniteLoopStartIndex)
                         }
                         if (loopCount == 0) {
