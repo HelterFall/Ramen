@@ -121,6 +121,83 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(10f, negative.y, 0.001f)
     }
 
+
+    @Test
+    fun screenFadeUsesNativeDirectionAndGrayscaleColorDefaults() {
+        val parameters = listOf(20, 128)
+
+        val fadeInStart = SystemNnnVisualEffectMath.screenFade(10, 0, parameters)
+        val fadeInEnd = SystemNnnVisualEffectMath.screenFade(10, 20, parameters)
+        val fadeOutStart = SystemNnnVisualEffectMath.screenFade(11, 0, parameters)
+        val fadeOutEnd = SystemNnnVisualEffectMath.screenFade(11, 20, parameters)
+
+        assertEquals(SystemNnnVisualColor(128, 128, 128), fadeInStart?.color)
+        assertEquals(1f, fadeInStart?.alpha ?: -1f, 0.001f)
+        assertEquals(0f, fadeInEnd?.alpha ?: -1f, 0.001f)
+        assertEquals(0f, fadeOutStart?.alpha ?: -1f, 0.001f)
+        assertEquals(1f, fadeOutEnd?.alpha ?: -1f, 0.001f)
+    }
+
+    @Test
+    fun screenColorDefaultsEachMissingChannelToThePreviousChannel() {
+        assertEquals(
+            SystemNnnVisualColor(40, 40, 40),
+            SystemNnnVisualEffectMath.nativeScreenColor(listOf(20, 40))
+        )
+        assertEquals(
+            SystemNnnVisualColor(40, 90, 90),
+            SystemNnnVisualEffectMath.nativeScreenColor(listOf(20, 40, 90))
+        )
+    }
+
+    @Test
+    fun scrollLoopFlagDefaultsToDisabled() {
+        assertTrue(!SystemNnnVisualEffectMath.scrollUsesLoopFrame(emptyList()))
+        assertTrue(!SystemNnnVisualEffectMath.scrollUsesLoopFrame(listOf(20, 8, 0)))
+        assertTrue(SystemNnnVisualEffectMath.scrollUsesLoopFrame(listOf(20, 8, 0, 1)))
+    }
+
+    @Test
+    fun bezierAndBSplineUseTheirNativeSpeedTypeOperands() {
+        val bezier = listOf(20, 0, 0, 33, 0, 67, 0, 100, 0, 30, 0)
+        val bSpline = listOf(20, 0, 0, 50, 0, 100, 0, 30, 0)
+
+        assertEquals(25f, SystemNnnVisualEffectMath.bezierOffset(10, bezier).x, 0.2f)
+        assertEquals(25f, SystemNnnVisualEffectMath.bSpline2Offset(10, bSpline).x, 0.01f)
+    }
+
+    @Test
+    fun layerVisualConfigurationSurvivesSeparateCommandAdvances() {
+        val store = SystemNnnVisualLayerConfigurationStore()
+        val from = SystemNnnNativeRect(10, 20, 300, 400)
+        val to = SystemNnnNativeRect(50, 60, 300, 400)
+
+        val firstAdvance = store.snapshot()
+        firstAdvance[7] = SystemNnnVisualLayerConfiguration(
+            sourceRect = from,
+            destinationRect = to
+        )
+        store.replaceWith(firstAdvance)
+
+        val secondAdvance = store.snapshot()
+        assertEquals(from, secondAdvance[7]?.sourceRect)
+        assertEquals(to, secondAdvance[7]?.destinationRect)
+
+        secondAdvance[7] = checkNotNull(secondAdvance[7]).copy(
+            effectId = 52,
+            effectParameters = listOf(24),
+            effectCommandOffset = 0x1234L
+        )
+        store.replaceWith(secondAdvance)
+
+        val afterImageLoad = checkNotNull(store.snapshot()[7])
+        assertEquals(from, afterImageLoad.sourceRect)
+        assertEquals(to, afterImageLoad.destinationRect)
+        assertEquals(52, afterImageLoad.effectId)
+        assertEquals(listOf(24), afterImageLoad.effectParameters)
+        assertEquals(0x1234L, afterImageLoad.effectCommandOffset)
+    }
+
     @Test
     fun characterJitterIsRepeatableForTheSameNativeParametersAndSeed() {
         val parameters = listOf(30, 8, 6, 8, 50, 50, 0, 0)
