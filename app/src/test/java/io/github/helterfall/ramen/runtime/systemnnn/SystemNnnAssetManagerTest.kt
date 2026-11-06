@@ -124,6 +124,59 @@ class SystemNnnAssetManagerTest {
     }
 
     @Test
+    fun resolvesBgmAndSeNameListSlotsAndMaterializesTheirNativeFiles() {
+        val root = Files.createTempDirectory("ramen-systemnnn-audio-routing").toFile()
+        try {
+            val spt = File(root, "spt").apply { mkdirs() }
+            File(spt, "bgmlist.xtx").writeText("Opening Theme,bgm_open,Quiet Theme,bgm_quiet")
+            File(spt, "selist.xtx").writeText("Door,door01,Footstep,step02")
+
+            val wgq = File(root, "wgq").apply { mkdirs() }
+            File(wgq, "bgm_open.mml").writeText("intro loop")
+            val introBytes = createLooseOggBytes("intro-stream")
+            val loopBytes = createLooseOggBytes("loop-stream")
+            File(wgq, "intro.wgq").writeBytes(introBytes)
+            File(wgq, "loop.wgq").writeBytes(loopBytes)
+
+            val se = File(root, "vaw/se").apply { mkdirs() }
+            val waveBytes = ByteArray(48)
+            "RIFF".toByteArray(Charsets.US_ASCII).copyInto(waveBytes, 0)
+            "WAVE".toByteArray(Charsets.US_ASCII).copyInto(waveBytes, 8)
+            "fmt ".toByteArray(Charsets.US_ASCII).copyInto(waveBytes, 12)
+            File(se, "door01.vaw").writeBytes(createLoosePackTypeZeroBytes(waveBytes))
+
+            val manager = SystemNnnAssetManager.forGameDirectory(
+                gameDirectory = root,
+                cacheDirectory = File(root, "cache")
+            )
+            val stagedFiles = mutableListOf<File>()
+            try {
+                assertEquals("bgm_open", manager.musicResourceName(1))
+                assertEquals("bgm_quiet", manager.musicResourceName(2))
+                assertEquals("door01", manager.soundResourceName(0))
+                assertEquals("step02", manager.soundResourceName(1))
+
+                val playlist = manager.materializeMusic("bgm_open", repeatCount = 3)
+                stagedFiles += playlist.files
+                assertEquals(3, playlist.repeatCount)
+                assertEquals(null, playlist.infiniteLoopStartIndex)
+                assertEquals(2, playlist.files.size)
+                assertEquals(introBytes.drop(0x40), playlist.files[0].readBytes().toList())
+                assertEquals(loopBytes.drop(0x40), playlist.files[1].readBytes().toList())
+
+                val sound = manager.materializeSound(checkNotNull(manager.soundResourceName(0)))
+                stagedFiles += sound
+                assertEquals(waveBytes.toList(), sound.readBytes().toList())
+            } finally {
+                manager.close()
+            }
+            assertTrue(stagedFiles.none(File::exists))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun keepsUnindexedWgqFilesVisibleWithoutTreatingThemAsImages() {
         val root = Files.createTempDirectory("ramen-systemnnn-unindexed-wgq").toFile()
         try {
@@ -158,6 +211,20 @@ class SystemNnnAssetManagerTest {
         } finally {
             root.deleteRecursively()
         }
+    }
+
+    private fun createLooseOggBytes(payload: String): ByteArray {
+        val header = ByteArray(0x40) { ' '.code.toByte() }
+        "OGG ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x10)
+        "PACKTYPE=6      ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x30)
+        return header + "OggS".toByteArray(Charsets.US_ASCII) +
+            payload.toByteArray(Charsets.US_ASCII)
+    }
+
+    private fun createLoosePackTypeZeroBytes(wavePayload: ByteArray): ByteArray {
+        val header = ByteArray(0x40) { ' '.code.toByte() }
+        "PACKTYPE=0      ".toByteArray(Charsets.US_ASCII).copyInto(header, 0x30)
+        return header + wavePayload
     }
 
     private fun createVtbIndex(name: String, offset: Int): ByteArray {
