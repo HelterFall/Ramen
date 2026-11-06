@@ -150,6 +150,8 @@ fun SystemNnnPlayerScreen(
             BoxWithConstraints(
                 modifier = viewportModifier.align(Alignment.Center).clipToBounds()
             ) {
+                val viewportDpWidth = maxWidth
+                val viewportDpHeight = maxHeight
                 val referenceWidth = (state.backgroundBitmap?.width
                     ?: state.sprites.firstOrNull()?.bitmap?.width ?: 800).toFloat()
                 val referenceHeight = (state.backgroundBitmap?.height
@@ -175,8 +177,8 @@ fun SystemNnnPlayerScreen(
 
                 Box(
                     modifier = Modifier.fillMaxSize().graphicsLayer {
-                        translationX = maxWidth.toPx() * (screenShake.x / referenceWidth.coerceAtLeast(1f))
-                        translationY = maxHeight.toPx() * (screenShake.y / referenceHeight.coerceAtLeast(1f))
+                        translationX = viewportDpWidth.toPx() * (screenShake.x / referenceWidth.coerceAtLeast(1f))
+                        translationY = viewportDpHeight.toPx() * (screenShake.y / referenceHeight.coerceAtLeast(1f))
                     }
                 ) {
                     state.backgroundBitmap?.let { background ->
