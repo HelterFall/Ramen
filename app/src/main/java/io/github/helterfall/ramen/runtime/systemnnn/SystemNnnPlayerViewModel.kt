@@ -1631,7 +1631,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_IMAGE_LAYERS = 32
         private const val MAX_IMAGE_WARNING_COUNT = 4
         private val SUPPORTED_NATIVE_VISUAL_EFFECTS = setOf(
-            8, 9, 10, 11, 18, 39, 40, 52, 55, 62, 119, 132
+            8, 9, 10, 11, 18, 39, 55, 62, 119, 132
         )
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
