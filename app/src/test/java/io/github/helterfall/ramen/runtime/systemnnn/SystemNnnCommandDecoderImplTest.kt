@@ -142,7 +142,7 @@ class SystemNnnCommandDecoderImplTest {
                     CODE_SYSTEMFUNCTION_SETEFFECTRECT,
                     9u,
                     3u,
-                    100u, 100u, 50u, 50u,
+                    100u, 100u, 0u, 50u,
                     10u, 20u, 410u, 320u
                 )
             ),
@@ -324,7 +324,10 @@ class SystemNnnCommandDecoderImplTest {
         )
         val decoder = decoder()
 
-        assertEquals(SystemNnnDecodedCommand.End, decoder.decodeNext(script, RECORD_START))
+        assertEquals(
+            SystemNnnDecodedCommand.ControllerReset,
+            decoder.decodeNext(script, RECORD_START)
+        )
         assertEquals(
             SystemNnnDecodedCommand.End,
             decoder.decodeNext(script, RECORD_START + 12L)
@@ -343,7 +346,7 @@ class SystemNnnCommandDecoderImplTest {
         val decoder = decoder()
 
         assertEquals(
-            SystemNnnDecodedCommand.Skip(RECORD_START + 12L),
+            SystemNnnDecodedCommand.EndFilm(RECORD_START + 12L),
             decoder.decodeNext(script, RECORD_START)
         )
         assertEquals(
@@ -387,7 +390,7 @@ class SystemNnnCommandDecoderImplTest {
             decoder.decodeNext(script, SETFILM_OFFSET)
         )
         assertEquals(
-            SystemNnnDecodedCommand.Skip(END_FILM_OFFSET + 12L),
+            SystemNnnDecodedCommand.EndFilm(END_FILM_OFFSET + 12L),
             decoder.decodeNext(script, END_FILM_OFFSET)
         )
         assertEquals(
@@ -410,7 +413,7 @@ class SystemNnnCommandDecoderImplTest {
             decoder().decodeNext(script, RECORD_START)
         }
 
-        assertEquals(true, failure.message?.contains("Unsupported System-NNN record"))
+        assertEquals(true, failure.message?.contains("no expression payload"))
     }
 
     @Test
@@ -704,7 +707,7 @@ class SystemNnnCommandDecoderImplTest {
             decoder.decodeNext(script, LOCAL_FILM_SETFILM_OFFSET)
         )
         assertEquals(
-            SystemNnnDecodedCommand.Skip(LOCAL_FILM_RETURN_OFFSET),
+            SystemNnnDecodedCommand.EndFilm(LOCAL_FILM_RETURN_OFFSET),
             decoder.decodeNext(script, LOCAL_FILM_ENDFILM_OFFSET)
         )
         assertEquals(
@@ -757,7 +760,7 @@ class SystemNnnCommandDecoderImplTest {
     fun nextClearsStaleLocalSubFramesAndIgnoresItsPayload() {
         val script = localSubroutineScript(
             returnPayload = listOf(0xDEADBEEFu),
-            returnCode = 0x0006u
+            returnCode = 0x55560006u
         )
         val decoder = decoder()
 
