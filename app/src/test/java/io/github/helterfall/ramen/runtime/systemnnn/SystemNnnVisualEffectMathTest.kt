@@ -155,6 +155,20 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(-16f, vertical.y, 0.001f)
     }
 
+
+    @Test
+    fun moveRectMatchesNativeSignedRoundingAndKeepsSourceSizeUntilTheEnd() {
+        val from = SystemNnnNativeRect(0, 0, 100, 120)
+        val to = SystemNnnNativeRect(-3, 5, 80, 90)
+
+        val middle = SystemNnnVisualEffectMath.moveRect(5, 10, from, to)
+        assertEquals(-2, middle.x)
+        assertEquals(3, middle.y)
+        assertEquals(100, middle.width)
+        assertEquals(120, middle.height)
+        assertEquals(to, SystemNnnVisualEffectMath.moveRect(10, 10, from, to))
+    }
+
     @Test
     fun scrollOffsetWrapsBothPositiveAndNegativeMotion() {
         val positive = SystemNnnVisualEffectMath.scrollOffset(
