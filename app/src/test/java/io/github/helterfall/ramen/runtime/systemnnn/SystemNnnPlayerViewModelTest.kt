@@ -574,8 +574,13 @@ class SystemNnnPlayerViewModelTest {
                     layerIndex = 0,
                     effectId = 52
                 ),
-                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                offsets[1] to SystemNnnDecodedCommand.LoadImageLayer(
                     nextCommandOffset = offsets[2],
+                    layerIndex = 0,
+                    resourceId = "character"
+                ),
+                offsets[2] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[3],
                     textEntryOffset = textOffset(0)
                 )
             )
