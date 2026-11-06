@@ -917,3 +917,12 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - The latest device screenshot reproduced a player halt caused by strict SETEFFECTRECT validation. Changed this decoder path to fail open: invalid layer IDs, undersized/oversized argument lists, empty/inverted rectangles, and read errors are logged and skipped at the already-validated record boundary rather than stopping the script.
 - Accepts the first nine native operands while allowing extra declared arguments, matching the family callback's fixed reads from a variable-length parameter block. Signed left/top origins are preserved; right/bottom still convert to width/height with 64-bit arithmetic.
 - Added regression cases for inverted RECT skip, extra operands, and negative origins. Tests and lint were not run.
+
+
+## 2026-11-06 — animate native image layers and correct rectangle semantics
+
+- Rechecked the pinned family renderer end-to-end: SETEFFECTRECT writes left/top plus width/height into the effect rectangle. CAllEffect::CalcuOnly interpolates only left/top while PrintLayers passes right/bottom directly as the picture dimensions. Reverted the incorrect right−left/bottom−top conversion; negative origins remain valid.
+- SETEFFECT now preserves its parameter DWORDs and numeric command location through the ViewModel to the sprite renderer.
+- Added per-layer frame interpolation from SETEFFECTRECT's source origin to destination origin, using the native effect frame parameter where available. Width/height remain the source dimensions during motion and switch to destination dimensions at completion, matching the reference compositor.
+- Added bounded Compose approximations for layer opacity (TRANS/CTRANS/FADEIN/FADEOUT), character shake (CHARABURE/SHAKE), scroll, Bezier/B-spline movement, and persistent old-film scratches/scan lines. These are family-derived approximations, not bit-exact ports of every native effect shader.
+- Added a decoder regression case for preserving SETEFFECT parameter operands. Tests and lint were not run; the next validation is an APK-only build and device playback.

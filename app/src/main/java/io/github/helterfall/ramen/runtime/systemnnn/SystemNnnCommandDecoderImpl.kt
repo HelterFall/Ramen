@@ -450,7 +450,9 @@ class SystemNnnCommandDecoderImpl(
         script: SystemNnnScript,
         record: SystemNnnCommandRecord
     ): SystemNnnDecodedCommand {
-        readDeclaredArgumentCount(script, record, 2, MAX_EFFECT_ARGUMENTS, "SETEFFECT")
+        val argumentCount = readDeclaredArgumentCount(
+            script, record, 2, MAX_EFFECT_ARGUMENTS, "SETEFFECT"
+        )
         val layer = readPayloadWord(script, record, 1).toLong()
         val effect = readPayloadWord(script, record, 2).toInt()
         if (layer !in 0L until MAX_IMAGE_LAYERS.toLong()) {
@@ -462,10 +464,18 @@ class SystemNnnCommandDecoderImpl(
         if (effect !in 0..MAX_SYSTEM_EFFECT_ID) {
             throw IOException("A System-NNN SETEFFECT id is outside the known family range.")
         }
+        val parameters = List(argumentCount - 2) { index ->
+            readPayloadWord(script, record, index + 3).toInt()
+        }
+        appendDebugLog(
+            record,
+            "SETEFFECT layer=$layer effect=$effect parameters=${parameters.joinToString(",")}"
+        )
         return SystemNnnDecodedCommand.SetImageLayerEffect(
             nextCommandOffset = record.endOffsetExclusive,
             layerIndex = layer.toInt(),
-            effectId = effect
+            effectId = effect,
+            parameters = parameters
         )
     }
 
@@ -495,13 +505,15 @@ class SystemNnnCommandDecoderImpl(
                 val top = readPayloadWord(script, record, start + 1).toInt()
                 val right = readPayloadWord(script, record, start + 2).toInt()
                 val bottom = readPayloadWord(script, record, start + 3).toInt()
-                val width = right.toLong() - left.toLong()
-                val height = bottom.toLong() - top.toLong()
-
-                // Preserve signed origins. Treat empty, inverted or unrepresentably
-                // large rectangles as unsupported rather than fatal runtime errors.
-                if (width !in 1L..Int.MAX_VALUE.toLong() ||
-                    height !in 1L..Int.MAX_VALUE.toLong()
+                // The family renderer stores left/top as the origin and right/bottom
+                // as width/height. CAllEffect::CalcuOnly interpolates only left/top;
+                // PrintLayers passes right/bottom directly as the picture dimensions.
+                val width = right.toLong()
+                val height = bottom.toLong()
+                if (left !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
+                    top !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
+                    width !in 1L..MAX_EFFECT_RECT_DIMENSION.toLong() ||
+                    height !in 1L..MAX_EFFECT_RECT_DIMENSION.toLong()
                 ) {
                     return null
                 }

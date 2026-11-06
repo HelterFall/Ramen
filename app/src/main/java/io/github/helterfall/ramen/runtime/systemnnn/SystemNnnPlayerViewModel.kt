@@ -36,7 +36,11 @@ data class SystemNnnSpriteBitmap(
     /** Native destination rectangle; null is used by legacy centered sprites. */
     val nativeRect: SystemNnnNativeRect? = null,
     val nativeBankNamespace: String? = null,
-    val nativeBankSlot: Int? = null
+    val nativeBankSlot: Int? = null,
+    val nativeRectFrom: SystemNnnNativeRect? = null,
+    val nativeEffectId: Int? = null,
+    val nativeEffectParameters: List<Int> = emptyList(),
+    val nativeEffectCommandOffset: Long? = null
 )
 
 data class SystemNnnChoiceOption(
@@ -190,7 +194,8 @@ sealed interface SystemNnnDecodedCommand {
     data class SetImageLayerEffect(
         val nextCommandOffset: Long,
         val layerIndex: Int,
-        val effectId: Int
+        val effectId: Int,
+        val parameters: List<Int> = emptyList()
     ) : SystemNnnDecodedCommand
 
     data class SetImageLayerRect(
@@ -250,7 +255,10 @@ data class SystemNnnSpriteReference(
     /** Native effect-layer index; -1 means use the containing list order. */
     val layerIndex: Int = -1,
     val nativeRect: SystemNnnNativeRect? = null,
-    val nativeEffectId: Int? = null
+    val nativeEffectId: Int? = null,
+    val nativeRectFrom: SystemNnnNativeRect? = null,
+    val nativeEffectParameters: List<Int> = emptyList(),
+    val nativeEffectCommandOffset: Long? = null
 )
 
 /**
@@ -802,6 +810,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
             val pendingSpriteLayers = LinkedHashMap<Int, SystemNnnSpriteReference>()
             val pendingLayerRects = HashMap<Int, Pair<SystemNnnNativeRect, SystemNnnNativeRect>>()
             val pendingLayerEffects = HashMap<Int, Int>()
+            val pendingLayerEffectParameters = HashMap<Int, List<Int>>()
+            val pendingLayerEffectCommandOffsets = HashMap<Int, Long>()
             sceneSprites.forEach { sprite ->
                 pendingSpriteLayers[sprite.layerIndex] = SystemNnnSpriteReference(
                     resourceId = sprite.resourceId,
@@ -812,7 +822,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     nativeBankNamespace = sprite.nativeBankNamespace,
                     nativeBankSlot = sprite.nativeBankSlot,
                     layerIndex = sprite.layerIndex,
-                    nativeRect = sprite.nativeRect
+                    nativeRect = sprite.nativeRect,
+                    nativeRectFrom = sprite.nativeRectFrom,
+                    nativeEffectId = sprite.nativeEffectId,
+                    nativeEffectParameters = sprite.nativeEffectParameters,
+                    nativeEffectCommandOffset = sprite.nativeEffectCommandOffset
                 )
             }
             var pendingSpriteLayersChanged = false
@@ -827,6 +841,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 pendingSpriteLayers.clear()
                 pendingLayerRects.clear()
                 pendingLayerEffects.clear()
+                pendingLayerEffectParameters.clear()
+                pendingLayerEffectCommandOffsets.clear()
                 pendingSpriteLayersChanged = true
             }
 
@@ -894,7 +910,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             contentDescription = "Image layer " + command.layerIndex,
                             layerIndex = command.layerIndex,
                             nativeRect = pendingLayerRects[command.layerIndex]?.second,
-                            nativeEffectId = pendingLayerEffects[command.layerIndex]
+                            nativeEffectId = pendingLayerEffects[command.layerIndex],
+                            nativeRectFrom = pendingLayerRects[command.layerIndex]?.first,
+                            nativeEffectParameters = pendingLayerEffectParameters[command.layerIndex].orEmpty(),
+                            nativeEffectCommandOffset = pendingLayerEffectCommandOffsets[command.layerIndex]
                         )
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
@@ -909,6 +928,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         pendingSpriteLayers.remove(command.layerIndex)
                         pendingLayerRects.remove(command.layerIndex)
                         pendingLayerEffects.remove(command.layerIndex)
+                        pendingLayerEffectParameters.remove(command.layerIndex)
+                        pendingLayerEffectCommandOffsets.remove(command.layerIndex)
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
                     }
@@ -919,6 +940,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         pendingSpriteLayers.clear()
                         pendingLayerRects.clear()
                         pendingLayerEffects.clear()
+                        pendingLayerEffectParameters.clear()
+                        pendingLayerEffectCommandOffsets.clear()
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
                     }
@@ -928,7 +951,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         nextCommandOffset = command.nextCommandOffset
                         pendingLayerRects[command.layerIndex] = command.fromRect to command.toRect
                         pendingSpriteLayers[command.layerIndex]?.let { reference ->
-                            pendingSpriteLayers[command.layerIndex] = reference.copy(nativeRect = command.toRect)
+                            pendingSpriteLayers[command.layerIndex] = reference.copy(
+                                nativeRectFrom = command.fromRect,
+                                nativeRect = command.toRect
+                            )
                         }
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
@@ -938,11 +964,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
                         pendingLayerEffects[command.layerIndex] = command.effectId
+                        pendingLayerEffectParameters[command.layerIndex] = command.parameters
+                        pendingLayerEffectCommandOffsets[command.layerIndex] = command.nextCommandOffset
                         pendingSpriteLayers[command.layerIndex]?.let { reference ->
-                            pendingSpriteLayers[command.layerIndex] = reference.copy(nativeEffectId = command.effectId)
+                            pendingSpriteLayers[command.layerIndex] = reference.copy(
+                                nativeEffectId = command.effectId,
+                                nativeEffectParameters = command.parameters,
+                                nativeEffectCommandOffset = command.nextCommandOffset
+                            )
                         }
-                        if (command.effectId != 0) {
-                            imageStatusMessage = "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока отображается статично."
+                        if (command.effectId !in SUPPORTED_NATIVE_VISUAL_EFFECTS) {
+                            imageStatusMessage = "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока не поддерживается полностью."
                         }
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
@@ -1429,7 +1461,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 existing.heightFraction == reference.heightFraction &&
                 existing.nativeBankNamespace == reference.nativeBankNamespace &&
                 existing.nativeBankSlot == reference.nativeBankSlot &&
-                existing.nativeRect == reference.nativeRect
+                existing.nativeRect == reference.nativeRect &&
+                existing.nativeRectFrom == reference.nativeRectFrom &&
+                existing.nativeEffectId == reference.nativeEffectId &&
+                existing.nativeEffectParameters == reference.nativeEffectParameters &&
+                existing.nativeEffectCommandOffset == reference.nativeEffectCommandOffset
             ) {
                 resolved += existing
                 activePixelCount += existing.bitmap.width.toLong() * existing.bitmap.height.toLong()
@@ -1480,7 +1516,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     SystemNnnNativeRect(0, 0, bitmap.width, bitmap.height)
                 } else null,
                 nativeBankNamespace = reference.nativeBankNamespace,
-                nativeBankSlot = reference.nativeBankSlot
+                nativeBankSlot = reference.nativeBankSlot,
+                nativeRectFrom = reference.nativeRectFrom,
+                nativeEffectId = reference.nativeEffectId,
+                nativeEffectParameters = reference.nativeEffectParameters,
+                nativeEffectCommandOffset = reference.nativeEffectCommandOffset
             )
         }
 
@@ -1551,6 +1591,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_SCENE_COMMANDS_PER_ADVANCE = 2_048
         private const val MAX_IMAGE_LAYERS = 32
         private const val MAX_IMAGE_WARNING_COUNT = 4
+        private val SUPPORTED_NATIVE_VISUAL_EFFECTS = setOf(
+            8, 9, 10, 11, 18, 39, 40, 52, 55, 62, 119, 132
+        )
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
         // and one nested SPT executor. A direct scene starts in slot 1.

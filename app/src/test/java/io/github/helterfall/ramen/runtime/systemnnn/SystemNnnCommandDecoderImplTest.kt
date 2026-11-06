@@ -76,6 +76,35 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun decodesSetEffectAndPreservesNativeParameters() {
+        val script = testScript(
+            records = listOf(
+                record(
+                    8,
+                    SYSTEM_FUNCTION,
+                    CODE_SYSTEMFUNCTION_SETEFFECT,
+                    4u,
+                    2u,
+                    132u,
+                    24u,
+                    7u
+                )
+            ),
+            textCount = 0
+        )
+
+        assertEquals(
+            SystemNnnDecodedCommand.SetImageLayerEffect(
+                nextCommandOffset = RECORD_START + 32L,
+                layerIndex = 2,
+                effectId = 132,
+                parameters = listOf(24, 7)
+            ),
+            decoder().decodeNext(script, RECORD_START)
+        )
+    }
+
+    @Test
     fun decodesSetEffectRectRightAndBottomAsAbsoluteEdges() {
         val script = testScript(
             records = listOf(
@@ -96,8 +125,8 @@ class SystemNnnCommandDecoderImplTest {
             SystemNnnDecodedCommand.SetImageLayerRect(
                 nextCommandOffset = RECORD_START + 52L,
                 layerIndex = 3,
-                fromRect = SystemNnnNativeRect(10, 20, 400, 300),
-                toRect = SystemNnnNativeRect(30, 40, 400, 300)
+                fromRect = SystemNnnNativeRect(10, 20, 410, 320),
+                toRect = SystemNnnNativeRect(30, 40, 430, 340)
             ),
             decoder().decodeNext(script, RECORD_START)
         )
@@ -148,8 +177,8 @@ class SystemNnnCommandDecoderImplTest {
             SystemNnnDecodedCommand.SetImageLayerRect(
                 nextCommandOffset = RECORD_START + 56L,
                 layerIndex = 3,
-                fromRect = SystemNnnNativeRect(-10, 20, 420, 300),
-                toRect = SystemNnnNativeRect(30, 40, 400, 300)
+                fromRect = SystemNnnNativeRect(-10, 20, 410, 320),
+                toRect = SystemNnnNativeRect(30, 40, 430, 340)
             ),
             decoder().decodeNext(script, RECORD_START)
         )
@@ -945,6 +974,7 @@ class SystemNnnCommandDecoderImplTest {
         const val CODE_SYSTEMFUNCTION_CLEARALLEFFECT = 0x33330012u
         const val CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER = 0x33330014u
         const val CODE_SYSTEMFUNCTION_LOADDWQ = 0x33330015u
+        const val CODE_SYSTEMFUNCTION_SETEFFECT = 0x33330013u
         const val CODE_SYSTEMFUNCTION_SETEFFECTRECT = 0x33330016u
 
         const val CODE_PRINT = 0x22220001u
