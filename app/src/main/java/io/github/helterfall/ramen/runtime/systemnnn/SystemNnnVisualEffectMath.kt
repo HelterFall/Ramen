@@ -14,12 +14,76 @@ internal data class SystemNnnVisualBlend(
     val secondaryAlpha: Float
 )
 
+internal data class SystemNnnVisualColor(
+    val red: Int,
+    val green: Int,
+    val blue: Int
+)
+
+internal data class SystemNnnScreenFade(
+    val color: SystemNnnVisualColor,
+    val alpha: Float
+)
+
+internal data class SystemNnnVisualLayerConfiguration(
+    val sourceRect: SystemNnnNativeRect? = null,
+    val destinationRect: SystemNnnNativeRect? = null,
+    val effectId: Int? = null,
+    val effectParameters: List<Int> = emptyList(),
+    val effectCommandOffset: Long? = null
+)
+
+/**
+ * Keeps effect-layer instructions even when a layer's bitmap has not been
+ * loaded yet or a dialogue boundary splits the commands that configure it.
+ */
+internal class SystemNnnVisualLayerConfigurationStore {
+    private val configurations = LinkedHashMap<Int, SystemNnnVisualLayerConfiguration>()
+
+    fun snapshot(): MutableMap<Int, SystemNnnVisualLayerConfiguration> =
+        LinkedHashMap(configurations)
+
+    fun replaceWith(values: Map<Int, SystemNnnVisualLayerConfiguration>) {
+        configurations.clear()
+        configurations.putAll(values)
+    }
+
+    fun clear() {
+        configurations.clear()
+    }
+}
+
 /**
  * Pure calculations mirrored from the pinned System-NNN family compositor.
  * Time is expressed in native effect frames, not wall-clock milliseconds.
  */
 internal object SystemNnnVisualEffectMath {
     private val shakePattern = intArrayOf(-16, -12, 16, 12)
+
+    fun nativeScreenColor(parameters: List<Int>): SystemNnnVisualColor {
+        val red = (parameters.getOrNull(1) ?: 0).coerceIn(0, 255)
+        val green = (parameters.getOrNull(2) ?: red).coerceIn(0, 255)
+        val blue = (parameters.getOrNull(3) ?: green).coerceIn(0, 255)
+        return SystemNnnVisualColor(red, green, blue)
+    }
+
+    fun screenFade(effectId: Int, frame: Int, parameters: List<Int>): SystemNnnScreenFade? {
+        if (effectId != 10 && effectId != 11) return null
+        val duration = (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+        val progress = nativeSpeedValue(
+            frame = frame,
+            countMax = duration,
+            startData = 0,
+            endData = 100,
+            delayCount = parameters.getOrNull(5) ?: 0,
+            speedType = parameters.getOrNull(4) ?: 0
+        ).coerceIn(0, 100) / 100f
+        val alpha = if (effectId == 10) 1f - progress else progress
+        return SystemNnnScreenFade(nativeScreenColor(parameters), alpha)
+    }
+
+    fun scrollUsesLoopFrame(parameters: List<Int>): Boolean =
+        (parameters.getOrNull(3) ?: 0) != 0
 
     fun nativeSpeedValue(
         count: Int,
