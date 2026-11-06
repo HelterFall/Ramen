@@ -1052,6 +1052,21 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             }
                             pendingSpriteLayersChanged = true
                         }
+                        when {
+                            command.effectId == 9 &&
+                                (command.parameters.getOrNull(5) != 0 || command.parameters.getOrNull(14) != 0) ->
+                                appendImageStatusMessage(
+                                    "CTRANS (9) alpha and speed are implemented, but its optional clipping and color-add modes are not yet reproduced."
+                                )
+                            command.effectId == 55 ->
+                                appendImageStatusMessage(
+                                    "OLDFILM (55) is a deterministic screen-scratch approximation; native randomized scratch timing is not exact."
+                                )
+                            command.effectId == 132 ->
+                                appendImageStatusMessage(
+                                    "CHARABURE (132) uses repeatable jitter; its random sequence does not match the original runtime."
+                                )
+                        }
                         if (command.effectId !in SUPPORTED_NATIVE_VISUAL_EFFECTS) {
                             appendImageStatusMessage(
                                 "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока не поддерживается полностью."
