@@ -10,7 +10,7 @@ class SystemNnnVisualEffectMathTest {
 
     @Test
     fun nativeEffectContinuationAndUnregisteredIdsDoNotReplaceThePreviousEffect() {
-        for (effectId in listOf(1, 4, 5, 6, 7)) {
+        for (effectId in listOf(-1, 1, 4, 5, 6, 7)) {
             assertFalse(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))
         }
         for (effectId in listOf(0, 8, 9, 66, 82)) {
