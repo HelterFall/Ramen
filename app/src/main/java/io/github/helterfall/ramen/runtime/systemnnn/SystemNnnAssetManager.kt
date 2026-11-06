@@ -449,9 +449,10 @@ class SystemNnnAssetManager private constructor(
                     if (openedRepository != null) return@candidateLoop
                     try {
                         val repository = SystemNnnGpkBitmapRepository(indexFile, archiveFile, imageDecoder)
-                        if (repository.resourceCount <= 0) {
+                        if (repository.entries.none { it.isValid }) {
                             repository.close()
-                            warnings += relativePath(root, archiveFile) + ": indexed image bank is empty."
+                            warnings += relativePath(root, archiveFile) +
+                                ": indexed image archive contains no valid image resources."
                         } else {
                             openedRepository = repository
                             selectedArchive = archiveFile
