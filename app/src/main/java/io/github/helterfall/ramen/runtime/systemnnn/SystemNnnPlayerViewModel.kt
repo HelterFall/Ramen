@@ -65,7 +65,11 @@ data class SystemNnnPlayerUiState(
     val isEnded: Boolean = false,
     val statusMessage: String? = null,
     val errorMessage: String? = null,
-    val audioWarning: String? = null
+    val audioWarning: String? = null,
+    /** Active effect rendered against the whole game viewport (native screen layer 31). */
+    val screenEffectId: Int? = null,
+    val screenEffectParameters: List<Int> = emptyList(),
+    val screenEffectCommandOffset: Long? = null
 )
 
 /**
@@ -846,6 +850,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
             var pendingBackgroundResourceIndex: Long? = null
             var pendingBackgroundBankNamespace: String? = null
             var pendingBackgroundBankSlot: Int? = null
+            var pendingScreenEffectId = uiState.screenEffectId
+            var pendingScreenEffectParameters = uiState.screenEffectParameters
+            var pendingScreenEffectCommandOffset = uiState.screenEffectCommandOffset
             val pendingSpriteLayers = LinkedHashMap<Int, SystemNnnSpriteReference>()
             val pendingLayerRects = HashMap<Int, Pair<SystemNnnNativeRect, SystemNnnNativeRect>>()
             val pendingLayerEffects = HashMap<Int, Int>()
@@ -877,6 +884,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 pendingBackgroundResourceIndex = null
                 pendingBackgroundBankNamespace = null
                 pendingBackgroundBankSlot = null
+                pendingScreenEffectId = null
+                pendingScreenEffectParameters = emptyList()
+                pendingScreenEffectCommandOffset = null
                 pendingSpriteLayers.clear()
                 pendingLayerRects.clear()
                 pendingLayerEffects.clear()
@@ -970,12 +980,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             throw IOException("CLEAREFFECTLAYER supplied an invalid layer.")
                         }
                         nextCommandOffset = command.nextCommandOffset
-                        pendingSpriteLayers.remove(command.layerIndex)
-                        pendingLayerRects.remove(command.layerIndex)
-                        pendingLayerEffects.remove(command.layerIndex)
-                        pendingLayerEffectParameters.remove(command.layerIndex)
-                        pendingLayerEffectCommandOffsets.remove(command.layerIndex)
-                        pendingSpriteLayersChanged = true
+                        if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX) {
+                            pendingScreenEffectId = null
+                            pendingScreenEffectParameters = emptyList()
+                            pendingScreenEffectCommandOffset = null
+                        } else {
+                            pendingSpriteLayers.remove(command.layerIndex)
+                            pendingLayerRects.remove(command.layerIndex)
+                            pendingLayerEffects.remove(command.layerIndex)
+                            pendingLayerEffectParameters.remove(command.layerIndex)
+                            pendingLayerEffectCommandOffsets.remove(command.layerIndex)
+                            pendingSpriteLayersChanged = true
+                        }
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -987,6 +1003,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         pendingLayerEffects.clear()
                         pendingLayerEffectParameters.clear()
                         pendingLayerEffectCommandOffsets.clear()
+                        pendingScreenEffectId = null
+                        pendingScreenEffectParameters = emptyList()
+                        pendingScreenEffectCommandOffset = null
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
                     }
@@ -1008,20 +1027,42 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     is SystemNnnDecodedCommand.SetImageLayerEffect -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
-                        pendingLayerEffects[command.layerIndex] = command.effectId
-                        pendingLayerEffectParameters[command.layerIndex] = command.parameters
-                        pendingLayerEffectCommandOffsets[command.layerIndex] = command.nextCommandOffset
-                        pendingSpriteLayers[command.layerIndex]?.let { reference ->
-                            pendingSpriteLayers[command.layerIndex] = reference.copy(
-                                nativeEffectId = command.effectId,
-                                nativeEffectParameters = command.parameters,
-                                nativeEffectCommandOffset = command.nextCommandOffset
-                            )
+                        if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX &&
+                            command.effectId in SCREEN_BUFFER_EFFECT_IDS
+                        ) {
+                            pendingScreenEffectId = command.effectId
+                            pendingScreenEffectParameters = command.parameters
+                            pendingScreenEffectCommandOffset = command.nextCommandOffset
+                        } else {
+                            pendingLayerEffects[command.layerIndex] = command.effectId
+                            pendingLayerEffectParameters[command.layerIndex] = command.parameters
+                            pendingLayerEffectCommandOffsets[command.layerIndex] = command.nextCommandOffset
+                            pendingSpriteLayers[command.layerIndex]?.let { reference ->
+                                pendingSpriteLayers[command.layerIndex] = reference.copy(
+                                    nativeEffectId = command.effectId,
+                                    nativeEffectParameters = command.parameters,
+                                    nativeEffectCommandOffset = command.nextCommandOffset
+                                )
+                            }
+                            if (command.effectId == 52 && pendingLayerRects[command.layerIndex] == null) {
+                                appendImageStatusMessage(
+                                    "MOVE (52) on layer " + command.layerIndex +
+                                        " has no SETEFFECTRECT destination and cannot move yet."
+                                )
+                            }
+                            if (command.effectId == 40 && command.parameters.getOrNull(1) == null) {
+                                appendImageStatusMessage(
+                                    "CHANGE (40) on layer " + command.layerIndex +
+                                        " has no second-layer operand."
+                                )
+                            }
+                            pendingSpriteLayersChanged = true
                         }
                         if (command.effectId !in SUPPORTED_NATIVE_VISUAL_EFFECTS) {
-                            imageStatusMessage = "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока не поддерживается полностью."
+                            appendImageStatusMessage(
+                                "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока не поддерживается полностью."
+                            )
                         }
-                        pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -1226,7 +1267,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             isTextComplete = text.isEmpty(),
                             forceReveal = false,
                             currentFilmNumber = currentFilmNumber,
-                            statusMessage = imageStatusMessage
+                            statusMessage = imageStatusMessage,
+                            screenEffectId = pendingScreenEffectId,
+                            screenEffectParameters = pendingScreenEffectParameters,
+                            screenEffectCommandOffset = pendingScreenEffectCommandOffset
                         )
                         playVoice(dialogueStepIndex, command.voiceResourceId)
                         return
@@ -1289,7 +1333,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             forceReveal = true,
                             choices = command.options,
                             currentFilmNumber = currentFilmNumber,
-                            statusMessage = imageStatusMessage
+                            statusMessage = imageStatusMessage,
+                            screenEffectId = pendingScreenEffectId,
+                            screenEffectParameters = pendingScreenEffectParameters,
+                            screenEffectCommandOffset = pendingScreenEffectCommandOffset
                         )
                         return
                     }
@@ -1636,8 +1683,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_SCENE_COMMANDS_PER_ADVANCE = 2_048
         private const val MAX_IMAGE_LAYERS = 32
         private const val MAX_IMAGE_WARNING_COUNT = 4
+        private const val SCREEN_EFFECT_LAYER_INDEX = 31
+        private val SCREEN_BUFFER_EFFECT_IDS = setOf(10, 11, 18, 54, 55)
         private val SUPPORTED_NATIVE_VISUAL_EFFECTS = setOf(
-            8, 9, 10, 11, 18, 39, 55, 62, 119, 132
+            8, 9, 10, 11, 18, 39, 40, 52, 54, 55, 62, 119, 132
         )
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
