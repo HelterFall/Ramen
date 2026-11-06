@@ -537,13 +537,13 @@ private fun SystemNnnScreenEffectOverlay(
             val red = (parameters.getOrNull(1) ?: 0).coerceIn(0, 255) / 255f
             val green = (parameters.getOrNull(2) ?: 0).coerceIn(0, 255) / 255f
             val blue = (parameters.getOrNull(3) ?: 0).coerceIn(0, 255) / 255f
-            Box(modifier.background(Color(red, green, blue, alpha)))
+            Box(modifier = modifier.background(Color(red, green, blue, alpha)))
         }
         54 -> {
             val red = (parameters.getOrNull(1) ?: 0).coerceIn(0, 255) / 255f
             val green = (parameters.getOrNull(2) ?: 0).coerceIn(0, 255) / 255f
             val blue = (parameters.getOrNull(3) ?: 0).coerceIn(0, 255) / 255f
-            Box(modifier.background(Color(red, green, blue, 1f)))
+            Box(modifier = modifier.background(Color(red, green, blue, 1f)))
         }
         55 -> {
             val left = (parameters.getOrNull(1) ?: 0).coerceIn(0, referenceWidth.toInt())
