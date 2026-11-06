@@ -1054,7 +1054,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         }
                         when {
                             command.effectId == 9 &&
-                                (command.parameters.getOrNull(5) != 0 || command.parameters.getOrNull(14) != 0) ->
+                                ((command.parameters.getOrNull(5) ?: 0) != 0 || (command.parameters.getOrNull(14) ?: 0) != 0) ->
                                 appendImageStatusMessage(
                                     "CTRANS (9) alpha and speed are implemented, but its optional clipping and color-add modes are not yet reproduced."
                                 )
