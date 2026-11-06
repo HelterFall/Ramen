@@ -483,7 +483,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         when {
             isScroll -> {
                 val wrapped = SystemNnnVisualEffectMath.scrollOffset(
-                    if (parameters.getOrNull(3) != 0) cycleFrame else frame,
+                    if (SystemNnnVisualEffectMath.scrollUsesLoopFrame(parameters)) cycleFrame else frame,
                     parameters, safeReferenceWidth.roundToInt().coerceAtLeast(1),
                     safeReferenceHeight.roundToInt().coerceAtLeast(1)
                 )
@@ -539,21 +539,26 @@ private fun SystemNnnScreenEffectOverlay(
 ) {
     when (effectId) {
         10, 11 -> {
-            val duration = (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
-            val progress = SystemNnnVisualEffectMath.nativeSpeedValue(
-                frame, duration, 0, 100, parameters.getOrNull(5) ?: 0, parameters.getOrNull(4) ?: 0
-            ).coerceIn(0, 100) / 100f
-            val alpha = if (effectId == 10) 1f - progress else progress
-            val red = (parameters.getOrNull(1) ?: 0).coerceIn(0, 255) / 255f
-            val green = (parameters.getOrNull(2) ?: 0).coerceIn(0, 255) / 255f
-            val blue = (parameters.getOrNull(3) ?: 0).coerceIn(0, 255) / 255f
-            Box(modifier = modifier.background(Color(red, green, blue, alpha)))
+            val fade = checkNotNull(SystemNnnVisualEffectMath.screenFade(effectId, frame, parameters))
+            val color = fade.color
+            Box(
+                modifier = modifier.background(
+                    Color(
+                        color.red / 255f,
+                        color.green / 255f,
+                        color.blue / 255f,
+                        fade.alpha
+                    )
+                )
+            )
         }
         54 -> {
-            val red = (parameters.getOrNull(1) ?: 0).coerceIn(0, 255) / 255f
-            val green = (parameters.getOrNull(2) ?: 0).coerceIn(0, 255) / 255f
-            val blue = (parameters.getOrNull(3) ?: 0).coerceIn(0, 255) / 255f
-            Box(modifier = modifier.background(Color(red, green, blue, 1f)))
+            val color = SystemNnnVisualEffectMath.nativeScreenColor(parameters)
+            Box(
+                modifier = modifier.background(
+                    Color(color.red / 255f, color.green / 255f, color.blue / 255f, 1f)
+                )
+            )
         }
         55 -> {
             val left = (parameters.getOrNull(1) ?: 0).coerceIn(0, referenceWidth.toInt())
