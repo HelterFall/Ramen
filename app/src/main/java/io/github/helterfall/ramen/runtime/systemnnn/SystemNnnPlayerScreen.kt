@@ -46,6 +46,9 @@ import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -421,7 +424,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val animationKey = listOf(sprite.resourceId, sprite.layerIndex, sprite.nativeEffectCommandOffset,
         fromRect, nativeRect, effectId, parameters)
     val progress = remember(animationKey) {
-        Animatable(if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 119)) 0f else 1f)
+        Animatable(if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 64, 119)) 0f else 1f)
     }
     LaunchedEffect(animationKey) {
         if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 119)) {
@@ -465,6 +468,22 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         ).coerceIn(0, 100) / 100f
         else -> 1f
     }
+    val isTurn = effectId == 64
+    val turnPivot = if (isTurn) SystemNnnVisualEffectMath.turnPivotOffset(parameters)
+        else SystemNnnVisualOffset(0f, 0f)
+    val turnSpline = if (isTurn) SystemNnnVisualEffectMath.turnSplineOffset(frame, parameters)
+        else SystemNnnVisualOffset(0f, 0f)
+    val turnRotation = if (isTurn) SystemNnnVisualEffectMath.turnRotationDegrees(frame, parameters) else 0f
+    val turnScale = if (isTurn) SystemNnnVisualEffectMath.turnScale(frame, parameters) else 1f
+    val layerAlpha = if (isTurn) SystemNnnVisualEffectMath.turnAlpha(frame, parameters) else alpha
+    val ctransColor = if (effectId == 9) {
+        SystemNnnVisualEffectMath.ctransColorOffset(frame, parameters)
+    } else null
+    val ctransClip = if (effectId == 9) {
+        SystemNnnVisualEffectMath.ctransClipRect(
+            frame, parameters, referenceWidth.roundToInt(), referenceHeight.roundToInt()
+        )
+    } else null
     val characterJitter = if (effectId == 132) {
         SystemNnnVisualEffectMath.charaBureOffset(
             cycleFrame.toLong(), parameters,
@@ -484,6 +503,13 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val width = viewportWidth * (rectWidth.coerceAtLeast(1).toFloat() / safeReferenceWidth)
     val height = viewportHeight * (rectHeight.coerceAtLeast(1).toFloat() / safeReferenceHeight)
     val spriteModifier = when {
+        isTurn -> Modifier.align(Alignment.Center)
+            .offset(
+                x = viewportWidth * ((rectX + turnSpline.x - turnPivot.x) / safeReferenceWidth),
+                y = viewportHeight * ((rectY + turnSpline.y - turnPivot.y) / safeReferenceHeight)
+            )
+            .width(viewportWidth * (sprite.bitmap.width.toFloat() / safeReferenceWidth))
+            .height(viewportHeight * (sprite.bitmap.height.toFloat() / safeReferenceHeight))
         isScroll -> Modifier.align(Alignment.TopStart).fillMaxSize()
         nativeRect != null -> Modifier.align(Alignment.TopStart).offset(xOffset, yOffset).width(width).height(height)
         else -> Modifier.align(Alignment.BottomCenter)
@@ -496,8 +522,48 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
             )
     }
 
-    Box(modifier = spriteModifier.graphicsLayer { this.alpha = alpha }) {
+    val turnColorFilter = if (isTurn) {
+        val addSubEnabled = (parameters.getOrNull(16) ?: 0) != 0
+        val endR = parameters.getOrNull(17) ?: 0
+        val endG = parameters.getOrNull(18) ?: endR
+        val endB = parameters.getOrNull(19) ?: endG
+        val startR = parameters.getOrNull(20) ?: endR
+        val startG = parameters.getOrNull(21) ?: endG
+        val startB = parameters.getOrNull(22) ?: endB
+        val r = if (addSubEnabled) SystemNnnVisualEffectMath.nativeSpeedValue(frame, durationFrames, startR, endR,
+            parameters.getOrNull(24) ?: 0, parameters.getOrNull(23) ?: 0) else 0
+        val g = if (addSubEnabled) SystemNnnVisualEffectMath.nativeSpeedValue(frame, durationFrames, startG, endG,
+            parameters.getOrNull(24) ?: 0, parameters.getOrNull(23) ?: 0) else 0
+        val b = if (addSubEnabled) SystemNnnVisualEffectMath.nativeSpeedValue(frame, durationFrames, startB, endB,
+            parameters.getOrNull(24) ?: 0, parameters.getOrNull(23) ?: 0) else 0
+        // TURN mode 0 ignores the DWQ alpha mask; mode 2 uses the decoded mask.
+        additiveColorFilter(r, g, b, forceOpaque = (parameters.getOrNull(7) ?: 0) == 0)
+    } else null
+    val ctransColorFilter = ctransColor?.let { additiveColorFilter(it.red, it.green, it.blue) }
+
+    Box(modifier = spriteModifier.graphicsLayer {
+        this.alpha = layerAlpha
+        if (isTurn) {
+            rotationZ = turnRotation
+            scaleX = turnScale
+            scaleY = turnScale
+            transformOrigin = TransformOrigin(
+                ((sprite.bitmap.width / 2f + turnPivot.x) / sprite.bitmap.width).coerceIn(0f, 1f),
+                ((sprite.bitmap.height / 2f + turnPivot.y) / sprite.bitmap.height).coerceIn(0f, 1f)
+            )
+        }
+    }) {
         when {
+            isTurn -> {
+                Image(
+                    bitmap = sprite.bitmap.asImageBitmap(),
+                    contentDescription = sprite.contentDescription,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds,
+                    alignment = Alignment.TopStart,
+                    colorFilter = turnColorFilter
+                )
+            }
             isScroll -> {
                 val wrapped = SystemNnnVisualEffectMath.scrollOffset(
                     if (SystemNnnVisualEffectMath.scrollUsesLoopFrame(parameters)) cycleFrame else frame,
@@ -535,18 +601,56 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
             }
             else -> {
                 if (SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(effectId, parameters)) {
-                    Image(
-                        bitmap = sprite.bitmap.asImageBitmap(),
-                        contentDescription = sprite.contentDescription,
-                        modifier = Modifier.fillMaxSize(),
-                        contentScale = if (nativeRect != null) ContentScale.FillBounds else ContentScale.Fit,
-                        alignment = Alignment.TopStart
-                    )
+                    if (effectId == 9 && ctransClip != null && nativeRect != null &&
+                        nativeRect.width > 0 && nativeRect.height > 0 && ctransClip.width > 0 && ctransClip.height > 0
+                    ) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            val left = (ctransClip.x - nativeRect.x).toFloat() * size.width / nativeRect.width
+                            val top = (ctransClip.y - nativeRect.y).toFloat() * size.height / nativeRect.height
+                            val right = (ctransClip.x + ctransClip.width - nativeRect.x).toFloat() *
+                                size.width / nativeRect.width
+                            val bottom = (ctransClip.y + ctransClip.height - nativeRect.y).toFloat() *
+                                size.height / nativeRect.height
+                            clipRect(left, top, right, bottom) {
+                                drawImage(
+                                    sprite.bitmap.asImageBitmap(),
+                                    dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                                    colorFilter = ctransColorFilter
+                                )
+                            }
+                        }
+                    } else {
+                        Image(
+                            bitmap = sprite.bitmap.asImageBitmap(),
+                            contentDescription = sprite.contentDescription,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = if (nativeRect != null) ContentScale.FillBounds else ContentScale.Fit,
+                            alignment = Alignment.TopStart,
+                            colorFilter = ctransColorFilter
+                        )
+                    }
                 }
             }
         }
     }
 }
+
+private fun additiveColorFilter(
+    red: Int,
+    green: Int,
+    blue: Int,
+    forceOpaque: Boolean = false
+): ColorFilter =
+    ColorFilter.colorMatrix(
+        ColorMatrix(
+            floatArrayOf(
+                1f, 0f, 0f, 0f, red.coerceIn(-255, 255) / 255f,
+                0f, 1f, 0f, 0f, green.coerceIn(-255, 255) / 255f,
+                0f, 0f, 1f, 0f, blue.coerceIn(-255, 255) / 255f,
+                0f, 0f, 0f, if (forceOpaque) 0f else 1f, if (forceOpaque) 1f else 0f
+            )
+        )
+    )
 
 private fun visualEffectRandom(value: Int): Int {
     var mixed = value
