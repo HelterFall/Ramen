@@ -1,5 +1,5 @@
 name: One-time Android debug APK
-# Re-run for the latest visual-effect and DWQ decoding fixes.
+# Re-run for native DWQ PACKTYPE=2/3/7 mask and row-order verification.
 
 on:
   push:
