@@ -248,8 +248,8 @@ class SystemNnnDiagnosticLog(
     }
 
     private fun rotateSessionFile(current: File, previous: File) {
-        if (!current.isFile) return
         previous.delete()
+        if (!current.isFile) return
         if (!current.renameTo(previous)) {
             current.copyTo(previous, overwrite = true)
             current.writeText("", Charsets.UTF_8)
