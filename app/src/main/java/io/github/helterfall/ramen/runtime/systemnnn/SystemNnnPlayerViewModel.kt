@@ -1191,11 +1191,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 pendingSpriteLayersChanged = true
                             }
                             when {
-                                command.effectId == 9 &&
-                                    ((command.parameters.getOrNull(5) ?: 0) != 0 || (command.parameters.getOrNull(14) ?: 0) != 0) ->
-                                    appendImageStatusMessage(
-                                        "CTRANS (9) alpha and speed are implemented, but its optional clipping and color-add modes are not yet reproduced."
-                                    )
                                 command.effectId == 55 ->
                                     appendImageStatusMessage(
                                         "OLDFILM (55) is a deterministic screen-scratch approximation; native randomized scratch timing is not exact."
@@ -1205,7 +1200,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                         "CHARABURE (132) uses repeatable jitter; its random sequence does not match the original runtime."
                                     )
                             }
-                            if (command.effectId !in SUPPORTED_NATIVE_VISUAL_EFFECTS) {
+                            if (!SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+                                    command.effectId, command.parameters
+                                )
+                            ) {
                                 appendImageStatusMessage(
                                     "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока не поддерживается полностью."
                                 )
@@ -1956,9 +1954,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_IMAGE_WARNING_COUNT = 4
         private const val SCREEN_EFFECT_LAYER_INDEX = 31
         private val SCREEN_BUFFER_EFFECT_IDS = setOf(10, 11, 18, 54, 55)
-        private val SUPPORTED_NATIVE_VISUAL_EFFECTS = setOf(
-            8, 9, 10, 11, 18, 39, 40, 52, 54, 55, 62, 119, 132
-        )
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
         // and one nested SPT executor. A direct scene starts in slot 1.
