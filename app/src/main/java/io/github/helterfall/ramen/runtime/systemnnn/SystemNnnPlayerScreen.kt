@@ -97,7 +97,7 @@ fun SystemNnnPlayerScreen(
                 (configuration.effectId == 18 && (configuration.effectParameters.getOrNull(2) ?: 0) != 0)
         }
         val finiteDuration = activeEffects
-            .filter { it.effectId != null && it.effectId in setOf(10, 11, 17, 18) }
+            .filter { it.effectId != null && it.effectId in setOf(10, 11, 17, 18, 50) }
             .maxOfOrNull { (it.effectParameters.firstOrNull() ?: 20).coerceIn(1, 9_999) }
             ?: 0
         if (repeats) {
@@ -997,6 +997,33 @@ private fun SystemNnnScreenEffectOverlay(
                 )
             }
         }
+        50 -> {
+            if (SystemNnnVisualEffectMath.supportsAdditiveGradation(parameters)) {
+                val screenHeight = referenceHeight.roundToInt().coerceIn(1, 4_096)
+                val rows = remember(parameters, frame, screenHeight) {
+                    SystemNnnVisualEffectMath.gradationRows(frame, parameters, screenHeight)
+                }
+                if (rows.isNotEmpty()) {
+                    Canvas(modifier) {
+                        val rowHeight = size.height / screenHeight.toFloat()
+                        rows.forEach { row ->
+                            val color = row.color
+                            val red = color.red.coerceIn(0, 255) / 255f
+                            val green = color.green.coerceIn(0, 255) / 255f
+                            val blue = color.blue.coerceIn(0, 255) / 255f
+                            if (red != 0f || green != 0f || blue != 0f) {
+                                drawRect(
+                                    color = Color(red, green, blue, 1f),
+                                    topLeft = Offset(0f, row.y * rowHeight),
+                                    size = Size(size.width, rowHeight + 0.5f),
+                                    blendMode = BlendMode.Plus
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
         29 -> {
             val screenWidth = referenceWidth.roundToInt().coerceIn(1, 2_000)
             val screenHeight = referenceHeight.roundToInt().coerceIn(1, 2_000)
@@ -1110,7 +1137,7 @@ private fun SystemNnnScreenEffectOverlay(
     }
 }
 
-private val LAYER_OVERLAY_EFFECT_IDS = setOf(10, 11, 17, 29, 54, 55)
+private val LAYER_OVERLAY_EFFECT_IDS = setOf(10, 11, 17, 29, 50, 54, 55)
 
 /** Save/load UI actions are forwarded to the Activity; persistence is not part of this screen. */
 enum class SystemNnnPlayerQuickAction {

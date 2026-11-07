@@ -39,7 +39,7 @@ The user also explicitly reported these runtime messages:
 - KE (27) uses the native DWQ atlas layout; particle positions use a deterministic sequence, not the original process RNG.
 - SUNA (29) uses a deterministic grayscale noise plane; the native process RNG sequence is not reproduced.
 - HAIKEIYURE (100) mode 1 moves the composed scene as a group; native MoveScreen changes only the already-rendered screen buffer at that layer.
-- Effect layer 5 (50) is not yet fully supported.
+- GRADATION (50) now applies non-negative vertical RGB offsets to the already-composed scene at its layer position. Negative/subtractive operands still produce an explicit unsupported warning; full target-scene parity remains to be visually accepted.
 
 These warnings must not be treated as cosmetic. They identify real behavioural gaps in the effects that are active in the user's intro sequence.
 
@@ -62,7 +62,7 @@ The static output is consistent with this exact parameter vector; it is not safe
 
 ### GRADATION (50): the missing red scene grade
 
-The pinned System-NNN family reference identifies effect 50 as GRADATION, between 49 BGDARK and 51 TAIYO. The reference software renderer computes RGB deltas from top to bottom and applies the resulting per-row colour adjustment to the already-rendered screen buffer over a configured vertical range. It is not simply a red tint placed on the male bitmap.
+The pinned System-NNN family reference identifies effect 50 as GRADATION, between 49 BGDARK and 51 TAIYO. The reference software renderer computes RGB deltas from top to bottom and applies the resulting per-row colour adjustment to the already-rendered screen buffer over a configured vertical range. It is not simply a red tint placed on the male bitmap. Ramen now ports the non-negative/additive case at the same per-layer composition point; negative RGB-дельты remain explicitly unsupported because the current Compose path uses saturating Plus blending.
 
 Ramen currently accepts effect 50 into layer state but hasNativeLayerEffectPath(50, ...) returns false. The source bitmap is consequently rendered by the ordinary fallback and the user sees the incomplete-effect warning. A faithful implementation needs a snapshot/compositor pass at the correct layer position: grade what has already been drawn, then continue rendering subsequent layers. Applying a red filter only to layer 5 would be the wrong model if the native operation is screen-buffer based.
 

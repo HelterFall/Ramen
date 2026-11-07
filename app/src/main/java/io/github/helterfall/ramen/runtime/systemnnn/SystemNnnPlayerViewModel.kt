@@ -2073,7 +2073,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_IMAGE_LAYERS = 32
         private const val MAX_IMAGE_WARNING_COUNT = 4
         private const val SCREEN_EFFECT_LAYER_INDEX = 31
-        private val SCREEN_BUFFER_EFFECT_IDS = setOf(10, 11, 17, 18, 29, 54, 55, 100)
+        private val SCREEN_BUFFER_EFFECT_IDS = setOf(10, 11, 17, 18, 29, 50, 54, 55, 100)
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
         // and one nested SPT executor. A direct scene starts in slot 1.

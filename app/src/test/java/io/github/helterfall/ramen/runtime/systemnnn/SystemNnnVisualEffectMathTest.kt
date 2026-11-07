@@ -714,4 +714,49 @@ class SystemNnnVisualEffectMathTest {
         )
     }
 
+    @Test
+    fun gradationBuildsNativeAdditiveRowsAcrossItsConfiguredVerticalRange() {
+        val parameters = listOf(
+            20, 100, 40, 20,
+            200, 80, 40,
+            0, 0,
+            0, 0, 0,
+            100, 40, 20,
+            10, 20
+        )
+
+        val start = SystemNnnVisualEffectMath.gradationRows(0, parameters, 40)
+        assertEquals(20, start.size)
+        assertEquals(10, start.first().y)
+        assertEquals(SystemNnnVisualColor(0, 0, 0), start.first().color)
+        assertEquals(SystemNnnVisualColor(50, 20, 10), start[10].color)
+        assertEquals(SystemNnnVisualColor(95, 38, 19), start.last().color)
+
+        val middle = SystemNnnVisualEffectMath.gradationRows(10, parameters, 40)
+        assertEquals(SystemNnnVisualColor(50, 20, 10), middle.first().color)
+        assertEquals(SystemNnnVisualColor(100, 40, 20), middle[10].color)
+
+        val end = SystemNnnVisualEffectMath.gradationRows(20, parameters, 40)
+        assertEquals(SystemNnnVisualColor(100, 40, 20), end.first().color)
+        assertEquals(SystemNnnVisualColor(150, 60, 30), end[10].color)
+    }
+
+    @Test
+    fun gradationClampsItsVerticalRangeAndRejectsSubtractiveOperands() {
+        val clipped = listOf(
+            20, 30, 0, 0, 60, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 10, 20
+        )
+        val rows = SystemNnnVisualEffectMath.gradationRows(20, clipped, 25)
+        assertEquals(15, rows.size)
+        assertEquals(10, rows.first().y)
+        assertEquals(24, rows.last().y)
+
+        val subtractive = clipped.toMutableList().apply { this[9] = -1 }
+        assertFalse(SystemNnnVisualEffectMath.supportsAdditiveGradation(subtractive))
+        assertTrue(SystemNnnVisualEffectMath.gradationRows(10, subtractive, 25).isEmpty())
+        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, subtractive))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, clipped))
+    }
+
 }

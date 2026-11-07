@@ -30,6 +30,11 @@ internal data class SystemNnnFlashState(
     val drawsFill: Boolean
 )
 
+internal data class SystemNnnGradationRow(
+    val y: Int,
+    val color: SystemNnnVisualColor
+)
+
 internal data class SystemNnnCloudPixels(
     val width: Int,
     val height: Int,
@@ -125,6 +130,81 @@ internal object SystemNnnVisualEffectMath {
             ),
             drawsFill = finalFill || activePulse
         )
+    }
+
+    /**
+     * Native GRADATION (50), additive software-renderer path.
+     *
+     * The effect applies a vertical RGB offset to the already-composed screen
+     * buffer. Compose's Plus blend reproduces the positive, saturating channel
+     * addition. Negative offsets are deliberately gated until a subtractive
+     * screen-buffer path is available.
+     */
+    fun supportsAdditiveGradation(parameters: List<Int>): Boolean {
+        val nonNegativeOperands = listOf(
+            parameters.getOrNull(1) ?: 0,
+            parameters.getOrNull(2) ?: 0,
+            parameters.getOrNull(3) ?: 0,
+            parameters.getOrNull(4) ?: 255,
+            parameters.getOrNull(5) ?: 255,
+            parameters.getOrNull(6) ?: 255,
+            parameters.getOrNull(9) ?: 0,
+            parameters.getOrNull(10) ?: 0,
+            parameters.getOrNull(11) ?: 0,
+            parameters.getOrNull(12) ?: 0,
+            parameters.getOrNull(13) ?: 0,
+            parameters.getOrNull(14) ?: 0
+        )
+        return nonNegativeOperands.all { it >= 0 }
+    }
+
+    fun gradationRows(
+        frame: Int,
+        parameters: List<Int>,
+        screenHeight: Int
+    ): List<SystemNnnGradationRow> {
+        if (screenHeight !in 1..4_096 || !supportsAdditiveGradation(parameters)) {
+            return emptyList()
+        }
+
+        val startY = (parameters.getOrNull(15) ?: 0).coerceIn(0, screenHeight - 1)
+        val requestedHeight = parameters.getOrNull(16) ?: screenHeight
+        val rows = requestedHeight.coerceAtMost(screenHeight - startY)
+        if (rows <= 0) return emptyList()
+
+        val duration = (parameters.firstOrNull() ?: 20).coerceAtLeast(1)
+        val speedType = parameters.getOrNull(7) ?: 0
+        val subFrame = parameters.getOrNull(8) ?: 0
+
+        // Each endpoint uses the native Count/CountMax speed interpolation.
+        val top = SystemNnnVisualColor(
+            nativeSpeedValue(frame, duration, parameters.getOrNull(9) ?: 0, parameters.getOrNull(1) ?: 0, subFrame, speedType),
+            nativeSpeedValue(frame, duration, parameters.getOrNull(10) ?: 0, parameters.getOrNull(2) ?: 0, subFrame, speedType),
+            nativeSpeedValue(frame, duration, parameters.getOrNull(11) ?: 0, parameters.getOrNull(3) ?: 0, subFrame, speedType)
+        )
+        val bottom = SystemNnnVisualColor(
+            nativeSpeedValue(frame, duration, parameters.getOrNull(12) ?: 0, parameters.getOrNull(4) ?: 255, subFrame, speedType),
+            nativeSpeedValue(frame, duration, parameters.getOrNull(13) ?: 0, parameters.getOrNull(5) ?: 255, subFrame, speedType),
+            nativeSpeedValue(frame, duration, parameters.getOrNull(14) ?: 0, parameters.getOrNull(6) ?: 255, subFrame, speedType)
+        )
+
+        fun interpolate(start: Int, end: Int, row: Int): Int {
+            val delta = (end.toLong() - start.toLong()) * row.toLong()
+            return (start.toLong() + delta / rows.toLong())
+                .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
+                .toInt()
+        }
+
+        return List(rows) { row ->
+            SystemNnnGradationRow(
+                y = startY + row,
+                color = SystemNnnVisualColor(
+                    interpolate(top.red, bottom.red, row),
+                    interpolate(top.green, bottom.green, row),
+                    interpolate(top.blue, bottom.blue, row)
+                )
+            )
+        }
     }
 
     /** Native SUNA (29) opacity; RGB values are not used by the grayscale noise path. */
@@ -482,6 +562,7 @@ internal object SystemNnnVisualEffectMath {
     fun hasNativeLayerEffectPath(effectId: Int, parameters: List<Int>): Boolean =
         when (effectId) {
             0, 8, 9, 10, 11, 17, 18, 27, 29, 39, 40, 52, 54, 55, 62, 64, 65, 66, 99, 119, 132 -> true
+            50 -> supportsAdditiveGradation(parameters)
             82 -> (parameters.getOrNull(0) ?: 9_999) == 0 &&
                 (parameters.getOrNull(8) ?: 0) == 0
             100 -> (parameters.getOrNull(5) ?: 0) in 0..1

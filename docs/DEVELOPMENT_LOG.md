@@ -1025,3 +1025,11 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - Runtime snapshot расширен: логическая область reference viewport, bitmap dimensions/config/alpha/premultiplication, native source/destination rects, видимая область rect после пересечения с viewport, effect IDs/params/command offsets и alpha metadata фонового bitmap. Legacy-слои явно помечаются как `legacy-layout`, полностью отсечённые rects — как `empty`.
 - Добавлен чистый расчёт пересечения native rect с viewport с 64-битной арифметикой и unit-тесты для частичного/полного/нулевого пересечения и больших координат.
 - Не менялись декодирование bitmap, обычный фон, отрисовка изображений или аудиопуть. Требуются unit CI и последующая проверка diagnostic ZIP на реальном воспроизведении.
+
+
+## 2026-11-08 — реализовать положительную часть GRADATION (50)
+
+- Реализован вертикальный RGB screen-buffer grade на позиции SETEFFECT-слоя: построчные смещения рассчитываются из native start/end RGB, Count/CountMax, speed type/subframe и ограниченного Y-range.
+- Compose рисует полосы через BlendMode.Plus, что даёт saturating additive channel offsets по уже отрисованному содержимому; эффект работает и на зарезервированном screen-effect layer 31.
+- Добавлены регрессионные unit-тесты для направления вертикального градиента, изменения по времени, обрезки Y-range и явного отказа от отрицательных/subtractive operands.
+- Отрицательные канальные смещения остаются неподдержанными и продолжают выдавать warning вместо неверной визуальной подмены. Параметры реальной сцены и физическое визуальное совпадение ещё не проверены.
