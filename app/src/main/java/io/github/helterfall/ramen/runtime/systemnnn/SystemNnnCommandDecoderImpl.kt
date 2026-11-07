@@ -354,7 +354,7 @@ class SystemNnnCommandDecoderImpl(
         record: SystemNnnCommandRecord
     ): SystemNnnDecodedCommand {
         if (record.codeFamily != SYSTEM_FUNCTION_FAMILY) {
-            return skipUnsupported(record, "unknown or unsupported command code")
+            return skipUnsupported(record, "unknown or unsupported command code", script)
         }
 
         return when (record.codeId) {
@@ -543,11 +543,11 @@ class SystemNnnCommandDecoderImpl(
                 script, record, 9, MAX_EFFECT_ARGUMENTS, "SETEFFECTRECT"
             )
             if (argumentCount < 9) {
-                return skipUnsupported(record, "SETEFFECTRECT has fewer than nine required operands")
+                return skipUnsupported(record, "SETEFFECTRECT has fewer than nine required operands", script)
             }
             val layer = readPayloadWord(script, record, 1).toLong()
             if (layer !in 0L until MAX_IMAGE_LAYERS.toLong()) {
-                return skipUnsupported(record, "SETEFFECTRECT layer is outside the supported range")
+                return skipUnsupported(record, "SETEFFECTRECT layer is outside the supported range", script)
             }
 
             fun readRect(start: Int): SystemNnnNativeRect? {
@@ -572,9 +572,9 @@ class SystemNnnCommandDecoderImpl(
             }
 
             val fromRect = readRect(2)
-                ?: return skipUnsupported(record, "SETEFFECTRECT source RECT is not renderable")
+                ?: return skipUnsupported(record, "SETEFFECTRECT source RECT is not renderable", script)
             val toRect = readRect(6)
-                ?: return skipUnsupported(record, "SETEFFECTRECT destination RECT is not renderable")
+                ?: return skipUnsupported(record, "SETEFFECTRECT destination RECT is not renderable", script)
 
             SystemNnnDecodedCommand.SetImageLayerRect(
                 nextCommandOffset = record.endOffsetExclusive,
@@ -586,7 +586,8 @@ class SystemNnnCommandDecoderImpl(
             skipUnsupported(
                 record,
                 "SETEFFECTRECT could not be applied safely: " +
-                    (failure.message ?: failure.javaClass.simpleName)
+                    (failure.message ?: failure.javaClass.simpleName),
+                script
             )
         }
     }
@@ -602,15 +603,15 @@ class SystemNnnCommandDecoderImpl(
         record: SystemNnnCommandRecord
     ): SystemNnnDecodedCommand {
         if (record.payloadWordCount < LOADDWQ_PAYLOAD_WORD_COUNT) {
-            return skipUnsupported(record, "LOADDWQ is missing its layer or Pool 2 resource index")
+            return skipUnsupported(record, "LOADDWQ is missing its layer or Pool 2 resource index", script)
         }
         val layerValue = readPayloadWord(script, record, LOADDWQ_LAYER_PAYLOAD).toLong()
         if (layerValue !in 0L until MAX_IMAGE_LAYERS.toLong()) {
-            return skipUnsupported(record, "LOADDWQ layer is outside the supported layer range")
+            return skipUnsupported(record, "LOADDWQ layer is outside the supported layer range", script)
         }
         val resourceIndex = readPayloadWord(script, record, LOADDWQ_RESOURCE_INDEX_PAYLOAD).toLong()
         if (resourceIndex > Int.MAX_VALUE.toLong()) {
-            return skipUnsupported(record, "LOADDWQ Pool 2 index is outside the supported range")
+            return skipUnsupported(record, "LOADDWQ Pool 2 index is outside the supported range", script)
         }
         val resource = script.secondaryTextPool.getOrNull(resourceIndex.toInt())
             ?.takeIf { entry ->
@@ -618,7 +619,7 @@ class SystemNnnCommandDecoderImpl(
                     entry.text.isNotBlank() &&
                     entry.text.none { character -> character.isISOControl() }
             }
-            ?: return skipUnsupported(record, "LOADDWQ references a missing or invalid Pool 2 resource")
+            ?: return skipUnsupported(record, "LOADDWQ references a missing or invalid Pool 2 resource", script)
 
         return SystemNnnDecodedCommand.LoadImageLayer(
             nextCommandOffset = record.endOffsetExclusive,
@@ -632,11 +633,11 @@ class SystemNnnCommandDecoderImpl(
         record: SystemNnnCommandRecord
     ): SystemNnnDecodedCommand {
         if (record.payloadWordCount < CLEAR_EFFECT_LAYER_PAYLOAD_WORD_COUNT) {
-            return skipUnsupported(record, "CLEAREFFECTLAYER is missing its layer operand")
+            return skipUnsupported(record, "CLEAREFFECTLAYER is missing its layer operand", script)
         }
         val layerValue = readPayloadWord(script, record, CLEAR_EFFECT_LAYER_LAYER_PAYLOAD).toLong()
         if (layerValue !in 0L until MAX_IMAGE_LAYERS.toLong()) {
-            return skipUnsupported(record, "CLEAREFFECTLAYER layer is outside the supported layer range")
+            return skipUnsupported(record, "CLEAREFFECTLAYER layer is outside the supported layer range", script)
         }
         return SystemNnnDecodedCommand.ClearImageLayer(
             nextCommandOffset = record.endOffsetExclusive,
