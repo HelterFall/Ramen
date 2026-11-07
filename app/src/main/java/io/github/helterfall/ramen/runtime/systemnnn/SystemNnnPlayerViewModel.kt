@@ -1159,10 +1159,19 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
 
-                        // Native MAE is a continuation marker, while IDs 4..7 are
-                        // unregistered native effects. Neither replaces the layer's
-                        // currently active effect.
-                        if (SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)) {
+                        // Native effect -1 calls ClearEffect(layer); it removes the
+                        // active picture/effect slot. MAE and unregistered IDs 4..7
+                        // are continuation/unsupported markers and leave it untouched.
+                        if (command.effectId == -1) {
+                            pendingLayerVisuals.remove(command.layerIndex)
+                            pendingSpriteLayers.remove(command.layerIndex)
+                            pendingSpriteLayersChanged = true
+                            if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX) {
+                                pendingScreenEffectId = null
+                                pendingScreenEffectParameters = emptyList()
+                                pendingScreenEffectCommandOffset = null
+                            }
+                        } else if (SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)) {
                             if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX &&
                                 command.effectId in SCREEN_BUFFER_EFFECT_IDS
                             ) {
@@ -1193,9 +1202,21 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 pendingSpriteLayersChanged = true
                             }
                             when {
+                                command.effectId == 27 ->
+                                    appendImageStatusMessage(
+                                        "KE (27) uses the native DWQ atlas layout; particle positions use a deterministic sequence, not the original process RNG."
+                                    )
+                                command.effectId == 29 ->
+                                    appendImageStatusMessage(
+                                        "SUNA (29) uses a deterministic grayscale noise plane; the native process RNG sequence is not reproduced."
+                                    )
                                 command.effectId == 55 ->
                                     appendImageStatusMessage(
                                         "OLDFILM (55) is a deterministic screen-scratch approximation; native randomized scratch timing is not exact."
+                                    )
+                                command.effectId == 100 && (command.parameters.getOrNull(5) ?: 0) != 0 ->
+                                    appendImageStatusMessage(
+                                        "HAIKEIYURE (100) mode 1 moves the composed scene as a group; native MoveScreen changes only the already-rendered screen buffer at that layer."
                                     )
                                 command.effectId == 132 ->
                                     appendImageStatusMessage(
@@ -1958,7 +1979,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_IMAGE_LAYERS = 32
         private const val MAX_IMAGE_WARNING_COUNT = 4
         private const val SCREEN_EFFECT_LAYER_INDEX = 31
-        private val SCREEN_BUFFER_EFFECT_IDS = setOf(10, 11, 18, 54, 55)
+        private val SCREEN_BUFFER_EFFECT_IDS = setOf(10, 11, 17, 18, 29, 54, 55, 100)
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
         // and one nested SPT executor. A direct scene starts in slot 1.
