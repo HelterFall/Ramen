@@ -19,7 +19,7 @@ class SystemNnnDiagnosticLogTest {
             writeText("SETEFFECT layer=3 effect=66 parameters=1,2,3\n")
         }
         val previousDecoderLog = File(root, "ramen_debug.previous.log").apply {
-            writeText("unsupported_record address=0x50 code=0x33330013 reason=SETEFFECT\\n")
+            writeText("unsupported_record address=0x50 code=0x33330013 reason=SETEFFECT\n")
         }
         val diagnostics = SystemNnnDiagnosticLog(root, decoderLog, previousDecoderLog)
         diagnostics.record("effect_set", "module=main layer=3 id=66 parameters=1,2,3")
