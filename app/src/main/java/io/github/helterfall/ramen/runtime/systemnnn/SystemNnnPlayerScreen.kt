@@ -473,7 +473,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         else SystemNnnVisualOffset(0f, 0f)
     val turnOffset = if (isTurn) {
         SystemNnnVisualEffectMath.turnTopLeftOffset(
-            frame, parameters, sprite.bitmap.width, sprite.bitmap.height, rectX, rectY
+            frame, parameters, rectX, rectY
         )
     } else SystemNnnVisualOffset(0f, 0f)
     val turnRotation = if (isTurn) SystemNnnVisualEffectMath.turnRotationDegrees(frame, parameters) else 0f
