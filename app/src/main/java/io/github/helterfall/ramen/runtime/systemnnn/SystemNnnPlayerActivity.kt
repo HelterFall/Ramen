@@ -87,13 +87,29 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        val decoderLogFile = File(filesDir, "ramen_debug.log")
+        val previousDecoderLogFile = File(filesDir, "ramen_debug.previous.log")
+        if (decoderLogFile.isFile) {
+            previousDecoderLogFile.delete()
+            if (!decoderLogFile.renameTo(previousDecoderLogFile)) {
+                runCatching { decoderLogFile.copyTo(previousDecoderLogFile, overwrite = true) }
+                decoderLogFile.writeText("", Charsets.UTF_8)
+            }
+        }
         diagnosticLog = SystemNnnDiagnosticLog(
             directory = File(filesDir, "system-nnn-diagnostics"),
-            decoderLogFile = File(filesDir, "ramen_debug.log")
+            decoderLogFile = decoderLogFile,
+            previousDecoderLogFile = previousDecoderLogFile
         )
+        val appVersion = runCatching {
+            packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
+        }.getOrDefault("unknown")
+        val metrics = resources.displayMetrics
         diagnosticLog.record(
             "session_start",
-            "sdk=${Build.VERSION.SDK_INT} manufacturer=${Build.MANUFACTURER} model=${Build.MODEL}"
+            "appVersion=$appVersion sdk=${Build.VERSION.SDK_INT} manufacturer=${Build.MANUFACTURER} " +
+                "model=${Build.MODEL} densityDpi=${metrics.densityDpi} " +
+                "screenPixels=${metrics.widthPixels}x${metrics.heightPixels}"
         )
         SystemNnnDiagnosticLog.active = diagnosticLog
         crashHandlerRegistration = diagnosticLog.installUncaughtExceptionHandler()
@@ -166,7 +182,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                                 gtbResourceCount = assetManagerToTransfer.resourceCount,
                                 streamReader = commandStreamReader,
                                 variables = projectVariables,
-                                debugLogFile = File(filesDir, "ramen_debug.log")
+                                debugLogFile = File(filesDir, "ramen_debug.log"),
+                                moduleName = it.name
                             )
                         }
                         if (launch.projectModules != null) {
@@ -184,7 +201,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                                 commandDecoder = SystemNnnCommandDecoderImpl(
                                     gtbResourceCount = assetManagerToTransfer.resourceCount,
                                     streamReader = commandStreamReader,
-                                    debugLogFile = File(filesDir, "ramen_debug.log")
+                                    debugLogFile = File(filesDir, "ramen_debug.log"),
+                                    moduleName = "standalone"
                                 ),
                                 assetResolver = assetManagerToTransfer,
                                 initialCommandOffset = launch.initialCommandOffset,
@@ -480,6 +498,12 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.record(
+                "session_end",
+                "isFinishing=$isFinishing isChangingConfigurations=$isChangingConfigurations"
+            )
+        }
         if (::startupExecutor.isInitialized) {
             startupExecutor.shutdownNow()
         }
