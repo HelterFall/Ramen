@@ -1,5 +1,5 @@
 name: One-time Android debug APK
-# One-time build: recycle-safe bitmap lifecycle and visible unsupported-effect fallbacks.
+# One-time build: recycle-safe bitmaps and native DRAW frame-boundary scheduling.
 
 on:
   push:
