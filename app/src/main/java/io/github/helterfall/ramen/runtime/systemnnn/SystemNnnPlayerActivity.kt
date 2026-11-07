@@ -107,6 +107,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                 SystemNnnPlayerScreen(
                     state = playerViewModel.uiState,
                     onScreenTap = playerViewModel::onNextTap,
+                    onDrawFrameCompleted = playerViewModel::onDrawFrameCompleted,
                     onChoiceSelected = playerViewModel::onChoiceSelected,
                     onTypewriterProgress = playerViewModel::onTypewriterProgress,
                     onTypewriterFinished = playerViewModel::onTypewriterFinished,
