@@ -114,11 +114,20 @@ class SystemNnnCommandDecoderImpl(
                 )
             }
 
-            // NNNLib names 0x22220004 DRAW. The native handler forwards an opaque
-            // payload to its drawing callback, but Ramen has no verified
-            // target-specific payload schema/renderer yet. Skip only this
-            // already-bounded record rather than interpreting unknown operands.
-            CODE_DRAW -> skipUnsupported(record, "DRAW command is not implemented")
+            // The pinned native ExecScript reads the first payload DWORD as a
+            // draw-frame count. Zero continues immediately; nonzero returns a
+            // DRAW event after advancing PC by the declared record length.
+            CODE_DRAW -> {
+                if (record.payloadWordCount < 1) {
+                    throw IOException("A System-NNN DRAW command has no frame-count operand.")
+                }
+                val frameCount = readPayloadWord(script, record, 0).toInt()
+                if (frameCount == 0) {
+                    SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+                } else {
+                    SystemNnnDecodedCommand.Draw(record.endOffsetExclusive, frameCount)
+                }
+            }
 
             CODE_SELECT -> decodeSelect(script, streamFor(script), record)
 
