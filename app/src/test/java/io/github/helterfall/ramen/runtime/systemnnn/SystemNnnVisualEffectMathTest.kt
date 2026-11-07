@@ -123,8 +123,6 @@ class SystemNnnVisualEffectMathTest {
             SystemNnnVisualEffectMath.turnTopLeftOffset(
                 frame = 0,
                 parameters = parameters,
-                sourceWidth = 200,
-                sourceHeight = 80,
                 destinationX = 0,
                 destinationY = 0
             )
@@ -134,8 +132,6 @@ class SystemNnnVisualEffectMathTest {
             SystemNnnVisualEffectMath.turnTopLeftOffset(
                 frame = 0,
                 parameters = parameters,
-                sourceWidth = 200,
-                sourceHeight = 80,
                 destinationX = 50,
                 destinationY = 30
             )
