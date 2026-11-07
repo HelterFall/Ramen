@@ -95,3 +95,12 @@ statistics from the actual resource being decoded.
 - **BUFFER (66):** the ordinary bitmap fallback is suppressed. This follows the native implementation: optional CPicture::Shrink() reallocates/copies the image buffer, Print() is a no-op, and CheckAllPrint() is FALSE. Android does not need to imitate the native allocation-only operation.
 
 These are source-level ports of the described paths, not device-verified parity.
+
+### STRETCHBLT (65) — Compose path added from observed source parameters
+
+The Android layer renderer now maps native scale X/Y, center offsets, frame interpolation,
+overall transparency for native mode 2, and optional RGB add/subtract to a dedicated
+Compose transform. This is a source-level mapping, not a bit-exact copy of the native
+software sampler. Native color-key transparency mode 1 still requires a pixel-level
+key comparison. The supplied runtime diagnostic samples for STRETCHBLT use native
+transparency mode 0, so they do not depend on that unimplemented mode.
