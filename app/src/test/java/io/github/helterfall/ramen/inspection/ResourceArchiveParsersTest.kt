@@ -306,7 +306,7 @@ class ResourceArchiveParsersTest {
         }
 
         val alreadyCroppedHeader = ByteArray(64) { SPACE }
-        "PACKTYPE=0A      ".toByteArray(Charsets.US_ASCII).copyInto(alreadyCroppedHeader, 48)
+        "PACKTYPE=0A     ".toByteArray(Charsets.US_ASCII).copyInto(alreadyCroppedHeader, 48)
         putU32(alreadyCroppedHeader, 36, 1)
         putU32(alreadyCroppedHeader, 40, 1)
         val alreadyCroppedBlock = alreadyCroppedHeader + bmp
