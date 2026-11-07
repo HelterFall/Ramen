@@ -449,7 +449,10 @@ class GpkGtbArchiveParser {
 
         return DwqHeaderMetadata(
             packType = packType,
-            hasAlpha = match.groupValues[2].isNotEmpty() || packType == 3 || packType == 7,
+            // Native LoadDWQHeader enables a mask only for PACKTYPE 2, 3 and 7.
+            // The trailing 'A' means the masked image was already cropped; it does
+            // not mean that an alpha mask is present.
+            hasAlpha = packType == 2 || packType == 3 || packType == 7,
             specialIfHeader = specialIfHeader
         )
     }
@@ -1815,13 +1818,6 @@ object ResourceArchiveParsers {
 
         // For PACKTYPE=3 the mask follows the packed image segment when present.
         if (packType == 3 && imageEnd < dwq.size) {
-            val mask = decodePackedBmpSegment(
-                source = dwq,
-                start = imageEnd,
-                endExclusive = dwq.size,
-                maxDecodedPixels = maxDecodedPixels
-            )
-
             val alphaValues = decodeBlackCycDwqAlphaMask(
                 dwq.copyOfRange(imageEnd, dwq.size),
                 image.width,
