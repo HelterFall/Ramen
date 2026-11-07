@@ -158,6 +158,7 @@ class SystemNnnDiagnosticLog(
 
         val unsupported = diagnosticLines.filter { "[decoder_unsupported]" in it }
         val knownUnimplemented = diagnosticLines.filter { "[decoder_known_unimplemented]" in it }
+        val knownIgnored = diagnosticLines.filter { "[decoder_known_ignored]" in it }
         val rendererGaps = diagnosticLines.filter { "[effect_unsupported]" in it }
         val unsupportedCodes = sortedMapOf<String, Int>()
         val codeRegex = Regex("\\bcode=(0x[0-9a-fA-F]+)")
@@ -183,6 +184,7 @@ class SystemNnnDiagnosticLog(
             appendLine("Crash/exception records: $crashCount")
             appendLine("Actual unsupported decoder records: ${unsupported.size}")
             appendLine("Known native operations not implemented: ${knownUnimplemented.size}")
+            appendLine("Known native metadata/no-op operations ignored: ${knownIgnored.size}")
             appendLine("Effects without a renderer path: ${rendererGaps.size}")
             appendLine("Raw decoder lines labelled unsupported_record: $oldDecoderLabelCount")
             appendLine()
@@ -204,8 +206,11 @@ class SystemNnnDiagnosticLog(
             appendLine("Last meaningful runtime events:")
             val meaningful = diagnosticLines.filter {
                 "[decoder_unsupported]" in it || "[decoder_known_unimplemented]" in it ||
-                    "[effect_unsupported]" in it || "[scene_advance_failure]" in it ||
-                    "[uncaught_exception]" in it || "[draw_frame]" in it || "[effect_set]" in it
+                    "[decoder_known_ignored]" in it || "[effect_unsupported]" in it ||
+                    "[image_decode_failure]" in it || "[bitmap_missing]" in it ||
+                    "[bitmap_budget_skip]" in it || "[sprite_resolution_warning]" in it ||
+                    "[scene_advance_failure]" in it || "[uncaught_exception]" in it ||
+                    "[draw_frame]" in it || "[effect_set]" in it
             }
             if (meaningful.isEmpty()) appendLine("  (none)")
             meaningful.takeLast(MAX_SUMMARY_EVENT_LINES).forEach { appendLine(it) }
