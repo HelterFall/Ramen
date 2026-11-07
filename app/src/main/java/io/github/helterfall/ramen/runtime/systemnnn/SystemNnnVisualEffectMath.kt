@@ -465,6 +465,20 @@ internal object SystemNnnVisualEffectMath {
      * Several paths are parameter-gated because the native object has modes
      * with materially different screen/global behavior.
      */
+    /**
+     * Whether the sprite-local progress clock must advance for this effect.
+     * HAIKEIYURE mode 0 uses the per-layer displacement canvas; mode 1 is
+     * handled by the viewport clock in the player screen.
+     */
+    fun shouldAnimateLayerProgress(
+        effectId: Int?,
+        parameters: List<Int>,
+        hasRectMotion: Boolean
+    ): Boolean =
+        hasRectMotion ||
+            effectId in setOf(9, 39, 40, 52, 62, 64, 65, 99, 119) ||
+            (effectId == 100 && (parameters.getOrNull(5) ?: 0) == 0)
+
     fun hasNativeLayerEffectPath(effectId: Int, parameters: List<Int>): Boolean =
         when (effectId) {
             0, 8, 9, 10, 11, 17, 18, 27, 29, 39, 40, 52, 54, 55, 62, 64, 65, 66, 99, 119, 132 -> true
