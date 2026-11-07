@@ -748,14 +748,14 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                             drawImage(
                                 image = atlas,
                                 srcOffset = IntOffset(particle.sourceX, particle.sourceY),
-                                srcSize = IntSize(particle.size, particle.size),
+                                srcSize = IntSize(particle.width, particle.height),
                                 dstOffset = IntOffset(
                                     (particle.x * scaleX).roundToInt(),
                                     (particle.y * scaleY).roundToInt()
                                 ),
                                 dstSize = IntSize(
-                                    (particle.size * scaleX).roundToInt().coerceAtLeast(1),
-                                    (particle.size * scaleY).roundToInt().coerceAtLeast(1)
+                                    (particle.width * scaleX).roundToInt().coerceAtLeast(1),
+                                    (particle.height * scaleY).roundToInt().coerceAtLeast(1)
                                 )
                             )
                         }
