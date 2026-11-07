@@ -62,6 +62,36 @@ class SystemNnnVisualEffectMathTest {
             SystemNnnVisualEffectMath.turnPivotOffset(parameters))
     }
 
+
+    @Test
+    fun turnTopLeftPositionKeepsNativePivotAtScreenCenterPlusDestinationOffset() {
+        val parameters = listOf(
+            20, 90, 0, 12, -8, 100, 100, 0
+        )
+        assertEquals(
+            SystemNnnVisualOffset(-112f, -52f),
+            SystemNnnVisualEffectMath.turnTopLeftOffset(
+                frame = 0,
+                parameters = parameters,
+                sourceWidth = 200,
+                sourceHeight = 80,
+                destinationX = 0,
+                destinationY = 0
+            )
+        )
+        assertEquals(
+            SystemNnnVisualOffset(-62f, -22f),
+            SystemNnnVisualEffectMath.turnTopLeftOffset(
+                frame = 0,
+                parameters = parameters,
+                sourceWidth = 200,
+                sourceHeight = 80,
+                destinationX = 50,
+                destinationY = 30
+            )
+        )
+    }
+
     @Test
     fun turnDefaultParametersMatchNativeSetParam() {
         assertEquals(0f, SystemNnnVisualEffectMath.turnRotationDegrees(0, emptyList()), 0.001f)
