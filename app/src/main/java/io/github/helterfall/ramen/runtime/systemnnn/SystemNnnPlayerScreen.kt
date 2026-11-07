@@ -472,7 +472,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val turnPivot = if (isTurn) SystemNnnVisualEffectMath.turnPivotOffset(parameters)
         else SystemNnnVisualOffset(0f, 0f)
     val turnOffset = if (isTurn) {
-        SystemNnnVisualEffectMath.turnTopLeftOffset(
+        SystemNnnVisualEffectMath.turnCenteredOffset(
             frame, parameters, rectX, rectY
         )
     } else SystemNnnVisualOffset(0f, 0f)
