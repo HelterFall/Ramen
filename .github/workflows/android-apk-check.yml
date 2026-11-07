@@ -1,3 +1,4 @@
+# Rebuild debug APK for the latest PR #28 source head.
 name: One-time Android debug APK
 
 on:
