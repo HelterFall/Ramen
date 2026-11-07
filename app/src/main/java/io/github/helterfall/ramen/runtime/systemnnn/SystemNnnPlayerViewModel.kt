@@ -293,6 +293,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private val bitmapOwners = IdentityHashMap<Bitmap, SystemNnnSceneAssetResolver>()
     private var nextCommandOffset: Long = 0L
     private var frameCounter: Long = 0L
+    private var drawEventCounter: Long = 0L
     private var currentModuleName: String? = null
     private var currentFilmNumber: Int? = null
     private var projectModules: Map<String, SystemNnnPlayerModuleProgram> = emptyMap()
@@ -1378,7 +1379,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         pendingBackgroundResourceIndex = null
                         pendingBackgroundBankNamespace = null
                         pendingBackgroundBankSlot = null
-                        val drawEventId = uiState.drawEventId + 1L
+                        val drawEventId = ++drawEventCounter
                         diagnosticLog?.record(
                             "draw_frame",
                             "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
