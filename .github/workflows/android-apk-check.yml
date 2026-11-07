@@ -1,11 +1,13 @@
 name: One-time Android debug APK
-# One-time build: independent DRAW clock, deferred bitmap release and effect fallbacks.
 
 on:
+  workflow_dispatch:
   push:
-    branches: [docs/system-nnn-launch-roadmap]
+    branches:
+      - docs/system-nnn-launch-roadmap
     paths:
       - ".github/workflows/android-apk-check.yml"
+      - "app/src/main/java/io/github/helterfall/ramen/runtime/systemnnn/**"
 
 permissions:
   contents: read
