@@ -1680,6 +1680,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 existing.nativeEffectParameters == reference.nativeEffectParameters &&
                 existing.nativeEffectCommandOffset == reference.nativeEffectCommandOffset
             ) {
+                diagnosticLog?.record(
+                    "layer_render_state",
+                    "layer=${layer} resource=${existing.resourceId} effect=${existing.nativeEffectId ?: "none"} " +
+                        "params=${existing.nativeEffectParameters.joinToString(",")} " +
+                        "rawBitmapBlit=${SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(existing.nativeEffectId, existing.nativeEffectParameters)} " +
+                        "bitmap=${existing.bitmap.width}x${existing.bitmap.height} " +
+                        "nativeRect=${existing.nativeRect}"
+                )
                 resolved += existing
                 activePixelCount += existing.bitmap.width.toLong() * existing.bitmap.height.toLong()
                 return@forEach
@@ -1723,6 +1731,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 return@forEach
             }
             activePixelCount += bitmapPixels
+            diagnosticLog?.record(
+                "layer_render_state",
+                "layer=${layer} resource=${reference.resourceId} effect=${reference.nativeEffectId ?: "none"} " +
+                    "params=${reference.nativeEffectParameters.joinToString(",")} " +
+                    "rawBitmapBlit=${SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(reference.nativeEffectId, reference.nativeEffectParameters)} " +
+                    "bitmap=${bitmap.width}x${bitmap.height} nativeRect=${reference.nativeRect}"
+            )
             resolved += SystemNnnSpriteBitmap(
                 resourceId = reference.resourceId,
                 bitmap = bitmap,
