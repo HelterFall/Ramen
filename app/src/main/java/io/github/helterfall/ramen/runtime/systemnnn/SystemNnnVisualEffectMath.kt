@@ -582,10 +582,10 @@ internal object SystemNnnVisualEffectMath {
 
     /**
      * Native TURN maps the source pivot (bitmap center + para[3..4]) to
-     * screen center + destination offset + optional spline offset.
-     * Compose positions the image by its top-left, so subtract the full pivot.
+     * screen center + destination offset + optional spline offset. The caller
+     * aligns the node to screen center, so this returns only the additional layout offset.
      */
-    fun turnTopLeftOffset(
+    fun turnCenteredOffset(
         frame: Int,
         parameters: List<Int>,
         destinationX: Int,
