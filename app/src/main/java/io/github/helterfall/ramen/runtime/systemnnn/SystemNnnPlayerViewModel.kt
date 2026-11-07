@@ -337,7 +337,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private fun updateDiagnosticSnapshot(commandOffset: Long, commandName: String) {
         val sprites = uiState.sprites.joinToString(separator = ";") { sprite ->
             "L${sprite.layerIndex}:${sprite.resourceId}[${sprite.bitmap.width}x${sprite.bitmap.height}]" +
-                " effect=${sprite.nativeEffectId ?: "none"} params=${sprite.nativeEffectParameters.joinToString(",")}"
+                " recycled=${sprite.bitmap.isRecycled} effect=${sprite.nativeEffectId ?: "none"} " +
+                "params=${sprite.nativeEffectParameters.joinToString(",")} nativeRect=${sprite.nativeRect}"
         }
         val layerEffects = visualLayerConfigurationStore.snapshot().entries
             .asSequence()
@@ -350,9 +351,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
             "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
                 "command=$commandName offset=0x${commandOffset.toString(16)} frame=$frameCounter " +
                 "screenEffect=${uiState.screenEffectId ?: "none"} " +
+                "screenEffectOffset=${uiState.screenEffectCommandOffset ?: "none"} " +
                 "screenParams=${uiState.screenEffectParameters.joinToString(",")} " +
+                "drawEvent=${uiState.drawEventId} ended=${uiState.isEnded} choices=${uiState.choices.size} " +
                 "layerEffects=$layerEffects " +
-                "background=${uiState.backgroundBitmap?.let { "${it.width}x${it.height}" } ?: "none"} " +
+                "background=${uiState.backgroundBitmap?.let { "${it.width}x${it.height} recycled=${it.isRecycled}" } ?: "none"} " +
                 "sprites=$sprites"
         )
     }
@@ -1435,6 +1438,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             layerVisualConfigurations = pendingLayerVisuals.toMap(),
                             pendingDrawFrameCount = drawFrames
                         )
+                        updateDiagnosticSnapshot(command.nextCommandOffset, "DrawFrame:published")
                         return
                     }
 
@@ -1529,6 +1533,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset,
                             layerVisualConfigurations = pendingLayerVisuals.toMap()
                         )
+                        updateDiagnosticSnapshot(command.nextCommandOffset, "Dialogue:published")
                         playVoice(dialogueStepIndex, command.voiceResourceId)
                         return
                     }
@@ -1597,6 +1602,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset,
                             layerVisualConfigurations = pendingLayerVisuals.toMap()
                         )
+                        updateDiagnosticSnapshot(command.nextCommandOffset, "Choice:published")
                         return
                     }
 
@@ -1863,6 +1869,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
             }
 
             if (bitmap == null) {
+                diagnosticLog?.record(
+                    "bitmap_missing",
+                    "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
+                        "layer=$layer resource=${reference.resourceId} " +
+                        "bank=${reference.nativeBankNamespace ?: "default"} slot=${reference.nativeBankSlot ?: "none"}"
+                )
                 if (warnings.none { it.contains("Layer $layer") }) {
                     warnings += "Layer $layer resource '${reference.resourceId}' was not found."
                 }
@@ -1872,6 +1884,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
             if (bitmapPixels > MAX_ACTIVE_SPRITE_PIXELS - activePixelCount) {
                 bitmapOwners.remove(bitmap)
                 runCatching { resolver.releaseBitmap(bitmap) }
+                diagnosticLog?.record(
+                    "bitmap_budget_skip",
+                    "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
+                        "layer=$layer resource=${reference.resourceId} bitmapPixels=$bitmapPixels " +
+                        "activePixelCount=$activePixelCount limit=$MAX_ACTIVE_SPRITE_PIXELS"
+                )
                 warnings += "Layer " + layer + " ('" + reference.resourceId + "') was skipped: active sprite pixel budget exceeded."
                 return@forEach
             }
@@ -1926,10 +1944,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     "CHANGE (40) on layer ${reference.layerIndex} cannot run: both layer images must have the same dimensions."
             }
         }
+        val warningMessage = warnings.take(MAX_IMAGE_WARNING_COUNT).takeIf { it.isNotEmpty() }
+            ?.joinToString(separator = "\n")
+        warningMessage?.let { warning ->
+            diagnosticLog?.record(
+                "sprite_resolution_warning",
+                "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} $warning"
+            )
+        }
         return SpriteResolution(
             sprites = resolved.sortedBy { it.layerIndex },
-            statusMessage = warnings.take(MAX_IMAGE_WARNING_COUNT).takeIf { it.isNotEmpty() }
-                ?.joinToString(separator = "\n")
+            statusMessage = warningMessage
         )
     }
 
