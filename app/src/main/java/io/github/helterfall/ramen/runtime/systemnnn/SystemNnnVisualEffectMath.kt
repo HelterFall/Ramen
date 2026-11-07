@@ -306,9 +306,9 @@ internal object SystemNnnVisualEffectMath {
                     val blue = (((pixel and 0xff) + addBlue).coerceAtMost(255) - subBlue)
                         .coerceAtLeast(0)
                     output[outputOffset + x] =
-                        (pixel and -0x1000000) or (red shl 16) or (green shl 8) or blue
+                        -0x1000000 or (red shl 16) or (green shl 8) or blue
                 } else {
-                    output[outputOffset + x] = pixel
+                    output[outputOffset + x] = -0x1000000 or (pixel and 0x00ffffff)
                 }
 
                 sourceFixed += sourceStep

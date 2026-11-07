@@ -556,15 +556,18 @@ class SystemNnnVisualEffectMathTest {
 
     @Test
     fun cloudAppliesNativePerRowSaturatingRgbAddAfterTheStartRow() {
-        val source = IntArray(8) { 0xff112233.toInt() }
-        val parameters = listOf(0, 2, 0, 0, 100, 1, 2, 100, 0, 1, 10, 0, 0, 1)
+        val source = IntArray(12) { 0xff112233.toInt() }
+        val parameters = listOf(0, 3, 0, 0, 100, 1, 2, 100, 0, 1, 10, 0, 0, 1)
         val warped = checkNotNull(
             SystemNnnVisualEffectMath.cloudWarpPixels(
-                0L, parameters, source, 4, 2, 2, 2
+                0L, parameters, source, 4, 3, 2, 3
             )
         )
+        // The first row at/after para[13] starts at zero; the final row
+        // reaches half the configured +10 red offset for this 3-row test.
         assertEquals(0xff112233.toInt(), warped.pixels[0])
-        assertEquals(0xff1b2233.toInt(), warped.pixels[2])
+        assertEquals(0xff112233.toInt(), warped.pixels[2])
+        assertEquals(0xff162233.toInt(), warped.pixels[4])
         assertEquals(null,
             SystemNnnVisualEffectMath.cloudWarpPixels(0L, parameters.toMutableList().apply { this[8] = 2 },
                 source, 4, 2, 2, 2))

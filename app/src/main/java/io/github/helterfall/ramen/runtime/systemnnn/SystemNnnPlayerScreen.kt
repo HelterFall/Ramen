@@ -997,6 +997,7 @@ private fun ChoiceOverlay(
             val dxInt = dx.roundToInt()
             val dyInt = dy.roundToInt()
             val image = sprite.bitmap.asImageBitmap()
+            val opaqueImageFilter = additiveColorFilter(0, 0, 0, forceOpaque = true)
             val fillType = parameters.getOrNull(7) ?: 0
             val fillColor = Color(
                 (parameters.getOrNull(8) ?: 0).coerceIn(0, 255) / 255f,
@@ -1013,7 +1014,7 @@ private fun ChoiceOverlay(
                 if (clippedRight <= clippedLeft || clippedBottom <= clippedTop) return
                 if (fillType == 0) {
                     clipRect(clippedLeft, clippedTop, clippedRight, clippedBottom) {
-                        drawImage(image, dstSize = targetSize)
+                        drawImage(image, dstSize = targetSize, colorFilter = opaqueImageFilter)
                     }
                 } else {
                     drawRect(
@@ -1024,7 +1025,7 @@ private fun ChoiceOverlay(
                 }
             }
 
-            drawImage(image = image, dstOffset = IntOffset(dxInt, dyInt), dstSize = targetSize)
+            drawImage(image = image, dstOffset = IntOffset(dxInt, dyInt), dstSize = targetSize, colorFilter = opaqueImageFilter)
             if (dyInt > 0) fillGap(0f, 0f, size.width, dy)
             if (dyInt < 0) fillGap(0f, size.height + dy, size.width, size.height)
 
