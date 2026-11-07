@@ -1,6 +1,7 @@
 package io.github.helterfall.ramen.runtime.systemnnn
 
 import android.graphics.Bitmap
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import androidx.compose.runtime.getValue
@@ -388,11 +389,52 @@ class SystemNnnPlayerViewModel : ViewModel() {
         )
     }
 
+    /**
+     * Samples a bounded 32x32 grid once per decoded image. This tells the
+     * diagnostic export whether a character bitmap contains transparency or
+     * instead carries an opaque blue backing panel.
+     */
+    private fun bitmapPixelProfile(bitmap: Bitmap): String {
+        if (bitmap.isRecycled || bitmap.width <= 0 || bitmap.height <= 0) {
+            return "pixelProfile=unavailable"
+        }
+        val columns = minOf(32, bitmap.width)
+        val rows = minOf(32, bitmap.height)
+        var transparent = 0
+        var partial = 0
+        var opaque = 0
+        var blueDominant = 0
+        var samples = 0
+        return runCatching {
+            for (row in 0 until rows) {
+                val y = if (rows == 1) 0 else row * (bitmap.height - 1) / (rows - 1)
+                for (column in 0 until columns) {
+                    val x = if (columns == 1) 0 else column * (bitmap.width - 1) / (columns - 1)
+                    val pixel = bitmap.getPixel(x, y)
+                    val alpha = pixel ushr 24 and 0xFF
+                    val red = pixel ushr 16 and 0xFF
+                    val green = pixel ushr 8 and 0xFF
+                    val blue = pixel and 0xFF
+                    when (alpha) {
+                        0 -> transparent++
+                        255 -> opaque++
+                        else -> partial++
+                    }
+                    if (alpha > 0 && blue > red + 32 && blue > green + 16) blueDominant++
+                    samples++
+                }
+            }
+            "pixelSamples=$samples alphaTransparent=$transparent alphaPartial=$partial " +
+                "alphaOpaque=$opaque blueDominant=$blueDominant"
+        }.getOrDefault("pixelProfile=failed")
+    }
+
     private fun recordDecodedBitmap(resourceId: String, bitmap: Bitmap) {
         diagnosticLog?.record(
             "bitmap_decoded",
             "resource=$resourceId size=${bitmap.width}x${bitmap.height} " +
-                "config=${bitmap.config} hasAlpha=${bitmap.hasAlpha()} alphaPremultiplied=${bitmap.isPremultiplied}"
+                "config=${bitmap.config} hasAlpha=${bitmap.hasAlpha()} alphaPremultiplied=${bitmap.isPremultiplied} " +
+                bitmapPixelProfile(bitmap)
         )
     }
 
@@ -1289,7 +1331,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                     )
                             }
                             if (!SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
-                                    command.effectId, command.parameters
+                                    command.effectId,
+                                    command.parameters,
+                                    supportsSignedGradation = Build.VERSION.SDK_INT >= 33
                                 )
                             ) {
                                 diagnosticLog?.record(

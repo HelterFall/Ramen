@@ -35,6 +35,13 @@ internal data class SystemNnnGradationRow(
     val color: SystemNnnVisualColor
 )
 
+internal data class SystemNnnGradation(
+    val startY: Int,
+    val height: Int,
+    val top: SystemNnnVisualColor,
+    val bottom: SystemNnnVisualColor
+)
+
 internal data class SystemNnnCloudPixels(
     val width: Int,
     val height: Int,
@@ -158,25 +165,23 @@ internal object SystemNnnVisualEffectMath {
         return nonNegativeOperands.all { it >= 0 }
     }
 
-    fun gradationRows(
+    fun gradation(
         frame: Int,
         parameters: List<Int>,
         screenHeight: Int
-    ): List<SystemNnnGradationRow> {
-        if (screenHeight !in 1..4_096 || !supportsAdditiveGradation(parameters)) {
-            return emptyList()
-        }
+    ): SystemNnnGradation? {
+        if (screenHeight !in 1..4_096) return null
 
         val startY = (parameters.getOrNull(15) ?: 0).coerceIn(0, screenHeight - 1)
         val requestedHeight = parameters.getOrNull(16) ?: screenHeight
         val rows = requestedHeight.coerceAtMost(screenHeight - startY)
-        if (rows <= 0) return emptyList()
+        if (rows <= 0) return null
 
         val duration = (parameters.firstOrNull() ?: 20).coerceAtLeast(1)
         val speedType = parameters.getOrNull(7) ?: 0
         val subFrame = parameters.getOrNull(8) ?: 0
 
-        // Each endpoint uses the native Count/CountMax speed interpolation.
+        // GRADATION applies signed RGB deltas to the already-composed screen buffer.
         val top = SystemNnnVisualColor(
             nativeSpeedValue(frame, duration, parameters.getOrNull(9) ?: 0, parameters.getOrNull(1) ?: 0, subFrame, speedType),
             nativeSpeedValue(frame, duration, parameters.getOrNull(10) ?: 0, parameters.getOrNull(2) ?: 0, subFrame, speedType),
@@ -187,21 +192,30 @@ internal object SystemNnnVisualEffectMath {
             nativeSpeedValue(frame, duration, parameters.getOrNull(13) ?: 0, parameters.getOrNull(5) ?: 255, subFrame, speedType),
             nativeSpeedValue(frame, duration, parameters.getOrNull(14) ?: 0, parameters.getOrNull(6) ?: 255, subFrame, speedType)
         )
+        return SystemNnnGradation(startY, rows, top, bottom)
+    }
+
+    fun gradationRows(
+        frame: Int,
+        parameters: List<Int>,
+        screenHeight: Int
+    ): List<SystemNnnGradationRow> {
+        val gradation = gradation(frame, parameters, screenHeight) ?: return emptyList()
 
         fun interpolate(start: Int, end: Int, row: Int): Int {
             val delta = (end.toLong() - start.toLong()) * row.toLong()
-            return (start.toLong() + delta / rows.toLong())
+            return (start.toLong() + delta / gradation.height.toLong())
                 .coerceIn(Int.MIN_VALUE.toLong(), Int.MAX_VALUE.toLong())
                 .toInt()
         }
 
-        return List(rows) { row ->
+        return List(gradation.height) { row ->
             SystemNnnGradationRow(
-                y = startY + row,
+                y = gradation.startY + row,
                 color = SystemNnnVisualColor(
-                    interpolate(top.red, bottom.red, row),
-                    interpolate(top.green, bottom.green, row),
-                    interpolate(top.blue, bottom.blue, row)
+                    interpolate(gradation.top.red, gradation.bottom.red, row),
+                    interpolate(gradation.top.green, gradation.bottom.green, row),
+                    interpolate(gradation.top.blue, gradation.bottom.blue, row)
                 )
             )
         }
@@ -559,10 +573,14 @@ internal object SystemNnnVisualEffectMath {
             effectId in setOf(9, 39, 40, 52, 62, 64, 65, 99, 119) ||
             (effectId == 100 && (parameters.getOrNull(5) ?: 0) == 0)
 
-    fun hasNativeLayerEffectPath(effectId: Int, parameters: List<Int>): Boolean =
+    fun hasNativeLayerEffectPath(
+        effectId: Int,
+        parameters: List<Int>,
+        supportsSignedGradation: Boolean = false
+    ): Boolean =
         when (effectId) {
             0, 8, 9, 10, 11, 17, 18, 27, 29, 39, 40, 52, 54, 55, 62, 64, 65, 66, 99, 119, 132 -> true
-            50 -> supportsAdditiveGradation(parameters)
+            50 -> supportsSignedGradation || supportsAdditiveGradation(parameters)
             82 -> (parameters.getOrNull(0) ?: 9_999) == 0 &&
                 (parameters.getOrNull(8) ?: 0) == 0
             100 -> (parameters.getOrNull(5) ?: 0) in 0..1

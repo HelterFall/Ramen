@@ -752,10 +752,13 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(10, rows.first().y)
         assertEquals(24, rows.last().y)
 
-        val subtractive = clipped.toMutableList().apply { this[9] = -1 }
+        val subtractive = clipped.toMutableList().apply { this[9] = -24 }
         assertFalse(SystemNnnVisualEffectMath.supportsAdditiveGradation(subtractive))
-        assertTrue(SystemNnnVisualEffectMath.gradationRows(10, subtractive, 25).isEmpty())
+        val signedRows = SystemNnnVisualEffectMath.gradationRows(0, subtractive, 25)
+        assertEquals(15, signedRows.size)
+        assertEquals(-24, signedRows.first().color.red)
         assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, subtractive))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, subtractive, supportsSignedGradation = true))
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, clipped))
     }
 

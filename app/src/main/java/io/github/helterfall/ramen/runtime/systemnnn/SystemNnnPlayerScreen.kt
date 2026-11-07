@@ -30,6 +30,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import android.graphics.Bitmap
+import android.graphics.RenderEffect as AndroidRenderEffect
+import android.graphics.RuntimeShader
+import android.os.Build
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -50,6 +53,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.RenderEffect as ComposeRenderEffect
+import androidx.compose.ui.graphics.asComposeRenderEffect
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -58,6 +63,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -249,6 +255,52 @@ fun SystemNnnPlayerScreen(
                     sprite.layerIndex to partner
                 }.toMap()
                 val hiddenPartnerLayers = changePartners.values.map { it.layerIndex }.toSet()
+                val spritesByLayer = state.sprites.associateBy { it.layerIndex }
+                val configuredLayers = state.layerVisualConfigurations.filterKeys { it != 31 }
+                val orderedLayers = (spritesByLayer.keys + configuredLayers.keys).distinct().sorted()
+
+                val layerGradation = orderedLayers.firstNotNullOfOrNull { layerIndex ->
+                    val sprite = spritesByLayer[layerIndex]
+                    val configuration = configuredLayers[layerIndex]
+                    val effectId = configuration?.effectId ?: sprite?.nativeEffectId
+                    if (effectId == 50) {
+                        val parameters = if (configuration?.effectId == 50) {
+                            configuration.effectParameters
+                        } else {
+                            sprite?.nativeEffectParameters.orEmpty()
+                        }
+                        layerIndex to parameters
+                    } else {
+                        null
+                    }
+                }
+                val selectedGradation = layerGradation ?: if (state.screenEffectId == 50) {
+                    31 to state.screenEffectParameters
+                } else {
+                    null
+                }
+                val gradeFrame = if (layerGradation == null) screenEffectFrame else layerEffectFrame
+                val viewportHeightPx = with(LocalDensity.current) { viewportDpHeight.toPx() }
+                val gradationRenderEffect = selectedGradation?.let { (_, parameters) ->
+                    rememberNativeGradationRenderEffect(
+                        parameters = parameters,
+                        frame = gradeFrame,
+                        referenceHeight = referenceHeight,
+                        viewportHeightPx = viewportHeightPx
+                    )
+                }
+                val gradationHandledByShader = gradationRenderEffect != null && selectedGradation != null
+                val gradationLayerIndex = selectedGradation?.first
+                val layersInsideGradedBuffer = if (gradationHandledByShader && gradationLayerIndex != null) {
+                    orderedLayers.filter { it <= gradationLayerIndex }
+                } else {
+                    orderedLayers
+                }
+                val layersAfterGradedBuffer = if (gradationHandledByShader && gradationLayerIndex != null) {
+                    orderedLayers.filter { it > gradationLayerIndex }
+                } else {
+                    emptyList()
+                }
 
                 Box(
                     modifier = Modifier.fillMaxSize().graphicsLayer {
@@ -258,54 +310,63 @@ fun SystemNnnPlayerScreen(
                             ((screenShake.y + globalHaikeiOffset.y) / referenceHeight.coerceAtLeast(1f))
                     }
                 ) {
-                    state.backgroundBitmap?.let { background ->
-                        DisposableEffect(background) {
-                            onDispose { onBitmapDisposed(background) }
+                    Box(
+                        modifier = Modifier.fillMaxSize().then(
+                            if (gradationHandledByShader) {
+                                Modifier.graphicsLayer {
+                                    compositingStrategy = CompositingStrategy.Offscreen
+                                    renderEffect = gradationRenderEffect
+                                }
+                            } else {
+                                Modifier
+                            }
+                        )
+                    ) {
+                        state.backgroundBitmap?.let { background ->
+                            DisposableEffect(background) {
+                                onDispose { onBitmapDisposed(background) }
+                            }
+                            Image(
+                                bitmap = background.asImageBitmap(),
+                                contentDescription = "Scene background",
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.FillBounds,
+                                alignment = Alignment.TopStart
+                            )
                         }
-                        Image(
-                            bitmap = background.asImageBitmap(),
-                            contentDescription = "Scene background",
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.FillBounds,
-                            alignment = Alignment.TopStart
+                        SystemNnnRenderLayerContent(
+                            orderedLayers = layersInsideGradedBuffer,
+                            spritesByLayer = spritesByLayer,
+                            configuredLayers = configuredLayers,
+                            hiddenPartnerLayers = hiddenPartnerLayers,
+                            changePartners = changePartners,
+                            viewportWidth = viewportDpWidth,
+                            viewportHeight = viewportDpHeight,
+                            referenceWidth = referenceWidth,
+                            referenceHeight = referenceHeight,
+                            layerEffectFrame = layerEffectFrame,
+                            onBitmapDisposed = onBitmapDisposed,
+                            suppressGradationOverlay = gradationHandledByShader
                         )
                     }
-                    val spritesByLayer = state.sprites.associateBy { it.layerIndex }
-                    val configuredLayers = state.layerVisualConfigurations.filterKeys { it != 31 }
-                    val orderedLayers = (spritesByLayer.keys + configuredLayers.keys).distinct().sorted()
-                    orderedLayers.forEach { layerIndex ->
-                        key(layerIndex) {
-                            val sprite = spritesByLayer[layerIndex]
-                            if (sprite != null && layerIndex !in hiddenPartnerLayers) {
-                                SystemNnnAnimatedSpriteLayer(
-                                    sprite = sprite,
-                                    changePartner = changePartners[layerIndex],
-                                    viewportWidth = viewportDpWidth,
-                                    viewportHeight = viewportDpHeight,
-                                    referenceWidth = referenceWidth,
-                                    referenceHeight = referenceHeight,
-                                    onBitmapDisposed = onBitmapDisposed
-                                )
-                            }
-                            val configuration = configuredLayers[layerIndex]
-                            val effectId = configuration?.effectId ?: sprite?.nativeEffectId
-                            val effectParameters = configuration?.effectParameters ?: sprite?.nativeEffectParameters.orEmpty()
-                            if (effectId != null && effectId in LAYER_OVERLAY_EFFECT_IDS) {
-                                SystemNnnScreenEffectOverlay(
-                                    effectId = checkNotNull(effectId),
-                                    parameters = effectParameters,
-                                    frame = layerEffectFrame,
-                                    referenceWidth = referenceWidth,
-                                    referenceHeight = referenceHeight,
-                                    seed = (configuration?.effectCommandOffset
-                                        ?: sprite?.nativeEffectCommandOffset ?: layerIndex.toLong()).toInt(),
-                                    modifier = Modifier.fillMaxSize()
-                                )
-                            }
-                        }
+                    if (layersAfterGradedBuffer.isNotEmpty()) {
+                        SystemNnnRenderLayerContent(
+                            orderedLayers = layersAfterGradedBuffer,
+                            spritesByLayer = spritesByLayer,
+                            configuredLayers = configuredLayers,
+                            hiddenPartnerLayers = hiddenPartnerLayers,
+                            changePartners = changePartners,
+                            viewportWidth = viewportDpWidth,
+                            viewportHeight = viewportDpHeight,
+                            referenceWidth = referenceWidth,
+                            referenceHeight = referenceHeight,
+                            layerEffectFrame = layerEffectFrame,
+                            onBitmapDisposed = onBitmapDisposed,
+                            suppressGradationOverlay = gradationHandledByShader
+                        )
                     }
                 }
-                state.screenEffectId?.let { effectId ->
+                state.screenEffectId?.takeIf { it != 50 || !gradationHandledByShader }?.let { effectId ->
                     SystemNnnScreenEffectOverlay(
                         effectId = effectId,
                         parameters = state.screenEffectParameters,
@@ -429,6 +490,123 @@ fun SystemNnnPlayerScreen(
         }
     }
 }
+
+@Composable
+private fun BoxScope.SystemNnnRenderLayerContent(
+    orderedLayers: List<Int>,
+    spritesByLayer: Map<Int, SystemNnnSpriteBitmap>,
+    configuredLayers: Map<Int, SystemNnnVisualLayerConfiguration>,
+    hiddenPartnerLayers: Set<Int>,
+    changePartners: Map<Int, SystemNnnSpriteBitmap>,
+    viewportWidth: androidx.compose.ui.unit.Dp,
+    viewportHeight: androidx.compose.ui.unit.Dp,
+    referenceWidth: Float,
+    referenceHeight: Float,
+    layerEffectFrame: Int,
+    onBitmapDisposed: (Bitmap) -> Unit,
+    suppressGradationOverlay: Boolean
+) {
+    orderedLayers.forEach { layerIndex ->
+        key(layerIndex) {
+            val sprite = spritesByLayer[layerIndex]
+            if (sprite != null && layerIndex !in hiddenPartnerLayers) {
+                SystemNnnAnimatedSpriteLayer(
+                    sprite = sprite,
+                    changePartner = changePartners[layerIndex],
+                    viewportWidth = viewportWidth,
+                    viewportHeight = viewportHeight,
+                    referenceWidth = referenceWidth,
+                    referenceHeight = referenceHeight,
+                    onBitmapDisposed = onBitmapDisposed
+                )
+            }
+            val configuration = configuredLayers[layerIndex]
+            val effectId = configuration?.effectId ?: sprite?.nativeEffectId
+            val effectParameters = if (configuration?.effectId != null) {
+                configuration.effectParameters
+            } else {
+                sprite?.nativeEffectParameters.orEmpty()
+            }
+            if (effectId != null && effectId in LAYER_OVERLAY_EFFECT_IDS &&
+                !(suppressGradationOverlay && effectId == 50)
+            ) {
+                SystemNnnScreenEffectOverlay(
+                    effectId = effectId,
+                    parameters = effectParameters,
+                    frame = layerEffectFrame,
+                    referenceWidth = referenceWidth,
+                    referenceHeight = referenceHeight,
+                    seed = (configuration?.effectCommandOffset
+                        ?: sprite?.nativeEffectCommandOffset ?: layerIndex.toLong()).toInt(),
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun rememberNativeGradationRenderEffect(
+    parameters: List<Int>,
+    frame: Int,
+    referenceHeight: Float,
+    viewportHeightPx: Float
+): ComposeRenderEffect? {
+    if (Build.VERSION.SDK_INT < 33 || viewportHeightPx <= 0f) return null
+    val gradation = SystemNnnVisualEffectMath.gradation(
+        frame = frame,
+        parameters = parameters,
+        screenHeight = referenceHeight.roundToInt().coerceIn(1, 4_096)
+    ) ?: return null
+
+    return remember(gradation, viewportHeightPx) {
+        runCatching {
+            val shader = RuntimeShader(SYSTEM_NNN_GRADATION_SHADER)
+            shader.setFloatUniform("nativeScaleY", referenceHeight / viewportHeightPx)
+            shader.setFloatUniform("startY", gradation.startY.toFloat())
+            shader.setFloatUniform("regionHeight", gradation.height.toFloat())
+            shader.setFloatUniform(
+                "topDelta",
+                gradation.top.red / 255f,
+                gradation.top.green / 255f,
+                gradation.top.blue / 255f
+            )
+            shader.setFloatUniform(
+                "bottomDelta",
+                gradation.bottom.red / 255f,
+                gradation.bottom.green / 255f,
+                gradation.bottom.blue / 255f
+            )
+            AndroidRenderEffect.createRuntimeShaderEffect(shader, "content").asComposeRenderEffect()
+        }.getOrNull()
+    }
+}
+
+private const val SYSTEM_NNN_GRADATION_SHADER = """
+    uniform shader content;
+    uniform float nativeScaleY;
+    uniform float startY;
+    uniform float regionHeight;
+    uniform float3 topDelta;
+    uniform float3 bottomDelta;
+
+    half4 main(float2 coord) {
+        half4 source = content.eval(coord);
+        float alpha = float(source.a);
+        if (alpha <= 0.0) {
+            return source;
+        }
+        float nativeY = floor(coord.y * nativeScaleY);
+        float row = nativeY - startY;
+        if (row < 0.0 || row >= regionHeight) {
+            return source;
+        }
+        float amount = row / regionHeight;
+        float3 delta = mix(topDelta, bottomDelta, amount);
+        float3 rgb = clamp(float3(source.rgb) / alpha + delta, 0.0, 1.0);
+        return half4(half3(rgb * alpha), source.a);
+    }
+"""
 
 @Composable
 private fun DialogueBox(
