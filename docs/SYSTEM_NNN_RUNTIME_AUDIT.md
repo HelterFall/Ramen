@@ -1,6 +1,43 @@
 # System-NNN runtime audit
 
-## Current follow-up — 2026-11-07: visual compositor, audio lifecycle, and packed-image budget pass
+## Current checkpoint — 2026-11-08: user-observed acceptance and graphics review
+
+**Branch / PR:** docs/system-nnn-launch-roadmap / Draft PR #28.  
+**Current purpose:** focus validation on foreground image layers, positioning, movement and visual effects.  
+**Audio status:** user reports that audio is working very well in actual observation. Audio is accepted and closed as an active workstream. Reopen only for a concrete user-reported defect.  
+**Background status:** user confirms backgrounds render normally. Preserve this as a regression baseline.  
+**Foreground graphics status:** layers look better than earlier builds but remain visibly off; effects and floating-image trajectories are not yet accepted.
+
+### Current code-level coordinate model
+- SystemNnnPlayerScreen sets the viewport aspect ratio from the background bitmap; without a background it falls back to 4:3.
+- The native coordinate reference is backgroundBitmap.width × backgroundBitmap.height; if no background exists it uses the first sprite bitmap dimensions, then 800×600.
+- The viewport is centered and clipped to bounds. Motion outside the viewport is therefore invisible rather than automatically brought back onscreen.
+- The native LOADDWQ path creates a layer reference with the native layer index. If no rectangle was configured by SETEFFECTRECT, resolveSprites supplies (0, 0, bitmap.width, bitmap.height). That image is laid out from the viewport's top-left using bitmap dimensions scaled against the reference dimensions.
+- Sprite references that do not have a native rectangle use a separate legacy fallback: bottom-center, width 0.62 of the viewport and height 0.82. This is a different positioning model and is a high-priority comparison point for the reported layer misplacement.
+- BEZIERMOVE, BSPLINE2 and CHARABURE add their offsets to the layer position in the native coordinate reference. There is no pre-render clamp; the outer viewport clips pixels outside its bounds. A trajectory can therefore look like an image disappearing if its coordinates are wrong or simply outside the visible canvas.
+
+### Effect/rendering findings
+- Per-sprite Animatable clocks exist for CTRANS, SCROLL, CHANGE, MOVE, BEZIERMOVE, TURN, STRETCHBLT, COLORADDSUB and BSPLINE2, plus rectangle motion.
+- Screen/layer overlay effects (including FADE, FLASH, SUNA, FILL and OLDFILM) use a shared layerEffectFrame. Its remember key is the full layer-configuration set; changing one layer configuration resets the clock used by all overlay layers. This can restart another layer's effect and makes simultaneous effects difficult to compare to native timing.
+- HAIKEIYURE mode 0 had a definite clock bug: its local progress was initialized but never animated. The current branch now advances this mode through a shared animation-policy helper. A unit test was added; CI is pending for the post-fix head.
+- HAIKEIYURE mode 1 remains an approximation: the renderer translates the already-composed viewport as a group, while the documented native callback changes the screen buffer at a particular point in the layer sequence.
+- CHANGE requires a second, different layer with matching bitmap dimensions; current Compose code blends via BlendMode.Plus. Its visual parity must be checked against a real transition.
+- KE/SUNA/OLDFILM/CHARABURE use deterministic Android sequences rather than the original process-global Windows RNG. They are reproducible, not bit-identical.
+- CLOUD is implemented only for a gated static software-renderer case (para[0] == 0, no mask). The target EXE's compile-time renderer is not established by that vector alone.
+- TURN and STRETCHBLT have dedicated transforms, but their native colour-key transparency modes are not fully implemented.
+- CTRANS opacity, color adjustment and clipping have code paths in the current branch; older notes that call all optional clipping/color operations unsupported are stale. Exact target-parameter parity remains unverified.
+
+### Tests and evidence boundary
+- SystemNnnVisualEffectMathTest contains pure math tests for effects and geometry. SystemNnnPlayerViewModelTest covers state/command routing and selected layer cases.
+- The repository has no dedicated Compose screenshot/pixel test that proves the final rendered frame, viewport clipping, layer order or actual screen coordinates.
+- Commercial game SPT/GPK/media payloads are intentionally outside Git. Repository tests therefore cannot replay the complete target scene from committed binaries.
+- The runtime audit must distinguish: (1) user-observed device results, (2) source-level behavior, (3) synthetic unit-test coverage, and (4) unverified assumptions.
+
+See SYSTEM_NNN_VISUAL_ACCEPTANCE.md for the detailed checklist and priorities.
+
+---
+
+## Historical snapshot — 2026-11-07: visual compositor, audio lifecycle, and packed-image budget pass
 
 **Current code snapshot:** `38b9c59c17daac7c12b989e9932f3c0ecf38de38`  
 **Branch / PR:** `docs/system-nnn-launch-roadmap` / Draft PR #28  
