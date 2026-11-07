@@ -45,7 +45,7 @@ internal data class SystemNnnKeParticle(
     val sourceY: Int
 )
 
-internal data class SystemNnnVisualLayerConfiguration(
+data class SystemNnnVisualLayerConfiguration(
     val sourceRect: SystemNnnNativeRect? = null,
     val destinationRect: SystemNnnNativeRect? = null,
     val effectId: Int? = null,
@@ -178,8 +178,10 @@ internal object SystemNnnVisualEffectMath {
         val sizeY = (parameters.getOrNull(2) ?: 32).coerceIn(1, atlasHeight)
         val count = (parameters.getOrNull(3) ?: 1).coerceIn(1, 16)
         val stickMask = parameters.getOrNull(4) ?: 0
-        val atlasColumns = (parameters.getOrNull(5) ?: 1).coerceAtLeast(1)
-        val animationFrames = (parameters.getOrNull(6) ?: 1).coerceAtLeast(1)
+        val atlasColumns = (parameters.getOrNull(5) ?: 1)
+            .coerceIn(1, (atlasWidth / sizeX).coerceAtLeast(1))
+        val animationFrames = (parameters.getOrNull(6) ?: 1)
+            .coerceIn(1, (atlasHeight / sizeY).coerceAtLeast(1))
         val animationSpeed = (parameters.getOrNull(7) ?: 1).coerceAtLeast(1)
         val visibleDuration = (parameters.getOrNull(8) ?: 30).coerceAtLeast(0)
         val hiddenDuration = (parameters.getOrNull(9) ?: 0).coerceAtLeast(0)
