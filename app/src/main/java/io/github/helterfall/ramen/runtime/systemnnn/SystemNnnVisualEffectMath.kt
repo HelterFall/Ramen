@@ -36,6 +36,14 @@ internal data class SystemNnnCloudPixels(
     val pixels: IntArray
 )
 
+internal data class SystemNnnKeParticle(
+    val x: Int,
+    val y: Int,
+    val size: Int,
+    val sourceX: Int,
+    val sourceY: Int
+)
+
 internal data class SystemNnnVisualLayerConfiguration(
     val sourceRect: SystemNnnNativeRect? = null,
     val destinationRect: SystemNnnNativeRect? = null,
@@ -118,9 +126,136 @@ internal object SystemNnnVisualEffectMath {
         )
     }
 
+    /** Native SUNA (29) opacity; RGB values are not used by the grayscale noise path. */
+    fun sunaOpacity(frame: Int, parameters: List<Int>): Float {
+        if ((parameters.getOrNull(1) ?: 0) == 0) return 1f
+        val duration = (parameters.getOrNull(0) ?: 0).coerceAtLeast(1)
+        val end = parameters.getOrNull(2) ?: 100
+        val start = parameters.getOrNull(3) ?: 0
+        return nativeSpeedValue(
+            frame.coerceIn(0, duration), duration, start, end,
+            parameters.getOrNull(5) ?: 0,
+            parameters.getOrNull(4) ?: 0
+        ).coerceIn(0, 100) / 100f
+    }
+
     /**
-     * Native HAIKEIYURE (100), layer-local mode only (para[5] == 0).
-     * Mode 1 calls MoveScreen() and is deliberately not represented here.
+     * Generates the native SUNA grayscale noise plane at half resolution.
+     * The native routine updates one of two interleaved noise buffers per print;
+     * this keeps the same 2x2 pixel grain while using a stable, bounded seed.
+     */
+    fun sunaNoisePixels(width: Int, height: Int, frame: Int, seed: Int): IntArray {
+        require(width in 1..2_000 && height in 1..2_000)
+        val pixels = IntArray(width * height)
+        val phase = frame ushr 1
+        for (index in pixels.indices) {
+            val random = mix(seed xor (phase * 0x45d9f3b) xor (index * 0x119de1f3))
+            val gray = ((random ushr 8) and 0x7f) * 2
+            pixels[index] = -0x1000000 or (gray shl 16) or (gray shl 8) or gray
+        }
+        return pixels
+    }
+
+    /**
+     * Deterministic replay of the native KE atlas-particle envelope. Native uses
+     * the process C RNG for spawn, lifetime and jitter; the target archive does
+     * not expose that RNG state, so geometry is stable for a given effect/film.
+     */
+    fun keParticles(
+        frame: Int,
+        parameters: List<Int>,
+        screenWidth: Int,
+        screenHeight: Int,
+        atlasWidth: Int,
+        atlasHeight: Int,
+        seed: Int
+    ): List<SystemNnnKeParticle> {
+        if (screenWidth <= 0 || screenHeight <= 0 || atlasWidth <= 0 || atlasHeight <= 0) {
+            return emptyList()
+        }
+        val sizeX = (parameters.getOrNull(1) ?: 32).coerceIn(1, atlasWidth)
+        val sizeY = (parameters.getOrNull(2) ?: 32).coerceIn(1, atlasHeight)
+        val count = (parameters.getOrNull(3) ?: 1).coerceIn(1, 16)
+        val stickMask = parameters.getOrNull(4) ?: 0
+        val atlasColumns = (parameters.getOrNull(5) ?: 1).coerceAtLeast(1)
+        val animationFrames = (parameters.getOrNull(6) ?: 1).coerceAtLeast(1)
+        val animationSpeed = (parameters.getOrNull(7) ?: 1).coerceAtLeast(1)
+        val visibleDuration = (parameters.getOrNull(8) ?: 30).coerceAtLeast(0)
+        val hiddenDuration = (parameters.getOrNull(9) ?: 0).coerceAtLeast(0)
+        val jitter = (parameters.getOrNull(10) ?: 0).coerceAtLeast(0)
+        val directionChangeChance = (parameters.getOrNull(11) ?: 0).coerceIn(0, 10_000)
+        val cycleLength = (visibleDuration.toLong() + hiddenDuration.toLong())
+            .coerceAtLeast(1L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val availableDirections = buildList {
+            if ((stickMask and 1) != 0) add(1)
+            if ((stickMask and 2) != 0) add(2)
+            if ((stickMask and 4) != 0) add(3)
+            if ((stickMask and 8) != 0) add(4)
+        }
+
+        return buildList {
+            repeat(count) { index ->
+                val particleSeed = mix(seed xor (index * 0x45d9f3b))
+                val phase = Math.floorMod(frame.toLong() + particleSeed.toLong(), cycleLength.toLong()).toInt()
+                if (visibleDuration == 0 || phase >= visibleDuration) return@repeat
+
+                val initialX = Math.floorMod(particleSeed, screenWidth)
+                val initialY = Math.floorMod(mix(particleSeed xor 0x119de1f3), screenHeight)
+                var centerX = initialX
+                var centerY = initialY
+                if (availableDirections.isNotEmpty()) {
+                    val directionIndex = Math.floorMod(particleSeed ushr 4, availableDirections.size)
+                    when (availableDirections[directionIndex]) {
+                        1 -> centerY = sizeY / 2
+                        2 -> centerX = screenWidth - sizeX / 2
+                        3 -> centerY = screenHeight - sizeY / 2
+                        4 -> centerX = sizeX / 2
+                    }
+                    if (directionChangeChance > 0) {
+                        val directionSeed = mix(particleSeed xor (frame * 0x27d4eb2d)) % 10_000
+                        if (directionSeed < directionChangeChance) {
+                            when (availableDirections[Math.floorMod(directionSeed, availableDirections.size)]) {
+                                1 -> centerY = sizeY / 2
+                                2 -> centerX = screenWidth - sizeX / 2
+                                3 -> centerY = screenHeight - sizeY / 2
+                                4 -> centerX = sizeX / 2
+                            }
+                        }
+                    }
+                }
+                if (jitter > 0) {
+                    val jitterSeed = mix(seed xor (frame * 0x3449f5) xor (index * 0x7feb352d))
+                    val range = jitter * 2 + 1
+                    centerX += Math.floorMod(jitterSeed, range) - jitter
+                    centerY += Math.floorMod(mix(jitterSeed xor 0x2468ace), range) - jitter
+                }
+                centerX = centerX.coerceIn(0, screenWidth - 1)
+                centerY = centerY.coerceIn(0, screenHeight - 1)
+
+                val animationSeed = mix(particleSeed xor (frame / animationSpeed))
+                val animationFrame = if (animationFrames > 1) {
+                    Math.floorMod(frame / animationSpeed + animationSeed % animationFrames, animationFrames)
+                } else 0
+                val sourceX = (index % atlasColumns) * sizeX
+                val sourceY = animationFrame * sizeY
+                if (sourceX + sizeX <= atlasWidth && sourceY + sizeY <= atlasHeight) {
+                    add(
+                        SystemNnnKeParticle(
+                            x = centerX - sizeX / 2,
+                            y = centerY - sizeY / 2,
+                            size = sizeX,
+                            sourceX = sourceX,
+                            sourceY = sourceY
+                        )
+                    )
+                }
+            }
+        }
+    }
+
+    /**
+     * Native HAIKEIYURE (100) displacement. Mode 0 moves the source layer;
+     * mode 1 applies the same displacement to the current screen buffer.
      */
     fun haikeiYureOffset(frame: Int, parameters: List<Int>): SystemNnnVisualOffset {
         val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(0)
@@ -328,7 +463,7 @@ internal object SystemNnnVisualEffectMath {
      */
     fun hasNativeLayerEffectPath(effectId: Int, parameters: List<Int>): Boolean =
         when (effectId) {
-            0, 8, 9, 10, 11, 17, 18, 39, 40, 52, 54, 55, 62, 64, 65, 66, 99, 119, 132 -> true
+            0, 8, 9, 10, 11, 17, 18, 27, 29, 39, 40, 52, 54, 55, 62, 64, 65, 66, 99, 119, 132 -> true
             82 -> (parameters.getOrNull(0) ?: 9_999) == 0 &&
                 (parameters.getOrNull(8) ?: 0) == 0
             100 -> (parameters.getOrNull(5) ?: 0) == 0
@@ -359,7 +494,7 @@ internal object SystemNnnVisualEffectMath {
      */
     fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean =
         when (effectId) {
-            39, 64, 65, 66, 99 -> false
+            27, 39, 54, 64, 65, 66, 99 -> false
             82 -> (parameters.getOrNull(0) ?: 9_999) != 0 ||
                 (parameters.getOrNull(8) ?: 0) != 0
             100 -> (parameters.getOrNull(5) ?: 0) != 0
