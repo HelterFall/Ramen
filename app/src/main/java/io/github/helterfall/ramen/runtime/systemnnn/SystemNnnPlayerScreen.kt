@@ -65,6 +65,7 @@ import kotlin.math.roundToInt
 fun SystemNnnPlayerScreen(
     state: SystemNnnPlayerUiState,
     onScreenTap: () -> Unit,
+    onDrawFrameCompleted: () -> Unit,
     onChoiceSelected: (String) -> Unit,
     onTypewriterProgress: (Int) -> Unit,
     onTypewriterFinished: () -> Unit,
@@ -97,6 +98,12 @@ fun SystemNnnPlayerScreen(
         }
     }
 
+    LaunchedEffect(state.frameId, state.pendingDrawFrameCount) {
+        val frames = state.pendingDrawFrameCount ?: return@LaunchedEffect
+        delay(frames.coerceIn(1, 9_999) * 16L)
+        onDrawFrameCompleted()
+    }
+
     LaunchedEffect(state.frameId, state.forceReveal, skipMode) {
         if (state.dialogueText.isEmpty() || state.forceReveal) {
             return@LaunchedEffect
@@ -114,8 +121,12 @@ fun SystemNnnPlayerScreen(
         onTypewriterFinished()
     }
 
-    LaunchedEffect(autoMode, skipMode, state.frameId, state.isTextComplete, state.choices, state.isEnded, state.isLoading) {
+    LaunchedEffect(
+        autoMode, skipMode, state.frameId, state.isTextComplete,
+        state.choices, state.isEnded, state.isLoading, state.pendingDrawFrameCount
+    ) {
         if ((!autoMode && !skipMode) ||
+            state.pendingDrawFrameCount != null ||
             !state.isTextComplete ||
             state.choices.isNotEmpty() ||
             state.isEnded ||
@@ -135,7 +146,8 @@ fun SystemNnnPlayerScreen(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                enabled = state.choices.isEmpty() && !state.isEnded,
+                enabled = state.choices.isEmpty() && !state.isEnded &&
+                    !state.isLoading && state.pendingDrawFrameCount == null,
                 onClick = onScreenTap
             )
     ) {
