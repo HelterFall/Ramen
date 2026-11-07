@@ -74,6 +74,19 @@ class AndroidGpkImageDecoder(
         }
 
         if (resource.format != GpkImageFormat.BMP) {
+            if (resource.packType == DWQ_PACKTYPE_7 && resource.hasAlpha) {
+                val declaredPixels = resource.widthPixels.toLong() * resource.heightPixels.toLong()
+                if (resource.widthPixels <= 0 || resource.heightPixels <= 0 ||
+                    declaredPixels > maxDecodedPixels
+                ) {
+                    // PACKTYPE=7's trailing alpha plane is decoded at the original
+                    // dimensions. Sampling only the JPEG would make the two planes
+                    // disagree; do not allocate a partial bitmap or guess mask scaling.
+                    throw IOException(
+                        "DWQ JPEG alpha-mask image exceeds the configured decoded-pixel budget."
+                    )
+                }
+            }
             val bitmap = decodeWithBitmapFactory(source, resource)
             return if (resource.packType == DWQ_PACKTYPE_7 && resource.hasAlpha) {
                 applyDwqAlphaMask(source, resource, bitmap)
