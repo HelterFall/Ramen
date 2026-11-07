@@ -1235,6 +1235,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                     command.effectId, command.parameters
                                 )
                             ) {
+                                diagnosticLog?.record(
+                                    "effect_unsupported",
+                                    "module=${currentModuleName ?: "standalone"} " +
+                                        "film=${currentFilmNumber ?: "none"} offset=0x${commandOffset.toString(16)} " +
+                                        "layer=${command.layerIndex} id=${command.effectId} " +
+                                        "params=${command.parameters.joinToString(",")}"
+                                )
                                 appendImageStatusMessage(
                                     "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока не поддерживается полностью."
                                 )
