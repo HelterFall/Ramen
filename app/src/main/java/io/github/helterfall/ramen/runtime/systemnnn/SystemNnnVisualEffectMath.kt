@@ -351,11 +351,11 @@ internal object SystemNnnVisualEffectMath {
      *
      * The native CheckNeedPicPrint flag cannot be reused as a Compose draw
      * decision: FALSE means the native effect has its own Print implementation.
-     * Native TURN and STRETCHBLT have dedicated transform painters; COLORADDSUB
-     * has a dedicated color-operation painter. BUFFER is deliberately omitted because
-     * its native Print method is a no-op and CheckAllPrint is FALSE. SCROLL also has
-     * its own repeated, translated bitmap painter. Other unsupported effects retain
-     * the plain source bitmap only as an explicitly incomplete fallback.
+     * TURN, STRETCHBLT, COLORADDSUB, the observed static CLOUD software mode,
+     * and layer-local HAIKEIYURE own their source drawing. BUFFER is deliberately
+     * omitted because its native Print method is a no-op and CheckAllPrint is FALSE.
+     * SCROLL has its own repeated translated bitmap painter. Unsupported modes may
+     * retain the original bitmap only as an explicit incomplete fallback.
      */
     fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean =
         when (effectId) {
