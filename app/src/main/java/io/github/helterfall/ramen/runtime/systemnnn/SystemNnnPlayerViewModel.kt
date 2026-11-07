@@ -648,9 +648,25 @@ class SystemNnnPlayerViewModel : ViewModel() {
         if (audioPausedForLifecycle) player.pause()
     }
 
+    private fun recordAudioError(kind: String, resource: String, message: String?) {
+        diagnosticLog?.record(
+            "audio_error",
+            "kind=$kind resource=$resource message=${message ?: "unknown"}"
+        )
+    }
+
+    private fun recordAudioException(kind: String, resource: String, failure: Throwable) {
+        diagnosticLog?.recordException(
+            "audio_failure",
+            failure,
+            "kind=$kind resource=$resource"
+        )
+    }
+
     private fun startAudio(track: File?, resourceName: String?) {
         audioPlayer = SystemNnnAudioPlayer { status ->
             if (status.state == SystemNnnAudioPlaybackState.ERROR) {
+                recordAudioError("background_track_status", resourceName ?: status.resourceName, status.message)
                 uiState = uiState.copy(
                     audioWarning = "Не удалось запустить фоновый трек: " +
                         (status.message ?: "ошибка воспроизведения.")
@@ -664,6 +680,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     pauseAudioIfNeeded(player)
                 }
             }.onFailure { error ->
+                recordAudioException("background_track_start", resourceName ?: track.name, error)
                 uiState = uiState.copy(
                     audioWarning = "Не удалось запустить фоновый трек: " +
                         (error.message ?: "ошибка подготовки.")
@@ -746,8 +763,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
         channelAudioPlayers.getOrPut(key) {
             SystemNnnAudioPlayer { status ->
                 if (status.state == SystemNnnAudioPlaybackState.ERROR) {
+                    recordAudioError("channel_status", status.resourceName, status.message)
                     uiState = uiState.copy(
-                        audioWarning = "Не удалось воспроизвести '" + status.resourceName + "': " +
+                        audioWarning = "Не удалось воспроизвести '" + status.resourceName + "': "
                             (status.message ?: "ошибка аудио.")
                     )
                 }
@@ -773,14 +791,16 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         player.play(file, normalizedId)
                         pauseAudioIfNeeded(player)
                     }.onFailure { error ->
+                            recordAudioException("channel_start", normalizedId, error)
                             uiState = uiState.copy(
-                                audioWarning = "Не удалось запустить '" + normalizedId + "': " +
+                                audioWarning = "Не удалось запустить '" + normalizedId + "': "
                                     (error.message ?: "ошибка воспроизведения.")
                             )
                         }
                 }.onFailure { error ->
+                    recordAudioException("channel_materialize", normalizedId, error)
                     uiState = uiState.copy(
-                        audioWarning = "Не удалось подготовить '" + normalizedId + "': " +
+                        audioWarning = "Не удалось подготовить '" + normalizedId + "': "
                             (error.message ?: "ресурс не найден.")
                     )
                 }
@@ -806,14 +826,16 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         player.play(file, "voice-index-" + index)
                         pauseAudioIfNeeded(player)
                     }.onFailure { error ->
+                            recordAudioException("voice_index_start", "voice-index-$index", error)
                             uiState = uiState.copy(
-                                audioWarning = "Не удалось запустить голосовую дорожку: " +
+                                audioWarning = "Не удалось запустить голосовую дорожку: "
                                     (error.message ?: "ошибка воспроизведения.")
                             )
                         }
                 }.onFailure { error ->
+                    recordAudioException("voice_index_materialize", "voice-index-$index", error)
                     uiState = uiState.copy(
-                        audioWarning = "Не удалось подготовить голосовую дорожку: " +
+                        audioWarning = "Не удалось подготовить голосовую дорожку: "
                             (error.message ?: "индекс не найден.")
                     )
                 }
@@ -848,15 +870,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         )
                         pauseAudioIfNeeded(player)
                     }.onFailure { error ->
+                        recordAudioException("music_playlist_start", resourceId, error)
                         playlist.files.forEach { it.delete() }
                         uiState = uiState.copy(
-                            audioWarning = "Не удалось запустить фоновую музыку '" + resourceId + "': " +
+                            audioWarning = "Не удалось запустить фоновую музыку '" + resourceId + "': "
                                 (error.message ?: "ошибка воспроизведения.")
                         )
                     }
                 }.onFailure { error ->
+                    recordAudioException("music_materialize", resourceId, error)
                     uiState = uiState.copy(
-                        audioWarning = "Не удалось подготовить музыку '" + resourceId + "': " +
+                        audioWarning = "Не удалось подготовить музыку '" + resourceId + "': "
                             (error.message ?: "ресурс не найден.")
                     )
                 }
@@ -882,15 +906,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         player.play(file, normalizedId)
                         pauseAudioIfNeeded(player)
                     }.onFailure { error ->
+                            recordAudioException("sound_effect_start", normalizedId, error)
                             file.delete()
                             uiState = uiState.copy(
-                                audioWarning = "Не удалось запустить SE '" + normalizedId + "': " +
+                                audioWarning = "Не удалось запустить SE '" + normalizedId + "': "
                                     (error.message ?: "ошибка воспроизведения.")
                             )
                         }
                 }.onFailure { error ->
+                    recordAudioException("sound_effect_materialize", normalizedId, error)
                     uiState = uiState.copy(
-                        audioWarning = "Не удалось подготовить SE '" + normalizedId + "': " +
+                        audioWarning = "Не удалось подготовить SE '" + normalizedId + "': "
                             (error.message ?: "ресурс не найден.")
                     )
                 }
