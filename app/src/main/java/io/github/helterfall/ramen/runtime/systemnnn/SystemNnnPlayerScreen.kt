@@ -98,7 +98,7 @@ fun SystemNnnPlayerScreen(
         }
     }
 
-    LaunchedEffect(state.frameId, state.pendingDrawFrameCount) {
+    LaunchedEffect(state.drawEventId, state.pendingDrawFrameCount) {
         val frames = state.pendingDrawFrameCount ?: return@LaunchedEffect
         delay(frames.coerceIn(1, 9_999) * 16L)
         onDrawFrameCompleted()
@@ -122,7 +122,7 @@ fun SystemNnnPlayerScreen(
     }
 
     LaunchedEffect(
-        autoMode, skipMode, state.frameId, state.isTextComplete,
+        autoMode, skipMode, state.frameId, state.drawEventId, state.isTextComplete,
         state.choices, state.isEnded, state.isLoading, state.pendingDrawFrameCount
     ) {
         if ((!autoMode && !skipMode) ||
