@@ -471,8 +471,11 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val isTurn = effectId == 64
     val turnPivot = if (isTurn) SystemNnnVisualEffectMath.turnPivotOffset(parameters)
         else SystemNnnVisualOffset(0f, 0f)
-    val turnSpline = if (isTurn) SystemNnnVisualEffectMath.turnSplineOffset(frame, parameters)
-        else SystemNnnVisualOffset(0f, 0f)
+    val turnOffset = if (isTurn) {
+        SystemNnnVisualEffectMath.turnTopLeftOffset(
+            frame, parameters, sprite.bitmap.width, sprite.bitmap.height, rectX, rectY
+        )
+    } else SystemNnnVisualOffset(0f, 0f)
     val turnRotation = if (isTurn) SystemNnnVisualEffectMath.turnRotationDegrees(frame, parameters) else 0f
     val turnScale = if (isTurn) SystemNnnVisualEffectMath.turnScale(frame, parameters) else 1f
     val layerAlpha = if (isTurn) SystemNnnVisualEffectMath.turnAlpha(frame, parameters) else alpha
@@ -505,8 +508,8 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val spriteModifier = when {
         isTurn -> Modifier.align(Alignment.Center)
             .offset(
-                x = viewportWidth * ((rectX + turnSpline.x - turnPivot.x) / safeReferenceWidth),
-                y = viewportHeight * ((rectY + turnSpline.y - turnPivot.y) / safeReferenceHeight)
+                x = viewportWidth * (turnOffset.x / safeReferenceWidth),
+                y = viewportHeight * (turnOffset.y / safeReferenceHeight)
             )
             .width(viewportWidth * (sprite.bitmap.width.toFloat() / safeReferenceWidth))
             .height(viewportHeight * (sprite.bitmap.height.toFloat() / safeReferenceHeight))
@@ -544,12 +547,13 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     Box(modifier = spriteModifier.graphicsLayer {
         this.alpha = layerAlpha
         if (isTurn) {
-            rotationZ = turnRotation
+            // The native pixel renderer maps destination coordinates back into source space.
+            rotationZ = -turnRotation
             scaleX = turnScale
             scaleY = turnScale
             transformOrigin = TransformOrigin(
-                ((sprite.bitmap.width / 2f + turnPivot.x) / sprite.bitmap.width).coerceIn(0f, 1f),
-                ((sprite.bitmap.height / 2f + turnPivot.y) / sprite.bitmap.height).coerceIn(0f, 1f)
+                (sprite.bitmap.width / 2f + turnPivot.x) / sprite.bitmap.width,
+                (sprite.bitmap.height / 2f + turnPivot.y) / sprite.bitmap.height
             )
         }
     }) {
