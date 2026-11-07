@@ -39,7 +39,8 @@ internal data class SystemNnnCloudPixels(
 internal data class SystemNnnKeParticle(
     val x: Int,
     val y: Int,
-    val size: Int,
+    val width: Int,
+    val height: Int,
     val sourceX: Int,
     val sourceY: Int
 )
@@ -182,7 +183,7 @@ internal object SystemNnnVisualEffectMath {
         val animationSpeed = (parameters.getOrNull(7) ?: 1).coerceAtLeast(1)
         val visibleDuration = (parameters.getOrNull(8) ?: 30).coerceAtLeast(0)
         val hiddenDuration = (parameters.getOrNull(9) ?: 0).coerceAtLeast(0)
-        val jitter = (parameters.getOrNull(10) ?: 0).coerceAtLeast(0)
+        val jitter = (parameters.getOrNull(10) ?: 0).coerceIn(0, 512)
         val directionChangeChance = (parameters.getOrNull(11) ?: 0).coerceIn(0, 10_000)
         val cycleLength = (visibleDuration.toLong() + hiddenDuration.toLong())
             .coerceAtLeast(1L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
@@ -243,7 +244,8 @@ internal object SystemNnnVisualEffectMath {
                         SystemNnnKeParticle(
                             x = centerX - sizeX / 2,
                             y = centerY - sizeY / 2,
-                            size = sizeX,
+                            width = sizeX,
+                            height = sizeY,
                             sourceX = sourceX,
                             sourceY = sourceY
                         )
