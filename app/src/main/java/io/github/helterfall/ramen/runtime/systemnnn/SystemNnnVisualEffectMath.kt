@@ -587,8 +587,6 @@ internal object SystemNnnVisualEffectMath {
     fun turnTopLeftOffset(
         frame: Int,
         parameters: List<Int>,
-        sourceWidth: Int,
-        sourceHeight: Int,
         destinationX: Int,
         destinationY: Int
     ): SystemNnnVisualOffset {
