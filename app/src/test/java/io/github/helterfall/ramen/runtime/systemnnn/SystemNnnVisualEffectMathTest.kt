@@ -616,8 +616,8 @@ class SystemNnnVisualEffectMathTest {
         assertTrue(particles.all { particle ->
             particle.x in -32 until 800 &&
                 particle.y in -32 until 600 &&
-                particle.sourceX >= 0 && particle.sourceX + particle.size <= 320 &&
-                particle.sourceY >= 0 && particle.sourceY + particle.size <= 160
+                particle.sourceX >= 0 && particle.sourceX + particle.width <= 320 &&
+                particle.sourceY >= 0 && particle.sourceY + particle.height <= 160
         })
 
         val firstNoise = SystemNnnVisualEffectMath.sunaNoisePixels(40, 30, 0, 77)
