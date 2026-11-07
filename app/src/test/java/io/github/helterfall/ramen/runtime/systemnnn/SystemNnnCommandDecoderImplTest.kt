@@ -64,6 +64,44 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun knownNativeFunctionsAreClassifiedSeparatelyFromUnknownRecords() {
+        val root = java.nio.file.Files.createTempDirectory("ramen-known-records-").toFile()
+        val diagnostics = SystemNnnDiagnosticLog(root)
+        val previous = SystemNnnDiagnosticLog.active
+        SystemNnnDiagnosticLog.active = diagnostics
+        try {
+            val script = testScript(
+                records = listOf(
+                    record(4, SYSTEM_FUNCTION, 0x3333001Bu, 1u),
+                    record(4, SYSTEM_FUNCTION, 0x3333001Cu, 1u),
+                    record(5, SYSTEM_FUNCTION, 0x33330018u, 2u, 3u),
+                    record(4, SYSTEM_FUNCTION, 0x33330019u, 1u)
+                ),
+                textCount = 0
+            )
+            val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 0, moduleName = "op1")
+            var offset = RECORD_START
+            repeat(4) {
+                val result = decoder.decodeNext(script, offset)
+                assertTrue(result is SystemNnnDecodedCommand.Skip)
+                offset = (result as SystemNnnDecodedCommand.Skip).nextCommandOffset
+            }
+
+            val log = File(root, "system-nnn-diagnostics.log").readText()
+            assertTrue(log.contains("[decoder_known_unimplemented]"))
+            assertTrue(log.contains("STARTMESSAGE"))
+            assertTrue(log.contains("STARTKOMA"))
+            assertTrue(log.contains("[decoder_known_ignored]"))
+            assertTrue(log.contains("SETCG updates native CG-collection metadata"))
+            assertTrue(log.contains("SETSCENE is disabled"))
+            assertTrue(!log.contains("[decoder_unsupported]"))
+        } finally {
+            SystemNnnDiagnosticLog.active = previous
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun unsupportedRecordsIncludeTheirRawPayloadWordsAndModuleContext() {
         val logFile = File.createTempFile("ramen-debug-payload-", ".log").apply { delete() }
         try {
