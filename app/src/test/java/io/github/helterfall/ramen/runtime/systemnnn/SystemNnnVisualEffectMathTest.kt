@@ -22,6 +22,7 @@ class SystemNnnVisualEffectMathTest {
     fun composeSuppressesNativeEffectsThatOwnPrintingOrAreNoOp() {
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(39, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(64, emptyList()))
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(65, emptyList()))
         // BUFFER (66) has native Print() == no-op and CheckAllPrint() == FALSE.
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(66, emptyList()))
 
@@ -42,6 +43,42 @@ class SystemNnnVisualEffectMathTest {
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(29, emptyList()))
     }
 
+
+
+    @Test
+    fun stretchBltUsesNativeScaleOperandsAndSpeedParameters() {
+        val parameters = listOf(
+            430, 0, 0, 205, 205, 200, 200, 5, 3, 0, 100, 100, 0, 0
+        )
+        assertEquals(2.0f,
+            SystemNnnVisualEffectMath.stretchBltScale(0, parameters, horizontal = true), 0.001f)
+        assertEquals(2.0f,
+            SystemNnnVisualEffectMath.stretchBltScale(0, parameters, horizontal = false), 0.001f)
+        assertEquals(2.05f,
+            SystemNnnVisualEffectMath.stretchBltScale(3, parameters, horizontal = true), 0.001f)
+        assertEquals(1f, SystemNnnVisualEffectMath.stretchBltAlpha(3, parameters), 0.001f)
+        assertEquals(SystemNnnVisualOffset(0f, 0f),
+            SystemNnnVisualEffectMath.stretchBltPivotOffset(parameters))
+    }
+
+    @Test
+    fun stretchBltRespectsNativeAlphaModeAndColorAddSubFlag() {
+        val alphaParameters = listOf(
+            20, 0, 0, 100, 100, 100, 100, 0, 0, 2, 40, 100, 0, 0
+        )
+        assertEquals(1f, SystemNnnVisualEffectMath.stretchBltAlpha(0, alphaParameters), 0.001f)
+        assertEquals(0.7f, SystemNnnVisualEffectMath.stretchBltAlpha(10, alphaParameters), 0.001f)
+        assertEquals(0.4f, SystemNnnVisualEffectMath.stretchBltAlpha(20, alphaParameters), 0.001f)
+        assertEquals(SystemNnnVisualColor(0, 0, 0),
+            SystemNnnVisualEffectMath.stretchBltColorOffset(5, alphaParameters))
+        val colorParameters = alphaParameters.toMutableList().apply {
+            this[14] = 1
+            this[15] = 30; this[16] = 20; this[17] = 10
+            this[18] = 0; this[19] = 0; this[20] = 0
+        }
+        assertEquals(SystemNnnVisualColor(15, 10, 5),
+            SystemNnnVisualEffectMath.stretchBltColorOffset(10, colorParameters))
+    }
 
     @Test
     fun turnUsesNativeAngleScaleAlphaAndPivotOperandOrder() {
