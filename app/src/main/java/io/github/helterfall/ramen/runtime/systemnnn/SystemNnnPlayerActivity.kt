@@ -95,6 +95,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             "session_start",
             "sdk=${Build.VERSION.SDK_INT} manufacturer=${Build.MANUFACTURER} model=${Build.MODEL}"
         )
+        SystemNnnDiagnosticLog.active = diagnosticLog
         crashHandlerRegistration = diagnosticLog.installUncaughtExceptionHandler()
 
         playerViewModel = ViewModelProvider(this)[SystemNnnPlayerViewModel::class.java]
@@ -483,6 +484,9 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         }
         runCatching { crashHandlerRegistration?.close() }
         crashHandlerRegistration = null
+        if (SystemNnnDiagnosticLog.active === diagnosticLog) {
+            SystemNnnDiagnosticLog.active = null
+        }
         super.onDestroy()
     }
 
