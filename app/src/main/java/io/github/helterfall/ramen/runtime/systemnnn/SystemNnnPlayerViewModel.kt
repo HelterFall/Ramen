@@ -69,7 +69,9 @@ data class SystemNnnPlayerUiState(
     /** Active effect rendered against the whole game viewport (native screen layer 31). */
     val screenEffectId: Int? = null,
     val screenEffectParameters: List<Int> = emptyList(),
-    val screenEffectCommandOffset: Long? = null
+    val screenEffectCommandOffset: Long? = null,
+    /** Number of native DRAW frames to present before advancing the SPT stream. */
+    val pendingDrawFrameCount: Int? = null
 )
 
 /**
@@ -207,6 +209,12 @@ sealed interface SystemNnnDecodedCommand {
         val layerIndex: Int,
         val fromRect: SystemNnnNativeRect,
         val toRect: SystemNnnNativeRect
+    ) : SystemNnnDecodedCommand
+
+    data class Draw(
+        val nextCommandOffset: Long,
+        /** Native DRAW count: zero continues immediately; a nonzero value yields a draw boundary. */
+        val frameCount: Int
     ) : SystemNnnDecodedCommand
 
     data class Skip(
@@ -545,7 +553,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
      */
     fun onScreenTap() {
         val current = uiState
-        if (current.isLoading || current.isEnded || current.choices.isNotEmpty()) return
+        if (current.isLoading || current.isEnded || current.choices.isNotEmpty() ||
+            current.pendingDrawFrameCount != null
+        ) return
 
         if (!current.isTextComplete) {
             uiState = current.copy(
@@ -556,6 +566,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
             return
         }
 
+        advanceToVisibleEvent()
+    }
+
+    /**
+     * Called by the screen after presenting the requested number of native DRAW frames.
+     * The next SPT command is not executed until this boundary has been displayed.
+     */
+    fun onDrawFrameCompleted() {
+        val current = uiState
+        if (current.pendingDrawFrameCount == null || current.isLoading || current.isEnded) return
+        uiState = current.copy(pendingDrawFrameCount = null)
         advanceToVisibleEvent()
     }
 
@@ -1304,6 +1325,76 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     SystemNnnDecodedCommand.ControllerReset -> {
                         resetControllerOrEnd()
                         commandsWithoutVisibleOutput += 1
+                    }
+
+                    is SystemNnnDecodedCommand.Draw -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        nextCommandOffset = command.nextCommandOffset
+
+                        // A zero count never reaches this branch: native ExecScript
+                        // consumes it inline. A negative nonzero count still yields
+                        // once because the native back-exec scheduler prints at least
+                        // one frame before continuing.
+                        val drawFrames = command.frameCount.coerceAtLeast(1).coerceAtMost(9_999)
+                        validateNativeBankIdentity(
+                            pendingBackgroundBankNamespace,
+                            pendingBackgroundBankSlot
+                        )
+                        if (pendingBackgroundResourceId != null) {
+                            sceneBackground = resolveBackground(
+                                pendingBackgroundResourceId!!,
+                                pendingBackgroundBankNamespace,
+                                pendingBackgroundBankSlot,
+                                resolver
+                            )
+                        } else if (pendingBackgroundResourceIndex != null) {
+                            sceneBackground = resolveBackgroundIndex(
+                                pendingBackgroundResourceIndex!!,
+                                pendingBackgroundBankNamespace,
+                                pendingBackgroundBankSlot,
+                                resolver
+                            )
+                        }
+
+                        if (pendingSpriteLayersChanged) {
+                            val resolution = resolveSprites(
+                                references = pendingSpriteLayers.values.sortedBy { it.layerIndex },
+                                existingSprites = sceneSprites,
+                                resolver = resolver
+                            )
+                            sceneSprites = resolution.sprites
+                            appendImageStatusMessage(resolution.statusMessage)
+                            pendingSpriteLayersChanged = false
+                        }
+
+                        // These visual commands are accumulated until DRAW. Publish
+                        // that exact scene now, rather than running ahead into the
+                        // CLEAR commands that commonly follow the animation frames.
+                        visualLayerConfigurationStore.replaceWith(pendingLayerVisuals)
+                        pendingBackgroundResourceId = null
+                        pendingBackgroundResourceIndex = null
+                        pendingBackgroundBankNamespace = null
+                        pendingBackgroundBankSlot = null
+                        frameCounter += 1L
+                        diagnosticLog?.record(
+                            "draw_frame",
+                            "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
+                                "offset=0x${commandOffset.toString(16)} frames=$drawFrames"
+                        )
+                        updateDiagnosticSnapshot(command.nextCommandOffset, "DrawFrame")
+                        uiState = uiState.copy(
+                            frameId = frameCounter,
+                            isLoading = false,
+                            backgroundBitmap = sceneBackground,
+                            sprites = sceneSprites,
+                            currentFilmNumber = currentFilmNumber,
+                            statusMessage = imageStatusMessage ?: uiState.statusMessage,
+                            screenEffectId = pendingScreenEffectId,
+                            screenEffectParameters = pendingScreenEffectParameters,
+                            screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            pendingDrawFrameCount = drawFrames
+                        )
+                        return
                     }
 
                     is SystemNnnDecodedCommand.Dialogue -> {
