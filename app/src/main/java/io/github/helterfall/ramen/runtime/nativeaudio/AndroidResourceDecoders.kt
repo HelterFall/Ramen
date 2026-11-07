@@ -63,14 +63,19 @@ class AndroidGpkImageDecoder(
         }
 
         if (resource.format != GpkImageFormat.BMP) {
-            return decodeWithBitmapFactory(source, resource)
+            val bitmap = decodeWithBitmapFactory(source, resource)
+            return if (resource.packType == DWQ_PACKTYPE_7 && resource.hasAlpha) {
+                applyDwqAlphaMask(source, resource, bitmap)
+            } else {
+                bitmap
+            }
         }
 
         // Native CPicture::LoadDWQData consumes ordinary DWQ rows in file
         // order; unlike a standalone BMP, a positive biHeight is not flipped.
         // Android BitmapFactory normalizes that row order, so decode DWQ PACKTYPE=0
         // directly to preserve the original engine's orientation.
-        if (resource.packType == DWQ_PACKTYPE_0 &&
+        if (resource.packType in setOf(DWQ_PACKTYPE_0, DWQ_PACKTYPE_2) &&
             resource.bmpCompression == BI_RGB &&
             resource.bmpBitsPerPixel?.let(DWQ_SEQUENTIAL_BITS_PER_PIXEL::contains) == true
         ) {
@@ -238,35 +243,141 @@ class AndroidGpkImageDecoder(
         source: ReadOnlyRandomAccessSource,
         resource: GpkImageResource
     ): Bitmap {
-        val bitmap = decodeRawBmpPixels(source, resource, preserveStoredRowOrder = true)
-        if (!resource.hasAlpha) return bitmap
+        val pixelOffset = resource.bmpPixelDataOffsetBytes
+            ?: throw IOException("DWQ image has no validated pixel-data offset.")
+        val bitsPerPixel = resource.bmpBitsPerPixel
+            ?: throw IOException("DWQ image has no validated bit-depth metadata.")
+        val bytesPerPixel = when (bitsPerPixel) {
+            8 -> 1
+            24 -> 3
+            32 -> 4
+            else -> throw IOException("Unsupported sequential DWQ bit depth: $bitsPerPixel.")
+        }
+        val rowBytes = resource.widthPixels.toLong() * bytesPerPixel.toLong()
+        val rowStride = (rowBytes + 3L) and -4L
+        val requiredPixelBytes = rowStride * resource.heightPixels.toLong()
+        if (resource.widthPixels <= 0 || resource.heightPixels <= 0 ||
+            rowStride <= 0L || rowStride > Int.MAX_VALUE.toLong() ||
+            pixelOffset < 0L || pixelOffset > resource.payloadSizeBytes ||
+            requiredPixelBytes > resource.payloadSizeBytes - pixelOffset
+        ) {
+            throw IOException("Sequential DWQ pixel rows exceed the indexed image payload.")
+        }
 
-        try {
-            val pixelOffset = resource.bmpPixelDataOffsetBytes
-                ?: throw IOException("DWQ image has no validated pixel-data offset.")
-            val bitsPerPixel = resource.bmpBitsPerPixel
-                ?: throw IOException("DWQ image has no validated bit-depth metadata.")
-            val rowBytes = (resource.widthPixels.toLong() * (bitsPerPixel / 8).toLong() + 3L) and -4L
-            val imageEnd = pixelOffset + rowBytes * resource.heightPixels.toLong()
-            if (imageEnd < pixelOffset || imageEnd > resource.payloadSizeBytes) {
-                throw IOException("DWQ image rows extend beyond the indexed payload.")
-            }
-            val maskSize = resource.payloadSizeBytes - imageEnd
-            if (maskSize <= 0L ||
-                maskSize > maxPackedBlockBytes ||
-                maskSize > Int.MAX_VALUE.toLong()
+        val palette = if (bitsPerPixel == 8) {
+            val paletteOffset = resource.bmpPaletteOffsetBytes
+                ?: throw IOException("Indexed DWQ image has no validated color table.")
+            val paletteCount = resource.bmpPaletteColorCount
+                ?: throw IOException("Indexed DWQ image has no validated color-table size.")
+            val paletteBytesCount = paletteCount.toLong() * BMP_RGB_QUAD_BYTES
+            if (paletteCount !in 1..256 ||
+                paletteOffset < 0L || paletteOffset > resource.payloadSizeBytes ||
+                paletteBytesCount > resource.payloadSizeBytes - paletteOffset
             ) {
-                throw IOException("DWQ alpha mask is missing or exceeds the configured block-size budget.")
+                throw IOException("Sequential DWQ color table exceeds the indexed image payload.")
             }
+            val paletteBytes = ByteArray(paletteBytesCount.toInt())
+            source.readFullyAt(resource.payloadOffset + paletteOffset, paletteBytes)
+            IntArray(paletteCount) { index ->
+                val base = index * BMP_RGB_QUAD_BYTES_INT
+                val blue = paletteBytes[base].toInt() and 0xFF
+                val green = paletteBytes[base + 1].toInt() and 0xFF
+                val red = paletteBytes[base + 2].toInt() and 0xFF
+                (0xFF shl 24) or (red shl 16) or (green shl 8) or blue
+            }
+        } else {
+            IntArray(0)
+        }
 
-            val maskBytes = ByteArray(maskSize.toInt())
-            source.readFullyAt(resource.payloadOffset + imageEnd, maskBytes)
-            val alphaValues = ResourceArchiveParsers.decodeBlackCycDwqAlphaMask(
-                maskBytes,
+        val bitmap = try {
+            Bitmap.createBitmap(
                 resource.widthPixels,
                 resource.heightPixels,
-                maxDecodedPixels
+                Bitmap.Config.ARGB_8888
             )
+        } catch (failure: RuntimeException) {
+            throw IOException("Could not allocate the sequential DWQ bitmap.", failure)
+        }
+        val rawRow = ByteArray(rowStride.toInt())
+        val argbRow = IntArray(resource.widthPixels)
+        try {
+            // Native CPicture::LoadDWQData writes rows into the destination in
+            // file order. Unlike a normal BMP decoder, it does not reverse them.
+            for (y in 0 until resource.heightPixels) {
+                source.readFullyAt(
+                    resource.payloadOffset + pixelOffset + y.toLong() * rowStride,
+                    rawRow
+                )
+                for (x in 0 until resource.widthPixels) {
+                    val sourceIndex = x * bytesPerPixel
+                    argbRow[x] = if (bitsPerPixel == 8) {
+                        val paletteIndex = rawRow[sourceIndex].toInt() and 0xFF
+                        palette.getOrElse(paletteIndex) {
+                            throw IOException("DWQ pixel refers to an absent palette entry.")
+                        }
+                    } else {
+                        // Ordinary DWQ scanlines store RGB(X), not BMP's BGR(X).
+                        val red = rawRow[sourceIndex].toInt() and 0xFF
+                        val green = rawRow[sourceIndex + 1].toInt() and 0xFF
+                        val blue = rawRow[sourceIndex + 2].toInt() and 0xFF
+                        (0xFF shl 24) or (red shl 16) or (green shl 8) or blue
+                    }
+                }
+                bitmap.setPixels(argbRow, 0, resource.widthPixels, 0, y, resource.widthPixels, 1)
+            }
+        } catch (failure: Exception) {
+            bitmap.recycle()
+            if (failure is IOException) throw failure
+            throw IOException("Could not read sequential DWQ pixel rows.", failure)
+        }
+
+        return if (resource.hasAlpha) {
+            try {
+                applyDwqAlphaMask(source, resource, bitmap)
+            } catch (failure: Exception) {
+                if (!bitmap.isRecycled) bitmap.recycle()
+                if (failure is IOException) throw failure
+                throw IOException("Could not apply the DWQ alpha mask.", failure)
+            }
+        } else {
+            bitmap
+        }
+    }
+
+    private fun applyDwqAlphaMask(
+        source: ReadOnlyRandomAccessSource,
+        resource: GpkImageResource,
+        sourceBitmap: Bitmap
+    ): Bitmap {
+        val maskOffset = resource.payloadOffset + resource.payloadSizeBytes
+        val blockEnd = resource.blockOffset + resource.blockSizeBytes
+        if (resource.payloadSizeBytes < 0L || maskOffset < resource.payloadOffset ||
+            resource.blockSizeBytes <= 0L || blockEnd < resource.blockOffset ||
+            maskOffset > blockEnd || blockEnd > source.sizeBytes
+        ) {
+            throw IOException("DWQ alpha mask range is outside the indexed resource block.")
+        }
+        val maskSize = blockEnd - maskOffset
+        if (maskSize <= 0L || maskSize > maxPackedBlockBytes || maskSize > Int.MAX_VALUE.toLong()) {
+            throw IOException("DWQ alpha mask is missing or exceeds the configured block-size budget.")
+        }
+
+        val maskBytes = ByteArray(maskSize.toInt())
+        source.readFullyAt(maskOffset, maskBytes)
+        val alphaValues = ResourceArchiveParsers.decodeBlackCycDwqAlphaMask(
+            maskBytes,
+            resource.widthPixels,
+            resource.heightPixels,
+            maxDecodedPixels
+        )
+
+        val bitmap = if (sourceBitmap.isMutable) {
+            sourceBitmap
+        } else {
+            sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
+                ?: throw IOException("Could not create a mutable bitmap for the DWQ alpha mask.")
+        }
+        try {
             val pixels = IntArray(resource.widthPixels * resource.heightPixels)
             bitmap.getPixels(
                 pixels,
@@ -289,12 +400,12 @@ class AndroidGpkImageDecoder(
                 resource.widthPixels,
                 resource.heightPixels
             )
-            return bitmap
         } catch (failure: Exception) {
-            bitmap.recycle()
-            if (failure is IOException) throw failure
-            throw IOException("Could not apply the DWQ alpha mask.", failure)
+            if (bitmap !== sourceBitmap && !bitmap.isRecycled) bitmap.recycle()
+            throw IOException("Could not apply DWQ alpha values to the decoded bitmap.", failure)
         }
+        if (bitmap !== sourceBitmap && !sourceBitmap.isRecycled) sourceBitmap.recycle()
+        return bitmap
     }
 
     private fun decodeRawBmpPixels(
@@ -483,8 +594,10 @@ class AndroidGpkImageDecoder(
         private const val DEFAULT_MAX_PACKED_BLOCK_BYTES = 128L * 1024L * 1024L
         private const val DWQ_PACKTYPE_0 = 0
         private const val DWQ_PACKTYPE_1 = 1
+        private const val DWQ_PACKTYPE_2 = 2
         private const val DWQ_PACKTYPE_3 = 3
-        private val DWQ_SEQUENTIAL_BITS_PER_PIXEL = setOf(24, 32)
+        private const val DWQ_PACKTYPE_7 = 7
+        private val DWQ_SEQUENTIAL_BITS_PER_PIXEL = setOf(8, 24, 32)
         private const val BI_RGB = 0L
         private const val BI_RLE8 = 1L
         private const val BI_RLE4 = 2L
