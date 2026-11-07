@@ -32,6 +32,7 @@ import androidx.compose.material3.Text
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -1002,11 +1003,16 @@ private fun SystemNnnScreenEffectOverlay(
             val noiseHeight = ((height + 1) / 2).coerceIn(1, 1_000)
             // Each immutable frame bitmap is left to GC after Compose drops its painter;
             // it is never recycled while a render thread may still hold the ImageBitmap.
-            val noiseBitmap = remember(parameters, frame, seed, noiseWidth, noiseHeight) {
+            val noiseBitmap = remember(seed, noiseWidth, noiseHeight) {
+                Bitmap.createBitmap(noiseWidth, noiseHeight, Bitmap.Config.ARGB_8888)
+            }
+            SideEffect {
                 val pixels = SystemNnnVisualEffectMath.sunaNoisePixels(
                     noiseWidth, noiseHeight, frame, seed
                 )
-                Bitmap.createBitmap(pixels, noiseWidth, noiseHeight, Bitmap.Config.ARGB_8888)
+                noiseBitmap.setPixels(
+                    pixels, 0, noiseWidth, 0, 0, noiseWidth, noiseHeight
+                )
             }
             val opacity = SystemNnnVisualEffectMath.sunaOpacity(frame, parameters)
             Canvas(modifier) {
