@@ -19,20 +19,22 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
-    fun nativeEffectsThatDrawTheirOwnPixelsDoNotFallBackToTheRawLayerBitmap() {
-        val hiddenNativeEffects = listOf(
-            8, 9, 19, 27, 40, 54, 61, 65, 66, 82, 90,
-            93, 94, 95, 99, 107, 110, 113, 124, 125, 126, 127, 131, 132
+    fun composeOnlySuppressesTheLayerThatHasItsOwnBitmapDrawingBranch() {
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(39, emptyList()))
+
+        // Native effects that have no replacement painter in Compose must keep
+        // their source visible instead of disappearing altogether.
+        val fallbackEffects = listOf(
+            8, 9, 19, 27, 40, 54, 61, 64, 65, 66, 82, 90,
+            93, 94, 95, 99, 100, 107, 110, 113, 124, 125, 126, 127, 131, 132
         )
-        for (effectId in hiddenNativeEffects) {
-            assertFalse(
-                "effect $effectId must not draw its untouched source bitmap",
+        for (effectId in fallbackEffects) {
+            assertTrue(
+                "effect $effectId must retain its source bitmap until a Compose painter exists",
                 SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(effectId, emptyList())
             )
         }
 
-        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(100, emptyList()))
-        assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(100, listOf(20, 0, 0, 0, 0, 1)))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(null, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(0, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(29, emptyList()))
