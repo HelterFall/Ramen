@@ -8,6 +8,7 @@ import io.github.helterfall.ramen.inspection.GpkImageResource
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import io.github.helterfall.ramen.inspection.ReadOnlySourceRangeInputStream
 import io.github.helterfall.ramen.inspection.ResourceArchiveParsers
+import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnDiagnosticLog
 import java.io.File
 import java.io.IOException
 
@@ -36,6 +37,16 @@ class AndroidGpkImageDecoder(
         resource.validationError?.let { message ->
             throw IOException("GPK resource is marked invalid: " + message)
         }
+        SystemNnnDiagnosticLog.active?.record(
+            "gpk_decode_begin",
+            "resource=${resource.name} packType=${resource.packType} " +
+                "blockOffset=${resource.blockOffset} blockBytes=${resource.blockSizeBytes} " +
+                "payloadOffset=${resource.payloadOffset} payloadBytes=${resource.payloadSizeBytes} " +
+                "size=${resource.widthPixels}x${resource.heightPixels} " +
+                "bpp=${resource.bmpBitsPerPixel ?: "none"} compression=${resource.bmpCompression ?: "none"} " +
+                "topDown=${resource.bmpTopDown ?: "none"} pixelOffset=${resource.bmpPixelDataOffsetBytes ?: "none"} " +
+                "hasAlphaMask=${resource.hasAlpha} format=${resource.format}"
+        )
         // PACKTYPE is the authoritative discriminator. Do not let a missing parser
         // convenience flag route packed rows through BitmapFactory.
         if (resource.packType == DWQ_PACKTYPE_1 || resource.packType == DWQ_PACKTYPE_3) {
@@ -105,6 +116,10 @@ class AndroidGpkImageDecoder(
     /** Decodes a standalone WGQ image using the same pixel and packed-block budgets as indexed DWQ. */
     @Throws(IOException::class)
     fun decodeStandaloneWgq(file: File): Bitmap {
+        SystemNnnDiagnosticLog.active?.record(
+            "wgq_decode_begin",
+            "resource=${file.name} bytes=${file.length()}"
+        )
         val decoded = ResourceArchiveParsers.decodeBlackCycWgqFile(
             file,
             maxDecodedPixels,
