@@ -769,17 +769,23 @@ The runtime warning at SPT offset `0x13080` identifies a type-6 record
 This is a system command, not a `0x3333` SYSTEM_FUNCTION, so it is outside
 the scope of `SystemNnnResourceFunctionScanner`.
 
-The reference `execscript.cpp` forwards the record's opaque drawing payload
-to the native script callback, advances the program counter by the record's
-declared length, and yields a DRAW event when its draw-count field is nonzero.
-That describes the family reference implementation; the cleaned Ramen
-repository does not contain the target `gss.exe` or a verified
-Gore-Screaming-Show-specific DRAW payload schema.
+The pinned native `nnnLib/execscript.cpp` reads
+`m_data[m_pc+4]` as the DRAW frame count, calls the script callback with that
+count, advances the program counter by the record's declared length, and
+returns a DRAW event only when the count is nonzero. A zero count continues
+executing the next command immediately. `nnnLib/backExecClass.cpp` confirms
+that the back-execution scheduler remains in DRAW mode until the requested
+number of frames has been printed; it prints at least one frame for a negative
+nonzero count.
 
-Ramen therefore treats `0x22220004` as a bounded no-op for now: the command
-stream reader validates the complete record boundary, and the decoder returns
-`Skip(record.endOffsetExclusive)` without reading any payload DWORDs. This
-prevents the unsupported-record stop and continues at the next record, but
-does not render any graphics encoded by DRAW. A target-specific renderer
-remains future work; no payload values are reclassified as resource indices
-or module references.
+Ramen now decodes the first payload DWORD as a signed frame count. Zero is a
+normal bounded skip; nonzero produces a timed `Draw` event. The player
+publishes the accumulated background/layer/effect state at that exact command
+boundary, renders it in Compose, waits the requested frame count, and only
+then resumes the SPT stream. This prevents later CLEAR commands from erasing
+transient effect layers before they have ever been presented.
+
+This restores native DRAW scheduling, not full pixel parity for every effect.
+Effects without a Compose implementation retain their source bitmap as a
+fallback; their native animation, masking, colour arithmetic, or compositing
+still requires separate implementation and device acceptance testing.
