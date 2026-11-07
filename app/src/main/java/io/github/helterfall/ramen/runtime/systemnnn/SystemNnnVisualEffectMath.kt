@@ -729,6 +729,31 @@ internal object SystemNnnVisualEffectMath {
     }
 
 
+    /**
+     * Returns the part of a native layer rectangle that intersects the logical
+     * scene viewport. Long arithmetic keeps signed origins and large extents safe.
+     */
+    fun intersectNativeRectWithViewport(
+        rect: SystemNnnNativeRect,
+        viewportWidth: Int,
+        viewportHeight: Int
+    ): SystemNnnNativeRect? {
+        if (viewportWidth <= 0 || viewportHeight <= 0 || rect.width <= 0 || rect.height <= 0) {
+            return null
+        }
+        val left = rect.x.toLong().coerceAtLeast(0L)
+        val top = rect.y.toLong().coerceAtLeast(0L)
+        val right = (rect.x.toLong() + rect.width.toLong()).coerceAtMost(viewportWidth.toLong())
+        val bottom = (rect.y.toLong() + rect.height.toLong()).coerceAtMost(viewportHeight.toLong())
+        if (right <= left || bottom <= top) return null
+        return SystemNnnNativeRect(
+            x = left.toInt(),
+            y = top.toInt(),
+            width = (right - left).toInt(),
+            height = (bottom - top).toInt()
+        )
+    }
+
     fun moveRect(
         frame: Int,
         durationFrames: Int,

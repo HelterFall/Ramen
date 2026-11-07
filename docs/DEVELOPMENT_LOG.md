@@ -1017,3 +1017,11 @@ Cross-reference candidate 0x3333/0x5556 payload words with third/fourth SPT head
 - The launch preparation now carries the selected project's install root. The asset manager opens that root, not the outer import wrapper. The alternate `!eng files/spt` project set resolves its shared data root one level above `!eng files`.
 - Asset discovery now prunes a nested directory containing its own direct `spt/project.xtx` (except the known alternate `!eng files` directory). This prevents the main installation from accidentally aggregating a bundled secondary game/demo's GPK/VPK/VAW/WGQ banks and creating false index/name ambiguity.
 - Static source audit only; no test or device-playback claim. APK-only build is the next compilation check.
+
+
+## 2026-11-08 — уточнить нативную семантику CLOUD и расширить диагностику слоёв
+
+- Повторно проверен pinned reference `effectCloud.cpp` + `allEffect.cpp`: `CLOUD::SetParam` копирует para[0] в `countMax`; `CAllEffect::CountUp` увеличивает count только при `count < countMax`; `CLOUD::Print` меняет m_x/m_y только при `count > 0`. Для диагностического вектора с para[0]=0 эта конкретная native-конфигурация неподвижна. Android frame-0 output сам по себе не доказывает регрессию; не добавлять отдельный clock без определения настоящего слоя/эффекта, который пользователь видел движущимся.
+- Runtime snapshot расширен: логическая область reference viewport, bitmap dimensions/config/alpha/premultiplication, native source/destination rects, видимая область rect после пересечения с viewport, effect IDs/params/command offsets и alpha metadata фонового bitmap. Legacy-слои явно помечаются как `legacy-layout`, полностью отсечённые rects — как `empty`.
+- Добавлен чистый расчёт пересечения native rect с viewport с 64-битной арифметикой и unit-тесты для частичного/полного/нулевого пересечения и больших координат.
+- Не менялись декодирование bitmap, обычный фон, отрисовка изображений или аудиопуть. Требуются unit CI и последующая проверка diagnostic ZIP на реальном воспроизведении.

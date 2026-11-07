@@ -679,4 +679,39 @@ class SystemNnnVisualEffectMathTest {
     }
 
 
+    @Test
+    fun nativeRectIntersectionReportsOnlyVisibleViewportArea() {
+        assertEquals(
+            SystemNnnNativeRect(0, 40, 200, 360),
+            SystemNnnVisualEffectMath.intersectNativeRectWithViewport(
+                SystemNnnNativeRect(-50, 40, 300, 500), 200, 400
+            )
+        )
+        assertEquals(
+            SystemNnnNativeRect(10, 20, 30, 40),
+            SystemNnnVisualEffectMath.intersectNativeRectWithViewport(
+                SystemNnnNativeRect(10, 20, 30, 40), 200, 400
+            )
+        )
+        assertEquals(
+            null,
+            SystemNnnVisualEffectMath.intersectNativeRectWithViewport(
+                SystemNnnNativeRect(210, 10, 20, 20), 200, 400
+            )
+        )
+        assertEquals(
+            null,
+            SystemNnnVisualEffectMath.intersectNativeRectWithViewport(
+                SystemNnnNativeRect(0, 0, 20, 0), 200, 400
+            )
+        )
+        assertEquals(
+            SystemNnnNativeRect(1_999_999_999, 0, 1, 1),
+            SystemNnnVisualEffectMath.intersectNativeRectWithViewport(
+                SystemNnnNativeRect(1_999_999_999, 0, Int.MAX_VALUE, 1),
+                2_000_000_000, 400
+            )
+        )
+    }
+
 }

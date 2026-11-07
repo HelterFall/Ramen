@@ -24,7 +24,7 @@ These are user-observed results, not CI claims.
 |---|---|---|---|
 | Intro text on black | A centered line appears progressively, before the CRT image | It appears immediately | A separate non-dialogue/title rendering path is missing or bypassed. Confirmed: the existing 24 ms typewriter only animates the dialogue box. Exact source command for this title line is not yet identified. |
 | Broken CRT and woman | The monitor remains visible above the scene; the woman/image is visible behind its glass, shakes and slowly drifts left; scanlines, dust/specks and scratches move over it | The monitor disappears or covers the woman; the woman's image can be displaced into a corner; scratch/noise effects are approximate | Layer order, DWQ alpha/mask, native rectangles, effect composition and HAIKEIYURE buffer semantics. Need per-layer resource/rect/effect/command-offset evidence; do not simply lower opacity of the whole monitor. |
-| Playground/mountain background with cloud band | The lower scenery (playground/mountains) remains still; only the upper cloud band drifts | The lower scenery stays still, but the upper cloud band does not move | This is the bounded CLOUD (82) overlay case. The known layer-1 vector requests 300 output rows, consistent with a partial-height cloud band; that height is not itself the full-screen panorama defect. The current Android path builds it only at frame 0, so its horizontal/vertical speeds never advance. Any extra scenery is a separate resource/layer identity question. |
+| Playground/mountain background with cloud band | The lower scenery (playground/mountains) remains still; only the upper cloud band drifts | The lower scenery stays still, but the upper cloud band does not move | This is the bounded CLOUD (82) partial-height compositor case. The known layer-1 vector requests 300 output rows; that height is not itself the full-screen panorama defect. However, its first operand is 0 (countMax). In the pinned native reference, CAllEffect::CountUp advances only while count < countMax, and CLOUD updates m_x/m_y only when count > 0. With countMax=0 this vector does not move in that reference path. Ramen's static frame-0 result is therefore not, by itself, evidence of an Android animation bug. The observed drift must be traced to the actual moving layer/effect/resource rather than forced onto this CLOUD configuration. |
 | Repeated monitor shots | Monitor/woman composition changes or zooms while the text remains in front; flicker and CRT imperfections continue | Text can stay in front, but there is no smooth intro; a black interruption sometimes covers the image for seconds | Correct text/compositor ordering is only partial. Black interruption may be a fade/flash/clear/scene transition or a missing asset; command timeline is needed to distinguish them. |
 | Full-height male figure | Figure appears with a red vertical colour grade over the already-rendered scene | Figure appears without the expected red tone | The user's warning identifies effect 50. In the pinned family reference, ID 50 is GRADATION (a screen-buffer colour ramp); Ramen has no renderer path for it. High-confidence missing implementation. |
 | Shaking monitor with woman behind it | Monitor shakes while the woman remains behind/inside the CRT aperture | A corner of the woman appears outside the intended opening; monitor is opaque over her | Likely geometry/mask/compositor issue, not just a movement amplitude issue. Exact layer identities and alpha coverage remain unverified. |
@@ -45,20 +45,20 @@ These warnings must not be treated as cosmetic. They identify real behavioural g
 
 ## 1B. Source-confirmed causes and boundaries
 
-### CLOUD (82): the stationary upper cloud band is explained by current code
+### CLOUD (82): bounded partial-height path; the moving source is not yet identified
 
-The supplied runtime audit already records the literal parameter vector for CLOUD on layer 1:
+The supplied runtime audit records this literal parameter vector for CLOUD on layer 1:
 
-0,300,13,4,9999,200,1362,200,0,1,255,160,110,50
+`0,300,13,4,9999,200,1362,200,0,1,255,160,110,50`
 
 For the Android path:
-- the accepted software path requires parameter 0 = 0 and parameter 8 = 0; this vector passes those gates;
-- parameter 1 requests 300 output rows, which is consistent with a partial upper cloud band over stationary lower scenery;
+- the accepted software compositor requires parameter 0 = 0 and parameter 8 = 0; this vector passes those gates;
+- parameter 1 requests 300 output rows, consistent with a partial upper band over stationary lower scenery;
 - cloudWarpPixels returns a bitmap whose height is exactly those 300 rows;
-- SystemNnnAnimatedSpriteLayer calls cloudWarpPixels(frame = 0L) once inside remember, so speed X/Y (13, 4) never advance;
-- the resulting image is drawn at its natural ratio: output height is viewportHeight × 300 / referenceHeight. At a 600-pixel logical height that is exactly one-half of the viewport.
+- the renderer evaluates this bounded path at frame 0;
+- in the pinned native source, SetParam copies parameter 0 into `countMax`; CAllEffect::CountUp increments only while count < countMax; CLOUD::Print updates m_x/m_y only while count > 0. With parameter 0 equal to 0, the native counter does not advance and this vector does not animate in that reference implementation.
 
-Therefore the stationary upper cloud band is explained by a concrete implementation defect: the source image is evaluated at frame 0 and never advances its speed operands. Keep the 300-row partial-height output when it represents the intended upper band; do not stretch it across the whole scene. Fix its per-layer frame progression independently of the ordinary background renderer.
+The static output is consistent with this exact parameter vector; it is not safe to add an independent Android frame clock and call that a parity fix. The user's observed cloud drift remains a valid scene-level finding, but its source must be identified from the actual layer/effect/resource and command offsets. Keep the 300-row partial-height output when it represents the intended upper band; do not stretch it across the whole scene.
 
 ### GRADATION (50): the missing red scene grade
 
@@ -91,7 +91,7 @@ The ViewModel clears the full visual snapshot on SceneUpdate and explicit clear 
 
 ## 1C. Revised fix order
 
-1. **Upper cloud band (CLOUD 82):** advance its frame using a per-layer clock while preserving its intended partial-height region. Regression target: the lower playground/mountain scenery stays stationary while only the upper 300-row cloud band moves. Do not fill the entire viewport with this layer.
+1. **Upper cloud motion:** use the expanded runtime layer diagnostics to identify the actual moving resource/effect and its command offsets. Do not add a clock to the observed CLOUD 82 vector with parameter 0 = 0 unless further native evidence establishes a different update path. Preserve the 300-row partial-height compositor output and the stationary lower scenery.
 2. **Layer evidence and CRT composite:** add final pixel bounds/visible intersection, alpha-presence/mask metadata, layer index, command offset, native rectangles and effect frame to diagnostics. Then correct monitor frame/glass/woman order without reducing the whole monitor's opacity.
 3. **GRADATION (50):** implement a screen-buffer vertical RGB grade at the correct layer/compositor point, then compare the red scene transition. Do not tint only the man sprite.
 4. **Clear/persistence and global flash:** trace scene/film boundaries and actual CLEAR commands; ensure the figure is gone before the interstitial. Check FLASH/FILL/GRADATION command scope and z-order so a true screen flash covers all intended content.
@@ -166,7 +166,7 @@ CHANGE (40) uses a second distinct layer, requires matching bitmap dimensions, a
 
 - TURN (64) and STRETCHBLT (65) have dedicated Compose transforms. Native colour-key transparency mode 1 still needs a pixel-level implementation.
 - CTRANS (9) has opacity, colour-offset and clip-rectangle paths; target-specific parameter parity is not yet accepted.
-- CLOUD (82) is handled only for the observed unmasked software parameter case. The upper band stays static in Ramen because the cached compositor is called at frame 0; the target EXE's build variant is not established.
+- CLOUD (82) is handled only for the observed unmasked software parameter case. The supplied vector has parameter 0 = 0; in the pinned native reference that sets countMax to zero, so CountUp cannot advance and CLOUD's m_x/m_y remain stationary. The frame-0 Android output is consistent with that vector. The scene's reported cloud drift must be matched to its true moving layer/effect/resource. The target EXE's build variant is not established.
 - KE (27), SUNA (29), OLDFILM (55), and CHARABURE (132) use deterministic Android pseudo-random sequences rather than the original process-global Windows RNG.
 - Effects outside the explicit path list are not implemented; some may display a bitmap fallback with a warning rather than the native effect.
 

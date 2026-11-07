@@ -335,28 +335,56 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     private fun updateDiagnosticSnapshot(commandOffset: Long, commandName: String) {
+        val backgroundBitmap = uiState.backgroundBitmap
+        val referenceBitmap = backgroundBitmap?.takeUnless { it.isRecycled }
+            ?: uiState.sprites.firstOrNull { !it.bitmap.isRecycled }?.bitmap
+        val referenceWidth = referenceBitmap?.width ?: 800
+        val referenceHeight = referenceBitmap?.height ?: 600
         val sprites = uiState.sprites.joinToString(separator = ";") { sprite ->
-            "L${sprite.layerIndex}:${sprite.resourceId}[${sprite.bitmap.width}x${sprite.bitmap.height}]" +
-                " recycled=${sprite.bitmap.isRecycled} effect=${sprite.nativeEffectId ?: "none"} " +
-                "params=${sprite.nativeEffectParameters.joinToString(",")} nativeRect=${sprite.nativeRect}"
+            val bitmap = sprite.bitmap
+            val bitmapDetails = if (bitmap.isRecycled) {
+                "recycled=true"
+            } else {
+                "${bitmap.width}x${bitmap.height} config=${bitmap.config ?: "unknown"} " +
+                    "hasAlpha=${bitmap.hasAlpha()} premultiplied=${bitmap.isPremultiplied}"
+            }
+            val visibleRect = sprite.nativeRect?.let { rect ->
+                SystemNnnVisualEffectMath.intersectNativeRectWithViewport(
+                    rect, referenceWidth, referenceHeight
+                )?.toString() ?: "empty"
+            } ?: "legacy-layout"
+            "L${sprite.layerIndex}:${sprite.resourceId}[$bitmapDetails]" +
+                " effect=${sprite.nativeEffectId ?: "none"} " +
+                "params=${sprite.nativeEffectParameters.joinToString(",")} " +
+                "nativeRectFrom=${sprite.nativeRectFrom} nativeRect=${sprite.nativeRect} " +
+                "visibleRect=$visibleRect effectOffset=${sprite.nativeEffectCommandOffset ?: "none"}"
         }
         val layerEffects = visualLayerConfigurationStore.snapshot().entries
             .asSequence()
             .filter { it.value.effectId != null }
             .sortedBy { it.key }
             .joinToString(separator = ";") { (layer, configuration) ->
-                "L$layer:${configuration.effectId}[${configuration.effectParameters.joinToString(",")}]"
+                "L$layer:${configuration.effectId}[${configuration.effectParameters.joinToString(",")}] " +
+                    "sourceRect=${configuration.sourceRect} destinationRect=${configuration.destinationRect} " +
+                    "effectOffset=${configuration.effectCommandOffset ?: "none"}"
             }
+        val backgroundDetails = backgroundBitmap?.let { bitmap ->
+            if (bitmap.isRecycled) {
+                "recycled=true"
+            } else {
+                "${bitmap.width}x${bitmap.height} config=${bitmap.config ?: "unknown"} " +
+                    "hasAlpha=${bitmap.hasAlpha()} premultiplied=${bitmap.isPremultiplied}"
+            }
+        } ?: "none"
         diagnosticLog?.updateRuntimeSnapshot(
             "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
                 "command=$commandName offset=0x${commandOffset.toString(16)} frame=$frameCounter " +
+                "reference=${referenceWidth}x${referenceHeight} " +
                 "screenEffect=${uiState.screenEffectId ?: "none"} " +
                 "screenEffectOffset=${uiState.screenEffectCommandOffset ?: "none"} " +
                 "screenParams=${uiState.screenEffectParameters.joinToString(",")} " +
                 "drawEvent=${uiState.drawEventId} ended=${uiState.isEnded} choices=${uiState.choices.size} " +
-                "layerEffects=$layerEffects " +
-                "background=${uiState.backgroundBitmap?.let { "${it.width}x${it.height} recycled=${it.isRecycled}" } ?: "none"} " +
-                "sprites=$sprites"
+                "layerEffects=$layerEffects background=$backgroundDetails sprites=$sprites"
         )
     }
 
