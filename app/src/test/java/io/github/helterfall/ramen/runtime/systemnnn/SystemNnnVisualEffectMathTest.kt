@@ -20,7 +20,9 @@ class SystemNnnVisualEffectMathTest {
 
     @Test
     fun composeSuppressesNativeEffectsThatOwnPrintingOrAreNoOp() {
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(27, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(39, emptyList()))
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(54, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(64, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(65, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(99, emptyList()))
@@ -39,7 +41,7 @@ class SystemNnnVisualEffectMathTest {
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(100, listOf(20, 20, 0, 25, 25, 1)))
 
         val fallbackEffects = listOf(
-            8, 9, 19, 27, 40, 54, 61, 90,
+            8, 9, 19, 40, 61, 90,
             93, 94, 95, 107, 110, 113, 124, 125, 126, 127, 131, 132
         )
         for (effectId in fallbackEffects) {
@@ -587,9 +589,46 @@ class SystemNnnVisualEffectMathTest {
             82, listOf(20, 300, 13, 4, 9_999, 200, 1362, 200, 0, 1, 255, 160, 110, 50)
         ))
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 0)))
-        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 1)))
-        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(27, emptyList()))
-        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(29, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 1)))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(27, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(29, emptyList()))
+    }
+
+    @Test
+    fun keAtlasParticlesAndSunaNoiseAreDeterministicAndBounded() {
+        val keParameters = listOf(1, 32, 32, 4, 0, 10, 5, 1, 100, 0, 4, 0)
+        val particles = SystemNnnVisualEffectMath.keParticles(
+            frame = 0,
+            parameters = keParameters,
+            screenWidth = 800,
+            screenHeight = 600,
+            atlasWidth = 320,
+            atlasHeight = 160,
+            seed = 1234
+        )
+        assertEquals(4, particles.size)
+        assertEquals(
+            particles,
+            SystemNnnVisualEffectMath.keParticles(
+                0, keParameters, 800, 600, 320, 160, 1234
+            )
+        )
+        assertTrue(particles.all { particle ->
+            particle.x in -32 until 800 &&
+                particle.y in -32 until 600 &&
+                particle.sourceX >= 0 && particle.sourceX + particle.size <= 320 &&
+                particle.sourceY >= 0 && particle.sourceY + particle.size <= 160
+        })
+
+        val firstNoise = SystemNnnVisualEffectMath.sunaNoisePixels(40, 30, 0, 77)
+        val repeatedNoise = SystemNnnVisualEffectMath.sunaNoisePixels(40, 30, 0, 77)
+        val nextNoise = SystemNnnVisualEffectMath.sunaNoisePixels(40, 30, 2, 77)
+        assertEquals(1_200, firstNoise.size)
+        assertTrue(firstNoise.contentEquals(repeatedNoise))
+        assertFalse(firstNoise.contentEquals(nextNoise))
+        assertEquals(0.3f, SystemNnnVisualEffectMath.sunaOpacity(
+            0, listOf(0, 1, 10, 30, 5, 60, 0, 0, 800, 600)
+        ), 0.001f)
     }
 
     @Test
