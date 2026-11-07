@@ -73,6 +73,8 @@ data class SystemNnnPlayerUiState(
     val screenEffectId: Int? = null,
     val screenEffectParameters: List<Int> = emptyList(),
     val screenEffectCommandOffset: Long? = null,
+    /** Per-native-layer configurations retained even when the layer has no bitmap. */
+    val layerVisualConfigurations: Map<Int, SystemNnnVisualLayerConfiguration> = emptyMap(),
     /** Number of native DRAW frames to present before advancing the SPT stream. */
     val pendingDrawFrameCount: Int? = null
 )
@@ -1394,6 +1396,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            layerVisualConfigurations = pendingLayerVisuals.toMap(),
                             pendingDrawFrameCount = drawFrames
                         )
                         return
@@ -1487,7 +1490,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             statusMessage = imageStatusMessage,
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
-                            screenEffectCommandOffset = pendingScreenEffectCommandOffset
+                            screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            layerVisualConfigurations = pendingLayerVisuals.toMap()
                         )
                         playVoice(dialogueStepIndex, command.voiceResourceId)
                         return
@@ -1554,7 +1558,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             statusMessage = imageStatusMessage,
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
-                            screenEffectCommandOffset = pendingScreenEffectCommandOffset
+                            screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            layerVisualConfigurations = pendingLayerVisuals.toMap()
                         )
                         return
                     }
