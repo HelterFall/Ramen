@@ -1,3 +1,24 @@
+## Current Ramen code status — 2026-11-08
+
+The table and source notes below describe the pinned System-NNN family reference. They are not a promise of parity with the target executable. The current Ramen branch has since added or refined several code paths; use this status when reading older paragraphs in this file.
+
+### Current implementation gates
+- Layer progress clocks: CTRANS (9), SCROLL (39), CHANGE (40), MOVE (52), BEZIERMOVE (62), TURN (64), STRETCHBLT (65), COLORADDSUB (99), BSPLINE2 (119), and rectangle motion.
+- Layer/viewport paths also exist for NOP (0), TRANS (8), FADEIN/FADEOUT (10/11), FLASH (17), SHAKE (18), KE (27), SUNA (29), FILL (54), OLDFILM (55), BUFFER (66), CLOUD (82, gated static software case), HAIKEIYURE (100, parameter-gated modes), and CHARABURE (132).
+- HAIKEIYURE mode 0's missing local frame advance has been fixed in the current branch; a regression unit test has been added. The fix is not yet CI-verified.
+- CTRANS has code paths for opacity, optional colour adjustment and clipping in the current Compose renderer. These paths are source-level implementations and still need target-scene visual acceptance.
+- CLOUD has a bounded pixel compositor for the observed static, unmasked software case. The target EXE's build variant is not established.
+- TURN and STRETCHBLT use Compose transforms. Native colour-key transparency mode 1 still needs pixel-level handling.
+- CHANGE currently combines two equal-size, distinct layers using Compose offscreen drawing and BlendMode.Plus; visually compare this with a real target transition before accepting it.
+- KE, SUNA, OLDFILM and CHARABURE use deterministic Android pseudo-random sequences. They are repeatable but do not reproduce the original Windows process-global RNG sequence.
+- Layer-overlay effects share a common frame counter in the current Compose screen. Its key changes when the complete layer configuration changes, so adding/changing one layer can restart the timer used by other layer overlays. Treat simultaneous effects as unverified.
+
+### Known layout boundary
+The player uses background bitmap dimensions as the native coordinate reference (or first sprite dimensions / 800×600 fallback). Native LOADDWQ layers without SETEFFECTRECT default to (0,0,bitmapWidth,bitmapHeight); legacy sprite references without native rectangles use bottom-center placement at 62% width and 82% height. These coordinate models must be checked against the actual target's screen dimensions and layer rectangles.
+
+The user confirms that background images are visually correct, foreground layers remain imperfect, and effect/motion behaviour is not yet accepted. Audio is accepted by the user and is not an active investigation.
+
+---
 # System-NNN visual effect reference
 
 This file records source-level facts verified against the public reference runtime
