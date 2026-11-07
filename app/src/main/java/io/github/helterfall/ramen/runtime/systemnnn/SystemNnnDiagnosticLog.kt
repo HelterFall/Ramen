@@ -29,7 +29,7 @@ class SystemNnnDiagnosticLog(
     fun record(event: String, details: String = "") {
         val safeEvent = sanitize(event).take(MAX_EVENT_CHARS)
         val safeDetails = sanitize(details).take(MAX_DETAILS_CHARS)
-        val line = "\${timestamp()} [$safeEvent] $safeDetails\n"
+        val line = "${timestamp()} [$safeEvent] $safeDetails\n"
         synchronized(lock) {
             try {
                 ensureDirectory()
@@ -178,12 +178,12 @@ class SystemNnnDiagnosticLog(
 
         return buildString {
             appendLine("Ramen System-NNN diagnostic summary")
-            appendLine("Exported at: \${timestamp()}")
-            appendLine("Diagnostic events: \${diagnosticLines.size}")
+            appendLine("Exported at: ${timestamp()}")
+            appendLine("Diagnostic events: ${diagnosticLines.size}")
             appendLine("Crash/exception records: $crashCount")
-            appendLine("Actual unsupported decoder records: \${unsupported.size}")
-            appendLine("Known native operations not implemented: \${knownUnimplemented.size}")
-            appendLine("Effects without a renderer path: \${rendererGaps.size}")
+            appendLine("Actual unsupported decoder records: ${unsupported.size}")
+            appendLine("Known native operations not implemented: ${knownUnimplemented.size}")
+            appendLine("Effects without a renderer path: ${rendererGaps.size}")
             appendLine("Raw decoder lines labelled unsupported_record: $oldDecoderLabelCount")
             appendLine()
             appendLine("Event counts:")
