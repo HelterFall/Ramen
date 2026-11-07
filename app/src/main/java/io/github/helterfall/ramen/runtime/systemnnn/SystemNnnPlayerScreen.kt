@@ -96,7 +96,7 @@ fun SystemNnnPlayerScreen(
                 (configuration.effectId == 18 && (configuration.effectParameters.getOrNull(2) ?: 0) != 0)
         }
         val finiteDuration = activeEffects
-            .filter { it.effectId in setOf(10, 11, 17, 18) }
+            .filter { it.effectId != null && it.effectId in setOf(10, 11, 17, 18) }
             .maxOfOrNull { (it.effectParameters.firstOrNull() ?: 20).coerceIn(1, 9_999) }
             ?: 0
         if (repeats) {
