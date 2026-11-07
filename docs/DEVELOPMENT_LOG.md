@@ -22,7 +22,7 @@
 ### Confirmed code defect fixed
 - HAIKEIYURE (100) mode 0 was initialized with a local progress animation but omitted from the LaunchedEffect animation condition. Its frame therefore stayed at zero when no SETEFFECTRECT motion was present.
 - Added a shared animation-policy helper, included local HAIKEIYURE mode 0 in the progress clock, and added a unit test for mode 0 versus mode 1.
-- These commits have not yet been validated by a new CI run. Do not describe the fix as CI-passed until the current head completes CI.
+- Unit tests for the final PR head `2e799fde` passed in Actions runs [#42382482545](https://github.com/HelterFall/Ramen/actions/runs/42382482545) and [#42382484261](https://github.com/HelterFall/Ramen/actions/runs/42382484261). A debug APK including the runtime fix was built successfully in [run #42382360302](https://github.com/HelterFall/Ramen/actions/runs/42382360302) on code commit `eb3112b5`; later commits added only tests/documentation, not runtime code. Artifact SHA-256: `b92a70ca1c507ebaf51aa4bbda633fce15f09d9515c5e7d920555a3d8ce277c0`. No physical-device visual acceptance has been performed.
 
 ### Next
 1. Run CI and assemble a fresh debug APK from the post-fix head.
