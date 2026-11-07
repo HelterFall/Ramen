@@ -28,7 +28,8 @@ class SystemNnnCommandDecoderImplTest {
             )
             val decoder = SystemNnnCommandDecoderImpl(
                 gtbResourceCount = 8,
-                debugLogFile = logFile
+                debugLogFile = logFile,
+                moduleName = "sys"
             )
             val unknownIdentifierEnd = RECORD_START + 12L
             val unsupportedCommandEnd = unknownIdentifierEnd + 12L
@@ -50,8 +51,76 @@ class SystemNnnCommandDecoderImplTest {
             )
 
             val log = logFile.readText()
-            assertTrue(log.contains("address=0x50 identifier=0x66660008 code=0x55560005"))
-            assertTrue(log.contains("address=0x5c identifier=0x66660006 code=0x22220005"))
+            assertTrue(log.contains("module=sys address=0x50"))
+            assertTrue(log.contains("identifier=0x66660008"))
+            assertTrue(log.contains("code=0x55560005"))
+            assertTrue(log.contains("payloadWordCount=0 payloadWords=[]"))
+            // OVERLAP is a known native transition operation, not an unknown record.
+            assertTrue(log.contains("unsupported_record"))
+            assertTrue(!log.contains("code=0x22220005"))
+        } finally {
+            logFile.delete()
+        }
+    }
+
+    @Test
+    fun unsupportedRecordsIncludeTheirRawPayloadWordsAndModuleContext() {
+        val logFile = File.createTempFile("ramen-debug-payload-", ".log").apply { delete() }
+        try {
+            val script = testScript(
+                records = listOf(
+                    record(5, SYSTEM_COMMAND, 0x22220099u, 0x11223344u, 0xAABBCCDDu)
+                ),
+                textCount = 0
+            )
+            val decoder = SystemNnnCommandDecoderImpl(
+                gtbResourceCount = 0,
+                debugLogFile = logFile,
+                moduleName = "op1"
+            )
+
+            assertEquals(
+                SystemNnnDecodedCommand.Skip(RECORD_START + 20L),
+                decoder.decodeNext(script, RECORD_START)
+            )
+            val log = logFile.readText()
+            assertTrue(log.contains("module=op1"))
+            assertTrue(log.contains("code=0x22220099"))
+            assertTrue(log.contains("lengthWords=5 payloadWordCount=2"))
+            assertTrue(log.contains("payloadWords=[11223344,aabbccdd]"))
+            assertTrue(log.contains("reason=unknown or unsupported command code"))
+        } finally {
+            logFile.delete()
+        }
+    }
+
+    @Test
+    fun successfullyDecodedSetEffectDoesNotAppearInUnsupportedDecoderLog() {
+        val logFile = File.createTempFile("ramen-debug-effect-", ".log").apply { delete() }
+        try {
+            val script = testScript(
+                records = listOf(
+                    record(
+                        8,
+                        SYSTEM_FUNCTION,
+                        CODE_SYSTEMFUNCTION_SETEFFECT,
+                        4u,
+                        2u,
+                        132u,
+                        24u,
+                        7u
+                    )
+                ),
+                textCount = 0
+            )
+            val decoded = SystemNnnCommandDecoderImpl(
+                gtbResourceCount = 0,
+                debugLogFile = logFile,
+                moduleName = "op1"
+            ).decodeNext(script, RECORD_START)
+
+            assertTrue(decoded is SystemNnnDecodedCommand.SetImageLayerEffect)
+            assertTrue(!logFile.exists() || logFile.length() == 0L)
         } finally {
             logFile.delete()
         }
