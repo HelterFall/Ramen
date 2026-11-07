@@ -89,8 +89,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
 
         val decoderLogFile = File(filesDir, "ramen_debug.log")
         val previousDecoderLogFile = File(filesDir, "ramen_debug.previous.log")
+        previousDecoderLogFile.delete()
         if (decoderLogFile.isFile) {
-            previousDecoderLogFile.delete()
             if (!decoderLogFile.renameTo(previousDecoderLogFile)) {
                 runCatching { decoderLogFile.copyTo(previousDecoderLogFile, overwrite = true) }
                 decoderLogFile.writeText("", Charsets.UTF_8)
