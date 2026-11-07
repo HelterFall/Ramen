@@ -7,12 +7,13 @@ The user compared the Android playback with the original title verbally; no scre
 - The centered introductory line appears instantly instead of progressively; later interstitial/title words and the game title are absent.
 - The broken CRT should remain as a foreground frame while a moving/shaking woman is visible behind its glass. In Ramen the frame can cover the woman/disappear, and a fragment of the woman can appear outside the CRT aperture.
 - CRT scanlines, scratches and dust/flicker are incomplete; runtime warnings identify OLDFILM (55), KE (27), SUNA (29) and HAIKEIYURE (100) approximations.
-- Cloud panoramas are static or only partly visible, and cloud layers appear to persist semi-transparently over a later road background.
+- Two distinct cloud presentations are involved: an upper cloud band over stationary playground/mountain scenery is not animating; separate full-scene cloud and town/village panoramas already move in the correct directions but cover only part of the viewport, leaving a blank/white region. Previous cloud layers can also persist semi-transparently over a later road background.
 - The full-height figure lacks the red scene-grade; effect layer 5 (50) reports not fully supported. The red flash also fails to cover the whole intended composition.
 - A multi-second black interruption occurs in one monitor sequence; its exact cause is not yet attributed.
 
 ### Confirmed source-level explanations
-- CLOUD (82) diagnostic vector on layer 1 is 0,300,13,4,9999,200,1362,200,0,1,255,160,110,50. Current Android CLOUD path constructs/cache-warps at frame 0, while its output bitmap has exactly p1=300 rows. The screen painter uses that natural output height; with a 600-pixel logical viewport it occupies half the height. The nonzero speedX/speedY values never advance because no per-frame CLOUD frame is supplied. This directly accounts for the static cloud movement and the blank lower region.
+- CLOUD (82) diagnostic vector on layer 1 is 0,300,13,4,9999,200,1362,200,0,1,255,160,110,50. This is the partial-height upper cloud band over stationary scenery: p1=300 rows against a 600-pixel logical height may be intentional and should not be stretched to full screen. The actual confirmed defect is that current Android CLOUD constructs/cache-warps at frame 0, so the nonzero speedX/speedY values never advance. This explains the still upper band, not the blank half of the separate moving panoramas.
+- The two independent moving panoramas (cloud image moving downward, town/village image moving right) already have the correct direction according to the user. Their incomplete viewport coverage is a separate geometry/composition issue. Inspect resource bitmap dimensions, nativeRect, SETEFFECTRECT from/to, reference viewport, clipping and whether wrapping/repetition is required. The exact effect ID and resource have not yet been mapped; do not attribute these symptoms to the CLOUD (82) vector.
 - Native family effect ID 50 is GRADATION. The pinned reference's software Print path computes per-row RGB deltas and applies them to the existing screen buffer over a vertical range. Ramen does not implement ID 50 and renders the source bitmap through its plain fallback, hence the warning and missing red grade. Correct implementation needs a buffer/compositor operation at the effect's native layer point, not a tint applied only to the man sprite.
 - Native family effect ID 133 SENTENCE progressively reveals a tiled image atlas. It may match animated interstitial artwork if the target uses that effect, but it is not proof of the missing centered line or title command. Ramen has no ID 133 path.
 - The 24 ms typewriter in SystemNnnPlayerScreen is only for DialogueBox text. It does not animate independent centered/title text.
@@ -21,13 +22,14 @@ The user compared the Android playback with the original title verbally; no scre
 - Native monitor transparency should be addressed through the correct DWQ alpha/mask and separate frame/glass composition, not by blindly fading the entire monitor. The specific monitor resource and alpha coverage still need to be identified in logs.
 
 ### Priority
-1. Fix CLOUD frame progression and full-height/viewport coverage without changing the accepted ordinary background image path.
-2. Add per-layer final pixel bounds, visible intersection, alpha/mask metadata and command offsets; resolve the CRT frame/woman composition and monitor shake.
-3. Implement GRADATION (50) as a screen-buffer colour grade at the correct composition point.
-4. Trace flash scope and scene CLEAR transitions; ensure the figure is removed before interstitial/title content.
-5. Identify the exact non-dialogue title/interstitial command and image resource before implementing text reveal or SENTENCE (133).
-6. Improve OLDFILM/KE/SUNA RNG parity and HAIKEIYURE mode 1 screen-buffer semantics only after the core layer/compositor behaviour is correct.
-7. Preserve the user-accepted audio and ordinary background decode/draw paths.
+1. Fix CLOUD frame progression for the upper cloud band while preserving its intended partial-height region and the still lower scenery.
+2. Diagnose full-scene moving panorama coverage separately; preserve the already-correct movement directions and correct the source/destination geometry, scaling, clipping or wrapping as evidence requires.
+3. Add per-layer final pixel bounds, visible intersection, alpha/mask metadata and command offsets; resolve the CRT frame/woman composition and monitor shake.
+4. Implement GRADATION (50) as a screen-buffer colour grade at the correct composition point.
+5. Trace flash scope and scene CLEAR transitions; ensure the figure is removed before interstitial/title content.
+6. Identify the exact non-dialogue title/interstitial command and image resource before implementing text reveal or SENTENCE (133).
+7. Improve OLDFILM/KE/SUNA RNG parity and HAIKEIYURE mode 1 screen-buffer semantics only after the core layer/compositor behaviour is correct.
+8. Preserve the user-accepted audio and ordinary background decode/draw paths.
 
 Source references are pinned in docs/SYSTEM_NNN_EFFECT_REFERENCE.md and the detailed scene-by-scene acceptance matrix is in docs/SYSTEM_NNN_VISUAL_ACCEPTANCE.md. No device-level visual acceptance is claimed.
 
