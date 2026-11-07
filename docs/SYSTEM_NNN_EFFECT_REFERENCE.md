@@ -104,3 +104,10 @@ Compose transform. This is a source-level mapping, not a bit-exact copy of the n
 software sampler. Native color-key transparency mode 1 still requires a pixel-level
 key comparison. The supplied runtime diagnostic samples for STRETCHBLT use native
 transparency mode 0, so they do not depend on that unimplemented mode.
+
+### COLORADDSUB (99) — Compose path added for observed RGB operations
+
+The Android layer renderer now interpolates the native start/end RGB offsets and applies
+a saturating color-matrix adjustment while retaining the decoded bitmap alpha. The
+uploaded runtime diagnostics use native transparency flag 1 and speed type 0 for these
+entries. Other transparency modes still require dedicated pixel-level parity checks.
