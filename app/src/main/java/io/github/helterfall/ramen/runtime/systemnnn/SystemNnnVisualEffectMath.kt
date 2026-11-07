@@ -104,7 +104,7 @@ internal object SystemNnnVisualEffectMath {
      * effects retain the plain source bitmap only as an explicitly incomplete fallback.
      */
     fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean =
-        effectId !in setOf(39, 64, 65, 66)
+        effectId !in setOf(39, 64, 65, 66, 99)
 
     fun nativeSpeedValue(
         count: Int,
@@ -477,6 +477,29 @@ internal object SystemNnnVisualEffectMath {
     }
 
     /** Native EFFECT_TURN (64): angle is stored in tenths of a degree. */
+
+    /** Native COLORADDSUB (99): end/start RGB and speed operands follow SetParam. */
+    fun colorAddSubOffset(frame: Int, parameters: List<Int>): SystemNnnVisualColor {
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
+        fun channel(startIndex: Int, endIndex: Int, defaultEnd: Int = 0): Int {
+            val end = parameters.getOrNull(endIndex) ?: defaultEnd
+            val start = parameters.getOrNull(startIndex) ?: end
+            return nativeSpeedValue(
+                frame, duration, start, end,
+                parameters.getOrNull(9) ?: 0,
+                parameters.getOrNull(8) ?: 0
+            )
+        }
+        val endR = parameters.getOrNull(1) ?: 0
+        val endG = parameters.getOrNull(2) ?: endR
+        val endB = parameters.getOrNull(3) ?: endG
+        return SystemNnnVisualColor(
+            channel(4, 1, endR),
+            channel(5, 2, endG),
+            channel(6, 3, endB)
+        )
+    }
+
     fun turnRotationDegrees(frame: Int, parameters: List<Int>): Float {
         val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
         val start = parameters.getOrNull(2) ?: (parameters.getOrNull(1) ?: 0)
