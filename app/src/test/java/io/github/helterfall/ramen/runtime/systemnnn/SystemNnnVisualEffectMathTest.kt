@@ -29,8 +29,8 @@ class SystemNnnVisualEffectMathTest {
 
         // These still have no Android replacement painter, so retain the source as an explicit fallback.
         val fallbackEffects = listOf(
-            8, 9, 19, 27, 40, 54, 61, 65, 82, 90,
-            93, 94, 95, 99, 100, 107, 110, 113, 124, 125, 126, 127, 131, 132
+            8, 9, 19, 27, 40, 54, 61, 82, 90,
+            93, 94, 95, 100, 107, 110, 113, 124, 125, 126, 127, 131, 132
         )
         for (effectId in fallbackEffects) {
             assertTrue(
