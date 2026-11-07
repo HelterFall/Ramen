@@ -1,9 +1,11 @@
 package io.github.helterfall.ramen.runtime.systemnnn
 
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -67,6 +69,40 @@ class SystemNnnLooseAudioFormatTest {
         }
     }
 
+
+    @Test
+    fun packTypeOneRejectsAStreamMissingTheFinalSampleHeaderNibble() {
+        val root = Files.createTempDirectory("ramen-loose-vaw-truncated-delta").toFile()
+        val source = File(root, "vaw/sys/truncated.vaw")
+        val cache = File(root, "cache")
+        try {
+            source.parentFile?.mkdirs()
+            val wrapper = ByteArray(0x40) { ' '.code.toByte() }
+            "PACKTYPE=1      ".toByteArray(Charsets.US_ASCII).copyInto(wrapper, 0x30)
+
+            val waveHeader = ByteArray(0x14 + 16)
+            "RIFF".toByteArray(Charsets.US_ASCII).copyInto(waveHeader, 0)
+            putU32(waveHeader, 4, 34) // 36-byte WAVE header + three 16-bit samples.
+            "WAVE".toByteArray(Charsets.US_ASCII).copyInto(waveHeader, 8)
+            "fmt ".toByteArray(Charsets.US_ASCII).copyInto(waveHeader, 12)
+            putU32(waveHeader, 16, 16)
+            // One byte contains two 4-bit sample headers, but the WAVE header
+            // declares three samples. The old decoder silently invented a
+            // zero-delta third sample when it reached EOF.
+            source.writeBytes(wrapper + waveHeader + byteArrayOf(0))
+
+            val repository = SystemNnnLooseAudioRepository(root, listOf(source), cache)
+            try {
+                assertThrows(IOException::class.java) {
+                    repository.materialize("truncated")
+                }
+            } finally {
+                repository.close()
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
 
     @Test
     fun packTypeTwoSkipsTheNativeWaveDescriptorBeforeOgg() {
