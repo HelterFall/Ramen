@@ -27,10 +27,20 @@ class SystemNnnVisualEffectMathTest {
         // BUFFER (66) has native Print() == no-op and CheckAllPrint() == FALSE.
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(66, emptyList()))
 
-        // These still have no Android replacement painter, so retain the source as an explicit fallback.
+        // The observed software CLOUD and layer-local HAIKEIYURE paths own their
+        // source drawing; unsupported modes retain an explicit bitmap fallback.
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(
+            82, listOf(0, 300, 13, 4, 9_999, 200, 1362, 200, 0, 1, 255, 160, 110, 50)
+        ))
+        assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(
+            82, listOf(0, 300, 13, 4, 9_999, 200, 1362, 200, 2, 1, 255, 160, 110, 50)
+        ))
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(100, listOf(20, 20, 0, 25, 25, 0)))
+        assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(100, listOf(20, 20, 0, 25, 25, 1)))
+
         val fallbackEffects = listOf(
-            8, 9, 19, 27, 40, 54, 61, 82, 90,
-            93, 94, 95, 100, 107, 110, 113, 124, 125, 126, 127, 131, 132
+            8, 9, 19, 27, 40, 54, 61, 90,
+            93, 94, 95, 107, 110, 113, 124, 125, 126, 127, 131, 132
         )
         for (effectId in fallbackEffects) {
             assertTrue(
@@ -41,6 +51,7 @@ class SystemNnnVisualEffectMathTest {
 
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(null, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(0, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(17, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(29, emptyList()))
     }
 
@@ -482,6 +493,103 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(52, afterImageLoad.effectId)
         assertEquals(listOf(24), afterImageLoad.effectParameters)
         assertEquals(0x1234L, afterImageLoad.effectCommandOffset)
+    }
+
+    @Test
+    fun flashUsesNativeOnOffCycleThenStaysOnItsFinalFillColor() {
+        val parameters = listOf(20, 2, 3, 20, 30, 40)
+
+        assertEquals(SystemNnnVisualColor(20, 30, 40),
+            SystemNnnVisualEffectMath.flashState(0, parameters).color)
+        assertTrue(SystemNnnVisualEffectMath.flashState(0, parameters).drawsFill)
+        assertTrue(SystemNnnVisualEffectMath.flashState(1, parameters).drawsFill)
+        assertFalse(SystemNnnVisualEffectMath.flashState(2, parameters).drawsFill)
+        assertTrue(SystemNnnVisualEffectMath.flashState(5, parameters).drawsFill)
+        assertTrue(SystemNnnVisualEffectMath.flashState(20, parameters).drawsFill)
+        assertTrue(SystemNnnVisualEffectMath.flashState(0, listOf(0, 0, 0, 1, 2, 3)).drawsFill)
+    }
+
+    @Test
+    fun haikeiYureMatchesNativeLayerLocalWaveAndStopsAtCountMax() {
+        val parameters = listOf(20, 20, 0, 25, 25, 0, 0, 0)
+        assertEquals(SystemNnnVisualOffset(20f, 0f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(0, parameters))
+        assertEquals(SystemNnnVisualOffset(0f, 0f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(1, parameters))
+        assertEquals(SystemNnnVisualOffset(-20f, 0f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(2, parameters))
+        assertEquals(SystemNnnVisualOffset(0f, 0f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(20, parameters))
+        assertEquals(SystemNnnVisualOffset(0f, 0f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(0, listOf(0, 20, 0, 25, 25)))
+    }
+
+    @Test
+    fun cloudUsesNativePerspectiveRowsAnd16Dot16HorizontalSampling() {
+        val source = intArrayOf(
+            0xff010101.toInt(), 0xff020202.toInt(), 0xff030303.toInt(), 0xff040404.toInt(),
+            0xff050505.toInt(), 0xff060606.toInt(), 0xff070707.toInt(), 0xff080808.toInt()
+        )
+        val parameters = listOf(0, 2, 0, 0, 100, 1, 2, 100, 0, 0, 0, 0, 0, 0)
+        val warped = checkNotNull(
+            SystemNnnVisualEffectMath.cloudWarpPixels(
+                frame = 0L,
+                parameters = parameters,
+                sourcePixels = source,
+                sourceWidth = 4,
+                sourceHeight = 2,
+                screenWidth = 2,
+                screenHeight = 2
+            )
+        )
+
+        assertEquals(2, warped.width)
+        assertEquals(2, warped.height)
+        assertEquals(
+            listOf(
+                0xff040404.toInt(), 0xff020202.toInt(),
+                0xff080808.toInt(), 0xff060606.toInt()
+            ),
+            warped.pixels.toList()
+        )
+    }
+
+    @Test
+    fun cloudAppliesNativePerRowSaturatingRgbAddAfterTheStartRow() {
+        val source = IntArray(12) { 0xff112233.toInt() }
+        val parameters = listOf(0, 3, 0, 0, 100, 1, 2, 100, 0, 1, 10, 0, 0, 1)
+        val warped = checkNotNull(
+            SystemNnnVisualEffectMath.cloudWarpPixels(
+                0L, parameters, source, 4, 3, 2, 3
+            )
+        )
+        // The first row at/after para[13] starts at zero; the final row
+        // reaches half the configured +10 red offset for this 3-row test.
+        assertEquals(0xff112233.toInt(), warped.pixels[0])
+        assertEquals(0xff112233.toInt(), warped.pixels[2])
+        assertEquals(0xff162233.toInt(), warped.pixels[4])
+        assertEquals(null,
+            SystemNnnVisualEffectMath.cloudWarpPixels(0L, parameters.toMutableList().apply { this[8] = 2 },
+                source, 4, 2, 2, 2))
+        assertEquals(null,
+            SystemNnnVisualEffectMath.cloudWarpPixels(0L, parameters.toMutableList().apply { this[0] = 10 },
+                source, 4, 2, 2, 2))
+    }
+
+    @Test
+    fun nativeLayerSupportIsParameterGatedAndNoOpIsNotWarned() {
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(0, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(17, listOf(20, 2, 3, 20, 30, 40)))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+            82, listOf(0, 300, 13, 4, 9_999, 200, 1362, 200, 0, 1, 255, 160, 110, 50)
+        ))
+        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+            82, listOf(20, 300, 13, 4, 9_999, 200, 1362, 200, 0, 1, 255, 160, 110, 50)
+        ))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 0)))
+        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 1)))
+        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(27, emptyList()))
+        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(29, emptyList()))
     }
 
     @Test

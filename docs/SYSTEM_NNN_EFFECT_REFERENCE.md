@@ -96,6 +96,28 @@ statistics from the actual resource being decoded.
 
 These are source-level ports of the described paths, not device-verified parity.
 
+### FLASH (17) — screen pulse followed by native FILL
+
+effectFlash.cpp confirms that FLASH inherits the normal source-picture blit, fills the whole screen while count % (onTime + offTime) < onTime, and changes its command to FILL at countMax. The Android layer now draws the same opaque RGB pulse above lower layers and keeps the final fill after the transition. The supplied screenshots show FLASH on layer 13, but the earlier diagnostic summary did not retain its full operand vector; defaults and operand order are taken from the pinned source.
+
+### CLOUD (82) — native software perspective sampler
+
+effectCloud.cpp has distinct Direct3D and non-D3D implementations. The supplied diagnostic vector is 0,300,13,4,9999,200,1362,200,0,1,255,160,110,50. It selects the non-D3D software path: zero duration means its per-frame movement counter remains at zero, para[8] == 0 selects the unmasked pixel path, and para[9] == 1 enables the row-wise RGB add/sub gradient from row 50. The Android implementation now ports that exact static case: perspective depth per output row, source-Y wrapping, the native 16.16 source-X accumulator, and saturating RGB addition/subtraction. Mask modes and nonzero-duration scrolling remain unsupported and continue to produce a warning rather than silently using a different algorithm.
+
+### HAIKEIYURE (100) — layer-local mode
+
+effectHaikeiYure.cpp distinguishes para[5] == 0 from para[5] == 1. Mode 0 suppresses the ordinary source blit, moves the layer picture, and restores the newly exposed edge strips from the source or configured solid color. That layer-local mode is now rendered by the Android screen canvas with the source phase/speed operands and fill rule. Mode 1 calls the global MoveScreen() path; it is intentionally still reported as incomplete. The screenshots show effect 100, but no literal operand vector for that event was present in the diagnostic summary, so the device result must confirm which mode the game selects.
+
+### Remaining effects from the screenshots
+
+- **KE (27):** native Print draws animated atlas fragments at randomized positions; initialization and every update consume the process-global C rand() stream. It remains explicitly incomplete until that random stream/order can be matched.
+- **SUNA (29):** native rendering uses a generated random noise tile and random source offsets. It remains explicitly incomplete rather than using a visually unrelated grain overlay.
+- **OLDFILM (55):** remains a deterministic scratch approximation; native random timing is not claimed as exact.
+
+### Evidence boundary
+
+The repository intentionally does not contain the commercial game's raw .spt, .gpk or extracted assets. This comparison uses the parameter vectors exported by the previously supplied runtime diagnostics plus the pinned public System-NNN reference sources linked above. It is not a new byte-for-byte replay of raw SPT files. The earlier diagnostics include the exact CLOUD vector and TURN, STRETCHBLT, COLORADDSUB and CTRANS vectors; the screenshots add visible evidence for effects 0, 17, 27, 29, 65 and 100, but do not expose all of their operands.
+
 ### STRETCHBLT (65) — Compose path added from observed source parameters
 
 The Android layer renderer now maps native scale X/Y, center offsets, frame interpolation,

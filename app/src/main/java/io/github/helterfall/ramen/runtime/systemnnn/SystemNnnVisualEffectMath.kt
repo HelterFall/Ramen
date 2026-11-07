@@ -25,6 +25,17 @@ internal data class SystemNnnScreenFade(
     val alpha: Float
 )
 
+internal data class SystemNnnFlashState(
+    val color: SystemNnnVisualColor,
+    val drawsFill: Boolean
+)
+
+internal data class SystemNnnCloudPixels(
+    val width: Int,
+    val height: Int,
+    val pixels: IntArray
+)
+
 internal data class SystemNnnVisualLayerConfiguration(
     val sourceRect: SystemNnnNativeRect? = null,
     val destinationRect: SystemNnnNativeRect? = null,
@@ -82,6 +93,248 @@ internal object SystemNnnVisualEffectMath {
         return SystemNnnScreenFade(nativeScreenColor(parameters), alpha)
     }
 
+
+    /**
+     * Native FLASH (17). Before CountIsMax it flashes the whole screen; at
+     * countMax the native command changes to FILL and the final color remains.
+     */
+    fun flashState(frame: Int, parameters: List<Int>): SystemNnnFlashState {
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(0)
+        val onTime = parameters.getOrNull(1) ?: 1
+        val offTime = parameters.getOrNull(2) ?: onTime
+        val period = (onTime.toLong() + offTime.toLong()).coerceAtLeast(1L)
+        val red = parameters.getOrNull(3) ?: 255
+        val green = parameters.getOrNull(4) ?: red
+        val blue = parameters.getOrNull(5) ?: green
+        val finalFill = frame >= duration
+        val activePulse = !finalFill && Math.floorMod(frame.toLong(), period) < onTime.toLong()
+        return SystemNnnFlashState(
+            color = SystemNnnVisualColor(
+                red.coerceIn(0, 255),
+                green.coerceIn(0, 255),
+                blue.coerceIn(0, 255)
+            ),
+            drawsFill = finalFill || activePulse
+        )
+    }
+
+    /**
+     * Native HAIKEIYURE (100), layer-local mode only (para[5] == 0).
+     * Mode 1 calls MoveScreen() and is deliberately not represented here.
+     */
+    fun haikeiYureOffset(frame: Int, parameters: List<Int>): SystemNnnVisualOffset {
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(0)
+        if (duration == 0 || frame < 0 || frame >= duration) {
+            return SystemNnnVisualOffset(0f, 0f)
+        }
+
+        val movementPercent = if ((parameters.getOrNull(11) ?: 0) != 0) {
+            nativeSpeedValue(
+                frame,
+                duration,
+                0,
+                100,
+                parameters.getOrNull(13) ?: 0,
+                parameters.getOrNull(12) ?: 0
+            )
+        } else {
+            100
+        }
+        val horizontal = ((parameters.getOrNull(1) ?: 20).toLong() *
+            movementPercent.toLong() / 100L).toInt()
+        val vertical = ((parameters.getOrNull(2) ?: 0).toLong() *
+            movementPercent.toLong() / 100L).toInt()
+        val phase = parameters.getOrNull(6) ?: 0
+        val speedX = parameters.getOrNull(3) ?: 25
+        val speedY = parameters.getOrNull(4) ?: 25
+
+        fun nativeWave(speed: Int): Int {
+            // Preserve C++ signed remainder order rather than floorMod.
+            var value = (phase.toLong() + speed.toLong() * frame.toLong() + 75L) % 100L
+            value = (value - 25L + 100L) % 100L
+            if (value > 50L) value = 100L - value
+            return value.toInt()
+        }
+
+        val waveX = nativeWave(speedX)
+        val waveY = nativeWave(speedY)
+        val dx = -horizontal.toLong() + (horizontal.toLong() * 2L * waveX.toLong()) / 50L
+        val dy = -vertical.toLong() + (vertical.toLong() * 2L * waveY.toLong()) / 50L
+        return SystemNnnVisualOffset(dx.toFloat(), dy.toFloat())
+    }
+
+    /**
+     * Native software CLOUD (82) path observed in the supplied SPT diagnostics:
+     * para[0] == 0, no DWQ mask (para[8] == 0), row-wise perspective sampling.
+     *
+     * The output is screen-width by para[1] rows. Source X uses the native
+     * 16.16 accumulator and source Y is sampled once per output row.
+     */
+    fun cloudWarpPixels(
+        frame: Long,
+        parameters: List<Int>,
+        sourcePixels: IntArray,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        screenWidth: Int,
+        screenHeight: Int
+    ): SystemNnnCloudPixels? {
+        if (sourceWidth <= 0 || sourceHeight <= 0 || screenWidth <= 0 || screenHeight <= 0) return null
+        if (sourcePixels.size.toLong() < sourceWidth.toLong() * sourceHeight.toLong()) return null
+        if ((parameters.getOrNull(0) ?: 9_999) != 0) return null
+        if ((parameters.getOrNull(8) ?: 0) != 0) return null
+
+        val rows = (parameters.getOrNull(1) ?: 200).coerceIn(1, screenHeight)
+        val pixelCount = screenWidth.toLong() * rows.toLong()
+        if (pixelCount <= 0L || pixelCount > 24_000_000L) return null
+
+        val height = (parameters.getOrNull(4) ?: 200).toDouble()
+        val nearDistance = (parameters.getOrNull(5) ?: 100).coerceAtLeast(1).toDouble()
+        val farDistance = (parameters.getOrNull(6) ?: 500).let {
+            if (it.toDouble() <= nearDistance) (nearDistance + 1.0) else it.toDouble()
+        }
+        val scalePercent = (parameters.getOrNull(7) ?: 100).coerceAtLeast(1)
+        if (height <= 0.0 || farDistance <= nearDistance) return null
+
+        val h2 = height * (farDistance - nearDistance) / farDistance
+        val startDotPara = 100.0 / scalePercent.toDouble()
+        val movementX = if (frame <= 0L) 0L else {
+            Math.floorMod(
+                (parameters.getOrNull(2) ?: 0).toLong() * frame,
+                sourceWidth.toLong() * 100L
+            )
+        }
+        val movementY = if (frame <= 0L) 0L else {
+            Math.floorMod(
+                (parameters.getOrNull(3) ?: 50).toLong() * frame,
+                sourceHeight.toLong() * 100L
+            )
+        }
+        val startDotY = movementY * 0.01
+        val addSubEnabled = (parameters.getOrNull(9) ?: 0) != 0
+        val colorStartY = (parameters.getOrNull(13) ?: 0).coerceIn(0, rows - 1)
+
+        fun gradient(value: Int, row: Int): Int {
+            if (!addSubEnabled || row < colorStartY) return 0
+            val denominator = (rows - colorStartY).coerceAtLeast(1)
+            val current = (row - colorStartY).coerceAtMost(denominator)
+            val half = denominator / 2
+            return ((value.toLong() * current.toLong() + half.toLong()) /
+                denominator.toLong()).coerceIn(0L, Int.MAX_VALUE.toLong()).toInt()
+        }
+
+        val redOperand = parameters.getOrNull(10) ?: 0
+        val greenOperand = parameters.getOrNull(11) ?: redOperand
+        val blueOperand = parameters.getOrNull(12) ?: greenOperand
+        val addRedValue = redOperand.coerceAtLeast(0)
+        val addGreenValue = greenOperand.coerceAtLeast(0)
+        val addBlueValue = blueOperand.coerceAtLeast(0)
+        val subRedValue = (-redOperand.toLong()).coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val subGreenValue = (-greenOperand.toLong()).coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val subBlueValue = (-blueOperand.toLong()).coerceAtLeast(0L).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+
+        val output = IntArray(pixelCount.toInt())
+        val screenHalf = screenWidth / 2
+        val sourceFixedWidth = sourceWidth.toLong() shl 16
+        val startXHighBase = screenHalf.toLong() + movementX / 100L
+        val startXLowBase = ((movementX % 100L) * 65_536L) / 100L
+
+        for (row in 0 until rows) {
+            val hk = (row + 1).toDouble() * h2 / rows.toDouble()
+            val denominator = height - hk
+            if (denominator <= 0.0) return null
+            val nearZ = height * nearDistance / denominator
+            val dotPara = startDotPara * nearZ / nearDistance
+            val deltaDotY = (nearZ - nearDistance) * startDotPara
+            val sourceYValue = startDotY + deltaDotY
+            if (!sourceYValue.isFinite()) return null
+            val sourceY = sourceYValue.toInt() % sourceHeight
+            if (sourceY < 0) return null
+
+            val dotParaInteger = dotPara.toInt()
+            var dotParaHigh = dotParaInteger % sourceWidth
+            if (dotParaHigh < 0) dotParaHigh += sourceWidth
+            val fraction = dotPara - dotParaInteger.toDouble()
+            var dotParaLow = (fraction * 65_536.0 + 0.5).toInt()
+            if (dotParaLow >= 65_536) dotParaLow = 65_535
+            if (dotParaLow < 0) dotParaLow = 0
+
+            var startXHigh = startXHighBase
+            var startXLow = startXLowBase
+            startXHigh += (startXLow ushr 16) and 0xffffL
+            startXHigh %= sourceWidth.toLong()
+            startXLow = startXLow and 0xffffL
+
+            var deltaXHigh = dotParaHigh.toLong() * screenHalf.toLong()
+            var deltaXLow = dotParaLow.toLong() * screenHalf.toLong()
+            deltaXHigh += (deltaXLow ushr 16) and 0xffffL
+            deltaXHigh %= sourceWidth.toLong()
+            deltaXLow = deltaXLow and 0xffffL
+
+            deltaXHigh = (sourceWidth.toLong() - deltaXHigh) % sourceWidth.toLong()
+            if (deltaXLow > 0L) {
+                deltaXHigh = (deltaXHigh - 1L + sourceWidth.toLong()) % sourceWidth.toLong()
+                deltaXLow = 65_536L - deltaXLow
+            }
+
+            startXHigh += deltaXHigh
+            startXLow += deltaXLow
+            startXHigh += (startXLow ushr 16) and 0xffffL
+            startXHigh %= sourceWidth.toLong()
+            startXLow = startXLow and 0xffffL
+
+            var sourceFixed = (startXHigh shl 16) or startXLow
+            val sourceStep = (dotParaHigh.toLong() shl 16) or dotParaLow.toLong()
+            val addRed = gradient(addRedValue, row)
+            val addGreen = gradient(addGreenValue, row)
+            val addBlue = gradient(addBlueValue, row)
+            val subRed = gradient(subRedValue, row)
+            val subGreen = gradient(subGreenValue, row)
+            val subBlue = gradient(subBlueValue, row)
+            val outputOffset = row * screenWidth
+            val sourceOffset = sourceY * sourceWidth
+
+            for (x in 0 until screenWidth) {
+                val sourceX = (sourceFixed ushr 16).toInt()
+                if (sourceX !in 0 until sourceWidth) return null
+                val pixel = sourcePixels[sourceOffset + sourceX]
+                if (addSubEnabled && row >= colorStartY) {
+                    val red = ((((pixel ushr 16) and 0xff) + addRed).coerceAtMost(255) - subRed)
+                        .coerceAtLeast(0)
+                    val green = ((((pixel ushr 8) and 0xff) + addGreen).coerceAtMost(255) - subGreen)
+                        .coerceAtLeast(0)
+                    val blue = (((pixel and 0xff) + addBlue).coerceAtMost(255) - subBlue)
+                        .coerceAtLeast(0)
+                    output[outputOffset + x] =
+                        -0x1000000 or (red shl 16) or (green shl 8) or blue
+                } else {
+                    output[outputOffset + x] = -0x1000000 or (pixel and 0x00ffffff)
+                }
+
+                sourceFixed += sourceStep
+                if ((sourceFixed ushr 16) >= sourceWidth.toLong()) {
+                    sourceFixed -= sourceFixedWidth
+                }
+            }
+        }
+
+        return SystemNnnCloudPixels(screenWidth, rows, output)
+    }
+
+    /**
+     * Returns true only for native effects with an Android rendering path.
+     * Several paths are parameter-gated because the native object has modes
+     * with materially different screen/global behavior.
+     */
+    fun hasNativeLayerEffectPath(effectId: Int, parameters: List<Int>): Boolean =
+        when (effectId) {
+            0, 8, 9, 10, 11, 17, 18, 39, 40, 52, 54, 55, 62, 64, 65, 66, 99, 119, 132 -> true
+            82 -> (parameters.getOrNull(0) ?: 9_999) == 0 &&
+                (parameters.getOrNull(8) ?: 0) == 0
+            100 -> (parameters.getOrNull(5) ?: 0) == 0
+            else -> false
+        }
+
     fun scrollUsesLoopFrame(parameters: List<Int>): Boolean =
         (parameters.getOrNull(3) ?: 0) != 0
 
@@ -98,14 +351,20 @@ internal object SystemNnnVisualEffectMath {
      *
      * The native CheckNeedPicPrint flag cannot be reused as a Compose draw
      * decision: FALSE means the native effect has its own Print implementation.
-     * Native TURN and STRETCHBLT have dedicated transform painters; COLORADDSUB
-     * has a dedicated color-operation painter. BUFFER is deliberately omitted because
-     * its native Print method is a no-op and CheckAllPrint is FALSE. SCROLL also has
-     * its own repeated, translated bitmap painter. Other unsupported effects retain
-     * the plain source bitmap only as an explicitly incomplete fallback.
+     * TURN, STRETCHBLT, COLORADDSUB, the observed static CLOUD software mode,
+     * and layer-local HAIKEIYURE own their source drawing. BUFFER is deliberately
+     * omitted because its native Print method is a no-op and CheckAllPrint is FALSE.
+     * SCROLL has its own repeated translated bitmap painter. Unsupported modes may
+     * retain the original bitmap only as an explicit incomplete fallback.
      */
     fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean =
-        effectId !in setOf(39, 64, 65, 66, 99)
+        when (effectId) {
+            39, 64, 65, 66, 99 -> false
+            82 -> (parameters.getOrNull(0) ?: 9_999) != 0 ||
+                (parameters.getOrNull(8) ?: 0) != 0
+            100 -> (parameters.getOrNull(5) ?: 0) != 0
+            else -> true
+        }
 
     fun nativeSpeedValue(
         count: Int,
