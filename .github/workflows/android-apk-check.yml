@@ -1,5 +1,5 @@
 name: One-time Android debug APK
-# Build current diagnostics-enabled visual-debug snapshot.
+# One-time build: recycle-safe bitmap lifecycle and visible unsupported-effect fallbacks.
 
 on:
   push:
