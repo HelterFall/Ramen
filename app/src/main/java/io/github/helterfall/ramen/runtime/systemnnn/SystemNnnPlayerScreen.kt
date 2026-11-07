@@ -424,10 +424,10 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val animationKey = listOf(sprite.resourceId, sprite.layerIndex, sprite.nativeEffectCommandOffset,
         fromRect, nativeRect, effectId, parameters)
     val progress = remember(animationKey) {
-        Animatable(if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 64, 119)) 0f else 1f)
+        Animatable(if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 64, 65, 119)) 0f else 1f)
     }
     LaunchedEffect(animationKey) {
-        if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 64, 119)) {
+        if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 64, 65, 119)) {
             progress.animateTo(1f, tween((durationFrames * 16).coerceIn(16, 60_000), easing = LinearEasing))
         }
     }
@@ -479,6 +479,30 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val turnRotation = if (isTurn) SystemNnnVisualEffectMath.turnRotationDegrees(frame, parameters) else 0f
     val turnScale = if (isTurn) SystemNnnVisualEffectMath.turnScale(frame, parameters) else 1f
     val layerAlpha = if (isTurn) SystemNnnVisualEffectMath.turnAlpha(frame, parameters) else alpha
+    val isStretchBlt = effectId == 65
+    val stretchPivot = if (isStretchBlt) {
+        SystemNnnVisualEffectMath.stretchBltPivotOffset(parameters)
+    } else SystemNnnVisualOffset(0f, 0f)
+    val stretchScaleX = if (isStretchBlt) {
+        SystemNnnVisualEffectMath.stretchBltScale(frame, parameters, horizontal = true)
+    } else 1f
+    val stretchScaleY = if (isStretchBlt) {
+        SystemNnnVisualEffectMath.stretchBltScale(frame, parameters, horizontal = false)
+    } else 1f
+    val stretchAlpha = if (isStretchBlt) {
+        SystemNnnVisualEffectMath.stretchBltAlpha(frame, parameters)
+    } else 1f
+    val stretchColor = if (isStretchBlt) {
+        SystemNnnVisualEffectMath.stretchBltColorOffset(frame, parameters)
+    } else SystemNnnVisualColor(0, 0, 0)
+    val stretchColorFilter = if (isStretchBlt) {
+        additiveColorFilter(
+            stretchColor.red,
+            stretchColor.green,
+            stretchColor.blue,
+            forceOpaque = (parameters.getOrNull(9) ?: 0) == 0
+        )
+    } else null
     val ctransColor = if (effectId == 9) {
         SystemNnnVisualEffectMath.ctransColorOffset(frame, parameters)
     } else null
@@ -510,6 +534,13 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
             .offset(
                 x = viewportWidth * (turnOffset.x / safeReferenceWidth),
                 y = viewportHeight * (turnOffset.y / safeReferenceHeight)
+            )
+            .width(viewportWidth * (sprite.bitmap.width.toFloat() / safeReferenceWidth))
+            .height(viewportHeight * (sprite.bitmap.height.toFloat() / safeReferenceHeight))
+        isStretchBlt -> Modifier.align(Alignment.Center)
+            .offset(
+                x = viewportWidth * ((rectX - stretchPivot.x) / safeReferenceWidth),
+                y = viewportHeight * ((rectY - stretchPivot.y) / safeReferenceHeight)
             )
             .width(viewportWidth * (sprite.bitmap.width.toFloat() / safeReferenceWidth))
             .height(viewportHeight * (sprite.bitmap.height.toFloat() / safeReferenceHeight))
@@ -556,6 +587,15 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                 (sprite.bitmap.height / 2f + turnPivot.y) / sprite.bitmap.height
             )
         }
+        if (isStretchBlt) {
+            this.alpha = stretchAlpha
+            scaleX = stretchScaleX
+            scaleY = stretchScaleY
+            transformOrigin = TransformOrigin(
+                (sprite.bitmap.width / 2f + stretchPivot.x) / sprite.bitmap.width,
+                (sprite.bitmap.height / 2f + stretchPivot.y) / sprite.bitmap.height
+            )
+        }
     }) {
         when {
             isTurn -> {
@@ -566,6 +606,16 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                     contentScale = ContentScale.FillBounds,
                     alignment = Alignment.TopStart,
                     colorFilter = turnColorFilter
+                )
+            }
+            isStretchBlt -> {
+                Image(
+                    bitmap = sprite.bitmap.asImageBitmap(),
+                    contentDescription = sprite.contentDescription,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds,
+                    alignment = Alignment.TopStart,
+                    colorFilter = stretchColorFilter
                 )
             }
             isScroll -> {
