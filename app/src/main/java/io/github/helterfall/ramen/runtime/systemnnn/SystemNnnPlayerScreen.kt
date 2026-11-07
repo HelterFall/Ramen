@@ -96,7 +96,7 @@ fun SystemNnnPlayerScreen(
                 (configuration.effectId == 18 && (configuration.effectParameters.getOrNull(2) ?: 0) != 0)
         }
         val finiteDuration = activeEffects
-            .filter { it.effectId in setOf(10, 11, 17) }
+            .filter { it.effectId in setOf(10, 11, 17, 18) }
             .maxOfOrNull { (it.effectParameters.firstOrNull() ?: 20).coerceIn(1, 9_999) }
             ?: 0
         if (repeats) {
@@ -1099,14 +1099,13 @@ private fun SystemNnnScreenEffectOverlay(
     }
 }
 
+private val LAYER_OVERLAY_EFFECT_IDS = setOf(10, 11, 17, 29, 54, 55)
+
 /** Save/load UI actions are forwarded to the Activity; persistence is not part of this screen. */
 enum class SystemNnnPlayerQuickAction {
     SAVE,
     LOAD
 }
-
-@Composable
-private val LAYER_OVERLAY_EFFECT_IDS = setOf(10, 11, 17, 29, 54, 55)
 
 @Composable
 private fun QuickMenu(
