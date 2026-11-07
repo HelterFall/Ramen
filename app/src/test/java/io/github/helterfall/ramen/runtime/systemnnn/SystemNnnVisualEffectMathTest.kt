@@ -49,13 +49,13 @@ class SystemNnnVisualEffectMathTest {
 
     @Test
     fun colorAddSubUsesNativeStartAndEndRgbParameterOrder() {
-        val parameters = listOf(60, -255, -255, -255, -130, -255, -255, 1, 0, 0)
-        assertEquals(SystemNnnVisualColor(-130, -255, -255),
+        val parameters = listOf(80, -130, -255, -255, -230, -255, -255, 1, 0, 0)
+        assertEquals(SystemNnnVisualColor(-230, -255, -255),
             SystemNnnVisualEffectMath.colorAddSubOffset(0, parameters))
-        assertEquals(SystemNnnVisualColor(-192, -255, -255),
-            SystemNnnVisualEffectMath.colorAddSubOffset(30, parameters))
-        assertEquals(SystemNnnVisualColor(-255, -255, -255),
-            SystemNnnVisualEffectMath.colorAddSubOffset(60, parameters))
+        assertEquals(SystemNnnVisualColor(-180, -255, -255),
+            SystemNnnVisualEffectMath.colorAddSubOffset(40, parameters))
+        assertEquals(SystemNnnVisualColor(-130, -255, -255),
+            SystemNnnVisualEffectMath.colorAddSubOffset(80, parameters))
     }
 
     @Test
@@ -91,6 +91,42 @@ class SystemNnnVisualEffectMathTest {
         }
         assertEquals(SystemNnnVisualColor(15, 10, 5),
             SystemNnnVisualEffectMath.stretchBltColorOffset(10, colorParameters))
+    }
+
+
+    @Test
+    fun turnMatchesObservedDiagnosticParameterVector() {
+        val parameters = listOf(
+            700, 375, 312, 0, 0, 220, 300, 2,
+            100, 100, 0, 0, 0, 0, 0, 0
+        )
+        assertEquals(312f, SystemNnnVisualEffectMath.turnRotationDegrees(0, parameters), 0.001f)
+        assertEquals(375f, SystemNnnVisualEffectMath.turnRotationDegrees(700, parameters), 0.001f)
+        assertEquals(3f, SystemNnnVisualEffectMath.turnScale(0, parameters), 0.001f)
+        assertEquals(2.2f, SystemNnnVisualEffectMath.turnScale(700, parameters), 0.001f)
+        assertEquals(1f, SystemNnnVisualEffectMath.turnAlpha(350, parameters), 0.001f)
+        assertEquals(
+            SystemNnnVisualOffset(-252f, -238f),
+            SystemNnnVisualEffectMath.turnCenteredOffset(0, parameters, -252, -238)
+        )
+    }
+
+    @Test
+    fun ctransOpacityMatchesObservedDiagnosticParameterVector() {
+        val parameters = listOf(
+            2000, 100, 0, 2, 100, 0, 0, 0, 800, 600, 0, 0, 800, 600
+        )
+        assertEquals(0, SystemNnnVisualEffectMath.nativeSpeedValue(
+            0, 2000, 0, 100, delayCount = 100, speedType = 2
+        ))
+        assertEquals(50, SystemNnnVisualEffectMath.nativeSpeedValue(
+            50, 2000, 0, 100, delayCount = 100, speedType = 2
+        ))
+        assertEquals(100, SystemNnnVisualEffectMath.nativeSpeedValue(
+            100, 2000, 0, 100, delayCount = 100, speedType = 2
+        ))
+        assertEquals(null, SystemNnnVisualEffectMath.ctransClipRect(50, parameters, 800, 600))
+        assertEquals(null, SystemNnnVisualEffectMath.ctransColorOffset(50, parameters))
     }
 
     @Test
