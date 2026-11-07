@@ -114,13 +114,13 @@ class SystemNnnVisualEffectMathTest {
 
 
     @Test
-    fun turnTopLeftPositionKeepsNativePivotAtScreenCenterPlusDestinationOffset() {
+    fun turnCenteredLayerOffsetKeepsNativePivotAtScreenCenterPlusDestinationOffset() {
         val parameters = listOf(
             20, 90, 0, 12, -8, 100, 100, 0
         )
         assertEquals(
             SystemNnnVisualOffset(-12f, 8f),
-            SystemNnnVisualEffectMath.turnTopLeftOffset(
+            SystemNnnVisualEffectMath.turnCenteredOffset(
                 frame = 0,
                 parameters = parameters,
                 destinationX = 0,
@@ -129,7 +129,7 @@ class SystemNnnVisualEffectMathTest {
         )
         assertEquals(
             SystemNnnVisualOffset(38f, 38f),
-            SystemNnnVisualEffectMath.turnTopLeftOffset(
+            SystemNnnVisualEffectMath.turnCenteredOffset(
                 frame = 0,
                 parameters = parameters,
                 destinationX = 50,
