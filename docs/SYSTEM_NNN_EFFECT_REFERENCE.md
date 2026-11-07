@@ -33,6 +33,7 @@ the effect's Print method.
 | 54 | FILL | [effectfill.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectScreenLIB/effectfill.cpp) | FALSE |
 | 55 | OLDFILM | [effectoldfilm.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectScreenLIB/effectoldfilm.cpp) | TRUE (inherits base default) |
 | 61 | SPECIALMOVE | [effectSpecialMove.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectSpecialMove.cpp) | FALSE |
+| 64 | TURN | [effectTurn.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectTransformLIB/effectTurn.cpp) | FALSE |
 | 65 | STRETCHBLT | [effectStretchBlt.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectTransformLIB/effectStretchBlt.cpp) | FALSE |
 | 66 | BUFFER | [effectBuffer.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectEtcLIB/effectBuffer.cpp) | FALSE; `CheckAllPrint` is also FALSE |
 | 82 | CLOUD | [effectCloud.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectCloud.cpp) | FALSE |
@@ -86,3 +87,11 @@ The image loader needs a separate audit from effect rendering:
 Do not infer these rules from the BMP header alone. Record PACKTYPE, header flags,
 image data range, mask range, dimensions, bit depth, row orientation and alpha
 statistics from the actual resource being decoded.
+
+## Android parity work recorded on the current branch
+
+- **TURN (64):** the Compose painter now uses native angle/scale/opacity operand order, source-center pivot offsets, optional quadratic/cubic spline translation, and RGB add/subtract. The DWQ bitmap's decoded alpha mask is retained for native transparency mode 2; mode 0 explicitly ignores it. Native color-key mode 1 still needs a dedicated pixel path and is not claimed as exact.
+- **CTRANS (9):** frame-interpolated RGB offsets and the native interpolated clip rectangle are now applied when the destination rectangle is known. Its opacity continues to use the native start/end and speed operands. The renderer still depends on the decoder having produced the native DWQ mask alpha correctly.
+- **BUFFER (66):** the ordinary bitmap fallback is suppressed. This follows the native implementation: optional CPicture::Shrink() reallocates/copies the image buffer, Print() is a no-op, and CheckAllPrint() is FALSE. Android does not need to imitate the native allocation-only operation.
+
+These are source-level ports of the described paths, not device-verified parity.
