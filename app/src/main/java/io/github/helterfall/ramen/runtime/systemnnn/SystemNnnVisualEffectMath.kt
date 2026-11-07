@@ -94,19 +94,18 @@ internal object SystemNnnVisualEffectMath {
         effectId !in setOf(-1, 1, 4, 5, 6, 7)
 
     /**
-     * Native PrintLayers asks each effect whether its source picture should be
-     * drawn before the effect's own Print routine. These effects draw from the
-     * layer internally, so drawing the untouched bitmap as a fallback is wrong.
+     * Whether the Compose renderer should draw the source bitmap as a fallback.
+     *
+     * The native CheckNeedPicPrint flag cannot be reused as a Compose draw
+     * decision: FALSE means the native effect has its own Print implementation.
+     * Most of those native effects are not implemented by this Android renderer,
+     * so suppressing the source image would make the entire layer disappear.
+     * SCROLL is the current exception because its Compose branch draws the bitmap
+     * itself in a repeated, translated layout. CHANGE also has its own branch
+     * when a valid partner layer exists; otherwise its source remains visible.
      */
-    fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean {
-        return when (effectId) {
-            8, 9, 19, 27, 40, 54, 61, 65, 66, 82, 90,
-            93, 94, 95, 99, 107, 110, 113, 124, 125, 126, 127, 131, 132 -> false
-            // HAIKEIYURE only draws the layer picture when its native layer flag is set.
-            100 -> (parameters.getOrNull(5) ?: 0) != 0
-            else -> true
-        }
-    }
+    fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean =
+        effectId != 39
 
     fun nativeSpeedValue(
         count: Int,
