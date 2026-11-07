@@ -24,14 +24,14 @@ These are user-observed results, not CI claims.
 |---|---|---|---|
 | Intro text on black | A centered line appears progressively, before the CRT image | It appears immediately | A separate non-dialogue/title rendering path is missing or bypassed. Confirmed: the existing 24 ms typewriter only animates the dialogue box. Exact source command for this title line is not yet identified. |
 | Broken CRT and woman | The monitor remains visible above the scene; the woman/image is visible behind its glass, shakes and slowly drifts left; scanlines, dust/specks and scratches move over it | The monitor disappears or covers the woman; the woman's image can be displaced into a corner; scratch/noise effects are approximate | Layer order, DWQ alpha/mask, native rectangles, effect composition and HAIKEIYURE buffer semantics. Need per-layer resource/rect/effect/command-offset evidence; do not simply lower opacity of the whole monitor. |
-| Background with clouds | Background fades in with a brief residual flicker; clouds move in the upper region | Background appears, but clouds are static; some unrelated/extra scenery is visible | CLOUD (82) has a confirmed static-frame bug in Ramen. Extra scenery likely means a different resource or an extra persistent layer; exact resource identity is not yet mapped. |
+| Playground/mountain background with cloud band | The lower scenery (playground/mountains) remains still; only the upper cloud band drifts | The lower scenery stays still, but the upper cloud band does not move | This is the bounded CLOUD (82) overlay case. The known layer-1 vector requests 300 output rows, consistent with a partial-height cloud band; that height is not itself the full-screen panorama defect. The current Android path builds it only at frame 0, so its horizontal/vertical speeds never advance. Any extra scenery is a separate resource/layer identity question. |
 | Repeated monitor shots | Monitor/woman composition changes or zooms while the text remains in front; flicker and CRT imperfections continue | Text can stay in front, but there is no smooth intro; a black interruption sometimes covers the image for seconds | Correct text/compositor ordering is only partial. Black interruption may be a fade/flash/clear/scene transition or a missing asset; command timeline is needed to distinguish them. |
 | Full-height male figure | Figure appears with a red vertical colour grade over the already-rendered scene | Figure appears without the expected red tone | The user's warning identifies effect 50. In the pinned family reference, ID 50 is GRADATION (a screen-buffer colour ramp); Ramen has no renderer path for it. High-confidence missing implementation. |
 | Shaking monitor with woman behind it | Monitor shakes while the woman remains behind/inside the CRT aperture | A corner of the woman appears outside the intended opening; monitor is opaque over her | Likely geometry/mask/compositor issue, not just a movement amplitude issue. Exact layer identities and alpha coverage remain unverified. |
 | Red flash | A brief red flash covers the figure and scene | Three disconnected red elements appear; the figure remains static | Check whether this is FLASH (17), FILL (54), GRADATION (50), or a combination. Ramen's global screen overlay is drawn above all layers, but a layer-local overlay is drawn at that layer's z-position and later layers can cover it. Do not assume a patchy effect is a colour problem until its native layer and command order are known. |
 | Interstitial words / title card | Insert words animate; figure has already disappeared; black screen then shows a dynamically appearing line and game title | Figure remains; title text and game title are absent | Missing/incorrect clear and scene-command handling is plausible. Native SENTENCE (133) is an animated tiled-image reveal, not necessarily the source of these words; the actual target command/resource has not yet been identified. |
-| Downward-moving clouds | Cloud panorama moves down and gradually covers the whole field | Only the upper portion is rendered; lower portion is blank | Directly explained by the current CLOUD output-height calculation for the observed parameter vector. |
-| Town/village cloud panorama | Cloud panorama moves right across the scene | Same partial-height/blank-area symptom | Same CLOUD (82) defect and missing frame progression. |
+| Independent cloud panorama | The entire cloud image moves downward and progressively covers the field | Movement direction is correct, but only part of the image covers the viewport; the remaining area is blank/white | Separate full-scene pan/coverage defect. Do not attribute this to the 300-row CLOUD (82) cloud-band vector. Inspect the loaded bitmap size, layer native rectangle, SETEFFECTRECT source/destination dimensions, viewport reference size, clipping and whether the native transition expects wrap/repeat. Exact effect ID/resource is not yet identified from the spoken description. |
+| Town/village panorama | The full town/village image pans to the right | Direction is correct, but part of the viewport remains blank/white instead of being covered by the panorama | Same class as the independent cloud panorama: image coverage/rectangle/cropping/repetition, not the static upper cloud-band animation. Confirm effect ID and compare bitmap dimensions with native source/destination rectangles. |
 | Road background | Static road appears without previous cloud motion/images | Previous cloud images remain as semi-transparent overlays | Likely stale layer/effect state or missing clear at a scene boundary. SceneUpdate clears the visual snapshot, but dialogue updates can preserve existing layers when they provide no replacement sprites. Need command-offset trace before choosing whether to fix the runtime or an absent script clear. |
 
 The user also explicitly reported these runtime messages:
@@ -45,7 +45,7 @@ These warnings must not be treated as cosmetic. They identify real behavioural g
 
 ## 1B. Source-confirmed causes and boundaries
 
-### CLOUD (82): half-height and stationary image are explained by current code
+### CLOUD (82): the stationary upper cloud band is explained by current code
 
 The supplied runtime audit already records the literal parameter vector for CLOUD on layer 1:
 
@@ -53,12 +53,12 @@ The supplied runtime audit already records the literal parameter vector for CLOU
 
 For the Android path:
 - the accepted software path requires parameter 0 = 0 and parameter 8 = 0; this vector passes those gates;
-- parameter 1 requests 300 output rows;
+- parameter 1 requests 300 output rows, which is consistent with a partial upper cloud band over stationary lower scenery;
 - cloudWarpPixels returns a bitmap whose height is exactly those 300 rows;
 - SystemNnnAnimatedSpriteLayer calls cloudWarpPixels(frame = 0L) once inside remember, so speed X/Y (13, 4) never advance;
 - the resulting image is drawn at its natural ratio: output height is viewportHeight × 300 / referenceHeight. At a 600-pixel logical height that is exactly one-half of the viewport.
 
-Therefore the observed half-image and lack of cloud movement are both explained by one concrete implementation defect. Fix the CLOUD frame clock and the vertical destination/crop/coverage as one coherent compositor path. Do not touch the accepted ordinary background decode/draw path.
+Therefore the stationary upper cloud band is explained by a concrete implementation defect: the source image is evaluated at frame 0 and never advances its speed operands. Keep the 300-row partial-height output when it represents the intended upper band; do not stretch it across the whole scene. Fix its per-layer frame progression independently of the ordinary background renderer.
 
 ### GRADATION (50): the missing red scene grade
 
@@ -91,7 +91,7 @@ The ViewModel clears the full visual snapshot on SceneUpdate and explicit clear 
 
 ## 1C. Revised fix order
 
-1. **CLOUD (82) first:** advance its frame using a per-layer clock; render the requested cloud field to the correct full viewport/region; cover or compose the lower area as the native effect specifies. Regression target: the observed 300-row cloud field must not leave a blank lower half, and p2/p3 speeds must visibly advance it.
+1. **Upper cloud band (CLOUD 82):** advance its frame using a per-layer clock while preserving its intended partial-height region. Regression target: the lower playground/mountain scenery stays stationary while only the upper 300-row cloud band moves. Do not fill the entire viewport with this layer.
 2. **Layer evidence and CRT composite:** add final pixel bounds/visible intersection, alpha-presence/mask metadata, layer index, command offset, native rectangles and effect frame to diagnostics. Then correct monitor frame/glass/woman order without reducing the whole monitor's opacity.
 3. **GRADATION (50):** implement a screen-buffer vertical RGB grade at the correct layer/compositor point, then compare the red scene transition. Do not tint only the man sprite.
 4. **Clear/persistence and global flash:** trace scene/film boundaries and actual CLEAR commands; ensure the figure is gone before the interstitial. Check FLASH/FILL/GRADATION command scope and z-order so a true screen flash covers all intended content.
@@ -100,6 +100,14 @@ The ViewModel clears the full visual snapshot on SceneUpdate and explicit clear 
 7. Protect the accepted audio path and ordinary background bitmap path throughout.
 
 No screenshot or screen recording was available for this review. These findings combine the user's verbal comparison with source-level facts and the existing SPT diagnostic vector; exact layer/resource attribution remains open where stated.
+
+### Independent full-scene panorama: geometry investigation (separate from CLOUD band)
+
+The moving cloud panorama and the town/village panorama are whole-scene image transitions, not the upper cloud-band case. The user confirms their movement directions are already correct (down for the first, right for the second); the defect is that the source image covers only part of the viewport and leaves the rest blank/white. The known CLOUD (82) layer-1 vector must not be used as an explanation for these two transitions.
+
+The current renderer clips layers to the game viewport and sizes native layers from their native rectangle. For rectangle motion, `moveRect` interpolates the origin while retaining the source width and height until the final frame. Thus an undersized source rectangle, a target rectangle inconsistent with the bitmap, incorrect reference dimensions, or missing wrap/repeat can expose a blank region even while the movement vector itself is correct. The exact native effect/resource is not yet identified from verbal symptoms alone. Inspect its `effect_set` and `layer_rect` diagnostic records, bitmap dimensions, `fromRect`, `toRect`, viewport size, and the final visible intersection before changing the movement maths.
+
+Acceptance for these panorama scenes is full intended viewport coverage throughout the transition, in the correct direction, with no blank half and no stale previous panorama. This is a separate test from the stationary upper cloud band.
 
 ---
 
