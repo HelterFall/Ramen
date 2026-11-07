@@ -53,7 +53,11 @@ internal object SystemNnnMmlPlaylistParser {
                             if (nested.segmentNames.isEmpty()) throw IOException("The BGM MML infinite loop is empty.")
                             return ParseResult(segments, start)
                         }
-                        if (loopCount > 1) repeat(loopCount - 1) { appendBounded(segments, nested.segmentNames) }
+                        // Repeating an empty finite body cannot add any segments. Avoid
+                        // iterating up to Int.MAX_VALUE times for a syntactically empty loop.
+                        if (loopCount > 1 && nested.segmentNames.isNotEmpty()) {
+                            repeat(loopCount - 1) { appendBounded(segments, nested.segmentNames) }
+                        }
                     }
                     else -> {
                         val token = readSegmentName()
