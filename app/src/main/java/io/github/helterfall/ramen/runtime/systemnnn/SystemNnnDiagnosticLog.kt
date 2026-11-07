@@ -7,6 +7,7 @@ import java.io.StringWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.TimeZone
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -130,22 +131,27 @@ class SystemNnnDiagnosticLog(
     }
 
     private fun timestamp(): String =
-        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).format(Date())
+        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", Locale.ROOT).apply {
+            timeZone = TimeZone.getTimeZone("UTC")
+        }.format(Date())
 
     private fun sanitize(value: String): String =
         value.replace('\n', ' ').replace('\r', ' ').replace('\t', ' ')
 
-    private companion object {
-        const val LOG_FILE_NAME = "system-nnn-diagnostics.log"
-        const val PREVIOUS_LOG_FILE_NAME = "system-nnn-diagnostics.previous.log"
-        const val SNAPSHOT_FILE_NAME = "system-nnn-runtime-snapshot.txt"
-        const val CRASH_FILE_NAME = "system-nnn-crashes.txt"
-        const val DECODER_LOG_FILE_NAME = "ramen_debug.log"
-        const val MAX_LOG_BYTES = 4L * 1024L * 1024L
-        const val MAX_CRASH_BYTES = 2L * 1024L * 1024L
-        const val MAX_EVENT_CHARS = 80
-        const val MAX_DETAILS_CHARS = 4_000
-        const val MAX_SNAPSHOT_CHARS = 16_000
-        const val MAX_CRASH_TRACE_CHARS = 64_000
+    companion object {
+        @Volatile
+        var active: SystemNnnDiagnosticLog? = null
+
+        private const val LOG_FILE_NAME = "system-nnn-diagnostics.log"
+        private const val PREVIOUS_LOG_FILE_NAME = "system-nnn-diagnostics.previous.log"
+        private const val SNAPSHOT_FILE_NAME = "system-nnn-runtime-snapshot.txt"
+        private const val CRASH_FILE_NAME = "system-nnn-crashes.txt"
+        private const val DECODER_LOG_FILE_NAME = "ramen_debug.log"
+        private const val MAX_LOG_BYTES = 4L * 1024L * 1024L
+        private const val MAX_CRASH_BYTES = 2L * 1024L * 1024L
+        private const val MAX_EVENT_CHARS = 80
+        private const val MAX_DETAILS_CHARS = 4_000
+        private const val MAX_SNAPSHOT_CHARS = 16_000
+        private const val MAX_CRASH_TRACE_CHARS = 64_000
     }
 }
