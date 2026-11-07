@@ -1602,7 +1602,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset,
                             layerVisualConfigurations = pendingLayerVisuals.toMap()
                         )
-                        updateDiagnosticSnapshot(command.nextCommandOffset, "Choice:published")
+                        updateDiagnosticSnapshot(nextCommandOffset, "Choice:published")
                         return
                     }
 
