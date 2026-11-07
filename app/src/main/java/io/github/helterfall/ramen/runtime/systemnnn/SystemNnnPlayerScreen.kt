@@ -115,9 +115,11 @@ fun SystemNnnPlayerScreen(
     LaunchedEffect(screenEffectKey) {
         val effectId = state.screenEffectId ?: return@LaunchedEffect
         val parameters = state.screenEffectParameters
-        val duration = if (effectId == 55) 9_999
+        val duration = if (effectId == 29 || effectId == 55 || effectId == 100) 9_999
             else (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
-        val repeats = effectId == 55 || (effectId == 18 && (parameters.getOrNull(2) ?: 0) != 0)
+        val repeats = effectId == 29 || effectId == 55 ||
+            (effectId == 100 && (parameters.getOrNull(5) ?: 0) != 0) ||
+            (effectId == 18 && (parameters.getOrNull(2) ?: 0) != 0)
         if (repeats) {
             while (true) {
                 delay(16L)
@@ -226,8 +228,13 @@ fun SystemNnnPlayerScreen(
                     .firstOrNull {
                         it.value.effectId == 100 && (it.value.effectParameters.getOrNull(5) ?: 0) != 0
                     }?.value
-                val globalHaikeiOffset = globalHaikei?.let {
-                    SystemNnnVisualEffectMath.haikeiYureOffset(layerEffectFrame, it.effectParameters)
+                val globalHaikeiParameters = globalHaikei?.effectParameters
+                    ?: state.screenEffectParameters.takeIf {
+                        state.screenEffectId == 100 && (it.getOrNull(5) ?: 0) != 0
+                    }
+                val globalHaikeiFrame = if (globalHaikei == null) screenEffectFrame else layerEffectFrame
+                val globalHaikeiOffset = globalHaikeiParameters?.let {
+                    SystemNnnVisualEffectMath.haikeiYureOffset(globalHaikeiFrame, it)
                 } ?: SystemNnnVisualOffset(0f, 0f)
 
                 val changePartners = state.sprites.mapNotNull { sprite ->
@@ -282,7 +289,7 @@ fun SystemNnnPlayerScreen(
                             val configuration = configuredLayers[layerIndex]
                             val effectId = configuration?.effectId ?: sprite?.nativeEffectId
                             val effectParameters = configuration?.effectParameters ?: sprite?.nativeEffectParameters.orEmpty()
-                            if (effectId in LAYER_OVERLAY_EFFECT_IDS) {
+                            if (effectId != null && effectId in LAYER_OVERLAY_EFFECT_IDS) {
                                 SystemNnnScreenEffectOverlay(
                                     effectId = checkNotNull(effectId),
                                     parameters = effectParameters,
