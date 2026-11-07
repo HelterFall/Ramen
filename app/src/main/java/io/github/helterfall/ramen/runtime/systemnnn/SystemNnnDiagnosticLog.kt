@@ -142,6 +142,7 @@ class SystemNnnDiagnosticLog(
                 zip.write(
                     ("Ramen System-NNN diagnostic bundle.\n" +
                         "diagnostic-summary.txt is the recommended starting point.\n" +
+                        "Current and previous player sessions are kept separate.\n" +
                         "decoder_unsupported means the Android VM skipped a native record.\n" +
                         "decoder_known_unimplemented and effect_unsupported are tracked separately.\n" +
                         "Dialogue text, game assets, audio data and absolute library paths are not included.\n")
@@ -210,7 +211,7 @@ class SystemNnnDiagnosticLog(
             if (eventCounts.isEmpty()) appendLine("  (none)")
             eventCounts.forEach { (event, count) -> appendLine("  $event: $count") }
             appendLine()
-            appendLine("Unsupported record codes:")
+            appendLine("Current session unsupported record codes:")
             if (unsupportedCodes.isEmpty()) appendLine("  (none)")
             unsupportedCodes.forEach { (code, count) -> appendLine("  $code: $count") }
             appendLine()
