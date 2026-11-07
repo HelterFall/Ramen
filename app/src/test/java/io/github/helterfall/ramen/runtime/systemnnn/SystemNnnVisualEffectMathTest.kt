@@ -23,6 +23,7 @@ class SystemNnnVisualEffectMathTest {
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(39, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(64, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(65, emptyList()))
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(99, emptyList()))
         // BUFFER (66) has native Print() == no-op and CheckAllPrint() == FALSE.
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(66, emptyList()))
 
@@ -44,6 +45,18 @@ class SystemNnnVisualEffectMathTest {
     }
 
 
+
+
+    @Test
+    fun colorAddSubUsesNativeStartAndEndRgbParameterOrder() {
+        val parameters = listOf(60, -255, -255, -255, -130, -255, -255, 1, 0, 0)
+        assertEquals(SystemNnnVisualColor(-130, -255, -255),
+            SystemNnnVisualEffectMath.colorAddSubOffset(0, parameters))
+        assertEquals(SystemNnnVisualColor(-192, -255, -255),
+            SystemNnnVisualEffectMath.colorAddSubOffset(30, parameters))
+        assertEquals(SystemNnnVisualColor(-255, -255, -255),
+            SystemNnnVisualEffectMath.colorAddSubOffset(60, parameters))
+    }
 
     @Test
     fun stretchBltUsesNativeScaleOperandsAndSpeedParameters() {
