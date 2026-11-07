@@ -78,6 +78,33 @@ class AndroidGpkImageDecoderTest {
     }
 
     @Test
+    fun rejectsOversizedDwqJpegAlphaMaskBeforeReadingOrSamplingJpeg() {
+        val source = ByteArraySource(ByteArray(128))
+        val resource = GpkImageResource(
+            name = "oversized-alpha",
+            format = GpkImageFormat.JPEG,
+            blockOffset = 0L,
+            blockSizeBytes = 128L,
+            payloadOffset = 0x40L,
+            payloadSizeBytes = 64L,
+            widthPixels = 2,
+            heightPixels = 1,
+            packType = 7,
+            hasAlpha = true
+        )
+
+        val failure = assertThrows(IOException::class.java) {
+            AndroidGpkImageDecoder(maxDecodedPixels = 1L).decode(source, resource)
+        }
+
+        assertEquals(
+            "DWQ JPEG alpha-mask image exceeds the configured decoded-pixel budget.",
+            failure.message
+        )
+        assertEquals(0, source.readCalls)
+    }
+
+    @Test
     fun appliesConfiguredBlockBudgetToStandaloneWgqFiles() {
         val directory = Files.createTempDirectory("ramen-wgq-block-budget").toFile()
         try {
