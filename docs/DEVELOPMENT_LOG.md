@@ -1,5 +1,38 @@
 # Development Log
 
+## 2026-11-08 — verbal scene comparison exposes CLOUD and GRADATION gaps
+
+### User-observed intro sequence
+The user compared the Android playback with the original title verbally; no screenshots or screen recording were available. Reported differences:
+- The centered introductory line appears instantly instead of progressively; later interstitial/title words and the game title are absent.
+- The broken CRT should remain as a foreground frame while a moving/shaking woman is visible behind its glass. In Ramen the frame can cover the woman/disappear, and a fragment of the woman can appear outside the CRT aperture.
+- CRT scanlines, scratches and dust/flicker are incomplete; runtime warnings identify OLDFILM (55), KE (27), SUNA (29) and HAIKEIYURE (100) approximations.
+- Cloud panoramas are static or only partly visible, and cloud layers appear to persist semi-transparently over a later road background.
+- The full-height figure lacks the red scene-grade; effect layer 5 (50) reports not fully supported. The red flash also fails to cover the whole intended composition.
+- A multi-second black interruption occurs in one monitor sequence; its exact cause is not yet attributed.
+
+### Confirmed source-level explanations
+- CLOUD (82) diagnostic vector on layer 1 is 0,300,13,4,9999,200,1362,200,0,1,255,160,110,50. Current Android CLOUD path constructs/cache-warps at frame 0, while its output bitmap has exactly p1=300 rows. The screen painter uses that natural output height; with a 600-pixel logical viewport it occupies half the height. The nonzero speedX/speedY values never advance because no per-frame CLOUD frame is supplied. This directly accounts for the static cloud movement and the blank lower region.
+- Native family effect ID 50 is GRADATION. The pinned reference's software Print path computes per-row RGB deltas and applies them to the existing screen buffer over a vertical range. Ramen does not implement ID 50 and renders the source bitmap through its plain fallback, hence the warning and missing red grade. Correct implementation needs a buffer/compositor operation at the effect's native layer point, not a tint applied only to the man sprite.
+- Native family effect ID 133 SENTENCE progressively reveals a tiled image atlas. It may match animated interstitial artwork if the target uses that effect, but it is not proof of the missing centered line or title command. Ramen has no ID 133 path.
+- The 24 ms typewriter in SystemNnnPlayerScreen is only for DialogueBox text. It does not animate independent centered/title text.
+- Screen-level overlays are drawn after all image layers; layer-local overlays are drawn at the corresponding layer position and may be covered by higher layers. A red flash's actual command layer/scope must be verified.
+- SceneUpdate and explicit CLEAR commands reset visual layers, while dialogue updates with no replacement sprite list may preserve existing pending layers. This is a plausible source of cloud/figure bleed across transitions, but the actual command/clear sequence must be traced first.
+- Native monitor transparency should be addressed through the correct DWQ alpha/mask and separate frame/glass composition, not by blindly fading the entire monitor. The specific monitor resource and alpha coverage still need to be identified in logs.
+
+### Priority
+1. Fix CLOUD frame progression and full-height/viewport coverage without changing the accepted ordinary background image path.
+2. Add per-layer final pixel bounds, visible intersection, alpha/mask metadata and command offsets; resolve the CRT frame/woman composition and monitor shake.
+3. Implement GRADATION (50) as a screen-buffer colour grade at the correct composition point.
+4. Trace flash scope and scene CLEAR transitions; ensure the figure is removed before interstitial/title content.
+5. Identify the exact non-dialogue title/interstitial command and image resource before implementing text reveal or SENTENCE (133).
+6. Improve OLDFILM/KE/SUNA RNG parity and HAIKEIYURE mode 1 screen-buffer semantics only after the core layer/compositor behaviour is correct.
+7. Preserve the user-accepted audio and ordinary background decode/draw paths.
+
+Source references are pinned in docs/SYSTEM_NNN_EFFECT_REFERENCE.md and the detailed scene-by-scene acceptance matrix is in docs/SYSTEM_NNN_VISUAL_ACCEPTANCE.md. No device-level visual acceptance is claimed.
+
+---
+
 ## 2026-11-08 — audio accepted; graphics promoted to primary validation
 
 ### User-observed runtime status
