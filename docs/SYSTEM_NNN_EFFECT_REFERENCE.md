@@ -33,7 +33,7 @@ the effect's Print method.
 | 65 | STRETCHBLT | [effectStretchBlt.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectTransformLIB/effectStretchBlt.cpp) | FALSE |
 | 66 | BUFFER | [effectBuffer.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectEtcLIB/effectBuffer.cpp) | FALSE; `CheckAllPrint` is also FALSE |
 | 82 | CLOUD | [effectCloud.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectCloud.cpp) | FALSE |
-| 90 | CHARafLASH | [effectCharaFlash.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaFlash.cpp) | FALSE |
+| 90 | CHARAFLASH | [effectCharaFlash.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaFlash.cpp) | FALSE |
 | 100 | HAIKEIYURE | [effectHaikeiYure.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectHaikeiYure.cpp) | Conditional: FALSE when `para[5] == 0`, TRUE otherwise |
 
 ## Required comparison for every additional effect
