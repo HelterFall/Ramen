@@ -69,6 +69,7 @@ fun SystemNnnPlayerScreen(
     onTypewriterProgress: (Int) -> Unit,
     onTypewriterFinished: () -> Unit,
     onBitmapDisposed: (Bitmap) -> Unit,
+    onExportDiagnostics: () -> Unit,
     onQuickAction: (SystemNnnPlayerQuickAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -238,6 +239,7 @@ fun SystemNnnPlayerScreen(
                 skipMode = !skipMode
                 if (skipMode) autoMode = false
             },
+            onExportDiagnostics = onExportDiagnostics,
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(14.dp)
@@ -655,6 +657,7 @@ private fun QuickMenu(
     onLoad: () -> Unit,
     onAutoToggle: () -> Unit,
     onSkipToggle: () -> Unit,
+    onExportDiagnostics: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -672,6 +675,7 @@ private fun QuickMenu(
             QuickMenuButton(label = "LOAD", selected = false, onClick = onLoad)
             QuickMenuButton(label = "AUTO", selected = autoEnabled, onClick = onAutoToggle)
             QuickMenuButton(label = "SKIP", selected = skipEnabled, onClick = onSkipToggle)
+            QuickMenuButton(label = "LOG", selected = false, onClick = onExportDiagnostics)
         }
     }
 }
