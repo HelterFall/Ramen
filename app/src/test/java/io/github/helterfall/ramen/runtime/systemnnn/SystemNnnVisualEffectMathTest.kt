@@ -19,13 +19,15 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
-    fun composeOnlySuppressesTheLayerThatHasItsOwnBitmapDrawingBranch() {
+    fun composeSuppressesNativeEffectsThatOwnPrintingOrAreNoOp() {
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(39, emptyList()))
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(64, emptyList()))
+        // BUFFER (66) has native Print() == no-op and CheckAllPrint() == FALSE.
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(66, emptyList()))
 
-        // Native effects that have no replacement painter in Compose must keep
-        // their source visible instead of disappearing altogether.
+        // These still have no Android replacement painter, so retain the source as an explicit fallback.
         val fallbackEffects = listOf(
-            8, 9, 19, 27, 40, 54, 61, 64, 65, 66, 82, 90,
+            8, 9, 19, 27, 40, 54, 61, 65, 82, 90,
             93, 94, 95, 99, 100, 107, 110, 113, 124, 125, 126, 127, 131, 132
         )
         for (effectId in fallbackEffects) {
@@ -38,6 +40,84 @@ class SystemNnnVisualEffectMathTest {
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(null, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(0, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(29, emptyList()))
+    }
+
+
+    @Test
+    fun turnUsesNativeAngleScaleAlphaAndPivotOperandOrder() {
+        val parameters = listOf(
+            20, 180, 0, 12, -8, 200, 50, 2, 80, 20,
+            0, 0, 0, 0, 0, 0
+        )
+        assertEquals(0f, SystemNnnVisualEffectMath.turnRotationDegrees(0, parameters), 0.001f)
+        assertEquals(90f, SystemNnnVisualEffectMath.turnRotationDegrees(10, parameters), 0.001f)
+        assertEquals(180f, SystemNnnVisualEffectMath.turnRotationDegrees(20, parameters), 0.001f)
+        assertEquals(0.5f, SystemNnnVisualEffectMath.turnScale(0, parameters), 0.001f)
+        assertEquals(1.25f, SystemNnnVisualEffectMath.turnScale(10, parameters), 0.001f)
+        assertEquals(2f, SystemNnnVisualEffectMath.turnScale(20, parameters), 0.001f)
+        assertEquals(0.2f, SystemNnnVisualEffectMath.turnAlpha(0, parameters), 0.001f)
+        assertEquals(0.5f, SystemNnnVisualEffectMath.turnAlpha(10, parameters), 0.001f)
+        assertEquals(0.8f, SystemNnnVisualEffectMath.turnAlpha(20, parameters), 0.001f)
+        assertEquals(SystemNnnVisualOffset(12f, -8f),
+            SystemNnnVisualEffectMath.turnPivotOffset(parameters))
+    }
+
+    @Test
+    fun turnDefaultParametersMatchNativeSetParam() {
+        assertEquals(0f, SystemNnnVisualEffectMath.turnRotationDegrees(0, emptyList()), 0.001f)
+        assertEquals(1f, SystemNnnVisualEffectMath.turnScale(0, emptyList()), 0.001f)
+        assertEquals(1f, SystemNnnVisualEffectMath.turnAlpha(0, emptyList()), 0.001f)
+        assertEquals(SystemNnnVisualOffset(0f, 0f),
+            SystemNnnVisualEffectMath.turnSplineOffset(10, emptyList()))
+    }
+
+    @Test
+    fun turnSplineUsesNativeQuadraticAndCubicControlPoints() {
+        val quadratic = MutableList(32) { 0 }.apply {
+            this[0] = 10
+            this[25] = 2
+            this[26] = 0; this[27] = 0
+            this[28] = 100; this[29] = 100
+            this[30] = 200; this[31] = 0
+        }
+        val midpoint = SystemNnnVisualEffectMath.turnSplineOffset(5, quadratic)
+        assertEquals(100f, midpoint.x, 0.01f)
+        assertEquals(50f, midpoint.y, 0.01f)
+        val cubic = MutableList(36) { 0 }.apply {
+            this[0] = 10
+            this[25] = 3
+            this[26] = 0; this[27] = 0
+            this[28] = 100; this[29] = 100
+            this[30] = 100; this[31] = 200
+            this[32] = 0; this[33] = 0
+        }
+        val cubicMid = SystemNnnVisualEffectMath.turnSplineOffset(5, cubic)
+        assertEquals(75f, cubicMid.x, 0.01f)
+        assertEquals(112.5f, cubicMid.y, 0.01f)
+    }
+
+    @Test
+    fun ctransColorAndClipUseNativeOperandIndices() {
+        val parameters = listOf(
+            20, 0, 100, 0, 0, 1,
+            100, 80, 300, 200,
+            0, 20, 100, 100, 1,
+            30, 40, 50, 0, 10, 20,
+            0, 0
+        )
+        assertEquals(SystemNnnVisualColor(0, 10, 20),
+            SystemNnnVisualEffectMath.ctransColorOffset(0, parameters))
+        assertEquals(SystemNnnVisualColor(15, 25, 35),
+            SystemNnnVisualEffectMath.ctransColorOffset(10, parameters))
+        assertEquals(SystemNnnVisualColor(30, 40, 50),
+            SystemNnnVisualEffectMath.ctransColorOffset(20, parameters))
+        assertEquals(SystemNnnNativeRect(0, 20, 100, 100),
+            SystemNnnVisualEffectMath.ctransClipRect(0, parameters, 800, 600))
+        assertEquals(SystemNnnNativeRect(50, 50, 200, 150),
+            SystemNnnVisualEffectMath.ctransClipRect(10, parameters, 800, 600))
+        assertEquals(SystemNnnNativeRect(100, 80, 300, 200),
+            SystemNnnVisualEffectMath.ctransClipRect(20, parameters, 800, 600))
+        assertEquals(null, SystemNnnVisualEffectMath.ctransClipRect(10, emptyList(), 800, 600))
     }
 
     @Test
