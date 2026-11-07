@@ -742,7 +742,7 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
-    fun gradationClampsItsVerticalRangeAndRejectsSubtractiveOperands() {
+    fun gradationClampsItsVerticalRangeAndPreservesSignedOffsetsForShaderPath() {
         val clipped = listOf(
             20, 30, 0, 0, 60, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 10, 20
@@ -756,7 +756,8 @@ class SystemNnnVisualEffectMathTest {
         assertFalse(SystemNnnVisualEffectMath.supportsAdditiveGradation(subtractive))
         val signedRows = SystemNnnVisualEffectMath.gradationRows(0, subtractive, 25)
         assertEquals(15, signedRows.size)
-        assertEquals(-24, signedRows.first().color.red)
+        // Native CCalcuSpeed adds 0.5 before truncating toward zero, even for negatives.
+        assertEquals(-23, signedRows.first().color.red)
         assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, subtractive))
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, subtractive, supportsSignedGradation = true))
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, clipped))

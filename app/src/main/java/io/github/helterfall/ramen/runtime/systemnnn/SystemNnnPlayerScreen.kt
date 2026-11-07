@@ -559,7 +559,7 @@ private fun rememberNativeGradationRenderEffect(
         screenHeight = referenceHeight.roundToInt().coerceIn(1, 4_096)
     ) ?: return null
 
-    return remember(gradation, viewportHeightPx) {
+    return remember(gradation, viewportHeightPx, referenceHeight) {
         runCatching {
             val shader = RuntimeShader(SYSTEM_NNN_GRADATION_SHADER)
             shader.setFloatUniform("nativeScaleY", referenceHeight / viewportHeightPx)
