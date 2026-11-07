@@ -427,7 +427,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         Animatable(if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 64, 119)) 0f else 1f)
     }
     LaunchedEffect(animationKey) {
-        if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 119)) {
+        if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 64, 119)) {
             progress.animateTo(1f, tween((durationFrames * 16).coerceIn(16, 60_000), easing = LinearEasing))
         }
     }
