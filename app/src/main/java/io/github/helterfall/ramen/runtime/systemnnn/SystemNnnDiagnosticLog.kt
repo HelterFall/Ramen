@@ -263,6 +263,7 @@ class SystemNnnDiagnosticLog(
                     "[image_decode_failure]" in it || "[bitmap_missing]" in it ||
                     "[bitmap_budget_skip]" in it || "[sprite_resolution_warning]" in it ||
                     "[scene_advance_failure]" in it || "[uncaught_exception]" in it ||
+                    "[audio_error]" in it || "[audio_failure]" in it ||
                     "[draw_frame]" in it || "[effect_set]" in it
             }
             if (meaningful.isEmpty()) appendLine("  (none)")
