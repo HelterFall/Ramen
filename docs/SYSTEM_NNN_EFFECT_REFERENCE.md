@@ -170,5 +170,4 @@ These are literal parameter vectors from the supplied log, not inferred paramete
 | CLOUD (82) | layer 1 | `0,300,13,4,9999,200,1362,200,0,1,255,160,110,50` |
 
 TURN, STRETCHBLT and COLORADDSUB now have dedicated Compose rendering paths.
-CTRANS has the observed opacity/mask path. CLOUD still requires its own perspective
-pixel compositor and is not claimed as implemented.
+CTRANS has the observed opacity/mask path. CLOUD has a bounded static software-path compositor, but the current call uses frame 0 and draws only p1 rows; for the observed p1=300 / 600-height viewport it covers half the screen and never advances its speed operands. Dynamic CLOUD (82) remains incomplete.
