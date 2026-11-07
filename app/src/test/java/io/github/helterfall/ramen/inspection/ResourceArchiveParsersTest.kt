@@ -282,6 +282,48 @@ class ResourceArchiveParsersTest {
     }
 
     @Test
+    fun followsNativeDwqMaskFlagInsteadOfTheCroppedImageSuffix() {
+        val bmp = createBmp1x1()
+
+        val maskedHeader = ByteArray(64) { SPACE }
+        "PACKTYPE=2      ".toByteArray(Charsets.US_ASCII).copyInto(maskedHeader, 48)
+        putU32(maskedHeader, 32, bmp.size.toLong())
+        putU32(maskedHeader, 36, 1)
+        putU32(maskedHeader, 40, 1)
+        val maskBytes = ByteArray(64)
+        val maskedBlock = maskedHeader + bmp + maskBytes
+        val maskedIndex = createGtbIndex(listOf("masked02"), listOf(maskedBlock.size))
+
+        withSources(maskedIndex, maskedBlock) { index, archive ->
+            val entry = GpkGtbArchiveParser().parse(index, archive).entries.single()
+            assertTrue(entry.isValid)
+            assertEquals(2, entry.packType)
+            assertTrue(entry.hasAlpha)
+            // The indexed image ends at the DWQ packed-size field; the mask follows it
+            // in the same GPK block and is located using blockSizeBytes.
+            assertEquals(bmp.size.toLong(), entry.payloadSizeBytes)
+            assertEquals(maskedBlock.size.toLong(), entry.blockSizeBytes)
+        }
+
+        val alreadyCroppedHeader = ByteArray(64) { SPACE }
+        "PACKTYPE=0A      ".toByteArray(Charsets.US_ASCII).copyInto(alreadyCroppedHeader, 48)
+        putU32(alreadyCroppedHeader, 36, 1)
+        putU32(alreadyCroppedHeader, 40, 1)
+        val alreadyCroppedBlock = alreadyCroppedHeader + bmp
+        val alreadyCroppedIndex = createGtbIndex(
+            listOf("cropped00"),
+            listOf(alreadyCroppedBlock.size)
+        )
+
+        withSources(alreadyCroppedIndex, alreadyCroppedBlock) { index, archive ->
+            val entry = GpkGtbArchiveParser().parse(index, archive).entries.single()
+            assertTrue(entry.isValid)
+            assertEquals(0, entry.packType)
+            assertFalse(entry.hasAlpha)
+        }
+    }
+
+    @Test
     fun parsesVtbIndexAndOggPagesIncludingTerminalSentinel() {
         val archiveBytes = createVpkAudioBlock()
         val indexBytes = createVtbIndex(
