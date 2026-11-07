@@ -25,6 +25,21 @@ class SystemNnnDiagnosticLog(
     private val previousLogFile = File(directory, PREVIOUS_LOG_FILE_NAME)
     private val snapshotFile = File(directory, SNAPSHOT_FILE_NAME)
     private val crashFile = File(directory, CRASH_FILE_NAME)
+    private val previousCrashFile = File(directory, PREVIOUS_CRASH_FILE_NAME)
+
+    /** Starts a clean per-launch log while retaining the immediately previous session. */
+    fun beginSession() {
+        synchronized(lock) {
+            try {
+                ensureDirectory()
+                rotateSessionFile(logFile, previousLogFile)
+                rotateSessionFile(crashFile, previousCrashFile)
+                snapshotFile.delete()
+            } catch (_: Exception) {
+                // Diagnostics must never block game startup.
+            }
+        }
+    }
 
     fun record(event: String, details: String = "") {
         val safeEvent = sanitize(event).take(MAX_EVENT_CHARS)
@@ -115,6 +130,7 @@ class SystemNnnDiagnosticLog(
                 addFile(zip, previousLogFile, PREVIOUS_LOG_FILE_NAME)
                 addFile(zip, snapshotFile, SNAPSHOT_FILE_NAME)
                 addFile(zip, crashFile, CRASH_FILE_NAME)
+                addFile(zip, previousCrashFile, PREVIOUS_CRASH_FILE_NAME)
                 decoderLogFile?.let { addFile(zip, it, DECODER_LOG_FILE_NAME) }
                 previousDecoderLogFile?.let { addFile(zip, it, PREVIOUS_DECODER_LOG_FILE_NAME) }
 
@@ -138,11 +154,9 @@ class SystemNnnDiagnosticLog(
     }
 
     private fun buildSummary(): String {
-        val diagnosticLines = listOf(previousLogFile, logFile)
-            .filter { it.isFile }
-            .flatMap { file ->
-                runCatching { file.readLines(Charsets.UTF_8) }.getOrDefault(emptyList())
-            }
+        val currentDiagnosticLines = readLinesSafely(logFile)
+        val previousDiagnosticLines = readLinesSafely(previousLogFile)
+        val diagnosticLines = previousDiagnosticLines + currentDiagnosticLines
         val decoderLines = listOf(previousDecoderLogFile, decoderLogFile)
             .filterNotNull()
             .filter { it.isFile }
@@ -156,22 +170,22 @@ class SystemNnnDiagnosticLog(
             if (event.isNotBlank()) eventCounts[event] = (eventCounts[event] ?: 0) + 1
         }
 
-        val unsupported = diagnosticLines.filter { "[decoder_unsupported]" in it }
+        val currentUnsupported = currentDiagnosticLines.filter { "[decoder_unsupported]" in it }
+        val previousUnsupported = previousDiagnosticLines.filter { "[decoder_unsupported]" in it }
+        val unsupported = currentUnsupported + previousUnsupported
         val knownUnimplemented = diagnosticLines.filter { "[decoder_known_unimplemented]" in it }
         val knownIgnored = diagnosticLines.filter { "[decoder_known_ignored]" in it }
         val rendererGaps = diagnosticLines.filter { "[effect_unsupported]" in it }
         val unsupportedCodes = sortedMapOf<String, Int>()
         val codeRegex = Regex("\\bcode=(0x[0-9a-fA-F]+)")
-        unsupported.forEach { line ->
+        currentUnsupported.forEach { line ->
             val code = codeRegex.find(line)?.groupValues?.getOrNull(1) ?: "unknown"
             unsupportedCodes[code] = (unsupportedCodes[code] ?: 0) + 1
         }
 
         val oldDecoderLabelCount = decoderLines.count { it.startsWith("unsupported_record ") }
-        val crashCount = if (crashFile.isFile) {
-            runCatching { crashFile.readLines(Charsets.UTF_8).count { it.startsWith("20") && " [" in it } }
-                .getOrDefault(0)
-        } else 0
+        val crashCount = countCrashRecords(crashFile)
+        val previousCrashCount = countCrashRecords(previousCrashFile)
         val snapshot = if (snapshotFile.isFile) {
             runCatching { snapshotFile.readText(Charsets.UTF_8).take(MAX_SNAPSHOT_CHARS) }
                 .getOrDefault("unavailable")
@@ -180,9 +194,13 @@ class SystemNnnDiagnosticLog(
         return buildString {
             appendLine("Ramen System-NNN diagnostic summary")
             appendLine("Exported at: ${timestamp()}")
-            appendLine("Diagnostic events: ${diagnosticLines.size}")
-            appendLine("Crash/exception records: $crashCount")
-            appendLine("Actual unsupported decoder records: ${unsupported.size}")
+            appendLine("Current session diagnostic events: ${currentDiagnosticLines.size}")
+            appendLine("Previous session diagnostic events: ${previousDiagnosticLines.size}")
+            appendLine("Current session crash/exception records: $crashCount")
+            appendLine("Previous session crash/exception records: $previousCrashCount")
+            appendLine("Current session unsupported decoder records: ${currentUnsupported.size}")
+            appendLine("Previous session unsupported decoder records: ${previousUnsupported.size}")
+            appendLine("All exported unsupported decoder records: ${unsupported.size}")
             appendLine("Known native operations not implemented: ${knownUnimplemented.size}")
             appendLine("Known native metadata/no-op operations ignored: ${knownIgnored.size}")
             appendLine("Effects without a renderer path: ${rendererGaps.size}")
@@ -228,6 +246,22 @@ class SystemNnnDiagnosticLog(
         }
     }
 
+    private fun rotateSessionFile(current: File, previous: File) {
+        if (!current.isFile) return
+        previous.delete()
+        if (!current.renameTo(previous)) {
+            current.copyTo(previous, overwrite = true)
+            current.writeText("", Charsets.UTF_8)
+        }
+    }
+
+    private fun readLinesSafely(file: File): List<String> =
+        if (file.isFile) runCatching { file.readLines(Charsets.UTF_8) }.getOrDefault(emptyList())
+        else emptyList()
+
+    private fun countCrashRecords(file: File): Int =
+        readLinesSafely(file).count { it.startsWith("20") && " [" in it }
+
     private fun addFile(zip: ZipOutputStream, file: File, entryName: String) {
         if (!file.isFile) return
         zip.putNextEntry(ZipEntry(entryName))
@@ -254,6 +288,7 @@ class SystemNnnDiagnosticLog(
         private const val PREVIOUS_LOG_FILE_NAME = "system-nnn-diagnostics.previous.log"
         private const val SNAPSHOT_FILE_NAME = "system-nnn-runtime-snapshot.txt"
         private const val CRASH_FILE_NAME = "system-nnn-crashes.txt"
+        private const val PREVIOUS_CRASH_FILE_NAME = "system-nnn-crashes.previous.txt"
         private const val DECODER_LOG_FILE_NAME = "ramen_debug.log"
         private const val PREVIOUS_DECODER_LOG_FILE_NAME = "ramen_debug.previous.log"
         private const val SUMMARY_FILE_NAME = "diagnostic-summary.txt"
