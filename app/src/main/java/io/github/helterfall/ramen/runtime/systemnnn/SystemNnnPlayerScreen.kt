@@ -747,6 +747,86 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
             }
         }
     }
+
+    // FLASH (17) inherits the source-picture blit, then fills the entire screen
+    // during each on-pulse; after countMax native changes the command to FILL.
+    flashState?.takeIf { it.drawsFill }?.let { state ->
+        Box(
+            Modifier.fillMaxSize().background(
+                Color(
+                    state.color.red / 255f,
+                    state.color.green / 255f,
+                    state.color.blue / 255f,
+                    1f
+                )
+            )
+        )
+    }
+
+    // HAIKEIYURE (100), native layer-local mode only. The original layer picture
+    // is suppressed, shifted across the screen, and exposed strips are restored
+    // from the source picture or filled with the configured RGB color.
+    if (isHaikeiYure && !sprite.bitmap.isRecycled) {
+        Canvas(Modifier.fillMaxSize()) {
+            val targetSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+            val dx = haikeiOffset.x * size.width / safeReferenceWidth
+            val dy = haikeiOffset.y * size.height / safeReferenceHeight
+            val dxInt = dx.roundToInt()
+            val dyInt = dy.roundToInt()
+            val image = sprite.bitmap.asImageBitmap()
+            val opaqueImageFilter = additiveColorFilter(0, 0, 0, forceOpaque = true)
+            val fillType = parameters.getOrNull(7) ?: 0
+            val fillColor = Color(
+                (parameters.getOrNull(8) ?: 0).coerceIn(0, 255) / 255f,
+                (parameters.getOrNull(9) ?: 0).coerceIn(0, 255) / 255f,
+                (parameters.getOrNull(10) ?: 0).coerceIn(0, 255) / 255f,
+                1f
+            )
+
+            fun fillGap(left: Float, top: Float, right: Float, bottom: Float) {
+                val clippedLeft = left.coerceIn(0f, size.width)
+                val clippedTop = top.coerceIn(0f, size.height)
+                val clippedRight = right.coerceIn(0f, size.width)
+                val clippedBottom = bottom.coerceIn(0f, size.height)
+                if (clippedRight <= clippedLeft || clippedBottom <= clippedTop) return
+                if (fillType == 0) {
+                    clipRect(clippedLeft, clippedTop, clippedRight, clippedBottom) {
+                        drawImage(image, dstSize = targetSize, colorFilter = opaqueImageFilter)
+                    }
+                } else {
+                    drawRect(
+                        color = fillColor,
+                        topLeft = Offset(clippedLeft, clippedTop),
+                        size = Size(clippedRight - clippedLeft, clippedBottom - clippedTop)
+                    )
+                }
+            }
+
+            drawImage(image = image, dstOffset = IntOffset(dxInt, dyInt), dstSize = targetSize, colorFilter = opaqueImageFilter)
+            if (dyInt > 0) fillGap(0f, 0f, size.width, dy)
+            if (dyInt < 0) fillGap(0f, size.height + dy, size.width, size.height)
+
+            val sideTop = if (dyInt > 0) dy else 0f
+            val sideBottom = if (dyInt < 0) size.height + dy else size.height
+            if (dxInt > 0) fillGap(0f, sideTop, dx, sideBottom)
+            if (dxInt < 0) fillGap(size.width + dx, sideTop, size.width, sideBottom)
+        }
+    }
+
+    // The observed CLOUD vector has para[0] == 0 and no DWQ mask. This is a
+    // static software perspective pass; cache the warped bitmap instead of
+    // recycling or replacing pixels while Compose may still be drawing them.
+    cloudBitmap?.let { warped ->
+        Canvas(Modifier.fillMaxSize()) {
+            val outputHeight = (
+                size.height * warped.height.toFloat() / safeReferenceHeight
+            ).roundToInt().coerceAtLeast(1)
+            drawImage(
+                image = warped.asImageBitmap(),
+                dstSize = IntSize(size.width.roundToInt(), outputHeight)
+            )
+        }
+    }
 }
 
 private fun additiveColorFilter(
@@ -971,86 +1051,6 @@ private fun ChoiceOverlay(
         }
     }
 
-    // FLASH (17) inherits the source-picture blit, then fills the entire screen
-    // during each on-pulse; after countMax native changes the command to FILL.
-    flashState?.takeIf { it.drawsFill }?.let { state ->
-        Box(
-            Modifier.fillMaxSize().background(
-                Color(
-                    state.color.red / 255f,
-                    state.color.green / 255f,
-                    state.color.blue / 255f,
-                    1f
-                )
-            )
-        )
-    }
-
-    // HAIKEIYURE (100), native layer-local mode only. The original layer picture
-    // is suppressed, shifted across the screen, and exposed strips are restored
-    // from the source picture or filled with the configured RGB color.
-    if (isHaikeiYure && !sprite.bitmap.isRecycled) {
-        Canvas(Modifier.fillMaxSize()) {
-            val targetSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
-            val dx = haikeiOffset.x * size.width / safeReferenceWidth
-            val dy = haikeiOffset.y * size.height / safeReferenceHeight
-            val dxInt = dx.roundToInt()
-            val dyInt = dy.roundToInt()
-            val image = sprite.bitmap.asImageBitmap()
-            val opaqueImageFilter = additiveColorFilter(0, 0, 0, forceOpaque = true)
-            val fillType = parameters.getOrNull(7) ?: 0
-            val fillColor = Color(
-                (parameters.getOrNull(8) ?: 0).coerceIn(0, 255) / 255f,
-                (parameters.getOrNull(9) ?: 0).coerceIn(0, 255) / 255f,
-                (parameters.getOrNull(10) ?: 0).coerceIn(0, 255) / 255f,
-                1f
-            )
-
-            fun fillGap(left: Float, top: Float, right: Float, bottom: Float) {
-                val clippedLeft = left.coerceIn(0f, size.width)
-                val clippedTop = top.coerceIn(0f, size.height)
-                val clippedRight = right.coerceIn(0f, size.width)
-                val clippedBottom = bottom.coerceIn(0f, size.height)
-                if (clippedRight <= clippedLeft || clippedBottom <= clippedTop) return
-                if (fillType == 0) {
-                    clipRect(clippedLeft, clippedTop, clippedRight, clippedBottom) {
-                        drawImage(image, dstSize = targetSize, colorFilter = opaqueImageFilter)
-                    }
-                } else {
-                    drawRect(
-                        color = fillColor,
-                        topLeft = Offset(clippedLeft, clippedTop),
-                        size = Size(clippedRight - clippedLeft, clippedBottom - clippedTop)
-                    )
-                }
-            }
-
-            drawImage(image = image, dstOffset = IntOffset(dxInt, dyInt), dstSize = targetSize, colorFilter = opaqueImageFilter)
-            if (dyInt > 0) fillGap(0f, 0f, size.width, dy)
-            if (dyInt < 0) fillGap(0f, size.height + dy, size.width, size.height)
-
-            val sideTop = if (dyInt > 0) dy else 0f
-            val sideBottom = if (dyInt < 0) size.height + dy else size.height
-            if (dxInt > 0) fillGap(0f, sideTop, dx, sideBottom)
-            if (dxInt < 0) fillGap(size.width + dx, sideTop, size.width, sideBottom)
-        }
-    }
-
-    // The observed CLOUD vector has para[0] == 0 and no DWQ mask. This is a
-    // static software perspective pass; cache the warped bitmap instead of
-    // recycling or replacing pixels while Compose may still be drawing them.
-    cloudBitmap?.let { warped ->
-        Canvas(Modifier.fillMaxSize()) {
-            val outputHeight = (
-                size.height * warped.height.toFloat() / safeReferenceHeight
-            ).roundToInt().coerceAtLeast(1)
-            drawImage(
-                image = warped.asImageBitmap(),
-                dstSize = IntSize(size.width.roundToInt(), outputHeight)
-            )
-        }
-    }
-}
 
 private const val TYPEWRITER_DELAY_MILLIS = 24L
 private const val AUTO_ADVANCE_DELAY_MILLIS = 1_350L
