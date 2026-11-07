@@ -497,6 +497,28 @@ internal object SystemNnnVisualEffectMath {
         )
     }
 
+
+    /**
+     * Native TURN maps the source pivot (bitmap center + para[3..4]) to
+     * screen center + destination offset + optional spline offset.
+     * Compose positions the image by its top-left, so subtract the full pivot.
+     */
+    fun turnTopLeftOffset(
+        frame: Int,
+        parameters: List<Int>,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        destinationX: Int,
+        destinationY: Int
+    ): SystemNnnVisualOffset {
+        val pivot = turnPivotOffset(parameters)
+        val spline = turnSplineOffset(frame, parameters)
+        return SystemNnnVisualOffset(
+            destinationX + spline.x - sourceWidth / 2f - pivot.x,
+            destinationY + spline.y - sourceHeight / 2f - pivot.y
+        )
+    }
+
     /** Native CTRANS colour offset; null means the normal mask/translucency path. */
     fun ctransColorOffset(frame: Int, parameters: List<Int>): SystemNnnVisualColor? {
         if ((parameters.getOrNull(14) ?: 0) == 0) return null
