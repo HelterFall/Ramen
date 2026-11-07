@@ -86,6 +86,7 @@ class SystemNnnDiagnosticLogTest {
         ZipFile(archive).use { zip ->
             val names = zip.entries().asSequence().map { it.name }.toSet()
             assertTrue(names.contains("system-nnn-diagnostics.previous.log"))
+            assertTrue(names.contains("system-nnn-runtime-snapshot.previous.txt"))
             assertTrue(names.contains("system-nnn-crashes.previous.txt"))
 
             val currentLog = zip.getInputStream(zip.getEntry("system-nnn-diagnostics.log"))
@@ -94,6 +95,8 @@ class SystemNnnDiagnosticLogTest {
                 .bufferedReader().readText()
             val previousCrash = zip.getInputStream(zip.getEntry("system-nnn-crashes.previous.txt"))
                 .bufferedReader().readText()
+            val previousSnapshot = zip.getInputStream(zip.getEntry("system-nnn-runtime-snapshot.previous.txt"))
+                .bufferedReader().readText()
             val summary = zip.getInputStream(zip.getEntry("diagnostic-summary.txt"))
                 .bufferedReader().readText()
 
@@ -101,6 +104,7 @@ class SystemNnnDiagnosticLogTest {
             assertFalse(currentLog.contains("previous_session_event"))
             assertTrue(previousLog.contains("previous_session_event"))
             assertTrue(previousCrash.contains("first failure"))
+            assertTrue(previousSnapshot.contains("module=op1 command=Dialogue"))
             assertTrue(summary.contains("Current session diagnostic events: 1"))
             assertTrue(summary.contains("Previous session diagnostic events: 2"))
             assertTrue(summary.contains("Current session crash/exception records: 0"))
