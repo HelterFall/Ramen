@@ -601,22 +601,24 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
             }
             else -> {
                 if (SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(effectId, parameters)) {
-                    if (effectId == 9 && ctransClip != null && nativeRect != null &&
-                        nativeRect.width > 0 && nativeRect.height > 0 && ctransClip.width > 0 && ctransClip.height > 0
-                    ) {
-                        Canvas(Modifier.fillMaxSize()) {
-                            val left = (ctransClip.x - nativeRect.x).toFloat() * size.width / nativeRect.width
-                            val top = (ctransClip.y - nativeRect.y).toFloat() * size.height / nativeRect.height
-                            val right = (ctransClip.x + ctransClip.width - nativeRect.x).toFloat() *
-                                size.width / nativeRect.width
-                            val bottom = (ctransClip.y + ctransClip.height - nativeRect.y).toFloat() *
-                                size.height / nativeRect.height
-                            clipRect(left, top, right, bottom) {
-                                drawImage(
-                                    sprite.bitmap.asImageBitmap(),
-                                    dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
-                                    colorFilter = ctransColorFilter
-                                )
+                    if (effectId == 9 && ctransClip != null && nativeRect != null) {
+                        if (nativeRect.width > 0 && nativeRect.height > 0 &&
+                            ctransClip.width > 0 && ctransClip.height > 0
+                        ) {
+                            Canvas(Modifier.fillMaxSize()) {
+                                val left = (ctransClip.x - nativeRect.x).toFloat() * size.width / nativeRect.width
+                                val top = (ctransClip.y - nativeRect.y).toFloat() * size.height / nativeRect.height
+                                val right = (ctransClip.x + ctransClip.width - nativeRect.x).toFloat() *
+                                    size.width / nativeRect.width
+                                val bottom = (ctransClip.y + ctransClip.height - nativeRect.y).toFloat() *
+                                    size.height / nativeRect.height
+                                clipRect(left, top, right, bottom) {
+                                    drawImage(
+                                        sprite.bitmap.asImageBitmap(),
+                                        dstSize = IntSize(size.width.roundToInt(), size.height.roundToInt()),
+                                        colorFilter = ctransColorFilter
+                                    )
+                                }
                             }
                         }
                     } else {
