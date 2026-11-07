@@ -2,11 +2,14 @@ package io.github.helterfall.ramen.runtime.systemnnn
 
 import android.content.Context
 import android.content.Intent
+import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.ViewModelProvider
 import androidx.compose.material3.MaterialTheme
 import java.io.File
@@ -46,12 +49,56 @@ class SystemNnnPlayerActivity : ComponentActivity() {
 
     private lateinit var playerViewModel: SystemNnnPlayerViewModel
     private lateinit var startupExecutor: ExecutorService
+    private lateinit var diagnosticLog: SystemNnnDiagnosticLog
+    private var crashHandlerRegistration: AutoCloseable? = null
     private val mainHandler = Handler(Looper.getMainLooper())
+
+    private val diagnosticsExportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip")
+    ) { uri ->
+        if (uri != null && ::diagnosticLog.isInitialized) {
+            exportDiagnostics(uri)
+        }
+    }
+
+    private fun exportDiagnostics(destination: Uri) {
+        try {
+            val archive = diagnosticLog.createArchive(File(cacheDir, "ramen-system-nnn-diagnostics.zip"))
+            val output = contentResolver.openOutputStream(destination)
+                ?: throw IOException("Android did not provide an output stream for the report.")
+            output.use { stream ->
+                archive.inputStream().buffered().use { input -> input.copyTo(stream) }
+            }
+            android.widget.Toast.makeText(
+                this,
+                "Диагностика сохранена. Прикрепи ZIP-файл к сообщению.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        } catch (failure: Exception) {
+            diagnosticLog.recordException("diagnostic_export_failure", failure)
+            android.widget.Toast.makeText(
+                this,
+                "Не удалось сохранить отчёт: " + (failure.message ?: "ошибка файла."),
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        diagnosticLog = SystemNnnDiagnosticLog(
+            directory = File(filesDir, "system-nnn-diagnostics"),
+            decoderLogFile = File(filesDir, "ramen_debug.log")
+        )
+        diagnosticLog.record(
+            "session_start",
+            "sdk=${Build.VERSION.SDK_INT} manufacturer=${Build.MANUFACTURER} model=${Build.MODEL}"
+        )
+        crashHandlerRegistration = diagnosticLog.installUncaughtExceptionHandler()
+
         playerViewModel = ViewModelProvider(this)[SystemNnnPlayerViewModel::class.java]
+        playerViewModel.setDiagnosticLog(diagnosticLog)
         playerViewModel.showStartupLoading()
 
         setContent {
@@ -63,6 +110,9 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     onTypewriterProgress = playerViewModel::onTypewriterProgress,
                     onTypewriterFinished = playerViewModel::onTypewriterFinished,
                     onBitmapDisposed = playerViewModel::onBitmapDisposed,
+                    onExportDiagnostics = {
+                        diagnosticsExportLauncher.launch("ramen-system-nnn-diagnostics.zip")
+                    },
                     onQuickAction = { action ->
                         val message = when (action) {
                             SystemNnnPlayerQuickAction.SAVE ->
@@ -142,6 +192,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     }
                 }
             } catch (error: Exception) {
+                diagnosticLog.recordException("startup_failure", error)
                 assetResolver?.close()
                 mainHandler.post {
                     if (!isFinishing && !isDestroyed) {
@@ -411,6 +462,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        if (::diagnosticLog.isInitialized) diagnosticLog.record("lifecycle", "activity_paused")
         if (::playerViewModel.isInitialized) {
             playerViewModel.onHostPaused()
         }
@@ -419,6 +471,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (::diagnosticLog.isInitialized) diagnosticLog.record("lifecycle", "activity_resumed")
         if (::playerViewModel.isInitialized) {
             playerViewModel.onHostResumed()
         }
@@ -428,6 +481,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         if (::startupExecutor.isInitialized) {
             startupExecutor.shutdownNow()
         }
+        runCatching { crashHandlerRegistration?.close() }
+        crashHandlerRegistration = null
         super.onDestroy()
     }
 
