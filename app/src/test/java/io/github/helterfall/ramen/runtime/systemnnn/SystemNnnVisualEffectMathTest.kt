@@ -63,11 +63,13 @@ class SystemNnnVisualEffectMathTest {
     @Test
     fun colorAddSubUsesNativeStartAndEndRgbParameterOrder() {
         val parameters = listOf(80, -130, -255, -255, -230, -255, -255, 1, 0, 0)
-        assertEquals(SystemNnnVisualColor(-230, -255, -255),
+        // Native CCalcuSpeed adds 0.5 then truncates toward zero, including
+        // negative channel offsets. Preserve that historical rounding behavior.
+        assertEquals(SystemNnnVisualColor(-229, -254, -254),
             SystemNnnVisualEffectMath.colorAddSubOffset(0, parameters))
-        assertEquals(SystemNnnVisualColor(-180, -255, -255),
+        assertEquals(SystemNnnVisualColor(-179, -254, -254),
             SystemNnnVisualEffectMath.colorAddSubOffset(40, parameters))
-        assertEquals(SystemNnnVisualColor(-130, -255, -255),
+        assertEquals(SystemNnnVisualColor(-129, -254, -254),
             SystemNnnVisualEffectMath.colorAddSubOffset(80, parameters))
     }
 
@@ -97,7 +99,7 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(0.4f, SystemNnnVisualEffectMath.stretchBltAlpha(20, alphaParameters), 0.001f)
         assertEquals(SystemNnnVisualColor(0, 0, 0),
             SystemNnnVisualEffectMath.stretchBltColorOffset(5, alphaParameters))
-        val colorParameters = alphaParameters.toMutableList().apply {
+        val colorParameters = (alphaParameters + 0).toMutableList().apply {
             this[14] = 1
             this[15] = 30; this[16] = 20; this[17] = 10
             this[18] = 0; this[19] = 0; this[20] = 0
@@ -114,7 +116,8 @@ class SystemNnnVisualEffectMathTest {
             100, 100, 0, 0, 0, 0, 0, 0
         )
         assertEquals(312f, SystemNnnVisualEffectMath.turnRotationDegrees(0, parameters), 0.001f)
-        assertEquals(375f, SystemNnnVisualEffectMath.turnRotationDegrees(700, parameters), 0.001f)
+        // Native TURN reduces angles modulo 3600 tenths before rasterizing.
+        assertEquals(15f, SystemNnnVisualEffectMath.turnRotationDegrees(700, parameters), 0.001f)
         assertEquals(3f, SystemNnnVisualEffectMath.turnScale(0, parameters), 0.001f)
         assertEquals(2.2f, SystemNnnVisualEffectMath.turnScale(700, parameters), 0.001f)
         assertEquals(1f, SystemNnnVisualEffectMath.turnAlpha(350, parameters), 0.001f)
