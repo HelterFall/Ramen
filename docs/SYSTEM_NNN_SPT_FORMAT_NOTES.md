@@ -34,7 +34,7 @@ The script reads four little-endian DWORD pairs at offsets `0x10`, `0x18`, `0x20
 | `0x20` | 69 | `0xC390` (50064) |
 | `0x28` | 2 | `0x0` |
 
-These are observed count/offset pairs. Their exact semantics and record layouts still need to be established. In particular, the count of 1299 and target `0xC5BA` are strong leads for the main table, but the output alone does not prove that its entries are 32-bit scene pointers.
+These are observed count/offset pairs. At the time of this initial dump their exact semantics were unresolved. The third descriptor is now resolved by `SystemNnnCommandStreamReader` as the film-entry DWORD pointer vector, and the fourth descriptor's `entryCount` is the reserved-entry prefix count; see the 2026-11-07 follow-up below. The first and second descriptors and the two trailing DATA/TABLE records remain separate format questions.
 
 ### String and marker observations
 
