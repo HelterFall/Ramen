@@ -69,7 +69,7 @@ class SystemNnnVisualEffectMathTest {
             20, 90, 0, 12, -8, 100, 100, 0
         )
         assertEquals(
-            SystemNnnVisualOffset(-112f, -32f),
+            SystemNnnVisualOffset(-12f, 8f),
             SystemNnnVisualEffectMath.turnTopLeftOffset(
                 frame = 0,
                 parameters = parameters,
@@ -80,7 +80,7 @@ class SystemNnnVisualEffectMathTest {
             )
         )
         assertEquals(
-            SystemNnnVisualOffset(-62f, -2f),
+            SystemNnnVisualOffset(38f, 38f),
             SystemNnnVisualEffectMath.turnTopLeftOffset(
                 frame = 0,
                 parameters = parameters,
