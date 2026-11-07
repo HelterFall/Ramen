@@ -62,6 +62,14 @@ class SystemNnnMmlPlaylistParserTest {
     }
 
     @Test
+    fun skipsExpansionForAnEmptyFiniteLoopEvenWithTheLargestCount() {
+        val sequence = SystemNnnMmlPlaylistParser.parse("intro [2147483647:] outro")
+
+        assertEquals(listOf("intro", "outro"), sequence.segmentNames)
+        assertEquals(null, sequence.infiniteLoopStartIndex)
+    }
+
+    @Test
     fun rejectsLoopCountsThatOverflowTheSupportedIntegerRange() {
         assertThrows(IOException::class.java) {
             SystemNnnMmlPlaylistParser.parse("[999999999999999999999: a]")
