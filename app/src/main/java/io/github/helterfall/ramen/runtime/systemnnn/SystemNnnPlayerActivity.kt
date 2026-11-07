@@ -105,6 +105,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             packageManager.getPackageInfo(packageName, 0).versionName ?: "unknown"
         }.getOrDefault("unknown")
         val metrics = resources.displayMetrics
+        diagnosticLog.beginSession()
         diagnosticLog.record(
             "session_start",
             "appVersion=$appVersion sdk=${Build.VERSION.SDK_INT} manufacturer=${Build.MANUFACTURER} " +
