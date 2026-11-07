@@ -501,11 +501,16 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val durationFrames = (parameters.firstOrNull() ?: defaultDurationFrames).coerceIn(1, 9_999)
     val animationKey = listOf(sprite.resourceId, sprite.layerIndex, sprite.nativeEffectCommandOffset,
         fromRect, nativeRect, effectId, parameters)
+    val animateLayerProgress = SystemNnnVisualEffectMath.shouldAnimateLayerProgress(
+        effectId = effectId,
+        parameters = parameters,
+        hasRectMotion = hasRectMotion
+    )
     val progress = remember(animationKey) {
-        Animatable(if (hasRectMotion || effectId in setOf(9, 17, 39, 40, 52, 62, 64, 65, 99, 100, 119)) 0f else 1f)
+        Animatable(if (animateLayerProgress) 0f else 1f)
     }
     LaunchedEffect(animationKey) {
-        if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 64, 65, 99, 119)) {
+        if (animateLayerProgress) {
             progress.animateTo(1f, tween((durationFrames * 16).coerceIn(16, 60_000), easing = LinearEasing))
         }
     }
