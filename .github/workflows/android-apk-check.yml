@@ -1,4 +1,5 @@
 name: One-time Android debug APK
+# Re-run for the latest visual-effect and DWQ decoding fixes.
 
 on:
   push:
