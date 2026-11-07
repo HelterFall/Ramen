@@ -329,8 +329,10 @@ class SystemNnnScript internal constructor(
  * (logicalBase + entryCount), then validating the complete increasing table
  * against the 4-byte-aligned NUL-terminated records that follow it.
  *
- * The third and fourth descriptors are preserved as metadata only; their
- * meanings have not yet been established.
+ * The loader preserves all four descriptors. The command-stream reader
+ * interprets descriptor 3 as the DWORD film-entry pointer vector and descriptor
+ * 4's entryCount as the reserved-entry prefix; descriptor 4's logicalBase is
+ * retained but is not consumed by the current film-table resolver.
  */
 class SystemNnnScriptLoader(
     private val maxFileSizeBytes: Long = DEFAULT_MAX_FILE_SIZE_BYTES
