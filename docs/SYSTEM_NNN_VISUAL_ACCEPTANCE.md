@@ -16,6 +16,93 @@
 
 These are user-observed results, not CI claims.
 
+## 1A. Scene-by-scene observations from the user's comparison with the original
+
+**Observation source:** the user described playback verbally on 2026-11-08. Screenshots are unavailable. The expected/original behaviour below is the user's reference; it is not independently captured evidence. Keep the original-vs-Ramen distinction explicit while fixing the renderer.
+
+| Sequence | Expected in the original | Observed in Ramen | Main subsystem / confidence |
+|---|---|---|---|
+| Intro text on black | A centered line appears progressively, before the CRT image | It appears immediately | A separate non-dialogue/title rendering path is missing or bypassed. Confirmed: the existing 24 ms typewriter only animates the dialogue box. Exact source command for this title line is not yet identified. |
+| Broken CRT and woman | The monitor remains visible above the scene; the woman/image is visible behind its glass, shakes and slowly drifts left; scanlines, dust/specks and scratches move over it | The monitor disappears or covers the woman; the woman's image can be displaced into a corner; scratch/noise effects are approximate | Layer order, DWQ alpha/mask, native rectangles, effect composition and HAIKEIYURE buffer semantics. Need per-layer resource/rect/effect/command-offset evidence; do not simply lower opacity of the whole monitor. |
+| Background with clouds | Background fades in with a brief residual flicker; clouds move in the upper region | Background appears, but clouds are static; some unrelated/extra scenery is visible | CLOUD (82) has a confirmed static-frame bug in Ramen. Extra scenery likely means a different resource or an extra persistent layer; exact resource identity is not yet mapped. |
+| Repeated monitor shots | Monitor/woman composition changes or zooms while the text remains in front; flicker and CRT imperfections continue | Text can stay in front, but there is no smooth intro; a black interruption sometimes covers the image for seconds | Correct text/compositor ordering is only partial. Black interruption may be a fade/flash/clear/scene transition or a missing asset; command timeline is needed to distinguish them. |
+| Full-height male figure | Figure appears with a red vertical colour grade over the already-rendered scene | Figure appears without the expected red tone | The user's warning identifies effect 50. In the pinned family reference, ID 50 is GRADATION (a screen-buffer colour ramp); Ramen has no renderer path for it. High-confidence missing implementation. |
+| Shaking monitor with woman behind it | Monitor shakes while the woman remains behind/inside the CRT aperture | A corner of the woman appears outside the intended opening; monitor is opaque over her | Likely geometry/mask/compositor issue, not just a movement amplitude issue. Exact layer identities and alpha coverage remain unverified. |
+| Red flash | A brief red flash covers the figure and scene | Three disconnected red elements appear; the figure remains static | Check whether this is FLASH (17), FILL (54), GRADATION (50), or a combination. Ramen's global screen overlay is drawn above all layers, but a layer-local overlay is drawn at that layer's z-position and later layers can cover it. Do not assume a patchy effect is a colour problem until its native layer and command order are known. |
+| Interstitial words / title card | Insert words animate; figure has already disappeared; black screen then shows a dynamically appearing line and game title | Figure remains; title text and game title are absent | Missing/incorrect clear and scene-command handling is plausible. Native SENTENCE (133) is an animated tiled-image reveal, not necessarily the source of these words; the actual target command/resource has not yet been identified. |
+| Downward-moving clouds | Cloud panorama moves down and gradually covers the whole field | Only the upper portion is rendered; lower portion is blank | Directly explained by the current CLOUD output-height calculation for the observed parameter vector. |
+| Town/village cloud panorama | Cloud panorama moves right across the scene | Same partial-height/blank-area symptom | Same CLOUD (82) defect and missing frame progression. |
+| Road background | Static road appears without previous cloud motion/images | Previous cloud images remain as semi-transparent overlays | Likely stale layer/effect state or missing clear at a scene boundary. SceneUpdate clears the visual snapshot, but dialogue updates can preserve existing layers when they provide no replacement sprites. Need command-offset trace before choosing whether to fix the runtime or an absent script clear. |
+
+The user also explicitly reported these runtime messages:
+- OLDFILM (55) is a deterministic screen-scratch approximation; native randomized scratch timing is not exact.
+- KE (27) uses the native DWQ atlas layout; particle positions use a deterministic sequence, not the original process RNG.
+- SUNA (29) uses a deterministic grayscale noise plane; the native process RNG sequence is not reproduced.
+- HAIKEIYURE (100) mode 1 moves the composed scene as a group; native MoveScreen changes only the already-rendered screen buffer at that layer.
+- Effect layer 5 (50) is not yet fully supported.
+
+These warnings must not be treated as cosmetic. They identify real behavioural gaps in the effects that are active in the user's intro sequence.
+
+## 1B. Source-confirmed causes and boundaries
+
+### CLOUD (82): half-height and stationary image are explained by current code
+
+The supplied runtime audit already records the literal parameter vector for CLOUD on layer 1:
+
+0,300,13,4,9999,200,1362,200,0,1,255,160,110,50
+
+For the Android path:
+- the accepted software path requires parameter 0 = 0 and parameter 8 = 0; this vector passes those gates;
+- parameter 1 requests 300 output rows;
+- cloudWarpPixels returns a bitmap whose height is exactly those 300 rows;
+- SystemNnnAnimatedSpriteLayer calls cloudWarpPixels(frame = 0L) once inside remember, so speed X/Y (13, 4) never advance;
+- the resulting image is drawn at its natural ratio: output height is viewportHeight × 300 / referenceHeight. At a 600-pixel logical height that is exactly one-half of the viewport.
+
+Therefore the observed half-image and lack of cloud movement are both explained by one concrete implementation defect. Fix the CLOUD frame clock and the vertical destination/crop/coverage as one coherent compositor path. Do not touch the accepted ordinary background decode/draw path.
+
+### GRADATION (50): the missing red scene grade
+
+The pinned System-NNN family reference identifies effect 50 as GRADATION, between 49 BGDARK and 51 TAIYO. The reference software renderer computes RGB deltas from top to bottom and applies the resulting per-row colour adjustment to the already-rendered screen buffer over a configured vertical range. It is not simply a red tint placed on the male bitmap.
+
+Ramen currently accepts effect 50 into layer state but hasNativeLayerEffectPath(50, ...) returns false. The source bitmap is consequently rendered by the ordinary fallback and the user sees the incomplete-effect warning. A faithful implementation needs a snapshot/compositor pass at the correct layer position: grade what has already been drawn, then continue rendering subsequent layers. Applying a red filter only to layer 5 would be the wrong model if the native operation is screen-buffer based.
+
+The target executable's build variant still needs confirmation against actual target output; the pinned family source is strong reference evidence, not proof of every target-specific detail.
+
+### CRT effects and transparency
+
+The current renderer handles KE (27), SUNA (29), OLDFILM (55), and HAIKEIYURE (100) through known approximations:
+- KE and SUNA generate deterministic Android patterns instead of the original process-global RNG stream.
+- OLDFILM uses a deterministic scratch/scan-line model; the original creates and updates scratch lines with native rand() state.
+- HAIKEIYURE mode 1 moves the entire Compose viewport as a group. The native operation changes the screen buffer at that point in the layer sequence.
+
+A "glass" area in a CRT should normally be modelled using the correct DWQ alpha/mask and layer composition (possibly a separate monitor-frame layer), not by fading the entire monitor bitmap. The current code already decodes alpha masks, but the actual resource and its alpha pixels have not been tied to the user's monitor. Verify the exact loaded DWQ resources, alpha presence, layer indices, source/destination rectangles and visible intersections before changing alpha behaviour.
+
+### Text and title animation are not the dialogue typewriter
+
+The current 24 ms typewriter is attached only to SystemNnnPlayerUiState.dialogueText and the Compose dialogue box. It does not animate a separate centered line, a title card, or an interstitial bitmap.
+
+The native family reference has effect 133 SENTENCE: it progressively reveals a tiled picture atlas using tile dimensions, direction, wipe mode and timing parameters. Ramen does not include 133 in its supported effect path. This is a candidate only if the target actually uses a tiled sentence/title image; it must not be assumed to be the missing title-text command. The target's relevant SPT command/resource and its timing must be identified from the diagnostic command trace.
+
+### Layer persistence and apparent black interruptions
+
+The Compose tree draws native sprite layers in ascending layer-index order, then applies layer-local overlay effects at that layer's position; a later higher-numbered layer can cover such an overlay. A screen-level overlay is drawn after all image layers. Thus a full-scene red flash must be attached to the screen-buffer slot (or otherwise explicitly composed after all scene layers), not arbitrarily to the male layer.
+
+The ViewModel clears the full visual snapshot on SceneUpdate and explicit clear commands. A dialogue update that supplies no replacement sprite list can preserve pending/visible layers. This can explain old cloud/figure layers persisting between some visual events, but cannot yet prove whether the missing clear is in script flow or runtime semantics. The multi-second black gaps also need the command/effect trace; do not automatically classify them as a bitmap decoding failure.
+
+## 1C. Revised fix order
+
+1. **CLOUD (82) first:** advance its frame using a per-layer clock; render the requested cloud field to the correct full viewport/region; cover or compose the lower area as the native effect specifies. Regression target: the observed 300-row cloud field must not leave a blank lower half, and p2/p3 speeds must visibly advance it.
+2. **Layer evidence and CRT composite:** add final pixel bounds/visible intersection, alpha-presence/mask metadata, layer index, command offset, native rectangles and effect frame to diagnostics. Then correct monitor frame/glass/woman order without reducing the whole monitor's opacity.
+3. **GRADATION (50):** implement a screen-buffer vertical RGB grade at the correct layer/compositor point, then compare the red scene transition. Do not tint only the man sprite.
+4. **Clear/persistence and global flash:** trace scene/film boundaries and actual CLEAR commands; ensure the figure is gone before the interstitial. Check FLASH/FILL/GRADATION command scope and z-order so a true screen flash covers all intended content.
+5. **Non-dialogue title/text:** locate the actual SPT command and resource for the centered line, interstitial insert and game title. Implement progressive reveal only after distinguishing text commands from SENTENCE (133) tiled-image animation.
+6. **Improve native CRT parity:** separately improve OLDFILM, KE, SUNA random timing and HAIKEIYURE mode 1 buffer semantics. Keep warning labels until each is visually accepted.
+7. Protect the accepted audio path and ordinary background bitmap path throughout.
+
+No screenshot or screen recording was available for this review. These findings combine the user's verbal comparison with source-level facts and the existing SPT diagnostic vector; exact layer/resource attribution remains open where stated.
+
+---
+
 ## 2. The render pipeline in the current code
 
 1. SystemNnnCommandDecoderImpl decodes LOADDWQ into a native layer index and a Pool 2 resource name. SETEFFECT and SETEFFECTRECT are decoded separately.
