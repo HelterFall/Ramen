@@ -466,7 +466,7 @@ internal object SystemNnnVisualEffectMath {
             0, 8, 9, 10, 11, 17, 18, 27, 29, 39, 40, 52, 54, 55, 62, 64, 65, 66, 99, 119, 132 -> true
             82 -> (parameters.getOrNull(0) ?: 9_999) == 0 &&
                 (parameters.getOrNull(8) ?: 0) == 0
-            100 -> (parameters.getOrNull(5) ?: 0) == 0
+            100 -> (parameters.getOrNull(5) ?: 0) in 0..1
             else -> false
         }
 
