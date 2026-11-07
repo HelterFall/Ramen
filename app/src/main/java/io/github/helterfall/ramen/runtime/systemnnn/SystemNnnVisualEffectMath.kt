@@ -104,7 +104,7 @@ internal object SystemNnnVisualEffectMath {
      * effects retain the plain source bitmap only as an explicitly incomplete fallback.
      */
     fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean =
-        effectId !in setOf(39, 64, 66)
+        effectId !in setOf(39, 64, 65, 66)
 
     fun nativeSpeedValue(
         count: Int,
@@ -417,6 +417,64 @@ internal object SystemNnnVisualEffectMath {
         return SystemNnnVisualOffset(previousX.toFloat(), previousY.toFloat())
     }
 
+
+    /** Native STRETCHBLT (65): 100 in the parameter array means a 1x scale. */
+    fun stretchBltScale(
+        frame: Int,
+        parameters: List<Int>,
+        horizontal: Boolean
+    ): Float {
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
+        val endIndex = if (horizontal) 3 else 4
+        val startIndex = if (horizontal) 5 else 6
+        val end = parameters.getOrNull(endIndex) ?: 100
+        val start = parameters.getOrNull(startIndex) ?: end
+        val scaleHundredths = nativeSpeedValue(
+            frame,
+            duration,
+            start * 100,
+            end * 100,
+            parameters.getOrNull(8) ?: 0,
+            parameters.getOrNull(7) ?: 0
+        )
+        return (scaleHundredths / 10_000f).coerceAtLeast(0.001f)
+    }
+
+    /** STRETCHBLT transparency percentage. Native modes 0/1 do not use this value. */
+    fun stretchBltAlpha(frame: Int, parameters: List<Int>): Float {
+        if ((parameters.getOrNull(9) ?: 0) != 2) return 1f
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
+        val start = parameters.getOrNull(11) ?: 100
+        val end = parameters.getOrNull(10) ?: start
+        return nativeSpeedValue(
+            frame, duration, start, end,
+            parameters.getOrNull(13) ?: 0,
+            parameters.getOrNull(12) ?: 0
+        ).coerceIn(0, 100) / 100f
+    }
+
+    /** Native STRETCHBLT center is source center plus para[1]/para[2]. */
+    fun stretchBltPivotOffset(parameters: List<Int>): SystemNnnVisualOffset =
+        SystemNnnVisualOffset(
+            (parameters.getOrNull(1) ?: 0).toFloat(),
+            (parameters.getOrNull(2) ?: 0).toFloat()
+        )
+
+    /** Native STRETCHBLT color add/subtract; disabled means an unmodified source. */
+    fun stretchBltColorOffset(frame: Int, parameters: List<Int>): SystemNnnVisualColor {
+        if ((parameters.getOrNull(14) ?: 0) == 0) return SystemNnnVisualColor(0, 0, 0)
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
+        fun channel(startIndex: Int, endIndex: Int): Int {
+            val end = parameters.getOrNull(endIndex) ?: 0
+            val start = parameters.getOrNull(startIndex) ?: end
+            return nativeSpeedValue(
+                frame, duration, start, end,
+                parameters.getOrNull(22) ?: 0,
+                parameters.getOrNull(21) ?: 0
+            )
+        }
+        return SystemNnnVisualColor(channel(18, 15), channel(19, 16), channel(20, 17))
+    }
 
     /** Native EFFECT_TURN (64): angle is stored in tenths of a degree. */
     fun turnRotationDegrees(frame: Int, parameters: List<Int>): Float {
