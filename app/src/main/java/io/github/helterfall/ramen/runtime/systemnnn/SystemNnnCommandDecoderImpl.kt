@@ -118,10 +118,12 @@ class SystemNnnCommandDecoderImpl(
             // draw-frame count. Zero continues immediately; nonzero returns a
             // DRAW event after advancing PC by the declared record length.
             CODE_DRAW -> {
-                if (record.payloadWordCount < 1) {
+                // Payload word 0 is the parameter count; the first DRAW
+                // operand is the following DWORD (native m_data[m_pc + 4]).
+                if (record.payloadWordCount < 2) {
                     throw IOException("A System-NNN DRAW command has no frame-count operand.")
                 }
-                val frameCount = readPayloadWord(script, record, 0).toInt()
+                val frameCount = readPayloadWord(script, record, 1).toInt()
                 if (frameCount == 0) {
                     SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
                 } else {
