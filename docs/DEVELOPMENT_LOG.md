@@ -1,5 +1,38 @@
 # Development Log
 
+## 2026-11-08 — audio accepted; graphics promoted to primary validation
+
+### User-observed runtime status
+- Audio playback is accepted by the user based on direct observation and is considered very good. Close audio as an active investigation. Do not schedule additional audio work or alter it speculatively; reopen only when the user reports a concrete reproducible fault.
+- Background images are confirmed by the user to display correctly. Treat the background path as a visual regression baseline.
+- Foreground/native image layers are improved compared with earlier builds but still visibly incorrect.
+- Effects are not yet visually accepted.
+- Floating/moving images are uncertain; they may be incorrectly positioned, clipped, or outside the viewport.
+
+### Static graphics audit
+- The player derives its native coordinate reference from the current background bitmap dimensions; when there is no background it falls back to the first sprite dimensions, then 800×600.
+- The game viewport uses the background aspect ratio (or 4:3 fallback) and clips its contents to bounds.
+- Native LOADDWQ layers use a native rectangle. If no SETEFFECTRECT has been applied, resolveSprites creates a default (0, 0, bitmapWidth, bitmapHeight) rectangle. This puts the image at the upper-left at its bitmap dimensions in the background-derived coordinate space.
+- Legacy sprite references without a native rectangle use a different layout: bottom-center with 62% viewport width and 82% viewport height. The two layout models can produce visibly different sizing/placement and must be compared against actual target scenes.
+- BEZIERMOVE/BSPLINE2 and character jitter add offsets in the native coordinate space; coordinates are intentionally not clamped before rendering, while the viewport clips anything outside its bounds.
+- The shared layer-effect frame is keyed by the entire layer-configuration set. Adding/changing one layer configuration can reset the frame used by other overlay effects. This is a timing/cross-layer synchronization risk.
+- CHANGE (40) requires a distinct partner layer with matching bitmap dimensions and currently uses an additive Compose blend. It needs target-scene visual comparison; synthetic blend math alone is insufficient.
+- Current pure math tests cover effect calculations, but there is no dedicated Compose screenshot/pixel acceptance suite for the complete renderer.
+
+### Confirmed code defect fixed
+- HAIKEIYURE (100) mode 0 was initialized with a local progress animation but omitted from the LaunchedEffect animation condition. Its frame therefore stayed at zero when no SETEFFECTRECT motion was present.
+- Added a shared animation-policy helper, included local HAIKEIYURE mode 0 in the progress clock, and added a unit test for mode 0 versus mode 1.
+- These commits have not yet been validated by a new CI run. Do not describe the fix as CI-passed until the current head completes CI.
+
+### Next
+1. Run CI and assemble a fresh debug APK from the post-fix head.
+2. Verify native layer rectangle dimensions/origin against actual background/native resolution and compare loaded bitmap bounds.
+3. Capture per-layer computed destination rectangles and frame values in diagnostics so off-screen images can be distinguished from missing resources.
+4. Test motion and effects one by one on the target game/device. Preserve the user-confirmed background and accepted audio paths.
+5. Reopen audio only on a concrete user-reported regression.
+
+---
+
 This file is the durable hand-off log for work across ChatGPT sessions and contributors. Each entry records what changed, what is only a hypothesis, and what should happen next.
 
 ## 2026-11-02 — Binary inspection and format-registry foundation
