@@ -111,3 +111,19 @@ The Android layer renderer now interpolates the native start/end RGB offsets and
 a saturating color-matrix adjustment while retaining the decoded bitmap alpha. The
 uploaded runtime diagnostics use native transparency flag 1 and speed type 0 for these
 entries. Other transparency modes still require dedicated pixel-level parity checks.
+
+## Values observed in the supplied runtime diagnostic
+
+These are literal parameter vectors from the supplied log, not inferred parameter examples:
+
+| Effect | Observed layer/resource | Observed parameters |
+|---|---|---|
+| TURN (64) | layer 4, `ta_effe_light01`, 600×600 | `700,375,312,0,0,220,300,2,100,100,0,0,0,0,0,0` |
+| STRETCHBLT (65) | multiple layers, including film 3 | `430,0,0,205,205,200,200,5,3,0,100,100,0,0` |
+| COLORADDSUB (99) | layer 7 | `80,-130,-255,-255,-230,-255,-255,1,0,0` |
+| CTRANS (9) | layers 1, 2, 5 and 6 | `2000,100,0,2,100,0,0,0,800,600,0,0,800,600` |
+| CLOUD (82) | layer 1 | `0,300,13,4,9999,200,1362,200,0,1,255,160,110,50` |
+
+TURN, STRETCHBLT and COLORADDSUB now have dedicated Compose rendering paths.
+CTRANS has the observed opacity/mask path. CLOUD still requires its own perspective
+pixel compositor and is not claimed as implemented.
