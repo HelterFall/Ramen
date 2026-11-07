@@ -40,6 +40,32 @@ class SystemNnnGpkBitmapRepositoryTest {
         }
     }
 
+    @Test
+    fun unrelatedWgqFilesDoNotShadowGpkPairInSiblingDwqDirectory() {
+        val root = Files.createTempDirectory("ramen-systemnnn-wgq-audio").toFile()
+        try {
+            val wgqDirectory = File(root, "wgq").apply { mkdirs() }
+            val audioLikeWgq = ByteArray(256)
+            "OggS".toByteArray(Charsets.US_ASCII).copyInto(audioLikeWgq, destinationOffset = 0x40)
+            File(wgqDirectory, "bgm.wgq").writeBytes(audioLikeWgq)
+
+            val dwqDirectory = File(root, "dwq").apply { mkdirs() }
+            val gpkBlock = ByteArray(64) { ' '.code.toByte() } + createJpegWithSof(1, 1)
+            File(dwqDirectory, "scene.gpk").writeBytes(gpkBlock)
+            File(dwqDirectory, "scene.gtb").writeBytes(
+                createGtbIndex("background", gpkBlock.size)
+            )
+
+            SystemNnnGpkBitmapRepository.forGameDirectory(root).use { repository ->
+                assertEquals(1, repository.resourceCount)
+                assertEquals("background", repository.entries.single().name)
+                assertTrue(repository.entries.single().isValid)
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
     private fun createPackedDwqBlock(): ByteArray {
         val bmp = ByteArray(0x36 + 3)
         putU32(bmp, 10, 0x36)

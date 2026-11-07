@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.charset.Charset
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VisualNovelDetectorTest {
@@ -79,7 +80,7 @@ class VisualNovelDetectorTest {
     }
 
     @Test
-    fun detectsSystemNnnSptAndDoesNotCallItAPlaybackRuntime() {
+    fun detectsSystemNnnSptWithoutClaimingFullCompatibility() {
         val root = Files.createTempDirectory("ramen-system-nnn-detect").toFile()
 
         try {
@@ -90,6 +91,8 @@ class VisualNovelDetectorTest {
 
             assertEquals("system-nnn-spt", result.engineId)
             assertEquals("PARSER_AVAILABLE", result.compatibilityStatus)
+            assertTrue(result.evidence.contains("2 records across both indexed pools parsed"))
+            assertTrue(result.evidence.contains("verified subset of commands"))
         } finally {
             root.deleteRecursively()
         }
@@ -103,6 +106,8 @@ class VisualNovelDetectorTest {
             val result = VisualNovelDetector().detect(root)
             assertEquals("system-nnn-spt", result.engineId)
             assertEquals("PARSER_AVAILABLE", result.compatibilityStatus)
+            assertTrue(result.evidence.contains("2 records across both indexed pools parsed"))
+            assertTrue(result.evidence.contains("verified subset of commands"))
         } finally {
             root.deleteRecursively()
         }
@@ -125,24 +130,59 @@ class VisualNovelDetectorTest {
     }
 
     private fun createMinimalSptFixture(headerVersion: Int = 0): ByteArray {
-        val text = "fixture".toByteArray(Charset.forName("Shift_JIS")) + byteArrayOf(0)
-        val decoded = ByteArray(0x32B64 + text.size)
-        putUInt32(decoded, 0x00, 20)
-        putUInt32(decoded, 0x10, 1299)
-        putUInt32(decoded, 0x14, 0xC5BA)
-        putUInt32(decoded, 0x18, 1124)
-        putUInt32(decoded, 0x1C, 0x167F2)
-        putUInt32(decoded, 0x20, 69)
-        putUInt32(decoded, 0x24, 0xC390)
-        putUInt32(decoded, 0x28, 2)
-        putUInt32(decoded, 0x2C, 0)
-        "SPTHEADER$headerVersion".toByteArray(Charsets.US_ASCII).copyInto(decoded, 0x30)
+        val output = java.io.ByteArrayOutputStream()
+        val header = ByteArray(0x100)
 
-        text.copyInto(decoded, 0x32B64)
+        putUInt32(header, 0x00, 20)
+        putUInt32(header, 0x10, 1)
+        putUInt32(header, 0x14, 0xC5BA)
+        putUInt32(header, 0x18, 1)
+        putUInt32(header, 0x1C, 0x167F2)
+        putUInt32(header, 0x20, 0)
+        putUInt32(header, 0x24, 0)
+        putUInt32(header, 0x28, 0)
+        putUInt32(header, 0x2C, 0)
+        "SPTHEADER$headerVersion".toByteArray(Charsets.US_ASCII).copyInto(header, 0x30)
+        output.write(header)
 
-        return ByteArray(decoded.size) { index ->
-            (decoded[index].toInt() xor 0xFF).toByte()
+        // Pool 1 address table: one logical address, base + entry count.
+        writeUInt32(output, 0xC5BBL)
+        writeAlignedRecord(output, "fixture")
+
+        // The inter-pool marker is 16 bytes: 4 bytes of per-file value
+        // followed by the three stable marker pairs.
+        writeUInt32(output, 0x12345678L)
+        writeUInt16(output, 1)
+        writeUInt16(output, 0x6666)
+        writeUInt16(output, 2)
+        writeUInt16(output, 0x5555)
+        writeUInt16(output, 1)
+        writeUInt16(output, 0x4444)
+
+        // Pool 2 has its own logical address table and record.
+        writeUInt32(output, 0x167F3L)
+        writeAlignedRecord(output, "module")
+
+        return ByteArray(output.size()) { index ->
+            (output.toByteArray()[index].toInt() xor 0xFF).toByte()
         }
+    }
+
+    private fun writeAlignedRecord(output: java.io.ByteArrayOutputStream, value: String) {
+        output.write(value.toByteArray(Charset.forName("Shift_JIS")))
+        output.write(0)
+        while (output.size() % 4 != 0) output.write(0)
+    }
+
+    private fun writeUInt32(output: java.io.ByteArrayOutputStream, value: Long) {
+        repeat(4) { index ->
+            output.write(((value ushr (index * 8)) and 0xFFL).toInt())
+        }
+    }
+
+    private fun writeUInt16(output: java.io.ByteArrayOutputStream, value: Int) {
+        output.write(value and 0xFF)
+        output.write((value ushr 8) and 0xFF)
     }
 
     private fun putUInt32(target: ByteArray, offset: Int, value: Int) {

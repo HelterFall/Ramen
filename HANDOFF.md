@@ -1,3 +1,46 @@
+# Актуальная контрольная точка — 2026-11-08
+
+> Этот блок приоритетнее исторических handoff-записей ниже. Рабочая ветка — docs/system-nnn-launch-roadmap, PR #28 остаётся открытым Draft и не слит в main.
+
+- **Целевая игра:** Gore Screaming Show, только очищенная Steam-сборка. Коммерческие бинарники, сценарии и игровые ресурсы не добавлять в Git.
+- **Аудио:** пользователь проверил фактическое воспроизведение и считает текущее поведение практически идеальным. Аудионаправление закрыто как активная задача. Не планировать дополнительные аудиопроверки и не менять аудиокод без конкретной воспроизводимой ошибки от пользователя. При сообщении об ошибке открыть отдельную задачу по её симптомам.
+- **Фон:** пользователь подтверждает, что фоновые изображения отображаются нормально. Считать фоновый слой контрольной точкой; при графических изменениях не допускать регрессии.
+- **Изображения поверх фона:** пользователь видит улучшение относительно прежних сборок, но размещение/размер/порядок слоёв пока неудовлетворительны.
+- **Эффекты и движение:** визуальное соответствие эффектов ещё не принято. Плавающие/движущиеся изображения требуют проверки: возможно смещение за viewport, неправильная траектория, размер или отсечение.
+- **Новая визуальная приёмка — устное сравнение с оригиналом (2026-11-08):** пользователь описал последовательность intro без возможности сделать скриншоты. Зафиксированы отдельные дефекты: CRT/девушка (слои и прозрачность), плавное появление самостоятельных title/interstitial-текстов, чёрные паузы, красная тонировка сцены, красный экранный flash, очистка мужчины перед вставкой, плавающие облака и остаточные cloud-слои на дорожном фоне. Не считать это одним багом.
+- **CLOUD (82), подтверждённая причина:** сохранённый диагностический вектор layer 1 — 0,300,13,4,9999,200,1362,200,0,1,255,160,110,50. Android строит bitmap на frame=0 и кеширует его; скорость X/Y не продвигается. Выход имеет 300 строк, поэтому при логической высоте 600 рисуется половина viewport. Исправление CLOUD должно устранить и неподвижность, и неполное заполнение, не меняя базовый background bitmap renderer.
+- **GRADATION (50):** native family reference называет ID 50 GRADATION — вертикальная RGB-коррекция уже отрисованного screen buffer. Android сейчас не имеет renderer path и показывает предупреждение для layer 5. Это объясняет отсутствующую красную тональную градацию; нужен compositor snapshot в правильной точке z-order, а не просто красный фильтр поверх спрайта мужчины.
+- **Текст:** текущий 24 ms typewriter относится только к dialogue box. Native SENTENCE (133) — постепенное раскрытие тайлового изображения; возможный механизм для interstitial artwork, но не доказательство, что именно им рисуется отсутствующий заголовок. Найти фактический SPT command/resource.
+- **CRT/слои:** оставить warnings для OLDFILM (55), KE (27), SUNA (29), HAIKEIYURE (100) как подтверждённые неполные приближения. Прозрачность монитора проверять по фактическому DWQ alpha/mask и отдельным frame/glass layers; не снижать alpha всего монитора наугад. Появление старых облаков поверх road может быть пропущенным CLEAR или сохранением слоёв на переходе; сверить command offsets до смены runtime semantics.
+- **Подробная сцено-ориентированная карта и порядок фиксов:** docs/SYSTEM_NNN_VISUAL_ACCEPTANCE.md, разделы 1A–1C. Скриншоты недоступны; дальнейшая диагностика строится на устном сравнении плюс уже собранных диагностических данных.
+- **Графический аудит:** создан docs/SYSTEM_NNN_VISUAL_ACCEPTANCE.md. Он отделяет наблюдения пользователя от статического анализа кода и от неподтверждённых гипотез. Приоритет — проверить систему координат слоёв, размеры и границы рендеринга, затем движение и эффекты.
+- **Найденная ошибка HAIKEIYURE:** локальный режим 0 ранее не продвигал per-layer animation frame. Исправление добавлено в SystemNnnVisualEffectMath / SystemNnnPlayerScreen, регрессионный тест добавлен. Unit CI прошёл на тестовом head, debug APK с runtime-фиксом успешно собран и загружен в Actions run #42382360302. Это не подтверждает полную визуальную корректность режима на устройстве.
+- **Историческая проверка до HAIKEIYURE-фикса:** head 302b0c0b6379c06729fd8d724a26df6e48e8a3cd; эти результаты относятся к более раннему коду и не заменяют проверки с новым исправлением. После runtime-фикса unit CI прошёл на test head 2e799fde (runs #42382482545 и #42382484261), а debug APK с исправлением собран в run #42382360302. Последняя документационная ревизия e2520e4ba425c88ab0ae8abf08747bb9722ccf73 проверяется Android CI run #42388814759 (сейчас in progress); эта CI-проверка не является визуальной приёмкой и APK для последней docs-only ревизии отдельно не собирался.
+- **Нельзя заявлять:** полную совместимость System-NNN, точное совпадение всех эффектов, успешное прохождение всей игры или завершённую графическую проверку на устройстве.
+
+**Следующая очередь:** CLOUD (82) — исправить per-layer кадр и геометрию заполнения; затем добавить bounds/alpha diagnostics для CRT и исправить композитинг; затем GRADATION (50) на screen buffer и очистку/порядок глобальных эффектов; отдельно определить SPT-команду для title/interstitial text. После кодовых изменений — unit CI и APK; визуальную приёмку продолжать по словесным симптомам и diagnostic export, так как скриншоты недоступны. Аудио не включать в план, пока пользователь не сообщит о проблеме.
+
+---
+
+# Историческая контрольная точка — 2026-11-05
+
+> `main` остаётся базовой веткой. Целевая работа выполняется в открытом draft PR #28; ничего не слито в `main`.
+
+- **Целевая игра:** *Gore Screaming Show*, только очищенная Steam-сборка с удалённым NSFW-контентом. Не добавлять бинарники игры, извлечённые сценарии или ресурсы в Git.
+- **Рабочая ветка:** `docs/system-nnn-launch-roadmap`; [PR #28](https://github.com/HelterFall/Ramen/pull/28) открыт как draft.
+- **Последний зелёный CI по коду:** [Android CI #362](https://github.com/HelterFall/Ramen/actions/runs/41918800780), точный head `efa7b76411ee517e21cc895201ee0de998b85e4e`. Build, unit tests, lint и debug APK upload прошли. Artifact ID `13366486289`, 11,696,165 bytes, SHA-256 `02027cc8c24caf5e1dc6d8f098f1e35e683cb2e780cd40791c0ca6e56d0eba70`; срок хранения до 2026-11-11. Это не физический device test.
+- **SPT loader:** два индексированных пула проверены на 20 модулях; есть ограниченный разбор record envelope и диагностические Pool 1 / marker scanners.
+- **Частичная VM:** первый поднабор включает PRINT/LPRINT/APPEND, SELECT/CASE и ограниченные CALCU-выражения. Неподдерживаемые COMMAND/FUNCTION и неизвестные коды завершаются явной ошибкой; полной совместимости это не означает.
+- **WGQ fix:** standalone `.wgq` теперь попадает в image catalog только после bounded header probe на поддерживаемую Black Cyc packed-BMP структуру. Если кандидатов нет, поиск продолжается по GPK/GTB в других папках. Это не классификатор всех WGQ и не аудиоплеер.
+- **Проект System-NNN:** пользовательский `project.xtx` подтверждает 20 модулей и полный набор sibling SPT-файлов. Новый read-only каталог читает манифест; Activity больше не выбирает `01.spt` автоматически и останавливает multi-module проект с понятной ошибкой. Entrypoint и межмодульные переходы не доказаны. Остальные блокеры: только первая GPK/GTB-пара и первый VPK/VTB-банк, связь реплик с голосом/BGM и сценическими ресурсами, отсутствие полного Android-теста. По текущей схеме `sys.spt` не имеет обычного `film 0`, а у остальных 19 модулей он ведёт на границу записи; как минимум `backspt` и `01` остаются кандидатами. Pool 2 в `sys` содержит системные подписи и имена части модулей, но dispatch-семантика ещё не доказана. Дополнительно доказано, что descriptor 3 — DWORD pointer vector: первые descriptor4 slots указывают на `SYSTEM_FUNCTION 0x3333/81`, остальные — на `0x3333/80` во всех 20 модулях (1 028 targets). `sys` имеет 3 reserved targets и 0 ordinary film targets; это подтверждает таблицу, но не boot handoff. Дополнительно для 948 обычных фильмов найден повторяющийся структурный шаблон: `0x3333/0x50` → соседний `0x3333/0x52` → один `0x3333/0x1A` перед `0x5556/0x0C`. По точной форме payload `[1, Pool2Index]` найдена 511 ссылка на строки Pool 2, совпадающие с именами модулей; это кандидаты на jump-target references, но не доказанные переходы. Уточнение по 15 совпадающим ссылкам `0x3333/0x1A`/`0x3333/0x1B`: они указывают на один Pool 2 index в том же модуле, но находятся в разных film intervals (13 id1B раньше, 2 позже); это не локальная пара команд. Все семь затронутых кодов также ссылаются на не-модульные строки Pool 2, поэтому переходы не доказаны.
+- **UI:** System-NNN помечается как экспериментальный запуск с частичной поддержкой команд. Не называть игру полностью поддерживаемой.
+- **Сохранять без регрессий:** Resource Inspector, подтверждённое пользователем чтение текущих GPK/GTB и VPK/VTB, ZIP/folder import и отсутствие искусственного лимита 512. Добавлен per-game `.txt` export структуры: дерево папок (включая пустые), файлы и размеры; быстрый режим не читает содержимое и не хеширует файлы.
+- **Правило безопасности данных:** никакие материалы из NSFW-издания не добавлять, не восстанавливать и не использовать как замену очищенной Steam-сборке.
+
+**Следующий приоритет:** использовать новый `.txt` structure report для быстрого сопоставления каталогов/файлов и поиска структуры модулей; затем продолжить разбор подтверждённых module-dispatch ссылок. Не повторять уже записанные инвентаризации.
+
+---
+
 # Ramen — единый handoff проекта
 
 > **Каноническое состояние на 2026-11-04:** рабочая и базовая ветка проекта теперь `main`. PR #27 (`feat/system-nnn-spt-loader`) успешно влит merge-коммитом `026ef6cdf1d2d9150fe858c88be5bb2d4a0b06e5`. Это состояние соответствует исходникам, проверенным успешным Actions run #278 до слияния. Не начинай новую работу со старой ветки `feat/system-nnn-spt-loader`: создавай новые feature-ветки от актуального `main`.
@@ -16,6 +59,7 @@
 - Этот файл: https://github.com/HelterFall/Ramen/blob/main/HANDOFF.md
 - Слияние PR #27: https://github.com/HelterFall/Ramen/pull/27
 - SPT-заметки: [docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md](docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md)
+- Карта запуска System-NNN и журнал этой работы: [docs/SYSTEM_NNN_LAUNCH_ROADMAP.md](docs/SYSTEM_NNN_LAUNCH_ROADMAP.md)
 - Хронологический журнал: [docs/DEVELOPMENT_LOG.md](docs/DEVELOPMENT_LOG.md)
 - Матрица веток и сборок: [docs/BUILD_MATRIX.md](docs/BUILD_MATRIX.md)
 
@@ -149,6 +193,7 @@ Ramen — Android-first библиотека и плеер визуальных 
 | `docs/INVENTORY_REPORT_SCHEMA.md` | JSON schema v1 для directory inventory |
 | `docs/DEVELOPMENT_LOG.md` | Хронология и долговременные handoff-записи |
 | `docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md` | Наблюдения из присланного SPT анализа |
+| `docs/SYSTEM_NNN_LAUNCH_ROADMAP.md` | Пошаговый план запуска System-NNN, риски, критерии готовности и журнал работ |
 | `docs/ROADMAP.md` | Историческая roadmap; статусы M0–M4 частично устарели |
 
 **При конфликте старых статусов в документах используй этот HANDOFF и проверяй код соответствующей ветки.** Следующий документальный проход должен синхронизировать перечисленные устаревшие страницы.
@@ -518,3 +563,178 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - System-NNN остаётся экспериментальным: запуск подключён, но semantics SPT decoder и end-to-end совместимость требуют дальнейшего исследования.
 - PR #25/#26 по-прежнему нуждаются в отдельном аудите; не считай их целиком интегрированными.
 
+
+
+## Дополнение 2026-11-05 — дополнительные признаки boot-path
+
+- `sys.spt` не имеет обычного slot `film 0` по текущей схеме таблиц, в отличие от остальных 19 SPT-модулей.
+- Все 19 обычных `film 0` target values попадают точно на границы разобранных command records; среди первых кандидатов — `backspt` и `01`, но уникального entrypoint это не даёт.
+- Вторичный Pool 2 в `sys.spt` содержит 17 строк, включая системные подписи и 14 имён модулей. Три функции `0x3333/81` используют индексы трёх системных подписей.
+- Это поддерживает гипотезу о специальном системном/UI-пути через `sys`, но не доказывает, куда и как он передаёт управление. Нужен разбор конкретного dispatch.
+
+
+## Дополнение 2026-11-05 — каталог сцен и кандидаты межмодульных ссылок
+
+- PR #28 остаётся открытым Draft, base = main. Изменения продолжаются только в docs/system-nnn-launch-roadmap; main не менялся.
+- Новый архив hui(4).zip исследован read-only. scene.dat имеет version 1, declared size 1164, record count 69 и корректно заканчивается на EOF. Типы/значения строк сохранены как непрозрачные UInt32-поля, без выдумывания семантики.
+- nya/scenevoice.xtx содержит 69 уникальных последовательных идентификаторов @sc01–@sc69. Файл использует CRLF.
+- Для 01.spt descriptor 3 имеет 69 указателей, descriptor 4 задаёт 2 зарезервированных элемента, значит обычных film slots 67. Три независимых количества 69 (scene.dat, scenevoice, descriptor 3) пока доказывают только совпадение cardinality, но не соответствие по индексу.
+- В PR добавлены:
+  - SystemNnnSceneCatalogReader — bounded parser scene.dat, CRLF-safe extraction @scNN, count-only comparison with film table. Поле sameIndexMappingProven намеренно false.
+  - SystemNnnModuleReferenceScanner — read-only сканер точных payload [1, Pool2Index], указывающих на строки, совпадающие с именами project.xtx. Сохраняет offset/type/code/source/target, но не объявляет их вызовами или переходами.
+  - Synthetic unit tests для обоих анализаторов. Игровые бинарники, диалоги и ассеты в Git не добавлялись.
+- Независимый повтор предиката на 20 модулях архива находит те же 511 ссылок на имена модулей. Негативный контроль сохраняется: те же типы записей ссылаются на множество обычных Pool 2 строк; runtime-переходы не включать.
+- Следующий этап: побайтно сопоставить каждую строку scene.dat с payload соответствующего указателя descriptor 3 и @scNN; затем исследовать 511 кандидатов в пределах конкретных film intervals и control-flow. Модульные call/return и автоматический выбор entrypoint не реализовывать до доказанного target/return behavior.
+- CI для нового кода должен быть подтверждён на итоговом head. Физическое устройство и полное прохождение игры не проверялись.
+
+
+### Дополнение 2026-11-05 — индекс исходного film для ссылок на модули
+
+- SystemNnnCommandStreamReader теперь отдаёт полный проверенный descriptor-3 pointer vector через filmTableEntries(): table index, ordinary film number (null для reserved prefix), target command offset.
+- SystemNnnModuleReferenceScanner добавляет к каждой точной ссылке на module-name строку ближайший предшествующий физический film-entry target: sourceFilmTableIndex и sourceFilmNumber.
+- Это только привязка к исходному интервалу по физическому положению. Она не доказывает, что строковая ссылка вызывает модуль, и не устанавливает целевой film в принимающем модуле.
+- Добавлен синтетический тест с reserved-prefix элементом и двумя обычными film intervals.
+- Первый CI #379 выявил ошибку в отрицательном тестовом fixture: запись объявляла 4 DWORD, хотя содержала 5. Fixture исправлен на валидные 5 DWORD с некандидатным reference tag. Исправленный head ожидает завершения CI; зелёный результат пока не заявлять.
+- Следующий шаг: сгруппировать кандидатов по (source module, source film, record family/code, target module) и исследовать соседние branch/control records. VM-вызовы, call stack и module auto-start не включать до подтверждения destination film и return convention.
+
+
+### Результат независимой группировки кандидатов по исходным film-интервалам
+
+- Повторный анализ 20 SPT из hui(4).zip подтвердил, что все 511 точных ссылок на имена модулей имеют preceding ordinary film-table owner.
+- 511 кандидатов распределены по 173 различным исходным film-интервалам в 7 модулях: 01 (2), 03 (19), akane (49), aoi (173), kiika (213), yamiko (17), yuka (38).
+- Это подтверждает структурную привязку ссылок к исходным film-интервалам, но не модульный переход/вызов и не целевой film.
+- 15 ссылок 0x3333/0x001A и соответствующие same-index 0x3333/0x001B остаются в разных исходных film-интервалах (13 раньше / 2 позже), не являются локальной парой call/return.
+- Следующий шаг: создать детерминированный диагностический отчёт module → source film → record family/code → target Pool 2 string и сравнить соседние control-flow records. Автоматический module dispatch и call stack остаются выключенными.
+
+
+### Новый диагностический экспорт ссылок на модули
+
+- В SystemNnnModuleReferenceCandidate теперь есть границы исходного film-интервала и предыдущая/следующая запись из того же интервала. Для соседей хранятся только offset, identifier type, code family/id, длина и максимум 4 непрозрачных DWORD payload.
+- Добавлен SystemNnnModuleReferenceReportWriter: детерминированный UTF-8 отчёт по project → module → source film → кандидаты; максимум 20 000 кандидатов; текст реплик и игровые ресурсы не экспортируются; вызывающий код владеет потоком.
+- В Resource Inspector → "Текстовые данные" добавлена кнопка "Сохранить карту ссылок на модули (.txt)". Экспорт идёт в фоне, читает все найденные project.xtx и их sibling SPT, сохраняет предупреждения по отдельным модулям и использует системный Android CreateDocument.
+- CI #394 на предыдущем head обнаружил, что синтетические строки 0x3333/0x50 и 0x3333/0x52 в тесте сами совпадали с фильтром [1, Pool2Index]. Тестовый fixture исправлен: эти записи больше не ссылаются на имя целевого модуля. Следующий CI должен подтвердить исправление и новый экспорт.
+- Этот экспорт остаётся диагностикой. Автоматический выбор стартового модуля, module call/return и проигрывание сцен не включены.
+
+
+### 2026-11-05 — фактические script-control переходы
+
+- По 20 SPT из hui(4).zip найдено 29 type-2 CONTROL записей family 0x5556 с одним Pool 2 операндом, точно разрешающимся в имя из project.xtx:
+  - 14 SCRIPT из sys → op1, 01, 02, 03, 04, 05, 06, 07, 08, 082, akane, aoi, kiika, day;
+  - 3 SCRIPTJUMP: 01 → yuka; 03 → yamiko; yuka → yuka2;
+  - 12 SUBSCRIPT → _staff из 03 (1), akane (3), aoi (3), kiika (3), yamiko (1), yuka (1).
+- Публичный NNNLib source другой игры (pinned tinyan/SystemNNN@78a05053c78b3b80065a9a209c6685a7c60a2e83) подтверждает семейные имена кодов и общий механизм загрузки spt/<module>.spt, но не доказывает target-specific return behavior. SCRIPT/SUBSCRIPT в reference используют вложенный script level; SCRIPTJUMP заменяет текущий.
+- Тот же источник определяет 0x3333/0x0053 как CONFIGMASK; предыдущие 13 совпадений _staff у этого кода — не переходы.
+- Добавлен read-only SystemNnnScriptTransferScanner и тесты. Resource Inspector экспортирует SCRIPT-переходы отдельно от общих строковых ссылок.
+- Native transfer dispatch проверен по самому `hui/gss.exe`: SCRIPT/SUBSCRIPT/SCRIPTJUMP читают только Pool 2 DWORD по смещению record+0x0C, передают имя модуля callback и продвигают PC на длину текущей записи. DWORD по record+0x10 — начало следующей записи (её length), но target handler не использует его как selector. Поэтому ViewModel сохраняет точный caller continuation `record.endOffsetExclusive`; speculative `returnSelectorCandidate` удалён. Не переносить `AdjustScriptCall` из другого NNNLib title.
+
+
+### 2026-11-05 — локальные SUB связаны с descriptor 3
+
+- Все 1 069 CONTROL SUB (0x5556/0x0009) из 20 модулей имеют два DWORD операнда. Первый находится в диапазоне descriptor 3 и указывает на валидный 5-DWORD function record 0x3333/0x50 или reserved 0x3333/0x51.
+- Второй операнд в каждом модуле — уникальная плотная нумерация локальных SUB ID от 0 до N−1.
+- SUB по модулям: sys 9, backspt 22, 01 65, 02 50, 03 182, 04 67, 05 37, 06 9, 07 27, 08 16, 082 58, akane 105, aoi 89, kiika 115, yamiko 68, yuka 109, day 8, op1 19, yuka2 13, _staff 1.
+- CONTROL RETURN записей 1 008, поэтому не сопоставлять их попарно с SUB по порядку.
+- Добавлен read-only SystemNnnLocalSubroutineScanner; экспорт показывает SUB ID → descriptor3 slot → target offset/function.
+- Выполнение SUB/RETURN и runtime call stack остаются выключенными до доказательства target-specific return behavior.
+### 2026-11-05 — SETFILM and film block sequence
+
+- Проверка 20 SPT по физическим descriptor-3 интервалам: все 948 ordinary films имеют ровно одну SYSTEM_FUNCTION 0x3333/0x001A SETFILM с payload [1, N], за которой следует CONTROL 0x5556/0x000C ENDFILM.
+- Для всех 948 N = descriptor3 tableIndex - reservedPrefixCount + 1. Ошибок/пропусков/дубликатов в ordinary intervals не найдено.
+- В NNNLib reference SystemFunctionSetFilm сохраняет N−1 как текущий film number активного SPT. ENDFILM передаёт управление outer loop, это не общий конец приложения. При локальном SUB после ENDFILM следующая CONTROL RETURN возвращает к сохранённому PC.
+- Ramen декодирует SETFILM, валидирует номер относительно descriptor3 owner, сохраняет currentFilmNumber в состоянии ViewModel; ENDFILM теперь последовательный переход к следующей записи, CONTROL END остаётся концом управляющего потока.
+- Добавлен интеграционный тест: SUB → descriptor3 target → SETFILM → ENDFILM → RETURN → caller continuation.
+- Связь 69 строк scene.dat / 69 @scNN / 69 descriptor3 в 01.spt всё ещё только совпадение количества, не доказанное сопоставление по индексу. Gallery navigation, межмодульные SCRIPT, sys startup и физическое прохождение на устройстве не реализованы.
+
+### 2026-11-05 — project routing and native scene.dat
+
+- Реализована межмодульная маршрутизация по CONTROL SCRIPT (0x5556/0x0A), SUBSCRIPT (0x5556/0x16), SCRIPTJUMP (0x5556/0x15). В целевых записях один DWORD Pool 2, который разрешается в токен модуля project.xtx. Ramen сохраняет точный command continuation сам: SCRIPT/SUBSCRIPT push, SCRIPTJUMP replace, NEXT pop/return, END reset sys, EXIT завершает.
+- Подгружаются все 20 модулей основного spt/project.xtx; альтернативный !eng files выбирается только если основной отсутствует и альтернативный manifest единственный.
+- IF/ELSIF/ELSE теперь вычисляет bounded RPN и пропускает brace-block по длине. Переменные общие между module decoders, local SUB stack остаётся отдельным для каждого.
+- Исправлен scene.dat parser: layout fileSize + characterCount + character groups; внутри sceneCount, затем строки sptNumber, filmCount, filmNumbers[]. abs(sptNumber) — прямой индекс project.xtx; abs(filmNumber)-1 — нулевой film index внутри соответствующего SPT. Минус у sptNumber отмечает H-scene; минус у filmNumber отключает completion tracking, но фильм остаётся воспроизводимым.
+- В primary archive: 1 character group, 69 scene rows, 150 film references; индексы модулей: 4→03, 10→082, 11→akane, 12→aoi, 13→kiika, 14→yamiko, 15→yuka, 18→yuka2. Все 150 film refs валидны внутри descriptor3 своего модуля; 43 помечены отрицательным значением и не участвуют в completion checks.
+- Activity готовит module list, descriptor3 offsets и scene.dat. Запуск scene route доступен через EXTRA_SCENE_CHARACTER_INDEX, EXTRA_SCENE_INDEX и необязательный EXTRA_SCENE_FILM_CHOICE_INDEX.
+- ENDFILM в normal story режиме продолжает поток; в scene replay запускает следующий фильм этой строки scene.dat, после последнего заканчивает replay.
+- Видимый gallery picker ещё не добавлен. CI/APK/автотесты не запускались по запросу.
+
+
+### 2026-11-05 — target SPT transfer return path verified from native executable
+
+- Source: cleaned user archive `hui(5).zip`; no script dialogue/media was extracted.
+- PE32/i386 `hui/gss.exe`: transfer handlers at VA `0x00417000` (SCRIPT), `0x00417059` (SUBSCRIPT), `0x004170B2` (SCRIPTJUMP). Each reads only the Pool 2 index at record+0x0C, resolves the module name, calls the transfer callback, then advances the active PC by the current record length. No selector read at record+0x10 occurs.
+- The following DWORD is only the next record length. Keep exact caller continuation in the module frame; remove any saved selector candidate. The earlier family-source interpretation of `m_stack[253]` / `AdjustScriptCall` belongs to another title/save-restore path and is not target runtime behavior.
+- Existing SCRIPT/SUBSCRIPT push and SCRIPTJUMP replace behavior remain. Follow-up native disassembly of `gss.exe` at VAs `0x00409ACC`, `0x0040E560`, `0x00411CB0` and `0x004106E0` confirms exactly three executor slots (modes 0..2): sys/controller at slot 0, main module at slot 1, nested module at slot 2. Normal project start allows at most 2 call frames; direct scene replay starts from slot 1 and allows 1. The callback's Japanese overflow warning says no further lower-level script may be called. Ramen rejects overflow instead of overwriting slot 2. No CI, tests, lint or APK build were run, per current direction; no on-device/end-to-end test is claimed.
+
+
+### 2026-11-06 — native SELECT/CASE verification
+
+- Target `gss.exe`: SELECT handler at VA `0x0041720A`; CASE lookup at VA `0x00417570`.
+- Full scan of all 20 primary SPT modules: 46 SELECT records; all option/prefix Pool 2 indexes resolve, and each SELECT has CASE numbers exactly `1..N` (N=1..4). The one prefix-row case is handled by the existing decoder. All 104 case bodies are brace-wrapped and use spans that resolve to the next CASE boundary after skipping a closing brace when present.
+- All 46 records use the extended shape: `recordLengthWords = optionCount + prefixCount + 8`. After the option/prefix text references are three opaque metadata DWORDs, followed by the final prefix-count DWORD. All 138 metadata values are zero; prefix count is nonzero only once (`op1`, value 1).
+- Native SELECT handler `0x0041720A` reads the final DWORD as prefix count and forwards the two immediately preceding metadata DWORDs in its UI callback payload. The earlier of the three metadata DWORDs is not accessed by this dispatch path; its possible `selectSerial` role remains unproven.
+- `GetCase` at `0x00417570` receives the requested 1-based CASE number as a separate argument and searches the CASE records for that number. No evidence ties the suspected `selectSerial` word to CASE routing. The decoder intentionally leaves all three metadata DWORDs opaque; there is no nonzero sample in this archive from which to infer their runtime effect.
+- Corrected initial brace handling: target GetCase skips an initial wrapper OPEN_BRACE by record length only. Ramen previously skipped the full brace span; it now mirrors the native behavior. Added a regression test with an outer wrapper brace.
+- No CI/tests/lint/APK build run per current direction. The new regression test is committed but not executed.
+
+### 2026-11-06 — native IF/ELSIF/ELSE and CALCU verification
+
+- Target `gss.exe` IF dispatch at VA `0x00416611` evaluates the bounded RPN condition and branches on signed-positive result (`eax > 0`). A true condition resumes immediately after the IF/ELSIF record so its body executes.
+- The false path advances past the condition record, skips the following OPEN_BRACE span, and resumes at the next ELSIF/ELSE marker. Once one branch has been taken, later ELSIF/ELSE markers skip their own bodies. Existing Ramen `decodeIfBranch`, `skipFollowingBranch` and `skipBraceBlock` match these transitions for the observed archive structures.
+- Full scan of all 20 primary SPT modules: 490 IF/ELSIF/ELSE records; all 490 have bounded brace bodies whose declared spans land on valid record boundaries. Longest observed ELSIF chain is 11 (the runtime guard remains 64).
+- The 341 inline-RPN IF/ELSIF records use only variable, number, inclusive comparison, logical, and strict comparison token families. Observed operators are covered by the current evaluator; no unhandled token family appeared in this conditional set.
+- Confirmed one CALCU mismatch in native `gss.exe` at VA `0x00417690`: integer divide and modulo replace a zero divisor with 1 before the native divide operation. The same fallback is used by compound divide/modulo. Ramen now mirrors that behavior rather than throwing on a zero divisor.
+- Added synthetic tests for false IF→ELSIF→ELSE traversal, skipping later alternatives after a true IF, and the division-by-zero fallback. Tests were not run, per current direction.
+
+### 2026-11-06 — project-level System-NNN asset manager
+
+- Metadata-only inventory of the cleaned `hui(5).zip`: `hui/dwq/sc0.gtb` + `sc0.gpk` is one indexed image bank with 69 rows; `hui/cdvaw/gg.vtb` + `gg.vpk` is one indexed Ogg audio bank with 90 rows and a terminal VTB offset sentinel.
+- The same archive also contains two loose `.vaw` files (`vaw/se/asioto.vaw`, `vaw/sys/01kagami_off.vaw`) without a VTB index, plus `wgq/gss01_1.wgq` with a `PACKTYPE=6` Ogg signature and no GTB. These remain catalogued as unindexed candidates; no playback/index relationship is inferred.
+- Added `SystemNnnAssetManager`: discovers all same-stem GTB↔GPK/WGQ and VTB↔VPK/VAW pairs below the imported game directory, validates each pair through the existing bounded parsers, exposes path-derived bank IDs/counts/warnings, and keeps image/audio index spaces separate.
+- Name lookup must resolve to one bank. Unqualified numeric image/voice indexes work only with exactly one bank in that namespace; multiple banks require an explicit bank ID. No concatenated global index is invented.
+- The manager implements both the scene bitmap resolver and audio repository contract and is now injected into the player for both services. Close is idempotent because the ViewModel releases both interfaces independently.
+- Image/audio payloads remain in the imported folder; images decode on demand and selected Ogg streams are staged in app cache. Added synthetic tests for multiple image banks, duplicate-name/index ambiguity, VTB/VPK discovery, and an unindexed WGQ candidate.
+- No CI, tests, lint or APK build was run. The standalone `PACKTYPE=6` WGQ and loose VAW candidates are catalogued but not yet decoded or mapped to SPT commands.
+
+- Follow-up native asset disassembly: `gss.exe` formats `wgq\\%s.mml` and `wgq\\%s.wgq` from the same resource token in the loader at VA `0x0047B440`. It first attempts the MML path; if that open fails, it tries the WGQ path and loads that file instead. A separate loader at VA `0x0047B060` opens `wgq\\%s.wgq`, seeks past the 64-byte preamble, and passes the remaining file stream to a dedicated reader/decoder at `0x0047B790`.
+- The archive contains `wgq/gss01_1.wgq` and `wgq/gsstxt01.mml`; the basenames differ. The code path uses one supplied token for both candidate paths, so there is no evidence that these two files form one pair. The asset catalog now inventories `.mml` files separately; it does not bind them to WGQ by folder order or proximity.
+- The WGQ stream reader is not yet implemented in Ramen. Do not pass the post-header bytes directly to MediaPlayer merely because this WGQ carries an Ogg signature; the native path uses a dedicated streaming reader.
+
+- Native DWQ image-manager initialization at VA `0x0043C100` enumerates the ten-entry prefix table at `0x493B40`; the non-empty native namespaces are `ta`, `bg`, `ev`, `sc`, `sm`, and `sys`. For each numbered slot it formats `dwq/<prefix><slot>.gtb` and the matching `.gpk`. GTB lookup normalizes ASCII case and searches the indexed names before resolving the GPK block.
+- `SystemNnnAssetBankInfo` now retains the native image namespace and numeric slot when the index filename matches one of those target patterns (for example, `sc0.gtb` → namespace `sc`, slot `0`). Path-derived bank IDs remain the unique catalog keys; this is metadata, not a claim that SPT commands already choose the correct namespace.
+- Candidate archive fallback is deterministic and validated: for a same-stem GTB/VTB, the manager tries preferred extensions first (`GPK` before `WGQ`, `VAW` before `VPK`) and continues to the next candidate if parsing fails. The chosen file is marked paired only after a successful parse. Synthetic tests cover both image and audio fallback cases.
+
+
+### 2026-11-06 — loose VAW/WGQ audio materialization
+
+- Added a separate bounded loose-audio reader for standalone `.vaw`/`.wgq` resources without a VTB row. It recognizes Black Cyc `PACKTYPE=0` WAVE, `PACKTYPE=1` differential PCM, `PACKTYPE=2` Ogg (64-byte resource header + 44-byte descriptor), and `PACKTYPE=6` Ogg with the native `OGG ` tag at header offset 0x10.
+- `PACKTYPE=1` reconstructs signed 16-bit differential samples into a temporary WAVE stream using an LSB-first bit reader. `PACKTYPE=0/2/6` stages only the stream bytes after the native wrapper.
+- `SystemNnnAssetManager` owns this loose-resource repository, exposes validated loose resource metadata, and deletes staged temporary files on close. Name lookup must resolve to one resource; a relative path is available when basenames collide.
+- Indexed audio remains unchanged: the 90 VTB rows are the only numeric dialogue-voice namespace. Loose VAW/WGQ resources are name/path-addressed and are not appended to that index.
+- Added synthetic coverage for PACKTYPE 0, 1 and 6 plus WGQ manager integration. CI, tests, lint and APK builds were not run. No game data, dialogue text or media was committed.
+
+
+- Added explicit `loadBitmapFromNativeBank(namespace, slot, name)` and `loadBitmapByNativeBankIndex(namespace, slot, row)` APIs. They resolve only a unique metadata-matched bank and fail closed on duplicate namespace/slot pairs; no SPT operand is assumed to choose the namespace.
+
+
+### 2026-11-06 — explicit resource identity plumbing in the player
+
+- Extended the scene asset resolver contract with optional native DWQ namespace/slot methods; the asset manager now implements the contract through its existing ambiguity-checked bank lookup.
+- Decoded dialogue/scene events can carry a bank-qualified background name. The ViewModel validates that namespace and slot are supplied together and routes the lookup to that exact bank; numeric GTB and unqualified-name behavior remains unchanged.
+- Decoded dialogue events can also carry an exact audio resource name/path. The ViewModel stages it through the audio repository by name off the UI thread; this makes the existing unique-name loose VAW/WGQ path reachable without adding fake VTB rows.
+- No target SPT opcode is wired to these new fields. The target-specific image namespace/slot and dialogue-to-voice operand mapping remain unproven, so the decoder does not populate them. Tests/CI/lint/APK builds were not run.
+
+
+### 2026-11-06 — read-only resource/audio SYSTEM_FUNCTION inventory
+
+- Added a bounded scanner for family-known resource/audio SYSTEM_FUNCTION IDs (music, voice, sound, DWQ loading, CG/scene selection and related audio controls). The labels come from the pinned NNNLib family reference, not from a target-specific proof of handler semantics.
+- The scanner records module, code ID, record offset/length, the leading payload DWORD, remaining payload word count and at most eight numeric payload DWORDs. The leading-word comparison is diagnostic only, not an argument-arity assertion. It never resolves string-pool indexes, extracts filenames, reads media or executes commands.
+- Extended the Resource Inspector's existing SPT diagnostic export with this section, so the actual imported target modules can be reviewed without changing player behavior.
+- No target opcode is connected to image/audio playback. Tests were added but not run; no CI, lint or APK build was run.
+
+- Follow-up review clarified that the first payload DWORD versus remaining payload-word comparison is diagnostic only. Some family handlers can carry trailing defaults/flags; unequal counts are not treated as target-format errors.
+
+
+- Extended resource/audio candidate rows with previous/next record contexts (numeric previews only) and, when validated descriptor-3 entries exist, source film-table index/number and the bounded film interval. Neighbour context is clipped to that interval.
+- The film interval lookup uses binary search over the validated, physically sorted descriptor-3 entries; neighbour previews are capped at four DWORDs.
+- Added a synthetic two-film pointer-table fixture to verify resource-function neighbour context stops at the next validated film start and preserves the correct film number. The fixture is source-only; tests remain unrun.
+
+- Resource/audio shape summary now includes per-position DWORD frequency tables across the first eight payload words; each position lists presence count and up to 16 common numeric values. These are raw distributions, not decoded resource IDs.

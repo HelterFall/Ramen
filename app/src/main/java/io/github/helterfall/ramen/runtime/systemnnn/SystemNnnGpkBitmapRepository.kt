@@ -91,6 +91,17 @@ class SystemNnnGpkBitmapRepository private constructor(
 
     fun loadBitmap(index: Int): Bitmap? = loadBitmapByIndex(index.toLong())
 
+    /** Exact, case-insensitive name lookup used by the project-level asset catalog. */
+    fun hasResourceName(resourceId: String): Boolean {
+        if (wgqFiles.isNotEmpty()) {
+            return wgqFiles.any { file ->
+                file.name.equals(resourceId, ignoreCase = true) ||
+                    file.nameWithoutExtension.equals(resourceId, ignoreCase = true)
+            }
+        }
+        return archive.entries.any { it.name.equals(resourceId, ignoreCase = true) }
+    }
+
     fun loadBitmapAtBlockOffset(blockOffset: Long): Bitmap? {
         if (archiveSource == null) return null
         val entry = archive.entries.firstOrNull { it.blockOffset == blockOffset } ?: return null
@@ -100,27 +111,7 @@ class SystemNnnGpkBitmapRepository private constructor(
     private fun decodeWgq(index: Int): Bitmap {
         val file = wgqFiles.getOrNull(index)
             ?: throw IOException("WGQ image index is outside the resource catalog.")
-        val decoded = ResourceArchiveParsers.decodeBlackCycWgqFile(file)
-        val bitmap = try {
-            Bitmap.createBitmap(decoded.width, decoded.height, Bitmap.Config.ARGB_8888)
-        } catch (failure: RuntimeException) {
-            throw IOException("Could not allocate the decoded WGQ bitmap.", failure)
-        }
-        try {
-            bitmap.setPixels(
-                decoded.argbPixels,
-                0,
-                decoded.width,
-                0,
-                0,
-                decoded.width,
-                decoded.height
-            )
-        } catch (failure: Exception) {
-            bitmap.recycle()
-            throw IOException("Could not copy decoded WGQ pixels into the bitmap.", failure)
-        }
-        return bitmap
+        return imageDecoder.decodeStandaloneWgq(file)
     }
 
     private fun findEntry(resourceId: String): GpkImageResource? {
@@ -177,12 +168,11 @@ class SystemNnnGpkBitmapRepository private constructor(
 
             val wgqDirectory = File(gameDirectory, "wgq")
             if (wgqDirectory.exists()) {
-                val wgqFiles = ResourceArchiveParsers.findBlackCycWgqFiles(wgqDirectory)
-                if (wgqFiles.isEmpty()) {
-                    throw IOException("The wgq folder exists but contains no supported .wgq resources.")
-                }
+                val discoveredWgqFiles =
+                    ResourceArchiveParsers.findBlackCycWgqFiles(wgqDirectory)
 
-                // Prefer an indexed .wgq archive if a matching GTB is present.
+                // Preserve support for indexed Black Cyc WGQ archives when an adjacent
+                // GTB proves that the folder contains an indexed resource pair.
                 val gtbFiles = wgqDirectory.walkTopDown()
                     .maxDepth(MAX_GAME_SCAN_DEPTH)
                     .filter { file -> file.isFile && file.extension.equals("gtb", ignoreCase = true) }
@@ -208,8 +198,17 @@ class SystemNnnGpkBitmapRepository private constructor(
                     }
                 }
 
-                // Otherwise each standalone .wgq file is one complete packed DWQ image.
-                return SystemNnnGpkBitmapRepository(wgqFiles, imageDecoder)
+                // A .wgq suffix is shared by unrelated resource types. Only standalone
+                // files with a supported Black Cyc packed-BMP header enter this catalog.
+                val standaloneWgqImages = discoveredWgqFiles.filter { file ->
+                    ResourceArchiveParsers.isBlackCycWgqImageCandidate(file)
+                }
+                if (standaloneWgqImages.isNotEmpty()) {
+                    return SystemNnnGpkBitmapRepository(standaloneWgqImages, imageDecoder)
+                }
+
+                // Do not let an unrelated/unsupported WGQ folder shadow valid GPK/GTB
+                // pairs elsewhere in the game directory (for example, a sibling dwq/).
             }
 
             val indexFiles = gameDirectory.walkTopDown()

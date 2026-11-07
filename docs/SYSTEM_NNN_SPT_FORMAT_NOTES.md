@@ -34,7 +34,7 @@ The script reads four little-endian DWORD pairs at offsets `0x10`, `0x18`, `0x20
 | `0x20` | 69 | `0xC390` (50064) |
 | `0x28` | 2 | `0x0` |
 
-These are observed count/offset pairs. Their exact semantics and record layouts still need to be established. In particular, the count of 1299 and target `0xC5BA` are strong leads for the main table, but the output alone does not prove that its entries are 32-bit scene pointers.
+These are observed count/offset pairs. At the time of this initial dump their exact semantics were unresolved. The third descriptor is now resolved by `SystemNnnCommandStreamReader` as the film-entry DWORD pointer vector, and the fourth descriptor's `entryCount` is the reserved-entry prefix count; see the 2026-11-07 follow-up below. The first and second descriptors and the two trailing DATA/TABLE records remain separate format questions.
 
 ### String and marker observations
 
@@ -86,3 +86,46 @@ The current loader's interpretation of all NUL-delimited data from `0x32B64` onw
 ## Evidence boundary
 
 The two supplied text files contain the analysis script and its printed summary, not the binary SPT sample itself. The recorded byte offsets and values are therefore preserved as reported observations, but cannot be independently re-parsed from the binary in this documentation update.
+
+
+## 2026-11-05 follow-up — target header and trailing DATA/TABLE records
+
+Source: the cleaned user-provided `hui(5).zip`, restricted to the 20 files under `hui/spt/`. The analysis below uses only DWORD structure and command boundaries; it does not extract dialogue or media.
+
+Across all 20 SPT modules:
+- DWORD 0 is `0x14`.
+- Four words at byte offsets `0x40`, `0x44`, `0x48`, and `0x4C` are present; the latter two are zero in every inspected module.
+- The word at `0x40` equals descriptor-3 base plus descriptor-3 entry count. Multiplying it by four gives the byte address immediately after the descriptor-3 DWORD vector.
+- That byte address is the start of a DATA record (`identifier=0x66660001`, `code=0x55550002`) whose first payload marker is `0x44440003`. The word at `0x44` points to the next DATA/TABLE record of the same identifier/code and the same first payload marker. Both records are part of the parsed command stream, not a new command-stream terminator.
+
+The raw marker `0x44440003` is named `TYPE_TABLE_LABEL` in the inspected NNNLib family header. Treat that as a family-level label only; do not infer from it that either target table is a module-return table.
+
+The target `hui/gss.exe` disassembly separately settles transfer behavior: its SCRIPT, SUBSCRIPT and SCRIPTJUMP handlers read only the single Pool 2 operand at record+0x0C and advance PC by the current record length. The following DWORD is the next record length and is not read as a return selector. The earlier experiment where values 3–5 indexed the second DATA/TABLE record and happened to resolve to command boundaries is therefore not an execution rule and must not be used for module returns.
+
+This follow-up supersedes the earlier note that the `0x44` word was still unmapped. It does not establish every purpose of the two DATA/TABLE records; their broader label-table consumers remain a separate format question.
+
+
+The target's native scheduler also corroborates the module-stack behavior: its dispatch loop treats SCRIPT, SUBSCRIPT and SCRIPTJUMP as transfer events, while NEXT reduces the active script-run depth before the parent execution continues. The application therefore keeps the current SCRIPT/SUBSCRIPT push and SCRIPTJUMP replace behavior; the key correction made here is only that the next-record length is not a return selector.
+
+
+## 2026-11-07 follow-up — SPT film-entry table semantics
+
+The command-stream reader now resolves the third and fourth header descriptors rather than leaving them as generic offset metadata:
+
+- Descriptor index 2 (header pair at 0x20/0x24) is the film-entry pointer vector. Its entryCount is the number of DWORD pointers and its logicalBase locates the vector in the SPT code region.
+- Each vector value is a DWORD word-offset to a command-record boundary. The reader multiplies it by four to obtain the byte offset and validates the target record.
+- A reserved entry (table index below descriptor index 3's entryCount) must target a five-DWORD SystemFunction record in family 0x3333, code ID 0x51.
+- A normal film entry must target a five-DWORD SystemFunction record in family 0x3333, code ID 0x50, followed immediately by another five-DWORD SystemFunction record with code ID 0x52.
+- The film number for normal entries is tableIndex minus reservedEntries. Descriptor index 3's entryCount is therefore a reserved-entry prefix count. Its logicalBase is preserved by the header parser but is not consumed by this resolver.
+
+This table maps SPT film numbers to scenario command entry points. It does not contain visual-effect IDs, transformation matrices, per-layer trajectories, or TURN pivot values.
+
+The script command area is not a newline-oriented instruction listing. The current structural reader sees a four-DWORD preamble, a sequence of variable-length records, and a four-DWORD trailer. Each record begins with a DWORD length, a 0x6666xxxx identifier, and a code DWORD; payload words follow. The command decoder interprets selected payloads, while unknown payloads remain bounded and opaque.
+
+The SPT loader's bytewise XOR-0xFF demasking and SPTHEADER[0-9] check at offset 0x30 are implemented. The loader also locates two indexed string pools and decodes their NUL-terminated records as Shift-JIS, preserving raw bytes and decoding-error status. Therefore it is not correct to describe SPT as containing no scenario text at all: the file has both a command region and text pools.
+
+### Do not conflate SPT film tables with GTB resource indexes
+
+If a separate file described as source: 3 is in fact a .gtb file, it is a different structure. GpkGtbArchiveParser reads an entry count, name-offset table, GPK block-offset table, and a NUL-terminated name pool. It does not apply the SPT XOR transform. Those entries resolve image-resource names and archive blocks, not System-NNN effect algorithms.
+
+The exact identity of the user-labelled source: 3 cannot be established from the label alone. The file signature/extension and its bytes decide whether it is an embedded SPT film table or an external GTB resource index.

@@ -58,10 +58,21 @@ import io.github.helterfall.ramen.inspection.VpkAudioResource
 import io.github.helterfall.ramen.inspection.VpkOggCacheMaterializer
 import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
 import io.github.helterfall.ramen.storage.StorageSpaceGuard
+import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
+import io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader
+import io.github.helterfall.ramen.parser.SystemNnnProjectCatalog
+import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceScanner
+import io.github.helterfall.ramen.parser.SystemNnnScriptTransferScanner
+import io.github.helterfall.ramen.parser.SystemNnnLocalSubroutineScanner
+import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceReportWriter
+import io.github.helterfall.ramen.parser.SystemNnnModuleReferenceProjectReport
+import io.github.helterfall.ramen.parser.SystemNnnResourceFunctionScanner
+import io.github.helterfall.ramen.parser.SystemNnnResourceFunctionCandidate
 
 import io.github.helterfall.ramen.inspection.VpkVtbArchiveParser
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.util.Locale
 import java.util.concurrent.CopyOnWriteArraySet
 import java.util.concurrent.Executors
@@ -85,7 +96,8 @@ private enum class ResourcePairKind(
 
 private enum class ResourceTab {
     IMAGES,
-    AUDIO
+    AUDIO,
+    TEXT
 }
 
 private data class SelectedDocument(
@@ -127,6 +139,32 @@ private data class AudioInspectorState(
     val archiveName: String? = null
 )
 
+private data class TextPoolMetadata(
+    val name: String,
+    val recordCount: Int,
+    val decodingErrorCount: Int,
+    val rawBytes: Long,
+    val addressTableOffset: Long?,
+    val dataOffset: Long?,
+    val endOffset: Long?
+)
+
+private data class TextModuleMetadata(
+    val name: String,
+    val fileSizeBytes: Long,
+    val commandBytes: Int,
+    val pools: List<TextPoolMetadata>,
+    val scanError: String? = null
+)
+
+private data class TextInspectorState(
+    val modules: List<TextModuleMetadata> = emptyList(),
+    val message: String = "Открой инспектор из импортированной игры, чтобы просмотреть структуру SPT.",
+    val projectManifestCount: Int = 0,
+    val isExportingModuleReferences: Boolean = false,
+    val exportMessage: String? = null
+)
+
 /**
  * Diagnostic resource browser for the sample-backed GPK/GTB and VPK/VTB formats.
  *
@@ -143,8 +181,11 @@ class ResourceInspectorActivity : ComponentActivity() {
 
     private val imageState = mutableStateOf(ImageInspectorState())
     private val audioState = mutableStateOf(AudioInspectorState())
+    private val textState = mutableStateOf(TextInspectorState())
     private val discoveredPairsState = mutableStateOf<List<ResourceArchivePair>>(emptyList())
     private val sourceFolderMessageState = mutableStateOf<String?>(null)
+    @Volatile
+    private var importedGameRoot: File? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -153,6 +194,7 @@ class ResourceInspectorActivity : ComponentActivity() {
             ResourceInspectorScreen(
                 imageState = imageState.value,
                 audioState = audioState.value,
+                textState = textState.value,
                 discoveredPairs = discoveredPairsState.value,
                 sourceFolderMessage = sourceFolderMessageState.value,
                 onBack = { finish() },
@@ -162,7 +204,8 @@ class ResourceInspectorActivity : ComponentActivity() {
                 onSelectImage = { resource -> decodeImage(resource) },
                 onPlayAudio = { resource -> playAudio(resource) },
                 onTogglePlayback = { togglePlayback() },
-                onStopPlayback = { stopPlayback() }
+                onStopPlayback = { stopPlayback() },
+                onExportModuleReferences = { uri -> saveModuleReferenceReport(uri) }
             )
         }
 
@@ -245,20 +288,188 @@ class ResourceInspectorActivity : ComponentActivity() {
                     throw IOException("Папка игры не найдена в приватном хранилище Ramen.")
                 }
 
+                importedGameRoot = gameRoot
                 val pairs = discoverResourcePairs(gameRoot)
+                val textModules = discoverScriptModules(gameRoot)
+                val projectFiles = discoverProjectCatalogFiles(gameRoot)
                 runOnUiThread {
                     discoveredPairsState.value = pairs
-                    sourceFolderMessageState.value = if (pairs.isEmpty()) {
-                        "В импортированной папке не найдены пары GPK/GTB или VPK/VTB."
-                    } else {
-                        "Найдено пар ресурсов: ${pairs.size}. Выбери нужную пару ниже."
+                    textState.value = TextInspectorState(
+                        modules = textModules,
+                        projectManifestCount = projectFiles.size,
+                        message = if (textModules.isEmpty()) {
+                            "В импортированной папке не найдены корректные SPT-модули."
+                        } else {
+                            "Найдено SPT-модулей: ${textModules.size}. Ниже показана структура пулов без текста сценария."
+                        }
+                    )
+                    sourceFolderMessageState.value = when {
+                        pairs.isNotEmpty() && textModules.isNotEmpty() ->
+                            "Найдено пар ресурсов: ${pairs.size}; SPT-модулей: ${textModules.size}."
+                        pairs.isNotEmpty() ->
+                            "Найдено пар ресурсов: ${pairs.size}. Выбери нужную пару ниже."
+                        textModules.isNotEmpty() ->
+                            "Пары GPK/GTB и VPK/VTB не найдены; SPT-модулей: ${textModules.size}."
+                        else ->
+                            "В импортированной папке не найдены пары ресурсов или корректные SPT-модули."
                     }
                 }
             } catch (error: Exception) {
+                importedGameRoot = null
                 runOnUiThread {
                     discoveredPairsState.value = emptyList()
+                    textState.value = TextInspectorState(
+                        message = error.message ?: "Не удалось просканировать SPT-модули."
+                    )
                     sourceFolderMessageState.value =
                         error.message ?: "Не удалось просканировать папку игры."
+                }
+            }
+        }
+    }
+
+
+    private fun discoverProjectCatalogFiles(root: File): List<File> {
+        val found = root.walkTopDown()
+            .maxDepth(MAX_SCRIPT_SCAN_DEPTH)
+            .filter { file ->
+                file.isFile &&
+                    !Files.isSymbolicLink(file.toPath()) &&
+                    file.name.equals("project.xtx", ignoreCase = true)
+            }
+            .take(MAX_PROJECT_MANIFESTS + 1)
+            .toList()
+
+        if (found.size > MAX_PROJECT_MANIFESTS) {
+            throw IOException("В игре найдено слишком много project.xtx для диагностического экспорта.")
+        }
+        return found.sortedBy { it.relativeTo(root).invariantSeparatorsPath }
+    }
+
+    private fun saveModuleReferenceReport(uri: Uri) {
+        val gameRoot = importedGameRoot
+        if (gameRoot == null) {
+            textState.value = textState.value.copy(
+                exportMessage = "Импортированная папка игры больше недоступна."
+            )
+            return
+        }
+
+        textState.value = textState.value.copy(
+            isExportingModuleReferences = true,
+            exportMessage = "Собираю карту системных функций и ссылок на ресурсы…"
+        )
+        worker.execute {
+            try {
+                val projectFiles = discoverProjectCatalogFiles(gameRoot)
+                if (projectFiles.isEmpty()) {
+                    throw IOException("В импортированной игре не найден project.xtx.")
+                }
+
+                val scriptLoader = SystemNnnScriptLoader()
+                val streamReader = SystemNnnCommandStreamReader()
+                val scanner = SystemNnnModuleReferenceScanner(streamReader)
+                val transferScanner = SystemNnnScriptTransferScanner(streamReader)
+                val localSubroutineScanner = SystemNnnLocalSubroutineScanner(streamReader)
+                val resourceFunctionScanner = SystemNnnResourceFunctionScanner()
+                val reports = projectFiles.map { projectFile ->
+                    val projectPath = projectFile.relativeTo(gameRoot).invariantSeparatorsPath
+                    try {
+                        val catalog = SystemNnnProjectCatalog.load(projectFile)
+                        val modules = catalog.resolveModules(projectFile)
+                        val candidates =
+                            ArrayList<io.github.helterfall.ramen.parser.SystemNnnModuleReferenceCandidate>()
+                        val scriptTransfers =
+                            ArrayList<io.github.helterfall.ramen.parser.SystemNnnScriptTransferCandidate>()
+                        val resourceFunctionCandidates =
+                            ArrayList<SystemNnnResourceFunctionCandidate>()
+                        var unresolvedTransferTargets = 0
+                        var localSubroutineScan: io.github.helterfall.ramen.parser.SystemNnnLocalSubroutineScanResult? = null
+                        val warnings = ArrayList<String>()
+
+                        modules.forEach { module ->
+                            try {
+                                val script = scriptLoader.load(module.scriptFile)
+                                val stream = streamReader.read(script)
+                                resourceFunctionCandidates += resourceFunctionScanner.scan(
+                                    sourceModuleName = module.name,
+                                    script = script,
+                                    stream = stream
+                                ).candidates
+                                candidates += scanner.scan(
+                                    sourceModuleName = module.name,
+                                    script = script,
+                                    stream = stream,
+                                    projectModuleNames = catalog.moduleNames
+                                )
+                                val transferResult = transferScanner.scan(
+                                    sourceModuleName = module.name,
+                                    script = script,
+                                    stream = stream,
+                                    projectModuleNames = catalog.moduleNames
+                                )
+                                scriptTransfers += transferResult.candidates
+                                unresolvedTransferTargets += transferResult.unresolvedTargetCount
+                                localSubroutineScan = localSubroutineScanner.scan(
+                                    sourceModuleName = module.name,
+                                    script = script,
+                                    stream = stream
+                                )
+                            } catch (error: Exception) {
+                                warnings += "${module.name}: ${error.message ?: "ошибка чтения SPT"}"
+                            }
+                        }
+
+                        SystemNnnModuleReferenceProjectReport(
+                            projectPath = projectPath,
+                            moduleCount = modules.size,
+                            candidates = candidates,
+                            warnings = warnings,
+                            scriptTransfers = scriptTransfers,
+                            unresolvedScriptTransferTargetCount = unresolvedTransferTargets,
+                            localSubroutineScan = localSubroutineScan,
+                            resourceFunctionCandidates = resourceFunctionCandidates
+                        )
+                    } catch (error: Exception) {
+                        SystemNnnModuleReferenceProjectReport(
+                            projectPath = projectPath,
+                            moduleCount = 0,
+                            candidates = emptyList(),
+                            warnings = listOf(error.message ?: "Не удалось прочитать project.xtx.")
+                        )
+                    }
+                }
+
+                val candidateCount = reports.sumOf { it.candidates.size }
+                val transferCount = reports.sumOf { it.scriptTransfers.size }
+                val localSubroutineCount = reports.sumOf { it.localSubroutineScan?.candidates?.size ?: 0 }
+                val resourceFunctionCount = reports.sumOf { it.resourceFunctionCandidates.size }
+                val resourceFunctionCountDifferences = reports.sumOf { report ->
+                    report.resourceFunctionCandidates.count {
+                        it.countWordEqualsRemainingPayloadWordCount == false
+                    }
+                }
+                val warningCount = reports.sumOf { it.warnings.size }
+                val output = contentResolver.openOutputStream(uri)
+                    ?: throw IOException("Не удалось открыть выбранный документ для записи.")
+                output.use { stream ->
+                    SystemNnnModuleReferenceReportWriter().write(reports, stream)
+                }
+
+                runOnUiThread {
+                    textState.value = textState.value.copy(
+                        isExportingModuleReferences = false,
+                        exportMessage = "Отчёт сохранён: переходов $transferCount · resource/audio функций $resourceFunctionCount " +
+                            "(различий count/payload $resourceFunctionCountDifferences) · локальных SUB $localSubroutineCount · " +
+                            "обычных ссылок $candidateCount · предупреждений $warningCount."
+                    )
+                }
+            } catch (error: Exception) {
+                runOnUiThread {
+                    textState.value = textState.value.copy(
+                        isExportingModuleReferences = false,
+                        exportMessage = error.message ?: "Не удалось сохранить карту ссылок."
+                    )
                 }
             }
         }
@@ -276,6 +487,50 @@ class ResourceInspectorActivity : ComponentActivity() {
                 displayName = discovered.relativePath
             )
         }
+
+    /**
+     * Builds a metadata-only inventory of the SPT pools for the Text Data tab.
+     * Scenario strings are not copied into UI state or rendered.
+     */
+    private fun discoverScriptModules(root: File): List<TextModuleMetadata> =
+        root.walkTopDown()
+            .maxDepth(MAX_SCRIPT_SCAN_DEPTH)
+            .filter { file ->
+                file.isFile && file.extension.equals("spt", ignoreCase = true)
+            }
+            .take(MAX_DISCOVERED_SCRIPTS)
+            .map { file ->
+                val relativeName = file.relativeTo(root).invariantSeparatorsPath
+                try {
+                    val script = SystemNnnScriptLoader().load(file)
+                    TextModuleMetadata(
+                        name = relativeName,
+                        fileSizeBytes = script.fileSizeBytes,
+                        commandBytes = script.commandByteCount,
+                        pools = script.stringPools.map { pool ->
+                            TextPoolMetadata(
+                                name = pool.name,
+                                recordCount = pool.entries.size,
+                                decodingErrorCount = pool.entries.count { it.hasDecodingErrors },
+                                rawBytes = pool.entries.sumOf { it.rawBytes.size.toLong() },
+                                addressTableOffset = pool.addressTableOffset,
+                                dataOffset = pool.dataOffset,
+                                endOffset = pool.endOffset
+                            )
+                        }
+                    )
+                } catch (error: Exception) {
+                    TextModuleMetadata(
+                        name = relativeName,
+                        fileSizeBytes = file.length(),
+                        commandBytes = 0,
+                        pools = emptyList(),
+                        scanError = error.message ?: "Не удалось прочитать SPT."
+                    )
+                }
+            }
+            .toList()
+            .sortedBy(TextModuleMetadata::name)
 
     private fun loadImportedPair(pair: ResourceArchivePair) {
         if (pair.kind == ResourcePairKind.AUDIO) stopPlayback()
@@ -749,6 +1004,9 @@ class ResourceInspectorActivity : ComponentActivity() {
             "io.github.helterfall.ramen.extra.GAME_RELATIVE_DIRECTORY"
 
         private const val COPY_BUFFER_BYTES = 64 * 1024
+        private const val MAX_SCRIPT_SCAN_DEPTH = 12
+        private const val MAX_DISCOVERED_SCRIPTS = 10_000
+        private const val MAX_PROJECT_MANIFESTS = 32
     }
 }
 
@@ -756,6 +1014,7 @@ class ResourceInspectorActivity : ComponentActivity() {
 private fun ResourceInspectorScreen(
     imageState: ImageInspectorState,
     audioState: AudioInspectorState,
+    textState: TextInspectorState,
     discoveredPairs: List<ResourceArchivePair>,
     sourceFolderMessage: String?,
     onBack: () -> Unit,
@@ -765,7 +1024,8 @@ private fun ResourceInspectorScreen(
     onSelectImage: (GpkImageResource) -> Unit,
     onPlayAudio: (VpkAudioResource) -> Unit,
     onTogglePlayback: () -> Unit,
-    onStopPlayback: () -> Unit
+    onStopPlayback: () -> Unit,
+    onExportModuleReferences: (Uri) -> Unit
 ) {
     var selectedTab by androidx.compose.runtime.remember { mutableStateOf(ResourceTab.IMAGES) }
     var pendingPair by androidx.compose.runtime.remember { mutableStateOf(ResourcePairKind.IMAGES) }
@@ -783,6 +1043,12 @@ private fun ResourceInspectorScreen(
                 onSelectAudioPair(uris)
             }
         }
+    }
+
+    val moduleReportPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("text/plain")
+    ) { uri ->
+        if (uri != null) onExportModuleReferences(uri)
     }
 
     val colors = darkColorScheme(
@@ -820,7 +1086,7 @@ private fun ResourceInspectorScreen(
                         letterSpacing = 1.sp
                     )
                     Text(
-                        "GPK · GTB · VPK · VTB",
+                        "GPK · GTB · VPK · VTB · SPT",
                         color = InspectorMuted,
                         fontSize = 10.sp
                     )
@@ -922,6 +1188,22 @@ private fun ResourceInspectorScreen(
                     }
                 }
             }
+            Spacer(Modifier.height(7.dp))
+            if (selectedTab == ResourceTab.TEXT) {
+                Button(
+                    onClick = { selectedTab = ResourceTab.TEXT },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Текстовые данные · ${textState.modules.size}")
+                }
+            } else {
+                OutlinedButton(
+                    onClick = { selectedTab = ResourceTab.TEXT },
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text("Текстовые данные · ${textState.modules.size}")
+                }
+            }
 
             Spacer(Modifier.height(10.dp))
             when (selectedTab) {
@@ -970,6 +1252,136 @@ private fun ResourceInspectorScreen(
                                 subtitle = "${item.sampleRateHz} Гц · ${item.channels} ch · ${item.bitsPerSample} bit · ${item.oggPageCount} Ogg-стр.",
                                 selected = audioState.selected?.name == item.name,
                                 onClick = { onPlayAudio(item) }
+                            )
+                        }
+                    }
+                }
+                ResourceTab.TEXT -> TextMetadataPanel(
+                    state = textState,
+                    onExportModuleReferences = {
+                        moduleReportPicker.launch("system-nnn-module-references.txt")
+                    }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TextMetadataPanel(
+    state: TextInspectorState,
+    onExportModuleReferences: () -> Unit
+) {
+    val poolCount = state.modules.sumOf { it.pools.size }
+    val recordCount = state.modules.sumOf { module -> module.pools.sumOf { it.recordCount } }
+    val decodingErrors = state.modules.sumOf { module ->
+        module.pools.sumOf { it.decodingErrorCount }
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = InspectorSurface),
+            shape = RoundedCornerShape(18.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(
+                    "СТРУКТУРА ТЕКСТОВЫХ ДАННЫХ",
+                    color = InspectorAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    state.message,
+                    color = InspectorText,
+                    fontSize = 12.sp
+                )
+                Text(
+                    "Модулей: ${state.modules.size} · пулов: $poolCount · записей: $recordCount · ошибок кодировки: $decodingErrors",
+                    color = InspectorMuted,
+                    fontSize = 10.sp
+                )
+                Text(
+                    "Показываются смещения, размеры и статус кодировки. Содержимое сценарных строк не выводится.",
+                    color = InspectorMuted,
+                    fontSize = 10.sp,
+                    lineHeight = 14.sp
+                )
+                if (state.projectManifestCount > 0) {
+                    Button(
+                        onClick = onExportModuleReferences,
+                        enabled = !state.isExportingModuleReferences,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            if (state.isExportingModuleReferences) "Собираю карту команд и ресурсов…"
+                            else "Сохранить карту команд, ресурсов и переходов (.txt)"
+                        )
+                    }
+                } else {
+                    Text(
+                        "Для карты ссылок требуется project.xtx рядом с модулями SPT.",
+                        color = InspectorMuted,
+                        fontSize = 10.sp
+                    )
+                }
+                state.exportMessage?.let { message ->
+                    Text(
+                        message,
+                        color = InspectorMuted,
+                        fontSize = 10.sp,
+                        lineHeight = 14.sp
+                    )
+                }
+            }
+        }
+
+        Spacer(Modifier.height(8.dp))
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            itemsIndexed(state.modules, key = { _, module -> module.name }) { _, module ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = InspectorSurface),
+                    shape = RoundedCornerShape(14.dp)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        Text(
+                            module.name,
+                            color = InspectorText,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            "Файл: ${formatBytes(module.fileSizeBytes)} · область команд: ${formatBytes(module.commandBytes.toLong())}",
+                            color = InspectorMuted,
+                            fontSize = 10.sp
+                        )
+                        if (module.scanError != null) {
+                            Text(
+                                "Ошибка разбора: ${module.scanError}",
+                                color = Color(0xFFFF8A80),
+                                fontSize = 10.sp
+                            )
+                        }
+                        module.pools.forEach { pool ->
+                            Text(
+                                "${pool.name}: ${pool.recordCount} записей · ${formatBytes(pool.rawBytes)} · ошибок кодировки: ${pool.decodingErrorCount}",
+                                color = InspectorText,
+                                fontSize = 10.sp
+                            )
+                            Text(
+                                "Таблица ${pool.addressTableOffset?.let { "0x" + it.toString(16).uppercase(Locale.ROOT) } ?: "—"} · данные ${pool.dataOffset?.let { "0x" + it.toString(16).uppercase(Locale.ROOT) } ?: "—"} · конец ${pool.endOffset?.let { "0x" + it.toString(16).uppercase(Locale.ROOT) } ?: "—"}",
+                                color = InspectorMuted,
+                                fontSize = 9.sp
                             )
                         }
                     }

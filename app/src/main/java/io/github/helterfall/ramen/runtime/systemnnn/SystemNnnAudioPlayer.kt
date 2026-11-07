@@ -5,14 +5,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 
-enum class SystemNnnAudioPlaybackState {
-    PREPARING,
-    PLAYING,
-    PAUSED,
-    COMPLETED,
-    STOPPED,
-    ERROR
-}
+enum class SystemNnnAudioPlaybackState { PREPARING, PLAYING, PAUSED, COMPLETED, STOPPED, ERROR }
 
 data class SystemNnnAudioPlaybackStatus(
     val state: SystemNnnAudioPlaybackState,
@@ -20,102 +13,197 @@ data class SystemNnnAudioPlaybackStatus(
     val message: String? = null
 )
 
-/**
- * MediaPlayer adapter for Ogg files staged by SystemNnnVpkAudioRepository.
- * The player takes ownership of the staged file and deletes it on stop,
- * completion, error, or close. Call its control methods on the main thread.
- */
+/** Tracks lifecycle pause requests that may arrive before MediaPlayer finishes preparing. */
+internal class SystemNnnAudioPlaybackGate {
+    private var prepared = false
+    private var pauseRequested = false
+
+    fun beginPreparation() {
+        prepared = false
+    }
+
+    fun markPrepared(): Boolean {
+        prepared = true
+        return !pauseRequested
+    }
+
+    fun requestPause() {
+        pauseRequested = true
+    }
+
+    fun requestResume() {
+        pauseRequested = false
+    }
+
+    fun isPrepared(): Boolean = prepared
+
+    fun shouldStartPreparedPlayer(): Boolean = prepared && !pauseRequested
+
+    fun reset() {
+        prepared = false
+        pauseRequested = false
+    }
+}
+
+/** Plays native WGQ Ogg segments in order and owns every staged file. */
 class SystemNnnAudioPlayer(
     private val onStatusChanged: (SystemNnnAudioPlaybackStatus) -> Unit = {}
 ) : Closeable {
-
     private var mediaPlayer: MediaPlayer? = null
-    private var stagedFile: File? = null
+    private val playbackGate = SystemNnnAudioPlaybackGate()
+    private var currentFile: File? = null
+    private var playlistFiles: List<File> = emptyList()
+    private var playlistIndex = 0
+    private var completedPasses = 1
+    private var repeatCount = 1
+    private var infiniteLoopStartIndex: Int? = null
     private var currentName: String = ""
 
     @Throws(IOException::class)
     fun play(oggFile: File, resourceName: String = oggFile.name) {
-        stop()
-        if (!oggFile.isFile) throw IOException("Staged Ogg file does not exist.")
+        playPlaylist(listOf(oggFile), resourceName, repeatCount = 1)
+    }
 
+    /** repeatCount=0 means repeat the full playlist forever. */
+    @Throws(IOException::class)
+    fun playPlaylist(
+        files: List<File>,
+        resourceName: String,
+        repeatCount: Int = 0,
+        infiniteLoopStartIndex: Int? = null
+    ) {
+        stop()
+        if (files.isEmpty()) throw IOException("The staged BGM playlist is empty.")
+        if (repeatCount < 0) throw IOException("The native BGM repeat count is invalid.")
+        if (infiniteLoopStartIndex != null && infiniteLoopStartIndex !in files.indices) {
+            throw IOException("The native MML loop points outside the playlist.")
+        }
+        val missing = files.firstOrNull { !it.isFile }
+        if (missing != null) {
+            files.forEach { it.delete() }
+            throw IOException("Staged WGQ segment does not exist: " + missing.name)
+        }
+        playlistFiles = files.toList()
+        playlistIndex = 0
+        completedPasses = 1
+        this.repeatCount = repeatCount
+        this.infiniteLoopStartIndex = infiniteLoopStartIndex
         currentName = resourceName
-        stagedFile = oggFile
+        try {
+            startCurrentSegment()
+        } catch (error: Exception) {
+            clearPlaylist(deleteFiles = true)
+            if (error is IOException) throw error
+            throw IOException("Could not prepare the native BGM playlist.", error)
+        }
+    }
+
+    private fun startCurrentSegment() {
+        val file = playlistFiles.getOrNull(playlistIndex)
+            ?: throw IOException("The BGM playlist cursor is invalid.")
+        if (!file.isFile) throw IOException("Staged WGQ segment disappeared: " + file.name)
+        currentFile = file
         val player = MediaPlayer()
         mediaPlayer = player
 
+        playbackGate.beginPreparation()
         player.setOnPreparedListener { prepared ->
-            if (mediaPlayer === prepared) {
+            if (mediaPlayer === prepared && playbackGate.markPrepared()) {
                 runCatching { prepared.start() }
-                    .onSuccess {
-                        publish(SystemNnnAudioPlaybackState.PLAYING)
-                    }
-                    .onFailure { error ->
-                        release(deleteFile = true)
-                        publish(SystemNnnAudioPlaybackState.ERROR, error.message)
-                    }
+                    .onSuccess { publish(SystemNnnAudioPlaybackState.PLAYING) }
+                    .onFailure { error -> fail(error.message) }
+            } else if (mediaPlayer === prepared) {
+                publish(SystemNnnAudioPlaybackState.PAUSED)
             }
         }
         player.setOnCompletionListener { completed ->
-            if (mediaPlayer === completed) {
-                release(deleteFile = true)
-                publish(SystemNnnAudioPlaybackState.COMPLETED)
-            }
+            if (mediaPlayer === completed) advanceAfterSegment()
         }
         player.setOnErrorListener { failed, what, extra ->
-            if (mediaPlayer === failed) {
-                release(deleteFile = true)
-                publish(
-                    SystemNnnAudioPlaybackState.ERROR,
-                    "Android MediaPlayer error $what/$extra."
-                )
-            }
+            if (mediaPlayer === failed) fail("Android MediaPlayer error " + what + "/" + extra + ".")
             true
         }
 
         try {
-            player.setDataSource(oggFile.absolutePath)
+            player.setDataSource(file.absolutePath)
             publish(SystemNnnAudioPlaybackState.PREPARING)
             player.prepareAsync()
         } catch (error: Exception) {
-            release(deleteFile = true)
-            publish(SystemNnnAudioPlaybackState.ERROR, error.message)
+            releaseCurrent(deleteFile = true)
             throw IOException("Could not prepare Android MediaPlayer.", error)
+        }
+    }
+
+    private fun advanceAfterSegment() {
+        // Keep completed segment files until the whole playlist ends. A later
+        // finite repeat or an MML [0:...] loop may need to play them again.
+        releaseCurrent(deleteFile = false)
+        when {
+            playlistIndex < playlistFiles.lastIndex -> playlistIndex++
+            infiniteLoopStartIndex != null -> playlistIndex = checkNotNull(infiniteLoopStartIndex)
+            repeatCount == 0 || completedPasses < repeatCount -> {
+                completedPasses++
+                playlistIndex = 0
+            }
+            else -> {
+                playlistFiles.forEach { runCatching { it.delete() } }
+                playlistFiles = emptyList()
+                playlistIndex = 0
+                infiniteLoopStartIndex = null
+                publish(SystemNnnAudioPlaybackState.COMPLETED)
+                return
+            }
+        }
+        try {
+            startCurrentSegment()
+        } catch (error: Exception) {
+            fail(error.message)
         }
     }
 
     fun pause() {
         val player = mediaPlayer ?: return
+        playbackGate.requestPause()
+        if (!playbackGate.isPrepared()) return
         runCatching {
-            if (player.isPlaying) {
-                player.pause()
-                publish(SystemNnnAudioPlaybackState.PAUSED)
-            }
-        }.onFailure { error ->
-            release(deleteFile = true)
-            publish(SystemNnnAudioPlaybackState.ERROR, error.message)
-        }
+            if (player.isPlaying) player.pause()
+            publish(SystemNnnAudioPlaybackState.PAUSED)
+        }.onFailure { error -> fail(error.message) }
     }
 
     fun resume() {
         val player = mediaPlayer ?: return
+        playbackGate.requestResume()
+        if (!playbackGate.isPrepared()) return
         runCatching {
-            if (!player.isPlaying) {
-                player.start()
-                publish(SystemNnnAudioPlaybackState.PLAYING)
-            }
-        }.onFailure { error ->
-            release(deleteFile = true)
-            publish(SystemNnnAudioPlaybackState.ERROR, error.message)
-        }
+            if (!player.isPlaying) player.start()
+            publish(SystemNnnAudioPlaybackState.PLAYING)
+        }.onFailure { error -> fail(error.message) }
     }
 
     fun stop() {
-        val hadPlayback = mediaPlayer != null || stagedFile != null
-        release(deleteFile = true)
-        if (hadPlayback) publish(SystemNnnAudioPlaybackState.STOPPED)
+        val active = mediaPlayer != null || playlistFiles.isNotEmpty()
+        clearPlaylist(deleteFiles = true)
+        if (active) publish(SystemNnnAudioPlaybackState.STOPPED)
     }
 
-    private fun release(deleteFile: Boolean) {
+    private fun fail(message: String?) {
+        clearPlaylist(deleteFiles = true)
+        publish(SystemNnnAudioPlaybackState.ERROR, message)
+    }
+
+    private fun clearPlaylist(deleteFiles: Boolean) {
+        releaseCurrent(deleteFile = deleteFiles)
+        if (deleteFiles) playlistFiles.forEach { runCatching { it.delete() } }
+        playlistFiles = emptyList()
+        playlistIndex = 0
+        completedPasses = 1
+        repeatCount = 1
+        infiniteLoopStartIndex = null
+        playbackGate.reset()
+    }
+
+    private fun releaseCurrent(deleteFile: Boolean) {
         val player = mediaPlayer
         mediaPlayer = null
         if (player != null) {
@@ -126,10 +214,9 @@ class SystemNnnAudioPlayer(
             runCatching { player.reset() }
             runCatching { player.release() }
         }
-        if (deleteFile) {
-            stagedFile?.let { file -> runCatching { file.delete() } }
-            stagedFile = null
-        }
+        val file = currentFile
+        currentFile = null
+        if (deleteFile) file?.let { runCatching { it.delete() } }
     }
 
     private fun publish(state: SystemNnnAudioPlaybackState, message: String? = null) {

@@ -449,7 +449,10 @@ class GpkGtbArchiveParser {
 
         return DwqHeaderMetadata(
             packType = packType,
-            hasAlpha = match.groupValues[2].isNotEmpty() || packType == 3 || packType == 7,
+            // Native LoadDWQHeader enables a mask only for PACKTYPE 2, 3 and 7.
+            // The trailing 'A' means the masked image was already cropped; it does
+            // not mean that an alpha mask is present.
+            hasAlpha = packType == 2 || packType == 3 || packType == 7,
             specialIfHeader = specialIfHeader
         )
     }
@@ -1379,6 +1382,7 @@ object ResourceArchiveParsers {
     private const val DWQ_HEADER_SIZE = 0x40
     private const val BMP_HEADER_SIZE = 0x36
     private const val MAX_WGQ_FILES = 10_000
+    private const val MAX_STANDALONE_WGQ_BYTES = 128L * 1024L * 1024L
     private val IGNORED_SCRIPT_CONFIGURATION_EXTENSIONS = setOf("xtx")
 
     private val PACKTYPE_PATTERN = Regex("^PACKTYPE=([0-9]+)(A?)$")
@@ -1404,16 +1408,166 @@ object ResourceArchiveParsers {
             .toList()
     }
 
+    /**
+     * Performs a bounded header-only probe before a standalone WGQ is treated as a
+     * Black Cyc packed-BMP image. This intentionally does not decode pixels: full
+     * payload validation still happens in [decodeBlackCycWgqFile] at display time.
+     *
+     * Other engines also use the .wgq extension (including audio resources), so the
+     * suffix alone is not sufficient evidence that a file belongs in an image catalog.
+     */
+    fun isBlackCycWgqImageCandidate(file: File): Boolean {
+        if (!file.isFile || java.nio.file.Files.isSymbolicLink(file.toPath())) {
+            return false
+        }
+
+        val fileSize = file.length()
+        val headerSize = DWQ_HEADER_SIZE + BMP_HEADER_SIZE
+        if (fileSize < headerSize.toLong() || fileSize > Int.MAX_VALUE.toLong()) return false
+
+        return runCatching {
+            val header = ByteArray(headerSize)
+            FileInputStream(file).use { input ->
+                var offset = 0
+                while (offset < header.size) {
+                    val read = input.read(header, offset, header.size - offset)
+                    if (read < 0) return@runCatching false
+                    if (read > 0) offset += read
+                }
+            }
+
+            val packTypeText = String(
+                header,
+                0x30,
+                0x10,
+                Charsets.US_ASCII
+            ).trimEnd(' ')
+            val match = PACKTYPE_PATTERN.matchEntire(packTypeText)
+                ?: return@runCatching false
+            val packType = match.groupValues[1].toIntOrNull()
+                ?: return@runCatching false
+
+            val packedSize = when (packType) {
+                1 -> {
+                    if (!asciiAt(header, 0, "IF PACKTYPE==") ||
+                        !asciiAt(header, 0x0D, "0 ") ||
+                        !asciiAt(header, 0x2C, "BMP ")
+                    ) {
+                        return@runCatching false
+                    }
+                    fileSize - DWQ_HEADER_SIZE.toLong()
+                }
+
+                3 -> readI32Le(header, 0x20)
+                    .toLong()
+                    .takeIf { it >= 0L }
+                    ?: return@runCatching false
+
+                else -> return@runCatching false
+            }
+
+            if (packedSize < BMP_HEADER_SIZE.toLong() ||
+                packedSize > fileSize - DWQ_HEADER_SIZE.toLong()
+            ) {
+                return@runCatching false
+            }
+
+            val bmpOffset = DWQ_HEADER_SIZE
+            val dataOffset = readU32Le(header, bmpOffset + 0x0A)
+            val width = readI32Le(header, bmpOffset + 0x12)
+            val signedHeight = readI32Le(header, bmpOffset + 0x16)
+            val height = kotlin.math.abs(signedHeight.toLong())
+            val bytesPerPixel = when (readU16Le(header, bmpOffset + 0x1C)) {
+                8 -> 1L
+                16 -> 2L
+                24 -> 3L
+                32 -> 4L
+                else -> return@runCatching false
+            }
+
+            if (width <= 0 ||
+                height <= 0L ||
+                height > Int.MAX_VALUE.toLong() ||
+                dataOffset < BMP_HEADER_SIZE.toLong() ||
+                dataOffset > packedSize
+            ) {
+                return@runCatching false
+            }
+
+            val pixelCount = width.toLong() * height
+            val stride = width.toLong() * bytesPerPixel
+            if (pixelCount > Int.MAX_VALUE.toLong() ||
+                stride > Int.MAX_VALUE.toLong() ||
+                height > Int.MAX_VALUE.toLong() / stride
+            ) {
+                return@runCatching false
+            }
+
+            if (packType == 3) {
+                val declaredWidth = readU32Le(header, 0x24)
+                val declaredHeight = readU32Le(header, 0x28)
+                if (declaredWidth != width.toLong() || declaredHeight != height) {
+                    return@runCatching false
+                }
+            }
+
+            true
+        }.getOrDefault(false)
+    }
+
     /** Reads one complete DWQ block from a standalone .wgq resource. */
     @Throws(IOException::class)
-    fun decodeBlackCycWgqFile(file: File): DecodedDwqBitmap {
+    fun decodeBlackCycWgqFile(
+        file: File,
+        maxDecodedPixels: Long = Long.MAX_VALUE,
+        maxPackedBlockBytes: Long = MAX_STANDALONE_WGQ_BYTES
+    ): DecodedDwqBitmap {
         if (!file.isFile || java.nio.file.Files.isSymbolicLink(file.toPath())) {
             throw IOException("The WGQ image resource is not a regular file.")
         }
+        if (maxDecodedPixels <= 0L) throw IOException("Invalid decoded-pixel limit.")
+        if (maxPackedBlockBytes <= 0L) throw IOException("Invalid packed-block byte limit.")
         val length = file.length()
-        if (length < DWQ_HEADER_SIZE.toLong() || length > Int.MAX_VALUE.toLong()) {
-            throw IOException("The WGQ image resource is outside the supported buffer range.")
+        if (length < DWQ_HEADER_SIZE.toLong() + BMP_HEADER_SIZE.toLong() ||
+            length > minOf(MAX_STANDALONE_WGQ_BYTES, maxPackedBlockBytes) ||
+            length > Int.MAX_VALUE.toLong()
+        ) {
+            throw IOException("The WGQ image resource exceeds the configured block-size budget or supported buffer range.")
         }
+
+        // Inspect just the DWQ/BMP headers before loading the complete archive block.
+        val headerSize = (DWQ_HEADER_SIZE + BMP_HEADER_SIZE).coerceAtMost(length.toInt())
+        val header = ByteArray(headerSize)
+        FileInputStream(file).use { input ->
+            var offset = 0
+            while (offset < header.size) {
+                val read = input.read(header, offset, header.size - offset)
+                if (read < 0) throw EOFException("Truncated WGQ image header.")
+                if (read > 0) offset += read
+            }
+        }
+        val packTypeText = String(header, 0x30, 0x10, Charsets.US_ASCII).trimEnd(' ')
+        val packType = PACKTYPE_PATTERN.matchEntire(packTypeText)?.groupValues?.getOrNull(1)?.toIntOrNull()
+            ?: throw IOException("Invalid WGQ PACKTYPE header.")
+        val width: Long
+        val height: Long
+        when (packType) {
+            1 -> {
+                width = readI32Le(header, DWQ_HEADER_SIZE + 0x12).toLong()
+                height = abs(readI32Le(header, DWQ_HEADER_SIZE + 0x16).toLong())
+            }
+            3 -> {
+                width = readU32Le(header, 0x24)
+                height = readU32Le(header, 0x28)
+            }
+            else -> throw IOException("Standalone WGQ PACKTYPE=$packType is not a supported packed BMP.")
+        }
+        if (width <= 0L || height <= 0L || width > Int.MAX_VALUE.toLong() ||
+            height > Int.MAX_VALUE.toLong() || width > maxDecodedPixels / height
+        ) {
+            throw IOException("WGQ image dimensions exceed the configured decoded-pixel budget.")
+        }
+
         val bytes = ByteArray(length.toInt())
         FileInputStream(file).use { input ->
             var offset = 0
@@ -1423,7 +1577,7 @@ object ResourceArchiveParsers {
                 if (read > 0) offset += read
             }
         }
-        return decodeBlackCycDwqPackedBmp(bytes)
+        return decodeBlackCycDwqPackedBmp(bytes, maxDecodedPixels)
     }
 
     data class DecodedDwqBitmap(
@@ -1587,7 +1741,11 @@ object ResourceArchiveParsers {
      * left to their respective decoders.
      */
     @Throws(IOException::class)
-    fun decodeBlackCycDwqPackedBmp(dwq: ByteArray): DecodedDwqBitmap {
+    fun decodeBlackCycDwqPackedBmp(
+        dwq: ByteArray,
+        maxDecodedPixels: Long = Long.MAX_VALUE
+    ): DecodedDwqBitmap {
+        if (maxDecodedPixels <= 0L) throw IOException("Invalid decoded-pixel limit.")
         if (dwq.size < DWQ_HEADER_SIZE) {
             throw EOFException("DWQ header is truncated.")
         }
@@ -1641,7 +1799,8 @@ object ResourceArchiveParsers {
         val image = decodePackedBmpSegment(
             source = dwq,
             start = imageStart,
-            endExclusive = imageEnd
+            endExclusive = imageEnd,
+            maxDecodedPixels = maxDecodedPixels
         )
 
         if (packType == 3) {
@@ -1659,35 +1818,15 @@ object ResourceArchiveParsers {
 
         // For PACKTYPE=3 the mask follows the packed image segment when present.
         if (packType == 3 && imageEnd < dwq.size) {
-            val mask = decodePackedBmpSegment(
-                source = dwq,
-                start = imageEnd,
-                endExclusive = dwq.size
+            val alphaValues = decodeBlackCycDwqAlphaMask(
+                dwq.copyOfRange(imageEnd, dwq.size),
+                image.width,
+                image.height,
+                maxDecodedPixels
             )
-
-            if (mask.bitsPerPixel != 8 ||
-                mask.width != image.width ||
-                mask.height != image.height
-            ) {
-                throw IOException("Invalid DWQ alpha mask dimensions or bit depth.")
-            }
-
             for (index in argbPixels.indices) {
-                val paletteIndex = mask.pixels[index].toInt() and 0xFF
-                val paletteColor = mask.paletteArgb.getOrNull(paletteIndex)
-
-                val alpha = if (paletteColor != null) {
-                    val red = (paletteColor ushr 16) and 0xFF
-                    val green = (paletteColor ushr 8) and 0xFF
-                    val blue = paletteColor and 0xFF
-                    (red + green + blue) / 3
-                } else {
-                    // GARbro leaves an out-of-range palette index unchanged.
-                    paletteIndex
-                }
-
                 argbPixels[index] =
-                    (argbPixels[index] and 0x00FFFFFF) or (alpha shl 24)
+                    (argbPixels[index] and 0x00FFFFFF) or (alphaValues[index] shl 24)
             }
         }
 
@@ -1697,6 +1836,48 @@ object ResourceArchiveParsers {
             packType = packType,
             argbPixels = argbPixels
         )
+    }
+
+    /**
+     * Decodes the packed 8-bit DWQ mask that follows an image. The native
+     * CPicture::LoadMask routine takes rgbquad[index].rgbRed as the alpha value.
+     */
+    @Throws(IOException::class)
+    fun decodeBlackCycDwqAlphaMask(
+        maskSegment: ByteArray,
+        expectedWidth: Int,
+        expectedHeight: Int,
+        maxDecodedPixels: Long = Long.MAX_VALUE
+    ): IntArray {
+        if (expectedWidth <= 0 || expectedHeight <= 0) {
+            throw IOException("Invalid expected DWQ alpha-mask dimensions.")
+        }
+        val expectedPixels = expectedWidth.toLong() * expectedHeight.toLong()
+        if (expectedPixels > maxDecodedPixels || expectedPixels > Int.MAX_VALUE.toLong()) {
+            throw IOException("DWQ alpha mask exceeds the configured decoded-pixel budget.")
+        }
+        val mask = decodePackedBmpSegment(
+            source = maskSegment,
+            start = 0,
+            endExclusive = maskSegment.size,
+            maxDecodedPixels = maxDecodedPixels
+        )
+        if (mask.bitsPerPixel != 8 ||
+            mask.width != expectedWidth ||
+            mask.height != expectedHeight
+        ) {
+            throw IOException("Invalid DWQ alpha mask dimensions or bit depth.")
+        }
+        return IntArray(mask.width * mask.height) { index ->
+            val paletteIndex = mask.pixels[index].toInt() and 0xFF
+            val paletteColor = mask.paletteArgb.getOrNull(paletteIndex)
+            if (paletteColor != null) {
+                (paletteColor ushr 16) and 0xFF
+            } else {
+                // Match the native code's byte value when no palette color exists.
+                paletteIndex
+            }
+        }
     }
 
     private data class PackedBmpPlane(
@@ -1717,7 +1898,8 @@ object ResourceArchiveParsers {
     private fun decodePackedBmpSegment(
         source: ByteArray,
         start: Int,
-        endExclusive: Int
+        endExclusive: Int,
+        maxDecodedPixels: Long
     ): PackedBmpPlane {
         if (start < 0 ||
             endExclusive > source.size ||
@@ -1750,6 +1932,9 @@ object ResourceArchiveParsers {
         val pixelCount = width.toLong() * height.toLong()
         if (pixelCount > Int.MAX_VALUE.toLong()) {
             throw IOException("DWQ image exceeds the JVM pixel-array range.")
+        }
+        if (pixelCount > maxDecodedPixels) {
+            throw IOException("DWQ image exceeds the configured decoded-pixel budget.")
         }
 
         val strideLong = width.toLong() * bytesPerPixel.toLong()
