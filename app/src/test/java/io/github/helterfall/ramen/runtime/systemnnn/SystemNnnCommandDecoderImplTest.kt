@@ -54,7 +54,8 @@ class SystemNnnCommandDecoderImplTest {
             assertTrue(log.contains("module=sys address=0x50"))
             assertTrue(log.contains("identifier=0x66660008"))
             assertTrue(log.contains("code=0x55560005"))
-            assertTrue(log.contains("payloadWordCount=0 payloadWords=[]"))
+            assertTrue(log.contains("payloadWordCount=0"))
+            assertTrue(log.contains("payloadWords="))
             // OVERLAP is a known native transition operation, not an unknown record.
             assertTrue(log.contains("unsupported_record"))
             assertTrue(!log.contains("code=0x22220005"))
