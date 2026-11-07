@@ -1050,7 +1050,7 @@ private fun ChoiceOverlay(
             }
         }
     }
-
+}
 
 private const val TYPEWRITER_DELAY_MILLIS = 24L
 private const val AUTO_ADVANCE_DELAY_MILLIS = 1_350L
