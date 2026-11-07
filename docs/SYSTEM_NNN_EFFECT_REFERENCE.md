@@ -5,7 +5,7 @@ The table and source notes below describe the pinned System-NNN family reference
 ### Current implementation gates
 - Layer progress clocks: CTRANS (9), SCROLL (39), CHANGE (40), MOVE (52), BEZIERMOVE (62), TURN (64), STRETCHBLT (65), COLORADDSUB (99), BSPLINE2 (119), and rectangle motion.
 - Layer/viewport paths also exist for NOP (0), TRANS (8), FADEIN/FADEOUT (10/11), FLASH (17), SHAKE (18), KE (27), SUNA (29), FILL (54), OLDFILM (55), BUFFER (66), CLOUD (82, gated static software case), HAIKEIYURE (100, parameter-gated modes), and CHARABURE (132).
-- HAIKEIYURE mode 0's missing local frame advance has been fixed in the current branch; a regression unit test has been added. The fix is not yet CI-verified.
+- HAIKEIYURE mode 0's missing local frame advance has been fixed in the current branch; a regression unit test has been added. Final-head unit tests passed in runs #42382482545 and #42382484261, and a debug APK containing the fix was successfully assembled/uploaded in run #42382360302. Physical visual acceptance is still outstanding.
 - CTRANS has code paths for opacity, optional colour adjustment and clipping in the current Compose renderer. These paths are source-level implementations and still need target-scene visual acceptance.
 - CLOUD has a bounded pixel compositor for the observed static, unmasked software case. The target EXE's build variant is not established.
 - TURN and STRETCHBLT use Compose transforms. Native colour-key transparency mode 1 still needs pixel-level handling.
