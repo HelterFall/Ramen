@@ -26,7 +26,8 @@ class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int,
     private val streamReader: SystemNnnCommandStreamReader = SystemNnnCommandStreamReader(),
     private val variables: MutableMap<Int, Int> = HashMap(),
-    private val debugLogFile: File? = null
+    private val debugLogFile: File? = null,
+    private val moduleName: String = "unknown"
 ) : SystemNnnCommandDecoder {
 
     private var cachedScript: SystemNnnScript? = null
@@ -77,10 +78,10 @@ class SystemNnnCommandDecoderImpl(
                 SystemNnnRecordKind.FUNCTION -> decodeUserFunction(script, record)
 
                 SystemNnnRecordKind.COMMAND,
-                null -> skipUnsupported(record, "unknown record identifier")
+                null -> skipUnsupported(record, "unknown record identifier", script)
             }
         } catch (failure: UnsupportedSystemNnnRecordException) {
-            skipUnsupported(record, failure.message ?: "unsupported command payload")
+            skipUnsupported(record, failure.message ?: "unsupported command payload", script)
         }
     }
 
@@ -89,7 +90,7 @@ class SystemNnnCommandDecoderImpl(
         record: SystemNnnCommandRecord
     ): SystemNnnDecodedCommand {
         if (record.codeFamily != SYSTEM_COMMAND_FAMILY) {
-            return skipUnsupported(record, "unknown or unsupported command code")
+            return skipUnsupported(record, "unknown or unsupported command code", script)
         }
 
         return when (record.codeId) {
@@ -132,8 +133,10 @@ class SystemNnnCommandDecoderImpl(
             }
 
             CODE_SELECT -> decodeSelect(script, streamFor(script), record)
-
-            else -> return skipUnsupported(record, "unknown or unsupported command code")
+            CODE_OVERRAP -> skipKnownUnimplemented(
+                record, script, "OVERLAP transition capture/composition is not implemented in the Android player."
+            )
+            else -> return skipUnsupported(record, "unknown or unsupported command code", script)
         }
     }
 
@@ -340,7 +343,7 @@ class SystemNnnCommandDecoderImpl(
             record.payloadWordCount != USER_FUNCTION_ARGUMENT_COUNT_WORDS ||
             readPayloadWord(script, record, USER_FUNCTION_ARGUMENT_COUNT_PAYLOAD) != 0u
         ) {
-            return skipUnsupported(record, "unknown or unsupported command code")
+            return skipUnsupported(record, "unknown or unsupported command code", script)
         }
         return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
     }
@@ -369,7 +372,48 @@ class SystemNnnCommandDecoderImpl(
             // deferred until a later LOADDWQ record selects a layer.
             CODE_SYSTEMFUNCTION_PRELOADDWQ ->
                 SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
-            else -> skipUnsupported(record, "unknown system function code")
+            CODE_SYSTEMFUNCTION_PREPAREOVERRAP -> skipKnownUnimplemented(
+                record, script, "PREPAREOVERRAP captures the current screen before a native transition."
+            )
+            CODE_SYSTEMFUNCTION_STARTMESSAGE -> skipKnownUnimplemented(
+                record, script, "STARTMESSAGE changes native message-id/read/skip/window state."
+            )
+            CODE_SYSTEMFUNCTION_STARTKOMA -> skipKnownUnimplemented(
+                record, script, "STARTKOMA changes native dialogue type and message-window mode."
+            )
+            CODE_SYSTEMFUNCTION_NOMESSAGEWINDOW -> skipKnownUnimplemented(
+                record, script, "NOMESSAGEWINDOW suppresses the native message window."
+            )
+            CODE_SYSTEMFUNCTION_SETDEMOFLAG -> skipKnownUnimplemented(
+                record, script, "SETDEMOFLAG changes native demo/playback gating."
+            )
+            CODE_SYSTEMFUNCTION_AUTOMESSAGE -> skipKnownUnimplemented(
+                record, script, "AUTOMESSAGE changes native automatic-advance timing."
+            )
+            CODE_SYSTEMFUNCTION_CANNOTCLICK -> skipKnownUnimplemented(
+                record, script, "CANNOTCLICK changes whether the native player accepts taps."
+            )
+            CODE_SYSTEMFUNCTION_CANNOTSKIP -> skipKnownUnimplemented(
+                record, script, "CANNOTSKIP changes native skip gating."
+            )
+            CODE_SYSTEMFUNCTION_OPTIONOFF -> skipKnownUnimplemented(
+                record, script, "OPTIONOFF changes native option-menu availability."
+            )
+            CODE_SYSTEMFUNCTION_SETCG -> skipKnownIgnored(
+                record, script, "SETCG updates native CG-collection metadata; it does not load or draw an image."
+            )
+            CODE_SYSTEMFUNCTION_SETSCENE -> skipKnownIgnored(
+                record, script, "SETSCENE is disabled in the pinned native callback (the SetScene call is commented out)."
+            )
+            CODE_SYSTEMFUNCTION_STARTFILM -> skipKnownIgnored(
+                record, script, "STARTFILM has no execution branch in the pinned native ExecScript."
+            )
+            CODE_SYSTEMFUNCTION_FILMNAME,
+            CODE_SYSTEMFUNCTION_STORYNAME,
+            CODE_SYSTEMFUNCTION_FILMTYPETIME -> skipKnownIgnored(
+                record, script, "Film/story display metadata is not consumed by the Android player."
+            )
+            else -> skipUnsupported(record, "unknown system function code", script)
         }
     }
 
@@ -478,10 +522,6 @@ class SystemNnnCommandDecoderImpl(
         val parameters = List(argumentCount - 2) { index ->
             readPayloadWord(script, record, index + 3).toInt()
         }
-        appendDebugLog(
-            record,
-            "SETEFFECT layer=$layer effect=$effect parameters=${parameters.joinToString(",")}"
-        )
         return SystemNnnDecodedCommand.SetImageLayerEffect(
             nextCommandOffset = record.endOffsetExclusive,
             layerIndex = layer.toInt(),
@@ -656,10 +696,10 @@ class SystemNnnCommandDecoderImpl(
             if (record.codeId == CODE_OPEN_BRACE || record.codeId == CODE_CLOSE_BRACE) {
                 return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
             }
-            return skipUnsupported(record, "unknown or unsupported command code")
+            return skipUnsupported(record, "unknown or unsupported command code", script)
         }
         if (record.codeFamily != CONTROL_FAMILY) {
-            return skipUnsupported(record, "unknown or unsupported command code")
+            return skipUnsupported(record, "unknown or unsupported command code", script)
         }
 
         return when (record.codeId) {
@@ -706,7 +746,7 @@ class SystemNnnCommandDecoderImpl(
 
             CODE_CONTROL_EXIT -> SystemNnnDecodedCommand.End
 
-            else -> return skipUnsupported(record, "unknown or unsupported command code")
+            else -> return skipUnsupported(record, "unknown or unsupported command code", script)
         }
     }
 
