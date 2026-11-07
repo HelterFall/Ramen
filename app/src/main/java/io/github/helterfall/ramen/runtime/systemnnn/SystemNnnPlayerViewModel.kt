@@ -339,11 +339,19 @@ class SystemNnnPlayerViewModel : ViewModel() {
             "L${sprite.layerIndex}:${sprite.resourceId}[${sprite.bitmap.width}x${sprite.bitmap.height}]" +
                 " effect=${sprite.nativeEffectId ?: "none"} params=${sprite.nativeEffectParameters.joinToString(",")}"
         }
+        val layerEffects = visualLayerConfigurationStore.snapshot().entries
+            .asSequence()
+            .filter { it.value.effectId != null }
+            .sortedBy { it.key }
+            .joinToString(separator = ";") { (layer, configuration) ->
+                "L$layer:${configuration.effectId}[${configuration.effectParameters.joinToString(",")}]"
+            }
         diagnosticLog?.updateRuntimeSnapshot(
             "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
                 "command=$commandName offset=0x${commandOffset.toString(16)} frame=$frameCounter " +
                 "screenEffect=${uiState.screenEffectId ?: "none"} " +
                 "screenParams=${uiState.screenEffectParameters.joinToString(",")} " +
+                "layerEffects=$layerEffects " +
                 "background=${uiState.backgroundBitmap?.let { "${it.width}x${it.height}" } ?: "none"} " +
                 "sprites=$sprites"
         )
