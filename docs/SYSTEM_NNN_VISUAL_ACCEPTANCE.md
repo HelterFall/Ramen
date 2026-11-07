@@ -105,7 +105,7 @@ No screenshot or screen recording was available for this review. These findings 
 
 The moving cloud panorama and the town/village panorama are whole-scene image transitions, not the upper cloud-band case. The user confirms their movement directions are already correct (down for the first, right for the second); the defect is that the source image covers only part of the viewport and leaves the rest blank/white. The known CLOUD (82) layer-1 vector must not be used as an explanation for these two transitions.
 
-The current renderer clips layers to the game viewport and sizes native layers from their native rectangle. For rectangle motion, `moveRect` interpolates the origin while retaining the source width and height until the final frame. Thus an undersized source rectangle, a target rectangle inconsistent with the bitmap, incorrect reference dimensions, or missing wrap/repeat can expose a blank region even while the movement vector itself is correct. The exact native effect/resource is not yet identified from verbal symptoms alone. Inspect its `effect_set` and `layer_rect` diagnostic records, bitmap dimensions, `fromRect`, `toRect`, viewport size, and the final visible intersection before changing the movement maths.
+The current renderer clips layers to the game viewport and sizes native layers from their native rectangle. For rectangle motion, `moveRect` interpolates the origin while retaining the source width and height until the final frame. Thus an undersized source rectangle can remain undersized throughout the motion; a target rectangle inconsistent with the bitmap, incorrect reference dimensions, a crop, or missing wrap/repeat can expose a blank region even while the movement vector itself is correct. This is a concrete candidate to inspect, not yet a confirmed root cause for either panorama. The exact native effect/resource is not yet identified from verbal symptoms alone. Inspect its `effect_set` and `layer_rect` diagnostic records, bitmap dimensions, `fromRect`, `toRect`, viewport size, and the final visible intersection before changing the movement maths.
 
 Acceptance for these panorama scenes is full intended viewport coverage throughout the transition, in the correct direction, with no blank half and no stale previous panorama. This is a separate test from the stationary upper cloud band.
 
@@ -166,7 +166,7 @@ CHANGE (40) uses a second distinct layer, requires matching bitmap dimensions, a
 
 - TURN (64) and STRETCHBLT (65) have dedicated Compose transforms. Native colour-key transparency mode 1 still needs a pixel-level implementation.
 - CTRANS (9) has opacity, colour-offset and clip-rectangle paths; target-specific parameter parity is not yet accepted.
-- CLOUD (82) is handled only for the observed static, unmasked software case. The target EXE's build variant is not established.
+- CLOUD (82) is handled only for the observed unmasked software parameter case. The upper band stays static in Ramen because the cached compositor is called at frame 0; the target EXE's build variant is not established.
 - KE (27), SUNA (29), OLDFILM (55), and CHARABURE (132) use deterministic Android pseudo-random sequences rather than the original process-global Windows RNG.
 - Effects outside the explicit path list are not implemented; some may display a bitmap fallback with a warning rather than the native effect.
 
