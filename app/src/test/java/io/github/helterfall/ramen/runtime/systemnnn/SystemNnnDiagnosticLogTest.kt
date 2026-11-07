@@ -70,6 +70,44 @@ class SystemNnnDiagnosticLogTest {
     }
 
     @Test
+    fun beginSessionKeepsThePreviousRunSeparateFromCurrentEventsAndCrashes() {
+        val root = temporaryFolder.newFolder("sessions")
+        val diagnostics = SystemNnnDiagnosticLog(root)
+        diagnostics.record("previous_session_event", "from=first")
+        diagnostics.updateRuntimeSnapshot("module=op1 command=Dialogue offset=0x40")
+        diagnostics.recordException("previous_session_crash", IllegalStateException("first failure"))
+
+        diagnostics.beginSession()
+        diagnostics.record("session_start", "appVersion=test")
+        diagnostics.updateRuntimeSnapshot("module=main command=Dialogue offset=0x80")
+
+        val archive = diagnostics.createArchive(File(root, "sessions.zip"))
+        ZipFile(archive).use { zip ->
+            val names = zip.entries().asSequence().map { it.name }.toSet()
+            assertTrue(names.contains("system-nnn-diagnostics.previous.log"))
+            assertTrue(names.contains("system-nnn-crashes.previous.txt"))
+
+            val currentLog = zip.getInputStream(zip.getEntry("system-nnn-diagnostics.log"))
+                .bufferedReader().readText()
+            val previousLog = zip.getInputStream(zip.getEntry("system-nnn-diagnostics.previous.log"))
+                .bufferedReader().readText()
+            val previousCrash = zip.getInputStream(zip.getEntry("system-nnn-crashes.previous.txt"))
+                .bufferedReader().readText()
+            val summary = zip.getInputStream(zip.getEntry("diagnostic-summary.txt"))
+                .bufferedReader().readText()
+
+            assertTrue(currentLog.contains("session_start"))
+            assertFalse(currentLog.contains("previous_session_event"))
+            assertTrue(previousLog.contains("previous_session_event"))
+            assertTrue(previousCrash.contains("first failure"))
+            assertTrue(summary.contains("Current session diagnostic events: 1"))
+            assertTrue(summary.contains("Previous session diagnostic events: 2"))
+            assertTrue(summary.contains("Current session crash/exception records: 0"))
+            assertTrue(summary.contains("Previous session crash/exception records: 1"))
+        }
+    }
+
+    @Test
     fun diagnosticsSanitizeMultilineValuesAndDoNotRequireDecoderLog() {
         val root = temporaryFolder.newFolder("minimal")
         val diagnostics = SystemNnnDiagnosticLog(root)
