@@ -277,10 +277,35 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
-    fun skipsDrawSystemCommandAndContinuesAtTheNextRecord() {
+    fun decodesNonzeroDrawAsATimedFrameBoundary() {
         val script = testScript(
             listOf(
                 record(5, SYSTEM_COMMAND, CODE_DRAW, 1u, 3u),
+                record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
+            ),
+            textCount = 1
+        )
+        val decoder = decoder()
+        val drawEndOffset = RECORD_START + 20L
+
+        assertEquals(
+            SystemNnnDecodedCommand.Draw(drawEndOffset, frameCount = 3),
+            decoder.decodeNext(script, RECORD_START)
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Dialogue(
+                nextCommandOffset = drawEndOffset + 20L,
+                textEntryOffset = script.textPool.single().offset
+            ),
+            decoder.decodeNext(script, drawEndOffset)
+        )
+    }
+
+    @Test
+    fun zeroCountDrawDoesNotYieldABoundary() {
+        val script = testScript(
+            listOf(
+                record(5, SYSTEM_COMMAND, CODE_DRAW, 1u, 0u),
                 record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
             ),
             textCount = 1
@@ -299,6 +324,17 @@ class SystemNnnCommandDecoderImplTest {
             ),
             decoder.decodeNext(script, drawEndOffset)
         )
+    }
+
+    @Test
+    fun rejectsDrawWithoutAFrameCountOperand() {
+        val script = testScript(
+            listOf(record(4, SYSTEM_COMMAND, CODE_DRAW, 0u)),
+            textCount = 0
+        )
+        org.junit.Assert.assertThrows(IOException::class.java) {
+            decoder().decodeNext(script, RECORD_START)
+        }
     }
 
     @Test
