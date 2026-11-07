@@ -179,6 +179,7 @@ class SystemNnnDiagnosticLog(
         val knownUnimplemented = diagnosticLines.filter { "[decoder_known_unimplemented]" in it }
         val knownIgnored = diagnosticLines.filter { "[decoder_known_ignored]" in it }
         val rendererGaps = diagnosticLines.filter { "[effect_unsupported]" in it }
+        val codeRegex = Regex("\\bcode=(0x[0-9a-fA-F]+)")
         fun countCodes(lines: List<String>): Map<String, Int> {
             val counts = sortedMapOf<String, Int>()
             lines.forEach { line ->
@@ -187,7 +188,6 @@ class SystemNnnDiagnosticLog(
             }
             return counts
         }
-        val codeRegex = Regex("\\bcode=(0x[0-9a-fA-F]+)")
         val unsupportedCodes = countCodes(currentUnsupported)
         val knownUnimplementedCodes = countCodes(knownUnimplemented)
         val knownIgnoredCodes = countCodes(knownIgnored)
