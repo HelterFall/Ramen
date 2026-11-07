@@ -98,14 +98,13 @@ internal object SystemNnnVisualEffectMath {
      *
      * The native CheckNeedPicPrint flag cannot be reused as a Compose draw
      * decision: FALSE means the native effect has its own Print implementation.
-     * Most of those native effects are not implemented by this Android renderer,
-     * so suppressing the source image would make the entire layer disappear.
-     * SCROLL is the current exception because its Compose branch draws the bitmap
-     * itself in a repeated, translated layout. CHANGE also has its own branch
-     * when a valid partner layer exists; otherwise its source remains visible.
+     * Native TURN has a dedicated transform painter; BUFFER is deliberately
+     * omitted because its native Print method is a no-op and CheckAllPrint is FALSE.
+     * SCROLL also has its own repeated, translated bitmap painter. Other unsupported
+     * effects retain the plain source bitmap only as an explicitly incomplete fallback.
      */
     fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean =
-        effectId != 39
+        effectId !in setOf(39, 64, 66)
 
     fun nativeSpeedValue(
         count: Int,
@@ -416,6 +415,125 @@ internal object SystemNnnVisualEffectMath {
         }
 
         return SystemNnnVisualOffset(previousX.toFloat(), previousY.toFloat())
+    }
+
+
+    /** Native EFFECT_TURN (64): angle is stored in tenths of a degree. */
+    fun turnRotationDegrees(frame: Int, parameters: List<Int>): Float {
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
+        val start = parameters.getOrNull(2) ?: (parameters.getOrNull(1) ?: 0)
+        val end = parameters.getOrNull(1) ?: 0
+        val angleTenths = nativeSpeedValue(
+            frame, duration, start * 10, end * 10,
+            parameters.getOrNull(11) ?: 0, parameters.getOrNull(10) ?: 0
+        )
+        return Math.floorMod(angleTenths, 3600) / 10f
+    }
+
+    /** Native TURN scale: para[6] is start, para[5] is end; 100 means 1:1. */
+    fun turnScale(frame: Int, parameters: List<Int>): Float {
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
+        val end = parameters.getOrNull(5) ?: 100
+        val start = parameters.getOrNull(6) ?: end
+        val nativeTenths = nativeSpeedValue(
+            frame, duration, start * 10, end * 10,
+            parameters.getOrNull(13) ?: 0, parameters.getOrNull(12) ?: 0
+        )
+        return (nativeTenths / 10).coerceAtLeast(1) / 100f
+    }
+
+    /** Native TURN only applies this opacity when para[7] == 2. */
+    fun turnAlpha(frame: Int, parameters: List<Int>): Float {
+        if ((parameters.getOrNull(7) ?: 0) != 2) return 1f
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
+        return nativeSpeedValue(
+            frame, duration,
+            parameters.getOrNull(9) ?: 100,
+            parameters.getOrNull(8) ?: 100,
+            parameters.getOrNull(15) ?: 0,
+            parameters.getOrNull(14) ?: 0
+        ).coerceIn(0, 100) / 100f
+    }
+
+    /** Native TURN pivot is source center plus para[3]/para[4]. */
+    fun turnPivotOffset(parameters: List<Int>): SystemNnnVisualOffset =
+        SystemNnnVisualOffset(
+            (parameters.getOrNull(3) ?: 0).toFloat(),
+            (parameters.getOrNull(4) ?: 0).toFloat()
+        )
+
+    /** Native TURN's optional quadratic/cubic spline translation (para[25] = 2/3). */
+    fun turnSplineOffset(frame: Int, parameters: List<Int>): SystemNnnVisualOffset {
+        val splineType = parameters.getOrNull(25) ?: 0
+        if (splineType != 2 && splineType != 3) return SystemNnnVisualOffset(0f, 0f)
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
+        val speed = nativeSpeedValue(
+            frame, duration, 0, 10_000,
+            parameters.getOrNull(35) ?: 0, parameters.getOrNull(34) ?: 0
+        )
+        val t = speed.coerceIn(0, 10_000) / 10_000f
+        val inverse = 1f - t
+        val x1 = (parameters.getOrNull(26) ?: 0).toFloat()
+        val y1 = (parameters.getOrNull(27) ?: 0).toFloat()
+        val x2 = (parameters.getOrNull(28) ?: 200).toFloat()
+        val y2 = (parameters.getOrNull(29) ?: -100).toFloat()
+        val x3 = (parameters.getOrNull(30) ?: 300).toFloat()
+        val y3 = (parameters.getOrNull(31) ?: -200).toFloat()
+        if (splineType == 2) {
+            return SystemNnnVisualOffset(
+                inverse * inverse * x1 + 2f * inverse * t * x2 + t * t * x3,
+                inverse * inverse * y1 + 2f * inverse * t * y2 + t * t * y3
+            )
+        }
+        val x4 = (parameters.getOrNull(32) ?: 400).toFloat()
+        val y4 = (parameters.getOrNull(33) ?: 100).toFloat()
+        val t2 = t * t
+        val t3 = t2 * t
+        val inverse2 = inverse * inverse
+        val inverse3 = inverse2 * inverse
+        return SystemNnnVisualOffset(
+            inverse3 * x1 + 3f * t * inverse2 * x2 + 3f * t2 * inverse * x3 + t3 * x4,
+            inverse3 * y1 + 3f * t * inverse2 * y2 + 3f * t2 * inverse * y3 + t3 * y4
+        )
+    }
+
+    /** Native CTRANS colour offset; null means the normal mask/translucency path. */
+    fun ctransColorOffset(frame: Int, parameters: List<Int>): SystemNnnVisualColor? {
+        if ((parameters.getOrNull(14) ?: 0) == 0) return null
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
+        fun channel(startIndex: Int, endIndex: Int): Int {
+            val end = parameters.getOrNull(endIndex) ?: 0
+            val start = parameters.getOrNull(startIndex) ?: end
+            return nativeSpeedValue(
+                frame, duration, start, end,
+                parameters.getOrNull(22) ?: 0, parameters.getOrNull(21) ?: 0
+            )
+        }
+        return SystemNnnVisualColor(channel(18, 15), channel(19, 16), channel(20, 17))
+    }
+
+    /** Native CTRANS clip rectangle interpolates start para[10..13] to end para[6..9]. */
+    fun ctransClipRect(
+        frame: Int,
+        parameters: List<Int>,
+        screenWidth: Int,
+        screenHeight: Int
+    ): SystemNnnNativeRect? {
+        if ((parameters.getOrNull(5) ?: 0) == 0) return null
+        val duration = (parameters.getOrNull(0) ?: 20).coerceAtLeast(1)
+        fun value(startIndex: Int, endIndex: Int, defaultEnd: Int): Int {
+            val end = parameters.getOrNull(endIndex) ?: defaultEnd
+            val start = parameters.getOrNull(startIndex) ?: end
+            return nativeSpeedValue(frame, duration, start, end)
+        }
+        val clipEndWidth = parameters.getOrNull(8) ?: screenWidth
+        val clipEndHeight = parameters.getOrNull(9) ?: screenHeight
+        return SystemNnnNativeRect(
+            x = value(10, 6, 0),
+            y = value(11, 7, 0),
+            width = value(12, 8, clipEndWidth),
+            height = value(13, 9, clipEndHeight)
+        )
     }
 
     private fun mix(value: Int): Int {
