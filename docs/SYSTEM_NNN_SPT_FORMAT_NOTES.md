@@ -106,3 +106,26 @@ This follow-up supersedes the earlier note that the `0x44` word was still unmapp
 
 
 The target's native scheduler also corroborates the module-stack behavior: its dispatch loop treats SCRIPT, SUBSCRIPT and SCRIPTJUMP as transfer events, while NEXT reduces the active script-run depth before the parent execution continues. The application therefore keeps the current SCRIPT/SUBSCRIPT push and SCRIPTJUMP replace behavior; the key correction made here is only that the next-record length is not a return selector.
+
+
+## 2026-11-07 follow-up — SPT film-entry table semantics
+
+The command-stream reader now resolves the third and fourth header descriptors rather than leaving them as generic offset metadata:
+
+- Descriptor index 2 (header pair at 0x20/0x24) is the film-entry pointer vector. Its entryCount is the number of DWORD pointers and its logicalBase locates the vector in the SPT code region.
+- Each vector value is a DWORD word-offset to a command-record boundary. The reader multiplies it by four to obtain the byte offset and validates the target record.
+- A reserved entry (table index below descriptor index 3's entryCount) must target a five-DWORD SystemFunction record in family 0x3333, code ID 0x51.
+- A normal film entry must target a five-DWORD SystemFunction record in family 0x3333, code ID 0x50, followed immediately by another five-DWORD SystemFunction record with code ID 0x52.
+- The film number for normal entries is tableIndex minus reservedEntries. Descriptor index 3's entryCount is therefore a reserved-entry prefix count. Its logicalBase is preserved by the header parser but is not consumed by this resolver.
+
+This table maps SPT film numbers to scenario command entry points. It does not contain visual-effect IDs, transformation matrices, per-layer trajectories, or TURN pivot values.
+
+The script command area is not a newline-oriented instruction listing. The current structural reader sees a four-DWORD preamble, a sequence of variable-length records, and a four-DWORD trailer. Each record begins with a DWORD length, a 0x6666xxxx identifier, and a code DWORD; payload words follow. The command decoder interprets selected payloads, while unknown payloads remain bounded and opaque.
+
+The SPT loader's bytewise XOR-0xFF demasking and SPTHEADER[0-9] check at offset 0x30 are implemented. The loader also locates two indexed string pools and decodes their NUL-terminated records as Shift-JIS, preserving raw bytes and decoding-error status. Therefore it is not correct to describe SPT as containing no scenario text at all: the file has both a command region and text pools.
+
+### Do not conflate SPT film tables with GTB resource indexes
+
+If a separate file described as source: 3 is in fact a .gtb file, it is a different structure. GpkGtbArchiveParser reads an entry count, name-offset table, GPK block-offset table, and a NUL-terminated name pool. It does not apply the SPT XOR transform. Those entries resolve image-resource names and archive blocks, not System-NNN effect algorithms.
+
+The exact identity of the user-labelled source: 3 cannot be established from the label alone. The file signature/extension and its bytes decide whether it is an embedded SPT film table or an external GTB resource index.
