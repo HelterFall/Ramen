@@ -50,7 +50,10 @@ data class SystemNnnChoiceOption(
 )
 
 data class SystemNnnPlayerUiState(
+    /** Changes only when a dialogue/choice frame is published. */
     val frameId: Long = 0L,
+    /** Monotonic identifier for native DRAW events; never restarts typewriter text. */
+    val drawEventId: Long = 0L,
     val isLoading: Boolean = false,
     /** One-based module-local film number from the latest validated SETFILM record. */
     val currentFilmNumber: Int? = null,
@@ -1375,7 +1378,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         pendingBackgroundResourceIndex = null
                         pendingBackgroundBankNamespace = null
                         pendingBackgroundBankSlot = null
-                        frameCounter += 1L
+                        val drawEventId = uiState.drawEventId + 1L
                         diagnosticLog?.record(
                             "draw_frame",
                             "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
@@ -1383,7 +1386,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         )
                         updateDiagnosticSnapshot(command.nextCommandOffset, "DrawFrame")
                         uiState = uiState.copy(
-                            frameId = frameCounter,
+                            drawEventId = drawEventId,
                             isLoading = false,
                             backgroundBitmap = sceneBackground,
                             sprites = sceneSprites,
