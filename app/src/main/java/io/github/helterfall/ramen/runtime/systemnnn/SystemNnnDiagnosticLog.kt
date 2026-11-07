@@ -24,6 +24,7 @@ class SystemNnnDiagnosticLog(
     private val logFile = File(directory, LOG_FILE_NAME)
     private val previousLogFile = File(directory, PREVIOUS_LOG_FILE_NAME)
     private val snapshotFile = File(directory, SNAPSHOT_FILE_NAME)
+    private val previousSnapshotFile = File(directory, PREVIOUS_SNAPSHOT_FILE_NAME)
     private val crashFile = File(directory, CRASH_FILE_NAME)
     private val previousCrashFile = File(directory, PREVIOUS_CRASH_FILE_NAME)
 
@@ -34,7 +35,7 @@ class SystemNnnDiagnosticLog(
                 ensureDirectory()
                 rotateSessionFile(logFile, previousLogFile)
                 rotateSessionFile(crashFile, previousCrashFile)
-                snapshotFile.delete()
+                rotateSessionFile(snapshotFile, previousSnapshotFile)
             } catch (_: Exception) {
                 // Diagnostics must never block game startup.
             }
@@ -129,6 +130,7 @@ class SystemNnnDiagnosticLog(
                 addFile(zip, logFile, LOG_FILE_NAME)
                 addFile(zip, previousLogFile, PREVIOUS_LOG_FILE_NAME)
                 addFile(zip, snapshotFile, SNAPSHOT_FILE_NAME)
+                addFile(zip, previousSnapshotFile, PREVIOUS_SNAPSHOT_FILE_NAME)
                 addFile(zip, crashFile, CRASH_FILE_NAME)
                 addFile(zip, previousCrashFile, PREVIOUS_CRASH_FILE_NAME)
                 decoderLogFile?.let { addFile(zip, it, DECODER_LOG_FILE_NAME) }
@@ -218,6 +220,14 @@ class SystemNnnDiagnosticLog(
             appendLine("Current runtime snapshot:")
             appendLine(snapshot)
             appendLine()
+            appendLine("Previous session runtime snapshot:")
+            appendLine(
+                if (previousSnapshotFile.isFile) {
+                    runCatching { previousSnapshotFile.readText(Charsets.UTF_8).take(MAX_SNAPSHOT_CHARS) }
+                        .getOrDefault("unavailable")
+                } else "unavailable"
+            )
+            appendLine()
             appendLine("Last decoder-unsupported events:")
             if (unsupported.isEmpty()) appendLine("  (none)")
             unsupported.takeLast(MAX_SUMMARY_UNSUPPORTED_LINES).forEach { appendLine(it) }
@@ -288,6 +298,7 @@ class SystemNnnDiagnosticLog(
         private const val LOG_FILE_NAME = "system-nnn-diagnostics.log"
         private const val PREVIOUS_LOG_FILE_NAME = "system-nnn-diagnostics.previous.log"
         private const val SNAPSHOT_FILE_NAME = "system-nnn-runtime-snapshot.txt"
+        private const val PREVIOUS_SNAPSHOT_FILE_NAME = "system-nnn-runtime-snapshot.previous.txt"
         private const val CRASH_FILE_NAME = "system-nnn-crashes.txt"
         private const val PREVIOUS_CRASH_FILE_NAME = "system-nnn-crashes.previous.txt"
         private const val DECODER_LOG_FILE_NAME = "ramen_debug.log"
