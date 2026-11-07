@@ -646,4 +646,37 @@ class SystemNnnVisualEffectMathTest {
         assertTrue(kotlin.math.abs(first.x) <= 8f)
         assertTrue(kotlin.math.abs(first.y) <= 6f)
     }
+    @Test
+    fun localHaikeiYureAdvancesOnItsOwnLayerProgressClock() {
+        assertTrue(
+            SystemNnnVisualEffectMath.shouldAnimateLayerProgress(
+                effectId = 100,
+                parameters = listOf(20, 20, 0, 25, 25, 0),
+                hasRectMotion = false
+            )
+        )
+        assertFalse(
+            SystemNnnVisualEffectMath.shouldAnimateLayerProgress(
+                effectId = 100,
+                parameters = listOf(20, 20, 0, 25, 25, 1),
+                hasRectMotion = false
+            )
+        )
+        assertTrue(
+            SystemNnnVisualEffectMath.shouldAnimateLayerProgress(
+                effectId = 52,
+                parameters = emptyList(),
+                hasRectMotion = true
+            )
+        )
+        assertFalse(
+            SystemNnnVisualEffectMath.shouldAnimateLayerProgress(
+                effectId = 8,
+                parameters = listOf(20, 50),
+                hasRectMotion = false
+            )
+        )
+    }
+
+
 }
