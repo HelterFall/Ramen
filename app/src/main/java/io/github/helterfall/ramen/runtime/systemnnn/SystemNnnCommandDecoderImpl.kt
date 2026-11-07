@@ -1126,30 +1126,91 @@ class SystemNnnCommandDecoderImpl(
 
     private fun skipUnsupported(
         record: SystemNnnCommandRecord,
-        reason: String
+        reason: String,
+        script: SystemNnnScript? = null
     ): SystemNnnDecodedCommand.Skip {
-        appendDebugLog(record, reason)
+        recordDiagnostic("decoder_unsupported", record, reason, script)
+        appendDebugLog(record, reason, script)
         return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
     }
 
+    private fun skipKnownUnimplemented(
+        record: SystemNnnCommandRecord,
+        script: SystemNnnScript,
+        reason: String
+    ): SystemNnnDecodedCommand.Skip {
+        recordDiagnostic("decoder_known_unimplemented", record, reason, script)
+        return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+    }
+
+    private fun skipKnownIgnored(
+        record: SystemNnnCommandRecord,
+        script: SystemNnnScript,
+        reason: String
+    ): SystemNnnDecodedCommand.Skip {
+        recordDiagnostic("decoder_known_ignored", record, reason, script)
+        return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+    }
+
+    /** Captures a bounded raw operand sample without risking a second decode failure. */
+    private fun recordDiagnostic(
+        event: String,
+        record: SystemNnnCommandRecord,
+        reason: String,
+        script: SystemNnnScript?
+    ) {
+        val payloadSample = if (script == null) {
+            "unavailable"
+        } else {
+            (0 until minOf(record.payloadWordCount, MAX_DIAGNOSTIC_PAYLOAD_WORDS))
+                .joinToString(",") { index ->
+                    runCatching { readPayloadWord(script, record, index).toString(16).padStart(8, '0') }
+                        .getOrElse { "????????" }
+                }
+                .let { "[$it]" }
+        }
+        val details = "module=$moduleName offset=0x${record.offset.toString(16)} " +
+            "lengthWords=${record.lengthWords} payloadWordCount=${record.payloadWordCount} " +
+            "identifier=0x${record.identifier.toString(16)} code=0x${record.code.toString(16)} " +
+            "kind=${record.recordKind?.name ?: "UNKNOWN"} payloadWords=$payloadSample " +
+            "payloadTruncated=${record.payloadWordCount > MAX_DIAGNOSTIC_PAYLOAD_WORDS} " +
+            "reason=${reason.replace('\n', ' ').replace('\r', ' ')}"
+        SystemNnnDiagnosticLog.active?.record(event, details)
+    }
+
     /**
-     * Best-effort diagnostics must never turn a safely skippable record into
-     * a visible runtime failure.
+     * Best-effort raw decoder log. It contains only records actually skipped
+     * by the VM; successfully decoded SETEFFECT records are logged as effect_set.
      */
-    private fun appendDebugLog(record: SystemNnnCommandRecord, reason: String) {
+    private fun appendDebugLog(
+        record: SystemNnnCommandRecord,
+        reason: String,
+        script: SystemNnnScript?
+    ) {
         val destination = debugLogFile ?: return
         val safeReason = reason.replace('\n', ' ').replace('\r', ' ')
-        val line = "unsupported_record address=0x${record.offset.toString(16)} " +
-            "identifier=0x${record.identifier.toString(16)} " +
-            "code=0x${record.code.toString(16)} " +
-            "kind=${record.recordKind?.name ?: "UNKNOWN"} reason=$safeReason\n"
+        val payloadSample = if (script == null) {
+            "unavailable"
+        } else {
+            (0 until minOf(record.payloadWordCount, MAX_DIAGNOSTIC_PAYLOAD_WORDS))
+                .joinToString(",") { index ->
+                    runCatching { readPayloadWord(script, record, index).toString(16).padStart(8, '0') }
+                        .getOrElse { "????????" }
+                }
+        }
+        val line = "unsupported_record timeMs=${System.currentTimeMillis()} module=$moduleName " +
+            "address=0x${record.offset.toString(16)} lengthWords=${record.lengthWords} " +
+            "payloadWordCount=${record.payloadWordCount} identifier=0x${record.identifier.toString(16)} " +
+            "code=0x${record.code.toString(16)} kind=${record.recordKind?.name ?: "UNKNOWN"} " +
+            "payloadWords=[$payloadSample] payloadTruncated=${record.payloadWordCount > MAX_DIAGNOSTIC_PAYLOAD_WORDS} " +
+            "reason=$safeReason\n"
 
         runCatching {
             synchronized(DEBUG_LOG_LOCK) {
                 destination.parentFile?.let { parent ->
                     if (!parent.exists()) parent.mkdirs()
                 }
-                if (destination.exists() && destination.length() >= MAX_DEBUG_LOG_BYTES) {
+                if (destination.exists() && destination.length() + line.length >= MAX_DEBUG_LOG_BYTES) {
                     destination.writeText("ramen_debug.log rotated after reaching the size limit.\n", Charsets.UTF_8)
                 }
                 destination.appendText(line, Charsets.UTF_8)
@@ -1163,6 +1224,7 @@ class SystemNnnCommandDecoderImpl(
         const val DWORD_BYTES = 4L
         const val RECORD_HEADER_WORDS = 3
         const val SYSTEM_COMMAND_FAMILY = 0x2222
+        const val CODE_OVERRAP = 0x0005
         const val USER_FUNCTION_FAMILY = 0x0000
         const val USER_FUNCTION_STOP_F5 = 0x0002
         const val USER_FUNCTION_ARGUMENT_COUNT_WORDS = 1
@@ -1178,6 +1240,21 @@ class SystemNnnCommandDecoderImpl(
         const val CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER = 0x0014
         const val CODE_SYSTEMFUNCTION_LOADDWQ = 0x0015
         const val CODE_SYSTEMFUNCTION_PRELOADDWQ = 0x001F
+        const val CODE_SYSTEMFUNCTION_PREPAREOVERRAP = 0x0011
+        const val CODE_SYSTEMFUNCTION_NOMESSAGEWINDOW = 0x0017
+        const val CODE_SYSTEMFUNCTION_SETCG = 0x0018
+        const val CODE_SYSTEMFUNCTION_SETSCENE = 0x0019
+        const val CODE_SYSTEMFUNCTION_STARTMESSAGE = 0x001B
+        const val CODE_SYSTEMFUNCTION_STARTKOMA = 0x001C
+        const val CODE_SYSTEMFUNCTION_STARTFILM = 0x001D
+        const val CODE_SYSTEMFUNCTION_SETDEMOFLAG = 0x001E
+        const val CODE_SYSTEMFUNCTION_FILMNAME = 0x0050
+        const val CODE_SYSTEMFUNCTION_STORYNAME = 0x0051
+        const val CODE_SYSTEMFUNCTION_FILMTYPETIME = 0x0052
+        const val CODE_SYSTEMFUNCTION_AUTOMESSAGE = 0x0057
+        const val CODE_SYSTEMFUNCTION_CANNOTCLICK = 0x0058
+        const val CODE_SYSTEMFUNCTION_CANNOTSKIP = 0x0059
+        const val CODE_SYSTEMFUNCTION_OPTIONOFF = 0x005A
         const val LOADDWQ_PAYLOAD_WORD_COUNT = 2
         const val LOADDWQ_LAYER_PAYLOAD = 0
         const val LOADDWQ_RESOURCE_INDEX_PAYLOAD = 1
@@ -1262,6 +1339,7 @@ class SystemNnnCommandDecoderImpl(
         const val MESSAGE_INDEX_PAYLOAD_WORD = 0
         const val MESSAGE_REFERENCE_WORD_COUNT = 2
         const val MAX_DEBUG_LOG_BYTES = 1L * 1024L * 1024L
+        const val MAX_DIAGNOSTIC_PAYLOAD_WORDS = 24
         val DEBUG_LOG_LOCK = Any()
     }
 }
