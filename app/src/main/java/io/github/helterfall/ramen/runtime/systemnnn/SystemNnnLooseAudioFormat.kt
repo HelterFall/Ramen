@@ -148,7 +148,8 @@ internal object SystemNnnLooseAudioFormat {
                 val bits = LsbBits(input)
                 var previous = 0
                 repeatLong(sampleCount) {
-                    val count = bits.read(4) ?: 0
+                    val count = bits.read(4)
+                        ?: throw EOFException("Truncated PACKTYPE=1 differential sample header.")
                     var code = 0
                     if (count > 0) {
                         val raw = bits.read(count)
