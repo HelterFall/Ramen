@@ -19,7 +19,7 @@
 ### Effect/rendering findings
 - Per-sprite Animatable clocks exist for CTRANS, SCROLL, CHANGE, MOVE, BEZIERMOVE, TURN, STRETCHBLT, COLORADDSUB and BSPLINE2, plus rectangle motion.
 - Screen/layer overlay effects (including FADE, FLASH, SUNA, FILL and OLDFILM) use a shared layerEffectFrame. Its remember key is the full layer-configuration set; changing one layer configuration resets the clock used by all overlay layers. This can restart another layer's effect and makes simultaneous effects difficult to compare to native timing.
-- HAIKEIYURE mode 0 had a definite clock bug: its local progress was initialized but never animated. The current branch now advances this mode through a shared animation-policy helper. A unit test was added; CI is pending for the post-fix head.
+- HAIKEIYURE mode 0 had a definite clock bug: its local progress was initialized but never animated. The current branch now advances this mode through a shared animation-policy helper. A unit test was added; final-head unit tests passed in Actions runs #42382482545 and #42382484261. A debug APK containing the runtime fix passed assembly/upload in run #42382360302. Physical-device visual acceptance remains outstanding.
 - HAIKEIYURE mode 1 remains an approximation: the renderer translates the already-composed viewport as a group, while the documented native callback changes the screen buffer at a particular point in the layer sequence.
 - CHANGE requires a second, different layer with matching bitmap dimensions; current Compose code blends via BlendMode.Plus. Its visual parity must be checked against a real transition.
 - KE/SUNA/OLDFILM/CHARABURE use deterministic Android sequences rather than the original process-global Windows RNG. They are reproducible, not bit-identical.
