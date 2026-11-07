@@ -560,10 +560,21 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     /**
-     * Compose calls this after the corresponding image is removed. The bitmap
-     * can then be recycled without leaving a live Image node pointing at it.
+     * Compose calls this after the corresponding image leaves composition.
+     *
+     * Do not recycle here: Compose/Android may still hold the Bitmap in a
+     * painter or recorded display list after the node is disposed. The bitmap
+     * becomes collectible once those rendering references are released.
      */
     fun onBitmapDisposed(bitmap: Bitmap) {
+        bitmapOwners.remove(bitmap)
+    }
+
+    /**
+     * Only for decoded bitmaps that were never published to Compose. These
+     * have no UI painter or in-flight rendering operation that can retain them.
+     */
+    private fun releaseUnpublishedBitmap(bitmap: Bitmap) {
         val owner = bitmapOwners.remove(bitmap)
         runCatching {
             if (owner != null) owner.releaseBitmap(bitmap)
@@ -1635,7 +1646,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
         bitmapOwners.keys.toList().forEach { bitmap ->
             if (!published.containsKey(bitmap)) {
-                onBitmapDisposed(bitmap)
+                releaseUnpublishedBitmap(bitmap)
             }
         }
     }
