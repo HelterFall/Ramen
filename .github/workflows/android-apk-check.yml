@@ -1,5 +1,5 @@
 name: One-time Android debug APK
-# Re-run for native DWQ PACKTYPE=2/3/7 mask and row-order verification.
+# Build current diagnostics-enabled visual-debug snapshot.
 
 on:
   push:
