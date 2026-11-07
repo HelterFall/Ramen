@@ -329,7 +329,7 @@ class SystemNnnCommandDecoderImplTest {
     @Test
     fun rejectsDrawWithoutAFrameCountOperand() {
         val script = testScript(
-            listOf(record(4, SYSTEM_COMMAND, CODE_DRAW, 0u)),
+            listOf(record(4, SYSTEM_COMMAND, CODE_DRAW)),
             textCount = 0
         )
         org.junit.Assert.assertThrows(IOException::class.java) {
