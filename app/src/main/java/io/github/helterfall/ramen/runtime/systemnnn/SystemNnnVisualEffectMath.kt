@@ -513,9 +513,12 @@ internal object SystemNnnVisualEffectMath {
     ): SystemNnnVisualOffset {
         val pivot = turnPivotOffset(parameters)
         val spline = turnSplineOffset(frame, parameters)
+        // The caller aligns the layer box to screen center. Its offset is therefore
+        // only the native destination displacement minus the source pivot delta.
+        // The bitmap half-size is already accounted for by Alignment.Center.
         return SystemNnnVisualOffset(
-            destinationX + spline.x - sourceWidth / 2f - pivot.x,
-            destinationY + spline.y - sourceHeight / 2f - pivot.y
+            destinationX + spline.x - pivot.x,
+            destinationY + spline.y - pivot.y
         )
     }
 
