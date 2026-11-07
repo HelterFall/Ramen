@@ -179,11 +179,23 @@ class SystemNnnDiagnosticLog(
         val knownUnimplemented = diagnosticLines.filter { "[decoder_known_unimplemented]" in it }
         val knownIgnored = diagnosticLines.filter { "[decoder_known_ignored]" in it }
         val rendererGaps = diagnosticLines.filter { "[effect_unsupported]" in it }
-        val unsupportedCodes = sortedMapOf<String, Int>()
+        fun countCodes(lines: List<String>): Map<String, Int> {
+            val counts = sortedMapOf<String, Int>()
+            lines.forEach { line ->
+                val code = codeRegex.find(line)?.groupValues?.getOrNull(1) ?: "unknown"
+                counts[code] = (counts[code] ?: 0) + 1
+            }
+            return counts
+        }
         val codeRegex = Regex("\\bcode=(0x[0-9a-fA-F]+)")
-        currentUnsupported.forEach { line ->
-            val code = codeRegex.find(line)?.groupValues?.getOrNull(1) ?: "unknown"
-            unsupportedCodes[code] = (unsupportedCodes[code] ?: 0) + 1
+        val unsupportedCodes = countCodes(currentUnsupported)
+        val knownUnimplementedCodes = countCodes(knownUnimplemented)
+        val knownIgnoredCodes = countCodes(knownIgnored)
+        val effectIds = sortedMapOf<String, Int>()
+        val effectIdRegex = Regex("\\bid=(\\d+)")
+        rendererGaps.forEach { line ->
+            val id = effectIdRegex.find(line)?.groupValues?.getOrNull(1) ?: "unknown"
+            effectIds[id] = (effectIds[id] ?: 0) + 1
         }
 
         val oldDecoderLabelCount = decoderLines.count { it.startsWith("unsupported_record ") }
@@ -216,6 +228,18 @@ class SystemNnnDiagnosticLog(
             appendLine("Current session unsupported record codes:")
             if (unsupportedCodes.isEmpty()) appendLine("  (none)")
             unsupportedCodes.forEach { (code, count) -> appendLine("  $code: $count") }
+            appendLine()
+            appendLine("Known native operations not implemented by code:")
+            if (knownUnimplementedCodes.isEmpty()) appendLine("  (none)")
+            knownUnimplementedCodes.forEach { (code, count) -> appendLine("  $code: $count") }
+            appendLine()
+            appendLine("Known native metadata/no-op operations by code:")
+            if (knownIgnoredCodes.isEmpty()) appendLine("  (none)")
+            knownIgnoredCodes.forEach { (code, count) -> appendLine("  $code: $count") }
+            appendLine()
+            appendLine("Effects with no native Android renderer path:")
+            if (effectIds.isEmpty()) appendLine("  (none)")
+            effectIds.forEach { (id, count) -> appendLine("  effect $id: $count") }
             appendLine()
             appendLine("Current runtime snapshot:")
             appendLine(snapshot)
