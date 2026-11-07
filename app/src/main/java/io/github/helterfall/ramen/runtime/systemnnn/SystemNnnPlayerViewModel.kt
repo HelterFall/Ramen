@@ -292,6 +292,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList()
     private var sceneReplayFilmCursor: Int = 0
     private val visualLayerConfigurationStore = SystemNnnVisualLayerConfigurationStore()
+    private var diagnosticLog: SystemNnnDiagnosticLog? = null
 
     private data class ModuleCallFrame(
         val moduleName: String,
@@ -312,6 +313,34 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private val voiceExecutor = Executors.newSingleThreadExecutor()
     private val mainHandler by lazy(LazyThreadSafetyMode.NONE) {
         Handler(Looper.getMainLooper())
+    }
+
+    fun setDiagnosticLog(log: SystemNnnDiagnosticLog) {
+        diagnosticLog = log
+        diagnosticLog?.record("player", "diagnostic recorder attached")
+    }
+
+    private fun updateDiagnosticSnapshot(commandOffset: Long, commandName: String) {
+        val sprites = uiState.sprites.joinToString(separator = ";") { sprite ->
+            "L${sprite.layerIndex}:${sprite.resourceId}[${sprite.bitmap.width}x${sprite.bitmap.height}]" +
+                " effect=${sprite.nativeEffectId ?: "none"} params=${sprite.nativeEffectParameters.joinToString(",")}"
+        }
+        diagnosticLog?.updateRuntimeSnapshot(
+            "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
+                "command=$commandName offset=0x${commandOffset.toString(16)} frame=$frameCounter " +
+                "screenEffect=${uiState.screenEffectId ?: "none"} " +
+                "screenParams=${uiState.screenEffectParameters.joinToString(",")} " +
+                "background=${uiState.backgroundBitmap?.let { "${it.width}x${it.height}" } ?: "none"} " +
+                "sprites=$sprites"
+        )
+    }
+
+    private fun recordDecodedBitmap(resourceId: String, bitmap: Bitmap) {
+        diagnosticLog?.record(
+            "bitmap_decoded",
+            "resource=$resourceId size=${bitmap.width}x${bitmap.height} " +
+                "config=${bitmap.config} hasAlpha=${bitmap.hasAlpha()} alphaPremultiplied=${bitmap.isPremultiplied}"
+        )
     }
 
     fun showStartupLoading() {
@@ -547,6 +576,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         resolver: SystemNnnSceneAssetResolver
     ): Bitmap? = resolver.loadBitmap(resourceId)?.also { bitmap ->
         bitmapOwners[bitmap] = resolver
+        recordDecodedBitmap(resourceId, bitmap)
     }
 
     /** Pauses all active native audio channels while the player Activity is not visible. */
@@ -598,6 +628,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         resolver: SystemNnnSceneAssetResolver
     ): Bitmap? = resolver.loadBitmapByIndex(index)?.also { bitmap ->
         bitmapOwners[bitmap] = resolver
+        recordDecodedBitmap("index:$index", bitmap)
     }
 
     private fun loadBitmapFromNativeBank(
@@ -607,6 +638,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         resolver: SystemNnnSceneAssetResolver
     ): Bitmap? = resolver.loadBitmapFromNativeBank(namespace, slot, resourceId)?.also { bitmap ->
         bitmapOwners[bitmap] = resolver
+        recordDecodedBitmap("$namespace$slot/$resourceId", bitmap)
     }
 
     private fun loadBitmapByNativeBankIndex(
@@ -616,6 +648,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         resolver: SystemNnnSceneAssetResolver
     ): Bitmap? = resolver.loadBitmapByNativeBankIndex(namespace, slot, index)?.also { bitmap ->
         bitmapOwners[bitmap] = resolver
+        recordDecodedBitmap("$namespace$slot/index:$index", bitmap)
     }
 
     private fun validateNativeBankIdentity(namespace: String?, slot: Int?) {
@@ -938,7 +971,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     throw IOException("Command cursor is not on a validated SPT record boundary.")
                 }
 
-                when (val command = currentDecoder.decodeNext(currentScript, commandOffset)) {
+                val command = currentDecoder.decodeNext(currentScript, commandOffset)
+                diagnosticLog?.record(
+                    "command",
+                    "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
+                        "offset=0x${commandOffset.toString(16)} type=${command.javaClass.simpleName}"
+                )
+                updateDiagnosticSnapshot(commandOffset, command.javaClass.simpleName)
+                when (command) {
                     is SystemNnnDecodedCommand.SceneUpdate -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
@@ -979,6 +1019,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     is SystemNnnDecodedCommand.LoadImageLayer -> {
+                        diagnosticLog?.record(
+                            "layer_load",
+                            "module=${currentModuleName ?: "standalone"} offset=0x${commandOffset.toString(16)} " +
+                                "layer=${command.layerIndex} resource=${command.resourceId}"
+                        )
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         if (command.layerIndex !in 0 until MAX_IMAGE_LAYERS) {
                             throw IOException("LOADDWQ supplied an invalid effect layer.")
@@ -1003,6 +1048,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     is SystemNnnDecodedCommand.ClearImageLayer -> {
+                        diagnosticLog?.record(
+                            "layer_clear",
+                            "module=${currentModuleName ?: "standalone"} offset=0x${commandOffset.toString(16)} layer=${command.layerIndex}"
+                        )
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         if (command.layerIndex !in 0 until MAX_IMAGE_LAYERS) {
                             throw IOException("CLEAREFFECTLAYER supplied an invalid layer.")
@@ -1036,6 +1085,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     is SystemNnnDecodedCommand.SetImageLayerRect -> {
+                        diagnosticLog?.record(
+                            "layer_rect",
+                            "offset=0x${commandOffset.toString(16)} layer=${command.layerIndex} " +
+                                "from=${command.fromRect} to=${command.toRect}"
+                        )
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
                         val currentLayerVisuals = pendingLayerVisuals[command.layerIndex]
@@ -1055,6 +1109,15 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     }
 
                     is SystemNnnDecodedCommand.SetImageLayerEffect -> {
+                        val previousEffect = pendingLayerVisuals[command.layerIndex]?.effectId
+                        diagnosticLog?.record(
+                            "effect_set",
+                            "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
+                                "offset=0x${commandOffset.toString(16)} layer=${command.layerIndex} " +
+                                "id=${command.effectId} params=${command.parameters.joinToString(",")} " +
+                                "previous=${previousEffect ?: "none"} accepted=" +
+                                SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)
+                        )
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
 
@@ -1406,6 +1469,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
             throw IOException("Too many scene-only commands without a dialogue or choice.")
         } catch (error: Exception) {
+            diagnosticLog?.recordException(
+                "scene_advance_failure",
+                error,
+                "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
+                    "nextOffset=0x${nextCommandOffset.toString(16)}"
+            )
+            updateDiagnosticSnapshot(nextCommandOffset, "failure")
             releaseUnpublishedBitmaps()
             uiState = uiState.copy(
                 isLoading = false,
@@ -1628,6 +1698,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     )
                 }
             }.getOrElse { failure ->
+                diagnosticLog?.recordException(
+                    "image_decode_failure",
+                    failure,
+                    "layer=$layer resource=${reference.resourceId} " +
+                        "bank=${reference.nativeBankNamespace ?: "default"} slot=${reference.nativeBankSlot ?: "none"}"
+                )
                 warnings += "Layer $layer ('${reference.resourceId}'): " +
                     (failure.message ?: failure.javaClass.simpleName)
                 null
