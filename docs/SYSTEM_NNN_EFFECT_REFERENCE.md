@@ -21,6 +21,9 @@ the effect's Print method.
 | Native ID | Effect | Source file | Native source-picture rule |
 |---:|---|---|---|
 | 0 | NOP | [base implementation](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectLib/commoneffect.cpp) | TRUE (base default) |
+| 8 | TRANS | [effectTrans.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectTrans.cpp) | FALSE |
+| 9 | CTRANS | [effectCTrans.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCTrans.cpp) | FALSE |
+| 19 | ANIME | [effectAnime.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectAnimeLIB/effectAnime.cpp) | FALSE |
 | 12 | FLOWER | [effectFlower.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectFlower.cpp) | TRUE (inherits base default) |
 | 13 | RAIN | [effectRain.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectRain.cpp) | TRUE (inherits base default) |
 | 17 | FLASH | [effectFlash.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectScreenLIB/effectFlash.cpp) | TRUE (inherits base default); later changes its command to FILL |
@@ -34,6 +37,19 @@ the effect's Print method.
 | 66 | BUFFER | [effectBuffer.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectEtcLIB/effectBuffer.cpp) | FALSE; `CheckAllPrint` is also FALSE |
 | 82 | CLOUD | [effectCloud.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectCloud.cpp) | FALSE |
 | 90 | CHARAFLASH | [effectCharaFlash.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaFlash.cpp) | FALSE |
+| 93 | GRASSPLANE | [effectGrassPlane.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectGrassPlane.cpp) | FALSE |
+| 94 | POLESCROLL | [effectPoleScroll.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectSpecialLIB/effectPoleScroll.cpp) | FALSE |
+| 95 | WATERDROP | [effectWaterDrop.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectLib/effectWaterDrop.cpp) | FALSE |
+| 99 | COLORADDSUB | [effectColorAddSub.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectColorAddSub.cpp) | FALSE |
+| 107 | CHARARASTER | [effectCharaRaster.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaRaster.cpp) | FALSE |
+| 110 | CHARAGHOST | [effectCharaGhost.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaGhost.cpp) | FALSE |
+| 113 | LUPIN | [effectLupin.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectLib/effectLupin.cpp) | FALSE |
+| 124 | CHARAGREY | [effectCharaGrey.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaGrey.cpp) | FALSE |
+| 125 | CHARABOKASHI | [effectCharaBokashi.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaBokashi.cpp) | FALSE |
+| 126 | BGBOKASHI | [effectBGBokashi.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectSpecialLIB/effectBGBokashi.cpp) | FALSE |
+| 127 | SEPIA | [effectCharaSepia.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaSepia.cpp) | FALSE |
+| 131 | ADDSUB | [effectCharaAddSub.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaAddSub.cpp) | FALSE |
+| 132 | CHARABURE | [effectCharaBure.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaBure.cpp) | FALSE |
 | 100 | HAIKEIYURE | [effectHaikeiYure.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectHaikeiYure.cpp) | Conditional: FALSE when `para[5] == 0`, TRUE otherwise |
 
 ## Required comparison for every additional effect
