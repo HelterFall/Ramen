@@ -1,6 +1,7 @@
 package org.libsdl.app;
 
 import android.content.Context;
+import android.content.pm.PackageManager;
 import android.bluetooth.BluetoothDevice;
 import android.bluetooth.BluetoothGatt;
 import android.bluetooth.BluetoothGattCallback;
@@ -60,15 +61,19 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
         UUID mUuid;
         byte[] mValue;
         BluetoothGatt mGatt;
+        Context mContext;
         boolean mResult = true;
+        boolean mPermissionMissing = false;
 
-        private GattOperation(BluetoothGatt gatt, GattOperation.Operation operation, UUID uuid) {
+        private GattOperation(Context context, BluetoothGatt gatt, GattOperation.Operation operation, UUID uuid) {
+            mContext = context;
             mGatt = gatt;
             mOp = operation;
             mUuid = uuid;
         }
 
-        private GattOperation(BluetoothGatt gatt, GattOperation.Operation operation, UUID uuid, byte[] value) {
+        private GattOperation(Context context, BluetoothGatt gatt, GattOperation.Operation operation, UUID uuid, byte[] value) {
+            mContext = context;
             mGatt = gatt;
             mOp = operation;
             mUuid = uuid;
@@ -76,7 +81,16 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
         }
 
         public void run() {
-            // This is executed in main thread
+            // This is executed in main thread. BLUETOOTH_CONNECT may be revoked
+            // while the app is running, so re-check it at the point of use.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                    mContext.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                mPermissionMissing = true;
+                mResult = false;
+                Log.w(TAG, "Skipping BLE operation: BLUETOOTH_CONNECT permission is not granted.");
+                return;
+            }
+
             BluetoothGattCharacteristic chr;
 
             switch (mOp) {
@@ -136,6 +150,10 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
             return mResult;
         }
 
+        public boolean wasPermissionMissing() {
+            return mPermissionMissing;
+        }
+
         private BluetoothGattCharacteristic getCharacteristic(UUID uuid) {
             BluetoothGattService valveService = mGatt.getService(steamControllerService);
             if (valveService == null)
@@ -143,16 +161,16 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
             return valveService.getCharacteristic(uuid);
         }
 
-        static public GattOperation readCharacteristic(BluetoothGatt gatt, UUID uuid) {
-            return new GattOperation(gatt, Operation.CHR_READ, uuid);
+        static public GattOperation readCharacteristic(Context context, BluetoothGatt gatt, UUID uuid) {
+            return new GattOperation(context, gatt, Operation.CHR_READ, uuid);
         }
 
-        static public GattOperation writeCharacteristic(BluetoothGatt gatt, UUID uuid, byte[] value) {
-            return new GattOperation(gatt, Operation.CHR_WRITE, uuid, value);
+        static public GattOperation writeCharacteristic(Context context, BluetoothGatt gatt, UUID uuid, byte[] value) {
+            return new GattOperation(context, gatt, Operation.CHR_WRITE, uuid, value);
         }
 
-        static public GattOperation enableNotification(BluetoothGatt gatt, UUID uuid) {
-            return new GattOperation(gatt, Operation.ENABLE_NOTIFICATION, uuid);
+        static public GattOperation enableNotification(Context context, BluetoothGatt gatt, UUID uuid) {
+            return new GattOperation(context, gatt, Operation.ENABLE_NOTIFICATION, uuid);
         }
     }
 
@@ -186,6 +204,12 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
     // Because on Chromebooks we show up as a dual-mode device, it will attempt to connect TRANSPORT_AUTO, which will use TRANSPORT_BREDR instead
     // of TRANSPORT_LE.  Let's force ourselves to connect low energy.
     private BluetoothGatt connectGatt(boolean managed) {
+        Context context = mManager.getContext();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return null;
+        }
+
         if (Build.VERSION.SDK_INT >= 23) {
             try {
                 return mDevice.connectGatt(mManager.getContext(), managed, this, TRANSPORT_LE);
@@ -208,6 +232,10 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
             // We are lacking any context to get our Bluetooth information.  We'll just assume disconnected.
             return BluetoothProfile.STATE_DISCONNECTED;
         }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return BluetoothProfile.STATE_DISCONNECTED;
+        }
 
         BluetoothManager btManager = (BluetoothManager)context.getSystemService(Context.BLUETOOTH_SERVICE);
         if (btManager == null) {
@@ -220,15 +248,26 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
     }
 
     public void reconnect() {
-
-        if (getConnectionState() != BluetoothProfile.STATE_CONNECTED) {
-            mGatt.disconnect();
-            mGatt = connectGatt();
+        Context context = mManager.getContext();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return;
         }
 
+        if (getConnectionState() != BluetoothProfile.STATE_CONNECTED) {
+            if (mGatt != null) {
+                mGatt.disconnect();
+            }
+            mGatt = connectGatt();
+        }
     }
 
     protected void checkConnectionForChromebookIssue() {
+        Context context = mManager.getContext();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
         if (!mIsChromebook) {
             // We only do this on Chromebooks, because otherwise it's really annoying to just attempt
             // over and over.
@@ -298,6 +337,11 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
     }
 
     private boolean probeService(HIDDeviceBLESteamController controller) {
+        Context context = mManager.getContext();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return false;
+        }
 
         if (isRegistered()) {
             return true;
@@ -354,7 +398,7 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
             boolean result = op.finish(); // TODO: Maybe in main thread as well?
 
             // Our operation failed, let's add it back to the beginning of our queue.
-            if (!result) {
+            if (!result && !op.wasPermissionMissing()) {
                 mOperations.addFirst(op);
             }
         }
@@ -397,17 +441,17 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
     }
 
     private void enableNotification(UUID chrUuid) {
-        GattOperation op = HIDDeviceBLESteamController.GattOperation.enableNotification(mGatt, chrUuid);
+        GattOperation op = HIDDeviceBLESteamController.GattOperation.enableNotification(mManager.getContext(), mGatt, chrUuid);
         queueGattOperation(op);
     }
 
     public void writeCharacteristic(UUID uuid, byte[] value) {
-        GattOperation op = HIDDeviceBLESteamController.GattOperation.writeCharacteristic(mGatt, uuid, value);
+        GattOperation op = HIDDeviceBLESteamController.GattOperation.writeCharacteristic(mManager.getContext(), mGatt, uuid, value);
         queueGattOperation(op);
     }
 
     public void readCharacteristic(UUID uuid) {
-        GattOperation op = HIDDeviceBLESteamController.GattOperation.readCharacteristic(mGatt, uuid);
+        GattOperation op = HIDDeviceBLESteamController.GattOperation.readCharacteristic(mManager.getContext(), mGatt, uuid);
         queueGattOperation(op);
     }
 
@@ -416,6 +460,11 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
     //////////////////////////////////////////////////////////////////////////////////////////////////////
 
     public void onConnectionStateChange(BluetoothGatt g, int status, int newState) {
+        Context context = mManager.getContext();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
         //Log.v(TAG, "onConnectionStateChange status=" + status + " newState=" + newState);
         mIsReconnecting = false;
         if (newState == 2) {
@@ -438,6 +487,11 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
     }
 
     public void onServicesDiscovered(BluetoothGatt gatt, int status) {
+        Context context = mManager.getContext();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
         //Log.v(TAG, "onServicesDiscovered status=" + status);
         if (status == 0) {
             if (gatt.getServices().size() == 0) {
@@ -492,6 +546,11 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
     }
 
     public void onDescriptorWrite(BluetoothGatt gatt, BluetoothGattDescriptor descriptor, int status) {
+        Context context = mManager.getContext();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
         BluetoothGattCharacteristic chr = descriptor.getCharacteristic();
         //Log.v(TAG, "onDescriptorWrite status=" + status + " uuid=" + chr.getUuid() + " descriptor=" + descriptor.getUuid());
 
@@ -636,8 +695,12 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
 
         BluetoothGatt g = mGatt;
         if (g != null) {
-            g.disconnect();
-            g.close();
+            Context context = mManager == null ? null : mManager.getContext();
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
+                    (context != null && context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED)) {
+                g.disconnect();
+                g.close();
+            }
             mGatt = null;
         }
         mManager = null;
