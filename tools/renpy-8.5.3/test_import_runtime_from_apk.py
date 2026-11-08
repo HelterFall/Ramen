@@ -22,6 +22,7 @@ def path_to_gamedir(basedir, name):
 
 
 def path_to_saves(gamedir, save_directory=None):
+    # Android.
     if renpy.android:
         paths = [
             "default",
