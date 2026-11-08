@@ -1,6 +1,8 @@
 package org.libsdl.app;
 
 import android.app.Activity;
+import androidx.activity.ComponentActivity;
+import androidx.activity.OnBackPressedCallback;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.UiModeManager;
@@ -61,7 +63,7 @@ import java.util.Locale;
 /**
     SDL Activity
 */
-public class SDLActivity extends Activity implements View.OnSystemUiVisibilityChangeListener {
+public class SDLActivity extends ComponentActivity implements View.OnSystemUiVisibilityChangeListener {
     private static final String TAG = "SDL";
 
     public static boolean mIsResumedCalled, mHasFocus;
@@ -268,6 +270,24 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         // So we can call stuff from static callbacks
         mSingleton = this;
         SDL.setContext(this);
+
+        // Use AndroidX's dispatcher so system back gestures and predictive back
+        // invoke SDL's existing back-button policy on all supported API levels.
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (!SDLActivity.mBrokenLibraries &&
+                        SDLActivity.nativeGetHintBoolean("SDL_ANDROID_TRAP_BACK_BUTTON", false)) {
+                    // Let the mouse handler handle the trapped back button.
+                    return;
+                }
+
+                if (!SDLActivity.this.isFinishing()) {
+                    setEnabled(false);
+                    SDLActivity.this.getOnBackPressedDispatcher().onBackPressed();
+                }
+            }
+        });
 
         mClipboardHandler = new SDLClipboardHandler();
 
@@ -492,25 +512,6 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         super.onDestroy();
     }
 
-    @Override
-    public void onBackPressed() {
-        // Check if we want to block the back button in case of mouse right click.
-        //
-        // If we do, the normal hardware back button will no longer work and people have to use home,
-        // but the mouse right click will work.
-        //
-        boolean trapBack = SDLActivity.nativeGetHintBoolean("SDL_ANDROID_TRAP_BACK_BUTTON", false);
-        if (trapBack) {
-            // Exit and let the mouse handler handle this button (if appropriate)
-            return;
-        }
-
-        // Default system back button behavior.
-        if (!isFinishing()) {
-            super.onBackPressed();
-        }
-    }
-
     // Called by JNI from SDL.
     public static void manualBackButton() {
         mSingleton.pressBackButton();
@@ -530,7 +531,15 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
 
     // Used to access the system back behavior.
     public void superOnBackPressed() {
-        super.onBackPressed();
+        getOnBackPressedDispatcher().onBackPressed();
+    }
+
+    @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (mHIDDeviceManager != null) {
+            mHIDDeviceManager.onRequestPermissionsResult(requestCode, grantResults);
+        }
     }
 
     @Override
