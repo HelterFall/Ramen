@@ -55,16 +55,6 @@ object RenPyGamePaths {
             throw IOException("The Ren'Py game directory is outside the imported folder.")
         }
 
-        // Ren'Py's RPA archives are resource archives (images/audio/etc.).
-        // The compiled game script must be present as a standalone .rpyc file;
-        // source .rpy files are also accepted for development imports.
-        if (!containsRenPyScript(gameDirectory)) {
-            throw IOException(
-                "В архиве найден RPA с ресурсами, но не найден сценарий игры (.rpy или .rpyc). " +
-                    "Нужна полная папка Ren'Py: каталог game/ с файлами сценария и архивами ресурсов."
-            )
-        }
-
         val dataBase = File(privateRoot, "renpy-data").canonicalFile
         requireContained(dataBase, privateRoot, "The Ren'Py data directory is outside private storage.")
         ensureDirectory(dataBase)
@@ -91,13 +81,6 @@ object RenPyGamePaths {
                 file.isFile && file.extension.lowercase(Locale.ROOT) in gameFileExtensions
             }
 
-    private fun containsRenPyScript(directory: File): Boolean =
-        directory.walkTopDown()
-            .maxDepth(MAX_SCRIPT_SCAN_DEPTH)
-            .any { file ->
-                file.isFile && file.extension.lowercase(Locale.ROOT) in setOf("rpy", "rpyc")
-            }
-
     private fun ensureDirectory(directory: File) {
         if (!directory.mkdirs() && !directory.isDirectory) {
             throw IOException("Could not create a private Ren'Py data directory.")
@@ -114,5 +97,4 @@ object RenPyGamePaths {
     }
 
     private const val MAX_PAYLOAD_SCAN_DEPTH = 12
-    private const val MAX_SCRIPT_SCAN_DEPTH = 12
 }
