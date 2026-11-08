@@ -32,7 +32,6 @@ def path_to_logdir(basedir):
     if renpy.android:
         return os.environ['ANDROID_PUBLIC']
     return basedir
-''
 
 def main():
 
