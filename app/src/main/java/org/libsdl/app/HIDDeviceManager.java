@@ -28,6 +28,7 @@ import java.util.List;
 public class HIDDeviceManager {
     private static final String TAG = "hidapi";
     private static final String ACTION_USB_PERMISSION = "org.libsdl.app.USB_PERMISSION";
+    private static final int REQUEST_BLUETOOTH_CONNECT = 0x5241;
 
     private static HIDDeviceManager sManager;
     private static int sManagerRefCount = 0;
@@ -60,6 +61,7 @@ public class HIDDeviceManager {
     private Handler mHandler;
     private BluetoothManager mBluetoothManager;
     private List<BluetoothDevice> mLastBluetoothDevices;
+    private boolean mBluetoothPermissionRequestPending;
 
     private final BroadcastReceiver mUsbBroadcast = new BroadcastReceiver() {
         @Override
@@ -193,7 +195,11 @@ public class HIDDeviceManager {
         filter.addAction(UsbManager.ACTION_USB_DEVICE_ATTACHED);
         filter.addAction(UsbManager.ACTION_USB_DEVICE_DETACHED);
         filter.addAction(HIDDeviceManager.ACTION_USB_PERMISSION);
-        mContext.registerReceiver(mUsbBroadcast, filter);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            mContext.registerReceiver(mUsbBroadcast, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            mContext.registerReceiver(mUsbBroadcast, filter);
+        }
 
         for (UsbDevice usbDevice : mUsbManager.getDeviceList().values()) {
             handleUsbDeviceAttached(usbDevice);
@@ -355,6 +361,13 @@ public class HIDDeviceManager {
             return;
         }
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                mContext.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            Log.i(TAG, "Bluetooth HID support needs the Nearby devices permission; requesting it before accessing paired controllers.");
+            requestBluetoothConnectPermission();
+            return;
+        }
+
         if (!mContext.getPackageManager().hasSystemFeature(PackageManager.FEATURE_BLUETOOTH_LE) || (Build.VERSION.SDK_INT < 18)) {
             Log.d(TAG, "Couldn't initialize Bluetooth, this version of Android does not support Bluetooth LE");
             return;
@@ -403,6 +416,49 @@ public class HIDDeviceManager {
         }
     }
 
+    private void requestBluetoothConnectPermission() {
+        if (!(mContext instanceof Activity)) {
+            Log.w(TAG, "Cannot request BLUETOOTH_CONNECT without an Activity context.");
+            return;
+        }
+
+        synchronized (this) {
+            if (mBluetoothPermissionRequestPending) {
+                return;
+            }
+            mBluetoothPermissionRequestPending = true;
+        }
+
+        Activity activity = (Activity) mContext;
+        activity.runOnUiThread(() -> {
+            if (activity.isFinishing() || activity.isDestroyed()) {
+                synchronized (HIDDeviceManager.this) {
+                    mBluetoothPermissionRequestPending = false;
+                }
+                return;
+            }
+            activity.requestPermissions(
+                    new String[] { android.Manifest.permission.BLUETOOTH_CONNECT },
+                    REQUEST_BLUETOOTH_CONNECT);
+        });
+    }
+
+    public void onRequestPermissionsResult(int requestCode, int[] grantResults) {
+        if (requestCode != REQUEST_BLUETOOTH_CONNECT) {
+            return;
+        }
+
+        synchronized (this) {
+            mBluetoothPermissionRequestPending = false;
+        }
+
+        if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            initializeBluetooth();
+        } else {
+            Log.i(TAG, "Bluetooth controller support remains disabled because BLUETOOTH_CONNECT was not granted.");
+        }
+    }
+
     private void shutdownBluetooth() {
         try {
             mContext.unregisterReceiver(mBluetoothBroadcast);
@@ -415,6 +471,10 @@ public class HIDDeviceManager {
     // This function provides a sort of dummy version of that, watching for changes in the
     // connected devices and attempting to add controllers as things change.
     public void chromebookConnectionHandler() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                mContext.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return;
+        }
         if (!mIsChromebook) {
             return;
         }
@@ -454,6 +514,10 @@ public class HIDDeviceManager {
     }
 
     public boolean connectBluetoothDevice(BluetoothDevice bluetoothDevice) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                mContext.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return false;
+        }
         Log.v(TAG, "connectBluetoothDevice device=" + bluetoothDevice);
         synchronized (this) {
             if (mBluetoothDevices.containsKey(bluetoothDevice)) {
@@ -489,6 +553,10 @@ public class HIDDeviceManager {
     }
 
     public boolean isSteamController(BluetoothDevice bluetoothDevice) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                mContext.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+            return false;
+        }
         // Sanity check.  If you pass in a null device, by definition it is never a Steam Controller.
         if (bluetoothDevice == null) {
             return false;
