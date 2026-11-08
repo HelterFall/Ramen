@@ -69,9 +69,9 @@ public class PythonSDLActivity extends SDLActivity {
     ResourceManager resourceManager;
 
     protected String[] getLibraries() {
-        // SDLActivity requires SDL2 to be loaded before Ren'Py's Python runtime.
+        // Ren'Py 8.5.3 statically links SDL2 into librenpython.so.
+        // Match the official RAPT host: loading a separate SDL2 library is incorrect.
         return new String[] {
-            "SDL2",
             "renpython",
         };
     }
