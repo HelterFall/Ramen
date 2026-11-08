@@ -45,9 +45,21 @@ used directly:
 python tools/renpy-8.5.3/import_runtime_from_apk.py /path/to/runtime-source.apk --replace
 ```
 
-The importer excludes the source game's `x-game` assets and patches the
-Android game, save, and log paths for Ramen's per-game private directories. It
-also adapts the 8.5.3 bootstrap and mobile-background exit hooks for Ramen's
-isolated `:renpy` Android process, and adds an early abort guard for a failed
-Java-side Runtime preparation. The Java host must remain in sync with protocol
-v2 (`android:process=\":renpy\"`, `RENPY_RAMEN_EMBEDDED_HOST=1`).
+The build script first applies fingerprint-guarded patches to the SDK's
+`renpy.py`, `renpy/bootstrap.py`, and `renpy/display/core.py` sources, before
+RAPT compiles and packs them. The path patch adds per-game paths and an early
+abort guard. The embedded-host patch makes Android task-removal calls close
+only the Runtime Activity when `RENPY_RAMEN_EMBEDDED_HOST=1`; upstream
+`System.exit(0)` remains within the isolated `:renpy` process.
+
+The importer excludes the source game's `x-game` assets. It validates the
+path/abort hooks in the packaged `main.py` and embedded-host hooks in RAPT's
+compiled `renpy/bootstrap.pyc` and `renpy/display/core.pyc`. It intentionally
+does not attempt to modify Python source files inside `private.mp3`, because
+the official RAPT packaging step has already compiled those sources.
+
+The Java host must remain in sync with protocol v2
+(`android:process=\":renpy\"`, `RENPY_RAMEN_EMBEDDED_HOST=1`).
+
+APK packaging and playback are currently disabled. CI runs the patcher tests,
+unit tests and lint only; it does not build a donor APK or a Ramen APK.
