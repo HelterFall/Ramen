@@ -90,6 +90,25 @@ PY
 printf '%s\n' "$ANDROID_HOME" > "$SDK_ROOT/rapt/sdk.txt"
 chmod +x "$SDK_ROOT/renpy.sh"
 
+# Patch the SDK's Python sources BEFORE RAPT compiles them into .pyc files
+# and packages them into private.mp3. The importer validates the compiled
+# hooks; it must not try to rewrite source files inside the tarball.
+for required_source in \
+  "$SDK_ROOT/renpy.py" \
+  "$SDK_ROOT/renpy/bootstrap.py" \
+  "$SDK_ROOT/renpy/display/core.py"; do
+  if [[ ! -f "$required_source" ]]; then
+    echo "Missing expected Ren'Py 8.5.3 SDK source: $required_source" >&2
+    exit 1
+  fi
+done
+
+python3 "$ROOT/tools/renpy-8.5.3/apply_ramen_android_paths.py" \
+  "$SDK_ROOT/renpy.py" --in-place
+python3 "$ROOT/tools/renpy-8.5.3/patch_renpy_embedded_host.py" \
+  "$SDK_ROOT/renpy/bootstrap.py" \
+  "$SDK_ROOT/renpy/display/core.py" --in-place
+
 GAME_DIR="$SDK_ROOT/the_question"
 if [[ ! -f "$GAME_DIR/game/options.rpy" ]]; then
   GAME_DIR="$SDK_ROOT/tutorial"
