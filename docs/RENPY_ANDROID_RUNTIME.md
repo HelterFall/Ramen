@@ -114,7 +114,7 @@ Ren'Py game payloads may contain:
 
 For compiled scripts, Ren'Py 8.5.3 uses the RENPY RPC2 RPYC header for the current format; its legacy load path accepts zlib-compressed RPYC data. The detector can verify these short signatures without deserializing or executing the file.
 
-RPA 2.0 and 3.0 begin with RPA-2.0 / RPA-3.0. RPA must remain read-only and bounded. Do not unpickle an RPA index in the detector. Recognition of an RPA header does not prove that the whole archive is valid or that its game can run.
+RPA 2.0 and 3.0 begin with the seven-byte magic prefixes RPA-2.0 / RPA-3.0. Ramen currently recognizes only this prefix; it does not validate the full archive structure. RPA must remain read-only and bounded. Do not unpickle an RPA index in the detector. Recognition of an RPA magic prefix does not prove that the whole archive is valid or that its game can run.
 
 The scanner should understand both:
 - a base folder containing game/ and possibly renpy/;
