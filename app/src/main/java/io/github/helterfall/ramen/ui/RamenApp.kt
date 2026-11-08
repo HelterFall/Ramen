@@ -671,9 +671,9 @@ private fun GameCard(
                         } else {
                             "Формат сценария распознан; запуск пока не подключён."
                         }
-                    "SUPPORTED_LIMITED" ->
+                    game.compatibilityStatus == "SUPPORTED_LIMITED" ->
                         "Доступен ограниченный автономный HTML5-запуск."
-                    "UNKNOWN" ->
+                    game.compatibilityStatus == "UNKNOWN" ->
                         "Движок пока не определён. Запуск недоступен."
                     else ->
                         "Движок распознан, но игровой модуль пока не подключён."
