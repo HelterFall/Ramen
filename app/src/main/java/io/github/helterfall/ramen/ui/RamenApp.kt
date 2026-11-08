@@ -26,6 +26,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
@@ -85,6 +86,7 @@ fun RamenApp() {
     var statusMessage by remember {
         mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
     }
+    var launchErrorMessage by remember { mutableStateOf<String?>(null) }
 
     val executor = remember { Executors.newSingleThreadExecutor() }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
@@ -313,8 +315,19 @@ fun RamenApp() {
                                         context.startActivity(intent)
                                     }
                                     "renpy" -> {
-                                        statusMessage = RenPyRuntimeLauncher.launch(context, game)
-                                            ?: "Ren'Py Runtime 8.5.3 запущен."
+                                        val launchError = RenPyRuntimeLauncher.launch(context, game)
+                                        if (launchError == null) {
+                                            statusMessage =
+                                                "Android принял команду запуска Ren'Py. Ожидаю запуск движка."
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                "Открываю Ren'Py…",
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            statusMessage = "Не удалось открыть игру: $launchError"
+                                            launchErrorMessage = launchError
+                                        }
                                     }
                                     else -> {
                                         statusMessage = "Для этого формата запуск пока не подключён."
@@ -334,6 +347,19 @@ fun RamenApp() {
                 item { ComingNextSection() }
                 item { BuildFooter() }
             }
+        }
+
+        launchErrorMessage?.let { message ->
+            AlertDialog(
+                onDismissRequest = { launchErrorMessage = null },
+                title = { Text("Не удалось запустить игру") },
+                text = { Text(message) },
+                confirmButton = {
+                    Button(onClick = { launchErrorMessage = null }) {
+                        Text("Понятно")
+                    }
+                }
+            )
         }
     }
 }
