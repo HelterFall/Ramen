@@ -65,9 +65,9 @@ class VisualNovelDetector {
             val relativePath = renpyScript.relativeTo(gameDirectory).invariantSeparatorsPath
             return unsupported(
                 engineId = "renpy",
-                engineLabel = "Ren'Py (runtime not installed)",
-                evidence = "Validated a Ren'Py script marker in the game payload: $relativePath. " +
-                    "Engine recognition does not mean playback support; no Ren'Py runtime is bundled."
+                engineLabel = "Ren'Py",
+                evidence = "Recognized a Ren'Py script file in the game payload: $relativePath. " +
+                    "Ramen supplies the embedded Ren'Py 8.5.3 runtime."
             )
         }
 
@@ -88,11 +88,11 @@ class VisualNovelDetector {
             val relativePath = renpyArchive.first.relativeTo(gameDirectory).invariantSeparatorsPath
             return unsupported(
                 engineId = "renpy",
-                engineLabel = "Ren'Py (RPA-архив без сценария)",
+                engineLabel = "Ren'Py (RPA-архив)",
                 evidence = "Recognized " + renpyArchive.second +
-                    " resource archive in the game payload: $relativePath. " +
-                    "No standalone .rpy/.rpyc script file was found in game/. " +
-                    "An RPA resource archive alone is not a complete runnable game."
+                    " archive in the game payload: $relativePath. " +
+                    "Ren'Py supports packaging .rpy and .rpyc scripts inside RPA archives; " +
+                    "the embedded runtime will inspect the archive at launch."
             )
         }
 
