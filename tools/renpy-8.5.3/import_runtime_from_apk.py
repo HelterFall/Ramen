@@ -20,7 +20,7 @@ import tempfile
 import zipfile
 from pathlib import Path, PurePosixPath
 
-REQUIRED_NATIVE_LIBRARIES = {"libSDL2.so", "librenpython.so"}
+REQUIRED_NATIVE_LIBRARIES = {"librenpython.so"}
 REQUIRED_COMMON_PREFIX = "assets/x-renpy/x-common/"
 RUNTIME_VERSION = "8.5.3"
 PATH_PATCH_MARKER = "# RAMEN_ANDROID_RUNTIME_PATHS_V1"
@@ -235,7 +235,8 @@ def collect_runtime(apk: Path, stage: Path) -> tuple[set[str], int, str]:
             for abi, libraries in sorted(native_by_abi.items())
         ) or "no native libraries found"
         raise RuntimeError(
-            "No ABI contains both libSDL2.so and librenpython.so. " + summary
+            "No ABI contains librenpython.so (the Ren'Py 8.5.3 engine, "
+            "which includes SDL2). " + summary
         )
 
     return usable_abis, copied_assets, private_version
