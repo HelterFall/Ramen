@@ -11,32 +11,34 @@ from patch_renpy_embedded_host import (
 STOCK_BOOTSTRAP = '''import os
 
 def bootstrap_exit():
-    if renpy.android:
-        from jnius import autoclass  # type: ignore
+    try:
+        if renpy.android:
+            from jnius import autoclass  # type: ignore
 
-        import android
+            import android
 
-        android.activity.finishAndRemoveTask()
+            android.activity.finishAndRemoveTask()
 
-        System = autoclass("java.lang.System")
-        System.exit(0)
+            System = autoclass("java.lang.System")
+            System.exit(0)
 '''
 
 
 STOCK_DISPLAY_CORE = '''import os
 
-def mobile_background():
-    if renpy.config.quit_on_mobile_background:
-        if renpy.android:
-            try:
-                android.activity.finishAndRemoveTask()
-            except Exception:
-                pass
+class DisplayCore:
+    def mobile_background(self):
+        if renpy.config.quit_on_mobile_background:
+            if renpy.android:
+                try:
+                    android.activity.finishAndRemoveTask()
+                except Exception:
+                    pass
 
-            from jnius import autoclass
+                from jnius import autoclass
 
-            System = autoclass("java.lang.System")
-            System.exit(0)
+                System = autoclass("java.lang.System")
+                System.exit(0)
 '''
 
 
