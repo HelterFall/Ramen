@@ -1,7 +1,9 @@
 package io.github.helterfall.ramen.importer
 
 import android.content.Context
+import android.database.Cursor
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import io.github.helterfall.ramen.library.GameRecord
 import java.io.File
@@ -14,9 +16,10 @@ class SafFolderImporter(
     private val detector: VisualNovelDetector = VisualNovelDetector()
 ) {
     fun import(treeUri: Uri): GameRecord {
-        val root = DocumentFile.fromTreeUri(context, treeUri)
+        val rootDocument = DocumentFile.fromTreeUri(context, treeUri)
             ?: throw IOException("Android could not open the selected folder.")
 
+        val root = SafFolderEntryNode.load(context, treeUri, rootDocument.uri)
         if (!root.isDirectory) {
             throw IOException("The selected item is not a folder.")
         }
@@ -31,10 +34,7 @@ class SafFolderImporter(
         val finalDirectory = File(gamesDirectory, id)
 
         try {
-            copier.copyContents(
-                root = SafFolderEntryNode(context, root),
-                destination = stagingDirectory
-            )
+            copier.copyContents(root, stagingDirectory)
 
             val detection = detector.detect(stagingDirectory)
             if (!stagingDirectory.renameTo(finalDirectory)) {
@@ -65,41 +65,140 @@ class SafFolderImporter(
         }
     }
 
-    private class SafFolderEntryNode(
+    /**
+     * Each node stores one metadata snapshot. Directory enumeration retrieves
+     * document ID, name, MIME type and size for every child in one provider
+     * query, rather than calling DocumentFile.name/isDirectory/isFile/length
+     * separately for every item.
+     */
+    private class SafFolderEntryNode private constructor(
         private val context: Context,
-        private val document: DocumentFile
+        private val treeUri: Uri,
+        private val documentUri: Uri,
+        private val metadata: DocumentMetadata
     ) : FolderEntryNode {
         override val name: String?
-            get() = document.name
+            get() = metadata.name
 
         override val sourceId: String
-            get() = document.uri.toString()
+            get() = documentUri.toString()
 
         override val isDirectory: Boolean
-            get() = document.isDirectory
+            get() = metadata.isDirectory
 
         override val declaredSizeBytes: Long?
-            get() = document.length().takeIf { it > 0L }
+            get() = metadata.sizeBytes
 
         override fun listChildren(): List<FolderEntryNode> {
-            if (!document.isDirectory) {
+            if (!isDirectory) {
                 throw IOException("A file cannot be enumerated as a folder.")
             }
 
-            return document.listFiles().map { child ->
-                if (!child.isDirectory && !child.isFile) {
-                    throw IOException("The selected folder contains an unsupported item.")
+            val documentId = try {
+                DocumentsContract.getDocumentId(documentUri)
+            } catch (error: Exception) {
+                throw IOException("Android returned an invalid folder document ID.", error)
+            }
+            val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(treeUri, documentId)
+            val cursor = context.contentResolver.query(
+                childrenUri,
+                METADATA_PROJECTION,
+                null,
+                null,
+                null
+            ) ?: throw IOException("Android could not enumerate a selected folder.")
+
+            cursor.use {
+                val documentIdIndex = it.requiredColumnIndex(
+                    DocumentsContract.Document.COLUMN_DOCUMENT_ID
+                )
+                val children = ArrayList<FolderEntryNode>()
+                while (it.moveToNext()) {
+                    val childId = it.getString(documentIdIndex)
+                        ?.takeIf(String::isNotBlank)
+                        ?: throw IOException("Android returned a folder entry without a document ID.")
+                    val childUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, childId)
+                    val childMetadata = DocumentMetadata.fromCursor(it)
+                    children += SafFolderEntryNode(context, treeUri, childUri, childMetadata)
                 }
-                SafFolderEntryNode(context, child)
+                return children
             }
         }
 
         override fun openInputStream() =
-            context.contentResolver.openInputStream(document.uri)
+            context.contentResolver.openInputStream(documentUri)
                 ?: throw IOException("Android could not read a selected file.")
+
+        companion object {
+            private val METADATA_PROJECTION = arrayOf(
+                DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+                DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+                DocumentsContract.Document.COLUMN_MIME_TYPE,
+                DocumentsContract.Document.COLUMN_SIZE
+            )
+
+            fun load(context: Context, treeUri: Uri, documentUri: Uri): SafFolderEntryNode {
+                val cursor = context.contentResolver.query(
+                    documentUri,
+                    METADATA_PROJECTION,
+                    null,
+                    null,
+                    null
+                ) ?: throw IOException("Android could not read folder metadata.")
+
+                val metadata = cursor.use {
+                    if (!it.moveToFirst()) {
+                        throw IOException("Android returned no metadata for the selected folder.")
+                    }
+                    DocumentMetadata.fromCursor(it)
+                }
+                return SafFolderEntryNode(context, treeUri, documentUri, metadata)
+            }
+        }
+    }
+
+    private data class DocumentMetadata(
+        val name: String?,
+        val isDirectory: Boolean,
+        val sizeBytes: Long?
+    ) {
+        companion object {
+            fun fromCursor(cursor: Cursor): DocumentMetadata {
+                val nameIndex = cursor.requiredColumnIndex(
+                    DocumentsContract.Document.COLUMN_DISPLAY_NAME
+                )
+                val mimeTypeIndex = cursor.requiredColumnIndex(
+                    DocumentsContract.Document.COLUMN_MIME_TYPE
+                )
+                val sizeIndex = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_SIZE)
+
+                val mimeType = cursor.getString(mimeTypeIndex)
+                    ?.takeIf(String::isNotBlank)
+                    ?: throw IOException("The selected folder contains an item without a MIME type.")
+                val sizeBytes = if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) {
+                    cursor.getLong(sizeIndex).takeIf { value -> value >= 0L }
+                } else {
+                    null
+                }
+
+                return DocumentMetadata(
+                    name = cursor.getString(nameIndex),
+                    isDirectory = mimeType == DocumentsContract.Document.MIME_TYPE_DIR,
+                    sizeBytes = sizeBytes
+                )
+            }
+        }
     }
 
     companion object {
         private const val MAX_TITLE_LENGTH = 100
     }
+}
+
+private fun Cursor.requiredColumnIndex(columnName: String): Int {
+    val index = getColumnIndex(columnName)
+    if (index < 0) {
+        throw IOException("The selected folder provider omitted required metadata: $columnName.")
+    }
+    return index
 }

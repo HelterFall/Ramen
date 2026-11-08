@@ -17,10 +17,11 @@ At project start, **no engine is supported yet**.
 |---|---|---|
 | Self-contained HTML5 projects | MVP candidate | Test local assets, relative URLs, audio, orientation, and navigation inside a hardened WebView. |
 | TyranoScript HTML5 exports | MVP candidate | TyranoScript is HTML5-based; validate representative exported projects and their dependencies rather than assuming every export works. |
-| Ren'Py | Research | Official Android workflow is packaging-oriented and produces an APK/AAB for each game. Investigate whether a reusable embedded runtime is practical before promising folder-based playback. |
+| Ren'Py | Runtime integrated; device launch validation pending | Ramen builds and imports the official Ren'Py 8.5.3 Android payload in CI and has an adapted SDL/Python Activity plus per-game path hooks. Actual game launch, saves, audio, lifecycle and device/ABI coverage still need validation; keep titles non-playable until those checks pass. See [Ren'Py Android Runtime](RENPY_ANDROID_RUNTIME.md). |
 | KiriKiri / KAG | Research | Evaluate available mobile runtime projects, supported versions, formats, build requirements, and licence obligations. |
 | ONScripter | Later / research | Consider after the first runtime and compatibility test system exist. |
-| Native/proprietary Windows VN engines | Research | Start with PE architecture/import metadata and byte-level container identification. Each engine family requires independent format evidence and a feasibility report; no Windows executable is launched by the inspector. |\n| Unity-based visual novels | Later | Unity is a general-purpose engine; version and build variations make this a separate, substantial compatibility project. |
+| Native/proprietary Windows VN engines | Research | Start with PE architecture/import metadata and byte-level container identification. Each engine family requires independent format evidence and a feasibility report; no Windows executable is launched by the inspector. |
+| Unity-based visual novels | Later | Unity is a general-purpose engine; version and build variations make this a separate, substantial compatibility project. |
 
 ## Native / proprietary engine research
 
@@ -64,6 +65,8 @@ Ren'Py's official Android documentation describes a packaging workflow using its
 5. Which licence notices and source-distribution obligations apply?
 
 Official reference: https://www.renpy.org/doc/html/android.html
+
+For the pinned Ren'Py 8.5.3 RAPT build, `librenpython.so` contains the SDL2 JNI implementation; the official `PythonSDLActivity.getLibraries()` loads only `renpython`. Do not require or load a separate `libSDL2.so` for this profile.
 
 ## KiriKiri validation questions
 

@@ -15,6 +15,21 @@ android {
         versionName = "0.1.0"
     }
 
+    // Match the official Ren'Py Android packaging setup. SDLActivity loads
+    // native libraries by name, and the runtime probe verifies nativeLibraryDir.
+    // Legacy packaging ensures JNI libraries are extracted on installation.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
+    // Ren'Py reads its private runtime tarball as an asset stream and may also
+    // access packed game files through APK offsets.
+    androidResources {
+        noCompress += listOf("mp3", "rpyc", "rpymc", "rpyb")
+    }
+
     buildFeatures {
         compose = true
     }

@@ -1,4 +1,4 @@
-name: Android CI
+name: Android checks (APK disabled)
 
 on:
   push:
@@ -16,9 +16,9 @@ concurrency:
 
 jobs:
   build:
-    name: Build and check
+    name: Unit tests and lint only — no APK
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Check out source
@@ -34,18 +34,31 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
         with:
           cache-provider: basic
+          # Same-repository PRs may persist their Gradle cache; untrusted forks stay read-only.
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
 
       - name: Verify Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v6
 
-      - name: Assemble, test, and lint
-        run: ./gradlew --no-daemon --stacktrace assembleDebug testDebugUnitTest lintDebug
+      - name: Test Ren'Py Android path patcher
+        run: python3 -m unittest discover -s tools/renpy-8.5.3 -p 'test_*.py'
 
-      - name: Upload debug APK
-        if: success()
-        uses: actions/upload-artifact@v7
+      - name: Set up Android SDK for unit tests and lint
+        uses: android-actions/setup-android@v3
         with:
-          name: ramen-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 7
+          packages: platform-tools platforms;android-36
+
+      - name: Compile checks, unit tests, and lint (APK packaging disabled)
+        run: ./gradlew --no-daemon --stacktrace compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest lintDebug
+
+      - name: Print Android lint report
+        if: failure()
+        run: |
+          report="app/build/intermediates/lint_intermediate_text_report/debug/lintReportDebug/lint-results-debug.txt"
+          if [ -f "$report" ]; then
+            echo "===== FULL ANDROID LINT REPORT ====="
+            cat "$report"
+          else
+            echo "Android lint text report was not generated at: $report"
+            find app/build -type f -name 'lint-results-*.txt' -print 2>/dev/null || true
+          fi

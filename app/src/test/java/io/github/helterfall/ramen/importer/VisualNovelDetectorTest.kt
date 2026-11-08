@@ -61,18 +61,136 @@ class VisualNovelDetectorTest {
     }
 
     @Test
-    fun detectsRenpyScript() {
+    fun detectsRenpySourceScriptWithRenpySyntax() {
         val root = Files.createTempDirectory("ramen-renpy-detect").toFile()
         val gameFolder = File(root, "game")
 
         try {
             gameFolder.mkdirs()
-            File(gameFolder, "script.rpy").writeText("label start:")
+            File(gameFolder, "script.rpy").writeText(
+                "label start:\n    \"Hello from a synthetic Ren'Py fixture.\"\n"
+            )
 
             val result = VisualNovelDetector().detect(root)
 
             assertEquals("renpy", result.engineId)
             assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+            assertEquals(true, result.evidence.contains("script.rpy"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun detectsCompiledOnlyRenpyReleaseUsingRpyc2Header() {
+        val root = Files.createTempDirectory("ramen-renpy-rpyc-detect").toFile()
+        val gameFolder = File(root, "game")
+
+        try {
+            gameFolder.mkdirs()
+            File(gameFolder, "script.rpyc")
+                .writeBytes("RENPY RPC2".toByteArray(Charsets.US_ASCII))
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("renpy", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun detectsLegacyCompiledOnlyRenpyReleaseUsingZlibHeader() {
+        val root = Files.createTempDirectory("ramen-renpy-legacy-rpyc-detect").toFile()
+        val gameFolder = File(root, "game")
+
+        try {
+            gameFolder.mkdirs()
+            File(gameFolder, "options.rpyc")
+                .writeBytes(byteArrayOf(0x78, 0x9C.toByte(), 0x00, 0x01))
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("renpy", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun detectsWhenUserSelectsTheGameDirectoryItself() {
+        val temporaryRoot = Files.createTempDirectory("ramen-renpy-selected-game").toFile()
+        val gameFolder = File(temporaryRoot, "game")
+
+        try {
+            gameFolder.mkdirs()
+            File(gameFolder, "options.rpyc")
+                .writeBytes("RENPY RPC2".toByteArray(Charsets.US_ASCII))
+
+            val result = VisualNovelDetector().detect(gameFolder)
+
+            assertEquals("renpy", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+        } finally {
+            temporaryRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun detectsRpaOnlyPayloadAndAllowsScriptsToBePackedInsideArchive() {
+        val root = Files.createTempDirectory("ramen-renpy-rpa-detect").toFile()
+        val gameFolder = File(root, "game")
+
+        try {
+            gameFolder.mkdirs()
+            File(gameFolder, "archive.rpa")
+                .writeBytes("RPA-3.0".toByteArray(Charsets.US_ASCII) + ByteArray(33))
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("renpy", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+            assertEquals(true, result.evidence.contains("RPA-3.0"))
+            assertEquals("Ren'Py (RPA-архив)", result.engineLabel)
+            assertEquals(true, result.evidence.contains("scripts inside RPA archives"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun doesNotTreatAnArbitraryRpyExtensionAsRenpy() {
+        val root = Files.createTempDirectory("ramen-renpy-fake-rpy").toFile()
+        val gameFolder = File(root, "game")
+
+        try {
+            gameFolder.mkdirs()
+            File(gameFolder, "notes.rpy").writeText("This is ordinary prose, not a Ren'Py script.")
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("unknown", result.engineId)
+            assertEquals("UNKNOWN", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun doesNotTreatAnArbitraryRpaExtensionAsRenpy() {
+        val root = Files.createTempDirectory("ramen-renpy-fake-rpa").toFile()
+        val gameFolder = File(root, "game")
+
+        try {
+            gameFolder.mkdirs()
+            File(gameFolder, "archive.rpa").writeText("not an RPA archive")
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("unknown", result.engineId)
+            assertEquals("UNKNOWN", result.compatibilityStatus)
         } finally {
             root.deleteRecursively()
         }
