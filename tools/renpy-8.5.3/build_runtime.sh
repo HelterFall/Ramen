@@ -87,7 +87,10 @@ keytool -genkeypair -noprompt -keystore "$GAME_DIR/android.keystore" \
   -storepass android -alias android -keypass android -keyalg RSA \
   -keysize 2048 -validity 20000 -dname "CN=Ramen Runtime Build"
 
-"$SDK_ROOT/renpy.sh" launcher android_build "$GAME_DIR" --destination "$OUTPUT"
+(
+  cd "$SDK_ROOT"
+  ./renpy.sh launcher android_build "$GAME_DIR" --destination "$OUTPUT"
+)
 
 DONOR_APK="$(find "$OUTPUT" -type f -name '*.apk' -print -quit)"
 if [[ -z "$DONOR_APK" ]]; then
