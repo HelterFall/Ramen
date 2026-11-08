@@ -91,7 +91,7 @@ def patch_main_py(source: bytes) -> bytes:
             )
 
     abort_marker = "# RAMEN_ANDROID_LAUNCH_ABORT_V1"
-    abort_anchor = "def main():\\n\\n    renpy_base = path_to_renpy_base()\\n"
+    abort_anchor = "def main():\n\n    renpy_base = path_to_renpy_base()\n"
     abort_insert = """def main():
 
     # RAMEN_ANDROID_LAUNCH_ABORT_V1
@@ -122,7 +122,7 @@ def patch_bootstrap_py(source: bytes) -> bytes:
             raise RuntimeError("The Ren'Py bootstrap contains an incomplete embedded-host patch.")
         return source
 
-    anchor = "            android.activity.finishAndRemoveTask()\\n"
+    anchor = "            android.activity.finishAndRemoveTask()\n"
     replacement = """            # RAMEN_ANDROID_EMBEDDED_HOST_EXIT_V1
             if os.environ.get("RENPY_RAMEN_EMBEDDED_HOST") == "1":
                 android.activity.finish()
@@ -146,7 +146,7 @@ def patch_display_core_py(source: bytes) -> bytes:
             raise RuntimeError("Ren'Py display core contains an incomplete embedded-host patch.")
         return source
 
-    anchor = "                    android.activity.finishAndRemoveTask()\\n"
+    anchor = "                    android.activity.finishAndRemoveTask()\n"
     replacement = """                    # RAMEN_ANDROID_EMBEDDED_BACKGROUND_EXIT_V1
                     if os.environ.get("RENPY_RAMEN_EMBEDDED_HOST") == "1":
                         android.activity.finish()
@@ -163,7 +163,7 @@ def patch_display_core_py(source: bytes) -> bytes:
 
 def patch_private_mp3(payload: bytes) -> tuple[bytes, str]:
     """Patch game paths and Android host-exit behavior inside private.mp3."""
-    if payload[:2] != b"\\x1f\\x8b":
+    if payload[:2] != b"\x1f\x8b":
         raise RuntimeError("assets/private.mp3 is not gzip-compressed.")
 
     source_stream = io.BytesIO(payload)
