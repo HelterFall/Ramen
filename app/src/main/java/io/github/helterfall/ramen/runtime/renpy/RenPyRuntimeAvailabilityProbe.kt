@@ -71,6 +71,13 @@ object RenPyRuntimeAvailabilityProbe {
             missing += "private.mp3"
         }
 
+        val hasCommonRuntimeAssets = runCatching {
+            context.assets.list("x-renpy/x-common")?.isNotEmpty() == true
+        }.getOrDefault(false)
+        if (!hasCommonRuntimeAssets) {
+            missing += "Ren'Py common assets (x-renpy/x-common)"
+        }
+
         val descriptorValid = runCatching {
             val descriptorText = context.assets.open(DESCRIPTOR_ASSET).bufferedReader().use {
                 val value = it.readText()
