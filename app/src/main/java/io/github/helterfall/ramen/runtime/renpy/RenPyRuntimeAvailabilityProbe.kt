@@ -57,12 +57,11 @@ object RenPyRuntimeAvailabilityProbe {
             }
         }
 
+        // Ren'Py 8.5.3 RAPT statically links SDL2 into librenpython.so.
+        // The official Android host loads only this shared library.
         val nativeDirectory = context.applicationInfo.nativeLibraryDir
-        if (!File(nativeDirectory, "libSDL2.so").isFile) {
-            missing += "libSDL2.so"
-        }
         if (!File(nativeDirectory, "librenpython.so").isFile) {
-            missing += "librenpython.so"
+            missing += "librenpython.so (Ren'Py 8.5.3 engine with SDL2)"
         }
         val hasPrivateRuntimePayload = runCatching {
             context.assets.open("private.mp3").use { input -> input.read() >= 0 }
