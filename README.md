@@ -38,6 +38,7 @@ Ramen не является универсальным Windows-эмулятор�
 - [Project scope](docs/PROJECT_SCOPE.md) — продуктовая цель и MVP.
 - [Architecture](docs/ARCHITECTURE.md) — архитектурные границы.
 - [Engine compatibility](docs/ENGINE_COMPATIBILITY.md) — матрица движков (сверять с HANDOFF, часть статусов устарела).
+- [Ren'Py Android Runtime research](docs/RENPY_ANDROID_RUNTIME.md) — исследование официального Android host, 8.5.3, game-path hook и план интеграции.
 - [Engine research](docs/ENGINE_RESEARCH.md) — read-only исследование.
 - [Format registry](docs/FORMAT_REGISTRY.md) — реестр доказательности форматов (GPK/VPK статусы требуют синхронизации).
 - [Inventory JSON schema](docs/INVENTORY_REPORT_SCHEMA.md) — схема JSON-отчёта.
