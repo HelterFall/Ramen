@@ -46,4 +46,8 @@ python tools/renpy-8.5.3/import_runtime_from_apk.py /path/to/runtime-source.apk 
 ```
 
 The importer excludes the source game's `x-game` assets and patches the
-Android game, save, and log paths for Ramen's per-game private directories.
+Android game, save, and log paths for Ramen's per-game private directories. It
+also adapts the 8.5.3 bootstrap and mobile-background exit hooks for Ramen's
+isolated `:renpy` Android process, and adds an early abort guard for a failed
+Java-side Runtime preparation. The Java host must remain in sync with protocol
+v2 (`android:process=\":renpy\"`, `RENPY_RAMEN_EMBEDDED_HOST=1`).
