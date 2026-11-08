@@ -69,7 +69,9 @@ public class PythonSDLActivity extends SDLActivity {
     ResourceManager resourceManager;
 
     protected String[] getLibraries() {
+        // SDLActivity requires SDL2 to be loaded before Ren'Py's Python runtime.
         return new String[] {
+            "SDL2",
             "renpython",
         };
     }
