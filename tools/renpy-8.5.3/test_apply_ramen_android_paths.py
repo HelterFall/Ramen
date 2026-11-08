@@ -4,6 +4,7 @@ from apply_ramen_android_paths import (
     GAME_MARKER,
     LOG_MARKER,
     SAVES_MARKER,
+    ABORT_MARKER,
     apply_patch,
     git_blob_sha,
 )
@@ -31,6 +32,11 @@ def path_to_logdir(basedir):
     if renpy.android:
         return os.environ['ANDROID_PUBLIC']
     return basedir
+''
+
+def main():
+
+    renpy_base = path_to_renpy_base()
 '''
 
 
@@ -46,9 +52,11 @@ class RenPyPathPatcherTest(unittest.TestCase):
         self.assertIn(GAME_MARKER, patched)
         self.assertIn(SAVES_MARKER, patched)
         self.assertIn(LOG_MARKER, patched)
+        self.assertIn(ABORT_MARKER, patched)
         self.assertIn("RENPY_RAMEN_GAME_DIR", patched)
         self.assertIn("RENPY_RAMEN_SAVES_ROOT", patched)
         self.assertIn("RENPY_RAMEN_LOG_DIR", patched)
+        self.assertIn("RENPY_RAMEN_LAUNCH_ABORT", patched)
 
     def test_patch_is_idempotent(self):
         patched = apply_patch(SYNTHETIC_STOCK, verify_source=False)
