@@ -19,13 +19,7 @@ class SafFolderImporter(
         val rootDocument = DocumentFile.fromTreeUri(context, treeUri)
             ?: throw IOException("Android could not open the selected folder.")
 
-        val rootDocumentId = runCatching {
-            DocumentsContract.getTreeDocumentId(treeUri)
-        }.getOrElse { error ->
-            throw IOException("Android returned an invalid folder selection.", error)
-        }
-        val rootUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, rootDocumentId)
-        val root = SafFolderEntryNode.load(context, treeUri, rootUri)
+        val root = SafFolderEntryNode.load(context, treeUri, rootDocument.uri)
         if (!root.isDirectory) {
             throw IOException("The selected item is not a folder.")
         }
