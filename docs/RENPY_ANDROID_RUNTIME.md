@@ -153,3 +153,37 @@ For a Google Play release, do not design around arbitrary external downloads of 
 ## External research repository
 
 The original investigation log, Android loader notes, compatibility matrix and license checklist remain in [HelterFall/Renpy](https://github.com/HelterFall/Renpy). This Ramen document is the product-integration summary; it does not replace the full source research.
+
+
+## Ramen host bridge added
+
+The integration branch now contains a first host-side contract, separate from the Ren'Py engine payload:
+
+- RenPyGamePaths validates the imported record, resolves either a base folder containing game/ or a directly imported game/ directory, and creates files/renpy-data/<game-id>/saves and logs.
+- RenPyRuntimeAvailabilityProbe refuses to report ready unless the adapted org.renpy.android.PythonSDLActivity is declared with host protocol metadata v1, librenpython.so, libSDL2.so, private.mp3, and a renpy-runtime.json descriptor for Ren'Py 8.5.3 / protocol 1 are present.
+- RenPyRuntimeLauncher passes these Intent extras to that Activity: io.github.helterfall.ramen.extra.RENPY_GAME_ID, io.github.helterfall.ramen.extra.RENPY_GAME_DIR, io.github.helterfall.ramen.extra.RENPY_SAVES_ROOT and io.github.helterfall.ramen.extra.RENPY_LOG_DIR.
+- The library card stays disabled while any part of the actual Runtime package is missing. No placeholder Activity is registered.
+
+### Required matching RAPT host changes
+
+The official 8.5.3 PythonSDLActivity.preparePython() must read the four Intent extras, validate their canonical paths, and call its existing nativeSetEnv() before Python bootstrap:
+
+| Environment variable | Source |
+|---|---|
+| RENPY_RAMEN_GAME_DIR | absolute RENPY_GAME_DIR Intent extra |
+| RENPY_RAMEN_SAVES_ROOT | absolute RENPY_SAVES_ROOT Intent extra |
+| RENPY_RAMEN_LOG_DIR | absolute RENPY_LOG_DIR Intent extra |
+
+The activity declaration must include metadata io.github.helterfall.ramen.RENPY_HOST_PROTOCOL = 1. The APK must package renpy-runtime.json with at least:
+
+~~~json
+{"renpyVersion":"8.5.3","hostProtocol":1}
+~~~
+
+tools/renpy-8.5.3/apply_ramen_android_paths.py patches only the exact stock 8.5.3 renpy.py Git blob 2b2afe0ebcfcbba25dba246b45b074e839202528. It adds distributor hooks for the imported game path, per-game saves (also used by config.savedir for persistent data), and per-game logs. It refuses a different source revision and makes a backup for in-place use. Run its Python unit tests with:
+
+~~~sh
+python3 -m unittest discover -s tools/renpy-8.5.3 -p 'test_*.py'
+~~~
+
+**Runtime payload status:** the official 8.5.3 RAPT/SDK binary packages are not present in this branch. The current source-control integration available for this work can inspect source files but cannot import the official binary archives into the repository. The current renpy-build master host is from the newer SDL3 line and must not be copied into the 8.5.3 / SDL2 profile. Consequently, the host bridge and exact-source patcher are prepared, but the Android Runtime is not yet embedded and no Ren'Py title can be launched by this build.

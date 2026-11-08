@@ -38,6 +38,9 @@ jobs:
       - name: Verify Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v6
 
+      - name: Test Ren'Py Android path patcher
+        run: python3 -m unittest discover -s tools/renpy-8.5.3 -p 'test_*.py'
+
       - name: Assemble, test, and lint
         run: ./gradlew --no-daemon --stacktrace assembleDebug testDebugUnitTest lintDebug
 

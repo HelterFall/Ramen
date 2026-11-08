@@ -55,6 +55,8 @@ import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
+import io.github.helterfall.ramen.runtime.renpy.RenPyRuntimeAvailabilityProbe
+import io.github.helterfall.ramen.runtime.renpy.RenPyRuntimeLauncher
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
 import java.io.File
@@ -70,6 +72,9 @@ private val RamenMuted = Color(0xFFA8ADB7)
 @Composable
 fun RamenApp() {
     val context = LocalContext.current
+    val renPyRuntimeAvailability = remember(context) {
+        RenPyRuntimeAvailabilityProbe.inspect(context.applicationContext)
+    }
     val repository = remember { LibraryRepository(context.applicationContext) }
     val games = remember {
         mutableStateListOf<GameRecord>().apply {
@@ -286,6 +291,7 @@ fun RamenApp() {
                     items(games, key = { it.id }) { game ->
                         GameCard(
                             game = game,
+                            renPyRuntimeReady = renPyRuntimeAvailability.isReady,
                             onInspectResources = {
                                 val intent = Intent(context, ResourceInspectorActivity::class.java)
                                     .putExtra(
@@ -305,6 +311,10 @@ fun RamenApp() {
                                         val intent = Intent(context, Html5PlayerActivity::class.java)
                                             .putExtra(Html5PlayerActivity.EXTRA_GAME_ID, game.id)
                                         context.startActivity(intent)
+                                    }
+                                    "renpy" -> {
+                                        statusMessage = RenPyRuntimeLauncher.launch(context, game)
+                                            ?: "Ren'Py Runtime 8.5.3 запущен."
                                     }
                                     else -> {
                                         statusMessage = "Для этого формата запуск пока не подключён."
@@ -623,6 +633,7 @@ private fun SectionHeading(text: String) {
 @Composable
 private fun GameCard(
     game: GameRecord,
+    renPyRuntimeReady: Boolean = false,
     onInspectResources: () -> Unit,
     onLaunch: () -> Unit
 ) {
@@ -649,8 +660,12 @@ private fun GameCard(
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = when (game.compatibilityStatus) {
-                    "PARSER_AVAILABLE" ->
+                text = when {
+                    game.engineId == "renpy" && !renPyRuntimeReady ->
+                        "Ren'Py распознан, но встроенный Runtime 8.5.3 пока не включён в эту сборку."
+                    game.engineId == "renpy" ->
+                        "Доступен встроенный Ren'Py Runtime 8.5.3."
+                    game.compatibilityStatus == "PARSER_AVAILABLE" ->
                         if (game.engineId == "system-nnn-spt") {
                             "Доступен запуск System-NNN с декодированием указателей текста и ресурсов."
                         } else {
@@ -681,7 +696,8 @@ private fun GameCard(
                 Text("Просмотреть GPK/GTB и VPK/VTB")
             }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
-                (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE")
+                (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE") ||
+                (game.engineId == "renpy" && renPyRuntimeReady)
             ) {
                 Button(
                     onClick = onLaunch,
