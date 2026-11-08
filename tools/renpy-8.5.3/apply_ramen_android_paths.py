@@ -13,6 +13,7 @@ EXPECTED_STOCK_BLOB_SHA = "2b2afe0ebcfcbba25dba246b45b074e839202528"
 GAME_MARKER = "# RAMEN_GAME_DIR_HOOK_V1"
 SAVES_MARKER = "# RAMEN_SAVES_ROOT_HOOK_V1"
 LOG_MARKER = "# RAMEN_LOG_DIR_HOOK_V1"
+ABORT_MARKER = "# RAMEN_ANDROID_LAUNCH_ABORT_V1"
 
 GAME_ANCHOR = "    # A list of candidate game directory names.\n"
 GAME_INSERT = """    # RAMEN_GAME_DIR_HOOK_V1
@@ -65,6 +66,16 @@ LOG_INSERT = """    # RAMEN_LOG_DIR_HOOK_V1
 
 """
 
+MAIN_ANCHOR = "def main():\n\n    renpy_base = path_to_renpy_base()\n"
+MAIN_INSERT = """def main():
+
+    # RAMEN_ANDROID_LAUNCH_ABORT_V1
+    if os.environ.get("RENPY_RAMEN_LAUNCH_ABORT") == "1":
+        raise SystemExit(1)
+
+    renpy_base = path_to_renpy_base()
+"""
+
 
 def git_blob_sha(source: str) -> str:
     payload = source.encode("utf-8")
@@ -83,7 +94,7 @@ def _replace_once(source: str, anchor: str, replacement: str, description: str) 
 
 
 def apply_patch(source: str, *, verify_source: bool = True) -> str:
-    markers = (GAME_MARKER, SAVES_MARKER, LOG_MARKER)
+    markers = (GAME_MARKER, SAVES_MARKER, LOG_MARKER, ABORT_MARKER)
     present = tuple(marker in source for marker in markers)
 
     if all(present):
@@ -101,6 +112,7 @@ def apply_patch(source: str, *, verify_source: bool = True) -> str:
     patched = _replace_once(source, GAME_ANCHOR, GAME_INSERT, "game directory")
     patched = _replace_once(patched, SAVES_ANCHOR, SAVES_INSERT, "Android saves")
     patched = _replace_once(patched, LOG_ANCHOR, LOG_INSERT, "Android log directory")
+    patched = _replace_once(patched, MAIN_ANCHOR, MAIN_INSERT, "Android startup abort")
     return patched
 
 
