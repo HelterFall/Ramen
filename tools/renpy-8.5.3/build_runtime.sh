@@ -51,7 +51,7 @@ if [[ -f "$RAPT_WRAPPER" ]]; then
   # downloads.gradle.org endpoint can redirect to GitHub Releases, which may
   # transiently return HTTP 5xx in hosted CI runners.
   if ! grep -q '^retries=' "$RAPT_WRAPPER"; then
-    printf '\\nretries=5\\nretryBackOffMs=5000\\n' >> "$RAPT_WRAPPER"
+    printf '\nretries=5\nretryBackOffMs=5000\n' >> "$RAPT_WRAPPER"
   fi
 fi
 
