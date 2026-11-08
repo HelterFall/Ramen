@@ -42,6 +42,7 @@
 
         <activity
             android:name="org.renpy.android.PythonSDLActivity"
+            android:process=":renpy"
             android:exported="false"
             android:alwaysRetainTaskState="true"
             android:launchMode="singleTop"
@@ -50,7 +51,7 @@
             android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation">
             <meta-data
                 android:name="io.github.helterfall.ramen.RENPY_HOST_PROTOCOL"
-                android:value="1" />
+                android:value="2" />
         </activity>
 
         <provider
