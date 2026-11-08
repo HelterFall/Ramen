@@ -187,3 +187,17 @@ python3 -m unittest discover -s tools/renpy-8.5.3 -p 'test_*.py'
 ~~~
 
 **Runtime payload status:** the official 8.5.3 RAPT/SDK binary packages are not present in this branch. The current source-control integration available for this work can inspect source files but cannot import the official binary archives into the repository. The current renpy-build master host is from the newer SDL3 line and must not be copied into the 8.5.3 / SDL2 profile. Consequently, the host bridge and exact-source patcher are prepared, but the Android Runtime is not yet embedded and no Ren'Py title can be launched by this build.
+
+
+### RAPT Java host handoff patch
+
+The upstream renpy-build PythonSDLActivity source currently tracked at blob ae9ef69291f56d3aa727129ebba243b42912f4c1 (last changed in the upstream history in November 2024) exposes nativeSetEnv() and calls preparePython() before Python bootstrap. A second fingerprint-guarded patcher now inserts Ramen Intent validation and the three RENPY_RAMEN_* native environment values immediately after private runtime unpacking and before the standard ANDROID_* environment is set.
+
+Apply both source patchers to the matching SDK/host checkout:
+
+~~~sh
+python3 tools/renpy-8.5.3/apply_ramen_android_paths.py /path/to/sdk/renpy.py --in-place
+python3 tools/renpy-8.5.3/patch_python_sdl_activity.py /path/to/rapt/PythonSDLActivity.java --in-place
+~~~
+
+The Java patcher validates that the selected game directory is inside files/games/<game-id>, and that saves/log paths are exactly inside files/renpy-data/<game-id>. It does not add the upstream SDL Gradle dependencies, native libraries or Android manifest entry; those must come from the matching RAPT package and be integrated as one coherent build. The source file fingerprint is a source-revision guard, not proof that the binary RAPT archive has been incorporated.
