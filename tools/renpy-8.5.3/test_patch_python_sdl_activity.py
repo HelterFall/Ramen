@@ -37,7 +37,7 @@ class PythonSdlActivityPatcherTest(unittest.TestCase):
         self.assertIn("ramenGamesRoot.getPath().startsWith(ramenFilesRoot.getPath()", patched)
         self.assertIn("ramenDataBase.getPath().startsWith(ramenFilesRoot.getPath()", patched)
         self.assertLess(
-            patched.index("nativeSetEnv(\\"RENPY_RAMEN_GAME_DIR\\""),
+            patched.index('nativeSetEnv("RENPY_RAMEN_GAME_DIR"'),
             patched.index('nativeSetEnv("ANDROID_PRIVATE"'),
         )
 
