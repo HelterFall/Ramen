@@ -87,9 +87,11 @@ object RenPyGamePaths {
     }
 
     private fun containsRenPyPayload(directory: File): Boolean =
-        directory.listFiles().orEmpty().any { file ->
-            file.isFile && file.extension.lowercase(Locale.ROOT) in gameFileExtensions
-        }
+        directory.walkTopDown()
+            .maxDepth(MAX_PAYLOAD_SCAN_DEPTH)
+            .any { file ->
+                file.isFile && file.extension.lowercase(Locale.ROOT) in gameFileExtensions
+            }
 
     private fun containsRenPyScript(directory: File): Boolean =
         directory.walkTopDown()
@@ -113,5 +115,6 @@ object RenPyGamePaths {
         }
     }
 
+    private const val MAX_PAYLOAD_SCAN_DEPTH = 12
     private const val MAX_SCRIPT_SCAN_DEPTH = 12
 }
