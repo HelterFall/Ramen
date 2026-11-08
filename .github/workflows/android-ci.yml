@@ -83,20 +83,45 @@ jobs:
               raise SystemExit("Cached Ren'Py x-common assets are empty.")
 
           with tarfile.open(private, "r:gz") as archive:
-              patched_main = [
-                  member for member in archive.getmembers()
-                  if member.isfile() and Path(member.name).name == "main.py"
+              files = {
+                  member.name: archive.extractfile(member).read()
+                  for member in archive.getmembers()
+                  if member.isfile()
+              }
+              main_files = [
+                  (name, payload) for name, payload in files.items()
+                  if Path(name).name == "main.py" and b"path_to_gamedir" in payload
               ]
-              if len(patched_main) != 1:
-                  raise SystemExit("Cached private.mp3 has no unique Ren'Py main.py.")
-              source = archive.extractfile(patched_main[0]).read().decode("utf-8")
-              for hook in (
-                  "RENPY_RAMEN_GAME_DIR",
-                  "RENPY_RAMEN_SAVES_ROOT",
-                  "RENPY_RAMEN_LOG_DIR",
-              ):
-                  if hook not in source:
-                      raise SystemExit("Cached private.mp3 is missing hook: " + hook)
+              bootstrap_files = [
+                  payload for name, payload in files.items()
+                  if name.endswith("renpy/bootstrap.py")
+              ]
+              core_files = [
+                  payload for name, payload in files.items()
+                  if name.endswith("renpy/display/core.py")
+              ]
+              if len(main_files) != 1 or len(bootstrap_files) != 1 or len(core_files) != 1:
+                  raise SystemExit("Cached private.mp3 is missing a unique patched Ren'Py host source.")
+              checks = (
+                  (main_files[0][1], (
+                      b"RENPY_RAMEN_GAME_DIR",
+                      b"RENPY_RAMEN_SAVES_ROOT",
+                      b"RENPY_RAMEN_LOG_DIR",
+                      b"RENPY_RAMEN_LAUNCH_ABORT",
+                  )),
+                  (bootstrap_files[0], (
+                      b"RENPY_RAMEN_EMBEDDED_HOST",
+                      b"android.activity.finish()",
+                  )),
+                  (core_files[0], (
+                      b"RENPY_RAMEN_EMBEDDED_HOST",
+                      b"android.activity.finish()",
+                  )),
+              )
+              for source, hooks in checks:
+                  for hook in hooks:
+                      if hook not in source:
+                          raise SystemExit("Cached private.mp3 is missing hook: " + hook.decode("ascii"))
 
           version = hashlib.md5(private.read_bytes()).hexdigest()
           text = strings.read_text(encoding="utf-8")
