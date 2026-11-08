@@ -1,8 +1,10 @@
 package org.libsdl.app;
 
 import android.app.Activity;
-import androidx.activity.ComponentActivity;
 import androidx.activity.OnBackPressedCallback;
+import androidx.activity.OnBackPressedDispatcher;
+import android.window.OnBackInvokedCallback;
+import android.window.OnBackInvokedDispatcher;
 import android.app.AlertDialog;
 import android.app.Dialog;
 import android.app.UiModeManager;
@@ -63,7 +65,7 @@ import java.util.Locale;
 /**
     SDL Activity
 */
-public class SDLActivity extends ComponentActivity implements View.OnSystemUiVisibilityChangeListener {
+public class SDLActivity extends Activity implements View.OnSystemUiVisibilityChangeListener {
     private static final String TAG = "SDL";
 
     public static boolean mIsResumedCalled, mHasFocus;
@@ -106,6 +108,9 @@ public class SDLActivity extends ComponentActivity implements View.OnSystemUiVis
 
     // Main components
     protected static SDLActivity mSingleton;
+    private OnBackPressedDispatcher mBackPressedDispatcher;
+    private OnBackPressedCallback mBackPressedCallback;
+    private OnBackInvokedCallback mOnBackInvokedCallback;
     protected static SDLSurface mSurface;
     protected static View mTextEdit;
     protected static boolean mScreenKeyboardShown;
@@ -271,9 +276,10 @@ public class SDLActivity extends ComponentActivity implements View.OnSystemUiVis
         mSingleton = this;
         SDL.setContext(this);
 
-        // Use AndroidX's dispatcher so system back gestures and predictive back
-        // invoke SDL's existing back-button policy on all supported API levels.
-        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+        // Route legacy back presses and Android 13+ system gestures through
+        // the same AndroidX dispatcher without changing SDL's Activity base class.
+        mBackPressedDispatcher = new OnBackPressedDispatcher(this::performDefaultBack);
+        mBackPressedCallback = new OnBackPressedCallback(true) {
             @Override
             public void handleOnBackPressed() {
                 if (!SDLActivity.mBrokenLibraries &&
@@ -282,12 +288,18 @@ public class SDLActivity extends ComponentActivity implements View.OnSystemUiVis
                     return;
                 }
 
-                if (!SDLActivity.this.isFinishing()) {
-                    setEnabled(false);
-                    SDLActivity.this.getOnBackPressedDispatcher().onBackPressed();
-                }
+                setEnabled(false);
+                mBackPressedDispatcher.onBackPressed();
             }
-        });
+        };
+        mBackPressedDispatcher.addCallback(mBackPressedCallback);
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            mOnBackInvokedCallback = () -> mBackPressedDispatcher.onBackPressed();
+            getOnBackInvokedDispatcher().registerOnBackInvokedCallback(
+                    OnBackInvokedDispatcher.PRIORITY_DEFAULT,
+                    mOnBackInvokedCallback);
+        }
 
         mClipboardHandler = new SDLClipboardHandler();
 
@@ -484,6 +496,16 @@ public class SDLActivity extends ComponentActivity implements View.OnSystemUiVis
     protected void onDestroy() {
         Log.v(TAG, "onDestroy()");
 
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && mOnBackInvokedCallback != null) {
+            getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(mOnBackInvokedCallback);
+            mOnBackInvokedCallback = null;
+        }
+        if (mBackPressedCallback != null) {
+            mBackPressedCallback.remove();
+            mBackPressedCallback = null;
+        }
+        mBackPressedDispatcher = null;
+
         if (mHIDDeviceManager != null) {
             HIDDeviceManager.release(mHIDDeviceManager);
             mHIDDeviceManager = null;
@@ -512,6 +534,21 @@ public class SDLActivity extends ComponentActivity implements View.OnSystemUiVis
         super.onDestroy();
     }
 
+    private void performDefaultBack() {
+        if (!isFinishing()) {
+            super.onBackPressed();
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (mBackPressedDispatcher != null) {
+            mBackPressedDispatcher.onBackPressed();
+        } else {
+            performDefaultBack();
+        }
+    }
+
     // Called by JNI from SDL.
     public static void manualBackButton() {
         mSingleton.pressBackButton();
@@ -531,7 +568,7 @@ public class SDLActivity extends ComponentActivity implements View.OnSystemUiVis
 
     // Used to access the system back behavior.
     public void superOnBackPressed() {
-        getOnBackPressedDispatcher().onBackPressed();
+        onBackPressed();
     }
 
     @Override
