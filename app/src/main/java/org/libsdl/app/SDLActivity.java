@@ -1,5 +1,6 @@
 package org.libsdl.app;
 
+import android.annotation.SuppressLint;
 import android.app.Activity;
 import androidx.activity.OnBackPressedCallback;
 import androidx.activity.OnBackPressedDispatcher;
@@ -540,6 +541,10 @@ public class SDLActivity extends Activity implements View.OnSystemUiVisibilityCh
         }
     }
 
+    // The platform OnBackInvokedCallback (API 33+) and this legacy bridge both
+    // dispatch through mBackPressedDispatcher. Lint cannot trace this standalone
+    // Activity-owned dispatcher, so suppress only its legacy-method heuristic.
+    @SuppressLint("GestureBackNavigation")
     @Override
     public void onBackPressed() {
         if (mBackPressedDispatcher != null) {
