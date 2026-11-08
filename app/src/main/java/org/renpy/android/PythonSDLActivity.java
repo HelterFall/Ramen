@@ -158,7 +158,11 @@ public class PythonSDLActivity extends SDLActivity {
             diskVersion = "";
         }
 
-        if (dataVersion.equals(diskVersion)) {
+        boolean extractedRuntimePresent =
+            new File(target, "main.py").isFile() &&
+            new File(target, "renpy/bootstrap.py").isFile() &&
+            new File(target, "renpy/display/core.py").isFile();
+        if (dataVersion.equals(diskVersion) && extractedRuntimePresent) {
             return true;
         }
 
@@ -175,6 +179,13 @@ public class PythonSDLActivity extends SDLActivity {
         AssetExtract extractor = new AssetExtract(this);
         if (!extractor.extractTar(resource + ".mp3", target.getAbsolutePath())) {
             Log.e("python", "Could not extract " + resource + " data.");
+            return false;
+        }
+
+        if (!new File(target, "main.py").isFile() ||
+                !new File(target, "renpy/bootstrap.py").isFile() ||
+                !new File(target, "renpy/display/core.py").isFile()) {
+            Log.e("python", "The extracted " + resource + " Runtime is incomplete.");
             return false;
         }
 
@@ -224,10 +235,10 @@ public class PythonSDLActivity extends SDLActivity {
 
         // librenpython_android.c changes to ANDROID_PRIVATE before invoking main.py.
         // Set the mandatory process environment before any operation can fail.
-        nativeSetEnv("ANDROID_PRIVATE", getFilesDir().getAbsolutePath());
-        nativeSetEnv("RENPY_RAMEN_EMBEDDED_HOST", "1");
-
         try {
+            nativeSetEnv("ANDROID_PRIVATE", getFilesDir().getAbsolutePath());
+            nativeSetEnv("RENPY_RAMEN_EMBEDDED_HOST", "1");
+            nativeSetEnv("RENPY_RAMEN_LAUNCH_ABORT", "0");
             File oldExternalStorage = new File(
                 Environment.getExternalStorageDirectory(),
                 getPackageName()
@@ -316,14 +327,14 @@ public class PythonSDLActivity extends SDLActivity {
             }
 
             Log.v("python", "Finished preparePython.");
-        } catch (Exception error) {
+        } catch (Throwable error) {
             Log.e("python", "Ren'Py Runtime preparation failed; aborting Python startup.", error);
 
             // main.py checks this before importing Ren'Py. Returning normally here
             // keeps the JNI call exception-free, but Python cannot boot a partial Runtime.
             try {
                 nativeSetEnv("RENPY_RAMEN_LAUNCH_ABORT", "1");
-            } catch (Exception envError) {
+            } catch (Throwable envError) {
                 Log.e("python", "Could not set the Ren'Py launch-abort flag.", envError);
             }
 
