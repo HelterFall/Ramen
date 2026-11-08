@@ -494,7 +494,7 @@ public class PythonSDLActivity extends SDLActivity {
     public void setWakeLock(boolean active) {
         if (wakeLock == null) {
             PowerManager pm = (PowerManager) getSystemService(Context.POWER_SERVICE);
-            wakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "Screen On");
+            wakeLock = pm.newWakeLock(PowerManager.SCREEN_BRIGHT_WAKE_LOCK, "io.github.helterfall.ramen:renpy-screen");
             wakeLock.setReferenceCounted(false);
         }
 
