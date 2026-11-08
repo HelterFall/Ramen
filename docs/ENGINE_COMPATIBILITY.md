@@ -17,7 +17,7 @@ At project start, **no engine is supported yet**.
 |---|---|---|
 | Self-contained HTML5 projects | MVP candidate | Test local assets, relative URLs, audio, orientation, and navigation inside a hardened WebView. |
 | TyranoScript HTML5 exports | MVP candidate | TyranoScript is HTML5-based; validate representative exported projects and their dependencies rather than assuming every export works. |
-| Ren'Py | Research / detected unsupported | Ramen recognizes source .rpy, compiled .rpyc/.rpymc signatures and validated RPA 2/3 headers in a game payload. No Ren'Py runtime is integrated yet. The leading feasibility path is the official 8.5.3 Android host plus the path_to_gamedir() distributor hook; see [Ren'Py Android Runtime research](RENPY_ANDROID_RUNTIME.md). |
+| Ren'Py | Research / detected unsupported | Ramen recognizes source .rpy, compiled .rpyc/.rpymc signatures and recognized RPA 2/3 magic prefixes in a game payload. No Ren'Py runtime is integrated yet. The leading feasibility path is the official 8.5.3 Android host plus the path_to_gamedir() distributor hook; see [Ren'Py Android Runtime research](RENPY_ANDROID_RUNTIME.md). |
 | KiriKiri / KAG | Research | Evaluate available mobile runtime projects, supported versions, formats, build requirements, and licence obligations. |
 | ONScripter | Later / research | Consider after the first runtime and compatibility test system exist. |
 | Native/proprietary Windows VN engines | Research | Start with PE architecture/import metadata and byte-level container identification. Each engine family requires independent format evidence and a feasibility report; no Windows executable is launched by the inspector. |
