@@ -62,7 +62,17 @@ def patch_main_py(source: bytes) -> bytes:
     """Patch the 8.5.3 Android entry point to select this game's directories."""
     text = source.decode("utf-8")
     if PATH_PATCH_MARKER in text:
-        return source
+        required_hooks = (
+            "RENPY_RAMEN_GAME_DIR",
+            "RENPY_RAMEN_SAVES_ROOT",
+            "RENPY_RAMEN_LOG_DIR",
+        )
+        if all(hook in text for hook in required_hooks):
+            return source
+        raise RuntimeError(
+            "The private runtime contains an incomplete Ramen path patch; "
+            "refusing to accept a partially patched main.py."
+        )
 
     required_anchors = (
         GAME_DIR_ANCHOR,
