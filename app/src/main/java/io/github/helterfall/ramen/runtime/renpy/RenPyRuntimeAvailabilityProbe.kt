@@ -26,7 +26,7 @@ data class RenPyRuntimeAvailability(
  */
 object RenPyRuntimeAvailabilityProbe {
     const val REQUIRED_RENPY_VERSION = "8.5.3"
-    const val HOST_PROTOCOL_VERSION = 1
+    const val HOST_PROTOCOL_VERSION = 2
 
     const val ACTIVITY_CLASS = "org.renpy.android.PythonSDLActivity"
     const val HOST_PROTOCOL_METADATA = "io.github.helterfall.ramen.RENPY_HOST_PROTOCOL"
@@ -53,7 +53,11 @@ object RenPyRuntimeAvailabilityProbe {
         } else {
             val declaredProtocol = activityInfo.metaData?.getInt(HOST_PROTOCOL_METADATA, -1)
             if (declaredProtocol != HOST_PROTOCOL_VERSION) {
-                missing += "host protocol metadata v1"
+                missing += "host protocol metadata v2"
+            }
+            val expectedProcessName = "${context.packageName}:renpy"
+            if (activityInfo.processName != expectedProcessName) {
+                missing += "isolated Ren'Py process (:renpy)"
             }
         }
 
