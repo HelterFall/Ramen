@@ -174,7 +174,7 @@ Re-enable packaging only after the runtime import checks, Android compilation/te
 
 The Ramen host uses Android protocol v2. org.renpy.android.PythonSDLActivity runs in the dedicated application process :renpy, while the Ramen library remains in the default process. This is intentional: Ren'Py 8.5.3 calls System.exit(0) during Android shutdown to avoid unsafe Python interpreter finalization (Ren'Py issue #5280). Keeping that behavior inside the isolated Runtime process protects the Ramen process.
 
-The private runtime importer patches the exact 8.5.3 main.py, renpy/bootstrap.py, and renpy/display/core.py sources. When RENPY_RAMEN_EMBEDDED_HOST=1, task-removal calls become Activity.finish(); the existing System.exit(0) remains process-local. The early main.py guard checks RENPY_RAMEN_LAUNCH_ABORT before importing Ren'Py.
+The runtime build preparation patches the exact 8.5.3 SDK sources before RAPT compiles the private archive: apply_ramen_android_paths.py patches SDK renpy.py (game/save/log paths plus the early launch-abort guard), and patch_renpy_embedded_host.py patches renpy/bootstrap.py and renpy/display/core.py. When RENPY_RAMEN_EMBEDDED_HOST=1, task-removal calls become Activity.finish(); the existing System.exit(0) remains process-local. The importer does not rewrite bytecode after packaging: it validates that private.mp3 contains the patched main.py and the compiled renpy/bootstrap.pyc and renpy/display/core.pyc hooks.
 
 The Java host sets ANDROID_PRIVATE before any validation because the official native entry point changes directory to it before starting Python. Runtime extraction now returns a boolean, and preparePython() catches preparation exceptions, sets the launch-abort flag, reports the error and closes only the Ren'Py Activity. A successful unpack must also leave main.py, renpy/bootstrap.py and renpy/display/core.py on disk.
 
@@ -204,6 +204,14 @@ python3 -m unittest discover -s tools/renpy-8.5.3 -p 'test_*.py'
 
 **Runtime payload status (2026-11-08):** `tools/renpy-8.5.3/build_runtime.sh` downloads and checksum-verifies the matching official 8.5.3 SDK/RAPT packages, builds a temporary sample APK with the official Android packaging pipeline, and imports only the engine payload into Ramen. The temporary APK is a build-time donor only; it is not installed or shipped. The resulting universal payload provides `librenpython.so` for arm64-v8a, armeabi-v7a and x86_64, plus `private.mp3` and common engine assets. The official host source and ELF exports confirm SDL2 is included in `librenpython.so`, so the adapted host loads only `renpython`.
 
+
+### SDK source patching and private-runtime validation
+
+Before RAPT runs, build_runtime.sh applies both source patchers to the version-pinned SDK tree. The path patcher fingerprints renpy.py; the embedded-host patcher fingerprints renpy/bootstrap.py and renpy/display/core.py. The stock source SHA checks make the build fail closed if the SDK archive changes unexpectedly.
+
+RAPT compiles those Ren'Py modules and moves their bytecode into private.mp3. Therefore import_runtime_from_apk.py validates the packaged main.py hooks and the bytecode strings in renpy/bootstrap.pyc and renpy/display/core.pyc; it deliberately does not search for or rewrite .py source files that RAPT has already compiled away.
+
+APK packaging and Ren'Py playback are currently disabled while this work is verified. Android CI runs Python patcher tests, Gradle unit tests, and lint only. The runtime build script is not invoked by CI in this phase.
 
 ### RAPT Java host handoff patch
 
