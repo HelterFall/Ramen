@@ -49,7 +49,7 @@ jobs:
           packages: platform-tools platforms;android-36
 
       - name: Compile checks, unit tests, and lint (APK packaging disabled)
-        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug
+        run: ./gradlew --no-daemon --stacktrace compileDebugKotlin compileDebugJavaWithJavac testDebugUnitTest lintDebug
 
       - name: Print Android lint report
         if: failure()
