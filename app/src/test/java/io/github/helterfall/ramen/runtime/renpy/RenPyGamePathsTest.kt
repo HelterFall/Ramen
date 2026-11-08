@@ -45,18 +45,16 @@ class RenPyGamePathsTest {
     }
 
     @Test
-    fun rejectsRpaOnlyDirectoryWithoutStandaloneScriptFiles() {
+    fun acceptsRpaOnlyDirectoryBecauseRenpyScriptsMayBePackedIntoRpa() {
         val filesRoot = Files.createTempDirectory("ramen-renpy-rpa-only").toFile()
         try {
             val gameRoot = File(filesRoot, "games/demo-1/game").apply { mkdirs() }
             File(gameRoot, "ZATO_arch.rpa").writeBytes("RPA-3.0".toByteArray())
 
-            try {
-                RenPyGamePaths.resolve(filesRoot, record())
-                fail("Expected an RPA-only resource archive to be rejected.")
-            } catch (error: IOException) {
-                assertTrue(error.message.orEmpty().contains("не найден сценарий игры"))
-            }
+            val paths = RenPyGamePaths.resolve(filesRoot, record())
+
+            assertEquals(gameRoot.canonicalFile, paths.gameDirectory)
+            assertTrue(File(paths.gameDirectory, "ZATO_arch.rpa").isFile)
         } finally {
             filesRoot.deleteRecursively()
         }
