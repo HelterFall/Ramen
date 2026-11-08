@@ -164,6 +164,12 @@ The integration branch now contains a first host-side contract, separate from th
 - RenPyRuntimeLauncher passes these Intent extras to that Activity: io.github.helterfall.ramen.extra.RENPY_GAME_ID, io.github.helterfall.ramen.extra.RENPY_GAME_DIR, io.github.helterfall.ramen.extra.RENPY_SAVES_ROOT and io.github.helterfall.ramen.extra.RENPY_LOG_DIR.
 - The library card stays disabled while any part of the actual Runtime package is missing. No placeholder Activity is registered. The native-library contract is one `librenpython.so` per ABI; SDL2 is not a second shared object in the official 8.5.3 RAPT package.
 
+### Temporary shutdown of APK packaging and playback
+
+Until the Ren'Py runtime importer and device launch flow are fully verified, APK packaging is deliberately disabled. Android CI now runs Python patcher tests, Gradle unit tests and lint only; it no longer builds the Ren'Py donor APK, assembles the Ramen APK, or uploads an APK artifact. The Ren'Py availability probe also keeps the Play path disabled. No app/device launch is part of this phase.
+
+Re-enable packaging only after the runtime import checks, Android compilation/tests/lint, and a real emulator/device smoke test all pass. The smoke test must confirm that a minimal imported title renders, Back/quit returns to the Ramen library, the main process remains alive, and saves/logs stay under the selected game's data directory.
+
 ### Embedded process boundary and failed-start handling
 
 The Ramen host uses Android protocol v2. org.renpy.android.PythonSDLActivity runs in the dedicated application process :renpy, while the Ramen library remains in the default process. This is intentional: Ren'Py 8.5.3 calls System.exit(0) during Android shutdown to avoid unsafe Python interpreter finalization (Ren'Py issue #5280). Keeping that behavior inside the isolated Runtime process protects the Ramen process.
