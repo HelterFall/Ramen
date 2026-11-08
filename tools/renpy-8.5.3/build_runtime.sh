@@ -99,6 +99,33 @@ if [[ -z "$DONOR_APK" ]]; then
   exit 1
 fi
 
+echo "Inspecting official Ren'Py 8.5.3 RAPT host sources:"
+find "$SDK_ROOT/rapt" -type f \( -name PythonSDLActivity.java -o -name SDLActivity.java \) -print
+UPSTREAM_ACTIVITY="$(find "$SDK_ROOT/rapt" -type f -name PythonSDLActivity.java -print -quit)"
+if [[ -n "$UPSTREAM_ACTIVITY" ]]; then
+  echo "Official PythonSDLActivity: $UPSTREAM_ACTIVITY"
+  grep -n -A8 -B2 'getLibraries' "$UPSTREAM_ACTIVITY" || true
+  sha1sum "$UPSTREAM_ACTIVITY"
+fi
+
+echo "Native library entries in the official universal APK:"
+unzip -Z1 "$DONOR_APK" | grep -E '^lib/[^/]+/[^/]+\.so
+test -s "$ROOT/app/src/main/assets/private.mp3"
+test -d "$ROOT/app/src/main/assets/x-renpy/x-common"
+test -s "$ROOT/app/src/main/jniLibs/arm64-v8a/libSDL2.so"
+test -s "$ROOT/app/src/main/jniLibs/arm64-v8a/librenpython.so"
+
+echo "Ren'Py 8.5.3 runtime payload imported into Ramen."
+ | sort || true
+INSPECT_DIR="$WORK/native-inspect"
+mkdir -p "$INSPECT_DIR"
+if unzip -p "$DONOR_APK" lib/arm64-v8a/librenpython.so > "$INSPECT_DIR/librenpython.so" 2>/dev/null; then
+  echo "librenpython.so dynamic dependencies:"
+  readelf -d "$INSPECT_DIR/librenpython.so" | grep -E 'NEEDED|SONAME' || true
+  echo "librenpython.so SDL JNI exports:"
+  readelf --dyn-syms -W "$INSPECT_DIR/librenpython.so" | grep -E 'Java_org_libsdl_app_SDLActivity_(nativeSetupJNI|nativeRunMain)' || true
+fi
+
 python3 "$ROOT/tools/renpy-8.5.3/import_runtime_from_apk.py" "$DONOR_APK" --project-root "$ROOT" --replace
 
 test -s "$ROOT/app/src/main/assets/private.mp3"
