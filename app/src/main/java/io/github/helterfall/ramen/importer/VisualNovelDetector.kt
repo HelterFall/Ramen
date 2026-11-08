@@ -88,11 +88,11 @@ class VisualNovelDetector {
             val relativePath = renpyArchive.first.relativeTo(gameDirectory).invariantSeparatorsPath
             return unsupported(
                 engineId = "renpy",
-                engineLabel = "Ren'Py (runtime not installed)",
+                engineLabel = "Ren'Py (RPA-архив без сценария)",
                 evidence = "Recognized " + renpyArchive.second +
-                    " magic prefix in the game payload: $relativePath. " +
-                    "The archive is recognized, but its scripts have not been loaded " +
-                    "and playback is not supported."
+                    " resource archive in the game payload: $relativePath. " +
+                    "No standalone .rpy/.rpyc script file was found in game/. " +
+                    "An RPA resource archive alone is not a complete runnable game."
             )
         }
 
