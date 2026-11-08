@@ -47,6 +47,12 @@ cp -a "$RAPT_ROOT" "$SDK_ROOT/rapt"
 RAPT_WRAPPER="$SDK_ROOT/rapt/prototype/gradle/wrapper/gradle-wrapper.properties"
 if [[ -f "$RAPT_WRAPPER" ]]; then
   sed -i 's#services.gradle.org#downloads.gradle.org#; s/networkTimeout=10000/networkTimeout=120000/' "$RAPT_WRAPPER"
+  # Gradle 9.1.0 supports retry/back-off in the wrapper properties. The
+  # downloads.gradle.org endpoint can redirect to GitHub Releases, which may
+  # transiently return HTTP 5xx in hosted CI runners.
+  if ! grep -q '^retries=' "$RAPT_WRAPPER"; then
+    printf '\\nretries=5\\nretryBackOffMs=5000\\n' >> "$RAPT_WRAPPER"
+  fi
 fi
 
 : "${ANDROID_HOME:?Android SDK must be installed by android-actions/setup-android}"
