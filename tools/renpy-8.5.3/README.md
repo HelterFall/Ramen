@@ -18,8 +18,11 @@ Ren'Py's own Android packaging pipeline on the SDK's included sample project.
 It extracts the resulting engine payload into Ramen using
 `import_runtime_from_apk.py`. The temporary sample APK is a build-time
 intermediate only: it is not installed, committed, or shipped inside Ramen.
-Only the Ren'Py native libraries, private runtime archive, and common engine
-assets are included in the Ramen APK.
+Only the Ren'Py native library, private runtime archive, and common engine
+assets are included in the Ramen APK. In Ren'Py 8.5.3, SDL2 is statically linked
+into `librenpython.so`; the official RAPT `PythonSDLActivity` loads only
+`renpython`. Ramen mirrors that host contract and must not expect a separate
+`libSDL2.so`.
 
 The pinned RAPT archive SHA-256 is:
 
