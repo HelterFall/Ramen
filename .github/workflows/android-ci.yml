@@ -1,4 +1,4 @@
-name: Android CI
+name: Android checks (APK disabled)
 
 on:
   push:
@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build and check
+    name: Unit tests and lint only — no APK
     runs-on: ubuntu-latest
     timeout-minutes: 60
 
