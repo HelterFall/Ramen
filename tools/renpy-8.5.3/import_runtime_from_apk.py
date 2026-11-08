@@ -23,32 +23,15 @@ from pathlib import Path, PurePosixPath
 REQUIRED_NATIVE_LIBRARIES = {"librenpython.so"}
 REQUIRED_COMMON_PREFIX = "assets/x-renpy/x-common/"
 RUNTIME_VERSION = "8.5.3"
-PATH_PATCH_MARKER = "# RAMEN_ANDROID_RUNTIME_PATHS_V1"
-
-GAME_DIR_ANCHOR = "    # A list of candidate game directory names.\n"
-GAME_DIR_INSERT = """    # RAMEN_ANDROID_RUNTIME_PATHS_V1
-    ramen_game_directory = os.environ.get("RENPY_RAMEN_GAME_DIR")
-    if ramen_game_directory:
-        ramen_game_directory = os.path.abspath(ramen_game_directory)
-        if not os.path.isdir(ramen_game_directory):
-            raise OSError("Ramen Ren'Py game directory does not exist.")
-        return ramen_game_directory
-
-"""
-
-SAVES_ANCHOR = "    if renpy.android:\n        paths = [\n"
-SAVES_REPLACEMENT = """    if renpy.android:
-        ramen_saves_root = os.environ.get("RENPY_RAMEN_SAVES_ROOT")
-        if ramen_saves_root:
-            return os.path.abspath(ramen_saves_root)
-
-        paths = [
-"""
-
-LOG_DIR_ANCHOR = "        return os.environ['ANDROID_PUBLIC']\n"
-LOG_DIR_REPLACEMENT = (
-    "        return os.environ.get('RENPY_RAMEN_LOG_DIR') or os.environ['ANDROID_PUBLIC']\n"
+REQUIRED_MAIN_HOOKS = (
+    b"RAMEN_GAME_DIR_HOOK_V1",
+    b"RAMEN_SAVES_ROOT_HOOK_V1",
+    b"RAMEN_LOG_DIR_HOOK_V1",
+    b"RENPY_RAMEN_LAUNCH_ABORT",
 )
+EMBEDDED_HOST_HOOK = b"RENPY_RAMEN_EMBEDDED_HOST"
+
+
 
 
 def safe_member_path(name: str) -> PurePosixPath | None:
@@ -58,178 +41,104 @@ def safe_member_path(name: str) -> PurePosixPath | None:
     return path
 
 
-def patch_main_py(source: bytes) -> bytes:
-    """Patch game paths and abort early when the Java host rejected a launch."""
-    text = source.decode("utf-8")
+def validate_compiled_module(
+    module_name: str,
+    payload: bytes,
+    *,
+    module_label: str,
+) -> None:
+    """Verify that a RAPT-compiled module contains the embedded-host hooks."""
+    if not payload:
+        raise RuntimeError(f"The compiled Ren'Py module is empty: {module_name}")
 
-    if PATH_PATCH_MARKER not in text:
-        required_anchors = (
-            GAME_DIR_ANCHOR,
-            SAVES_ANCHOR,
-            LOG_DIR_ANCHOR,
-        )
-        for anchor in required_anchors:
-            if text.count(anchor) != 1:
-                raise RuntimeError(
-                    "The main.py in the donor APK does not match the expected "
-                    "Ren'Py 8.5.3 path functions; refusing to make a partial patch."
-                )
-
-        text = text.replace(GAME_DIR_ANCHOR, GAME_DIR_INSERT + GAME_DIR_ANCHOR, 1)
-        text = text.replace(SAVES_ANCHOR, SAVES_REPLACEMENT, 1)
-        text = text.replace(LOG_DIR_ANCHOR, LOG_DIR_REPLACEMENT, 1)
-    else:
-        required_hooks = (
-            "RENPY_RAMEN_GAME_DIR",
-            "RENPY_RAMEN_SAVES_ROOT",
-            "RENPY_RAMEN_LOG_DIR",
-        )
-        if not all(hook in text for hook in required_hooks):
-            raise RuntimeError(
-                "The private runtime contains an incomplete Ramen path patch; "
-                "refusing to accept a partially patched main.py."
-            )
-
-    abort_marker = "# RAMEN_ANDROID_LAUNCH_ABORT_V1"
-    abort_anchor = "def main():\n\n    renpy_base = path_to_renpy_base()\n"
-    abort_insert = """def main():
-
-    # RAMEN_ANDROID_LAUNCH_ABORT_V1
-    if os.environ.get("RENPY_RAMEN_LAUNCH_ABORT") == "1":
-        raise SystemExit(1)
-
-    renpy_base = path_to_renpy_base()
-"""
-    if abort_marker not in text:
-        if text.count(abort_anchor) != 1:
-            raise RuntimeError(
-                "The Ren'Py 8.5.3 main.py entry point does not match the "
-                "expected main() startup anchor."
-            )
-        text = text.replace(abort_anchor, abort_insert, 1)
-    elif 'os.environ.get("RENPY_RAMEN_LAUNCH_ABORT")' not in text:
-        raise RuntimeError("The private runtime contains an incomplete launch-abort patch.")
-
-    return text.encode("utf-8")
-
-
-def patch_bootstrap_py(source: bytes) -> bytes:
-    """Keep Ren'Py's process exit inside the isolated Runtime process/task."""
-    text = source.decode("utf-8")
-    marker = "# RAMEN_ANDROID_EMBEDDED_HOST_EXIT_V1"
-    if marker in text:
-        if 'os.environ.get("RENPY_RAMEN_EMBEDDED_HOST") == "1"' not in text:
-            raise RuntimeError("The Ren'Py bootstrap contains an incomplete embedded-host patch.")
-        return source
-
-    anchor = "            android.activity.finishAndRemoveTask()\n"
-    replacement = """            # RAMEN_ANDROID_EMBEDDED_HOST_EXIT_V1
-            if os.environ.get("RENPY_RAMEN_EMBEDDED_HOST") == "1":
-                android.activity.finish()
-            else:
-                android.activity.finishAndRemoveTask()
-"""
-    if text.count(anchor) != 1:
+    missing = []
+    if EMBEDDED_HOST_HOOK not in payload:
+        missing.append("RENPY_RAMEN_EMBEDDED_HOST")
+    # CPython bytecode stores LOAD_METHOD/LOAD_ATTR names as marshal strings.
+    # The Activity.finish method must be part of the compiled code object.
+    if b"finish" not in payload:
+        missing.append("Activity.finish")
+    if missing:
         raise RuntimeError(
-            "The Ren'Py 8.5.3 bootstrap does not contain the expected "
-            "Android task-finish anchor."
+            f"The compiled {module_label} module is missing required embedded-host "
+            "hooks: " + ", ".join(missing)
+            + ". Patch the Ren'Py SDK sources before running android_build."
         )
-    return text.replace(anchor, replacement, 1).encode("utf-8")
 
 
-def patch_display_core_py(source: bytes) -> bytes:
-    """Avoid removing Ramen's task when a game opts into mobile-background quit."""
-    text = source.decode("utf-8")
-    marker = "# RAMEN_ANDROID_EMBEDDED_BACKGROUND_EXIT_V1"
-    if marker in text:
-        if 'os.environ.get("RENPY_RAMEN_EMBEDDED_HOST") == "1"' not in text:
-            raise RuntimeError("Ren'Py display core contains an incomplete embedded-host patch.")
-        return source
-
-    anchor = "                    android.activity.finishAndRemoveTask()\n"
-    replacement = """                    # RAMEN_ANDROID_EMBEDDED_BACKGROUND_EXIT_V1
-                    if os.environ.get("RENPY_RAMEN_EMBEDDED_HOST") == "1":
-                        android.activity.finish()
-                    else:
-                        android.activity.finishAndRemoveTask()
-"""
-    if text.count(anchor) != 1:
-        raise RuntimeError(
-            "The Ren'Py 8.5.3 display core does not contain the expected "
-            "Android background-exit anchor."
-        )
-    return text.replace(anchor, replacement, 1).encode("utf-8")
-
-
-def patch_private_mp3(payload: bytes) -> tuple[bytes, str]:
-    """Patch game paths and Android host-exit behavior inside private.mp3."""
-    if payload[:2] != b"\x1f\x8b":
+def validate_private_mp3(payload: bytes) -> str:
+    """Fail closed unless the private runtime was built from Ramen-patched SDK sources."""
+    if payload[:2] != bytes((0x1F, 0x8B)):
         raise RuntimeError("assets/private.mp3 is not gzip-compressed.")
 
-    source_stream = io.BytesIO(payload)
-    output_stream = io.BytesIO()
-    patched_by_name: dict[str, bytes] = {}
-    seen_sources: set[str] = set()
-
-    with tarfile.open(fileobj=source_stream, mode="r:gz") as source_tar:
-        members = source_tar.getmembers()
-
+    with tarfile.open(fileobj=io.BytesIO(payload), mode="r:gz") as archive:
+        members = [member for member in archive.getmembers() if member.isfile()]
+        file_payloads: dict[str, bytes] = {}
         for member in members:
-            if not member.isfile():
-                continue
+            if member.name in file_payloads:
+                raise RuntimeError(f"Duplicate runtime tar entry: {member.name}")
+            stream = archive.extractfile(member)
+            if stream is None:
+                raise RuntimeError(f"Could not read runtime tar entry: {member.name}")
+            file_payloads[member.name] = stream.read()
 
-            member_path = PurePosixPath(member.name).as_posix()
-            member_stream = source_tar.extractfile(member)
-            if member_stream is None:
-                continue
-            candidate = member_stream.read()
+    main_files = [
+        (name, content)
+        for name, content in file_payloads.items()
+        if PurePosixPath(name).name == "main.py"
+    ]
+    if len(main_files) != 1:
+        raise RuntimeError(
+            f"Expected one Ren'Py main.py in private.mp3, found {len(main_files)}."
+        )
 
-            if PurePosixPath(member_path).name == "main.py" and b"def path_to_gamedir(basedir, name):" in candidate:
-                key = "main"
-                patcher = patch_main_py
-            elif member_path.endswith("renpy/bootstrap.py"):
-                key = "bootstrap"
-                patcher = patch_bootstrap_py
-            elif member_path.endswith("renpy/display/core.py"):
-                key = "display_core"
-                patcher = patch_display_core_py
-            else:
-                continue
+    missing_main_hooks = [
+        hook.decode("ascii")
+        for hook in REQUIRED_MAIN_HOOKS
+        if hook not in main_files[0][1]
+    ]
+    if missing_main_hooks:
+        raise RuntimeError(
+            "The packaged main.py is missing Ramen SDK path/startup hooks: "
+            + ", ".join(missing_main_hooks)
+            + ". Run apply_ramen_android_paths.py on the SDK's renpy.py before android_build."
+        )
 
-            if key in seen_sources:
-                raise RuntimeError(f"The runtime tarball contains multiple {key} source files.")
-            seen_sources.add(key)
-            patched_by_name[member.name] = patcher(candidate)
+    bootstrap_files = [
+        (name, content)
+        for name, content in file_payloads.items()
+        if name.endswith("renpy/bootstrap.pyc")
+    ]
+    display_core_files = [
+        (name, content)
+        for name, content in file_payloads.items()
+        if name.endswith("renpy/display/core.pyc")
+    ]
+    if len(bootstrap_files) != 1:
+        raise RuntimeError(
+            "Expected one RAPT-compiled renpy/bootstrap.pyc in private.mp3, "
+            f"found {len(bootstrap_files)}."
+        )
+    if len(display_core_files) != 1:
+        raise RuntimeError(
+            "Expected one RAPT-compiled renpy/display/core.pyc in private.mp3, "
+            f"found {len(display_core_files)}."
+        )
 
-        required_sources = {"main", "bootstrap", "display_core"}
-        missing_sources = required_sources - seen_sources
-        if missing_sources:
-            raise RuntimeError(
-                "Could not patch all required Ren'Py 8.5.3 runtime sources: "
-                + ", ".join(sorted(missing_sources))
-            )
+    validate_compiled_module(
+        bootstrap_files[0][0],
+        bootstrap_files[0][1],
+        module_label="renpy/bootstrap.py",
+    )
+    validate_compiled_module(
+        display_core_files[0][0],
+        display_core_files[0][1],
+        module_label="renpy/display/core.py",
+    )
 
-        with tarfile.open(
-            fileobj=output_stream,
-            mode="w:gz",
-            format=tarfile.GNU_FORMAT,
-        ) as output_tar:
-            for member in members:
-                patched = patched_by_name.get(member.name)
-                if patched is not None:
-                    info = copy.copy(member)
-                    info.size = len(patched)
-                    output_tar.addfile(info, io.BytesIO(patched))
-                elif member.isfile():
-                    member_stream = source_tar.extractfile(member)
-                    if member_stream is None:
-                        raise RuntimeError(f"Could not read runtime file: {member.name}")
-                    output_tar.addfile(member, member_stream)
-                else:
-                    output_tar.addfile(member)
+    return hashlib.md5(payload).hexdigest()
 
-    patched_payload = output_stream.getvalue()
-    return patched_payload, hashlib.md5(patched_payload).hexdigest()
+
 
 
 def collect_runtime(apk: Path, stage: Path) -> tuple[set[str], int, str]:
@@ -282,8 +191,9 @@ def collect_runtime(apk: Path, stage: Path) -> tuple[set[str], int, str]:
             destination.parent.mkdir(parents=True, exist_ok=True)
 
             if name == "assets/private.mp3":
-                patched_payload, private_version = patch_private_mp3(archive.read(item))
-                destination.write_bytes(patched_payload)
+                private_payload = archive.read(item)
+                private_version = validate_private_mp3(private_payload)
+                destination.write_bytes(private_payload)
             else:
                 with archive.open(item) as source, destination.open("wb") as target:
                     shutil.copyfileobj(source, target)
@@ -417,7 +327,7 @@ def main() -> int:
     print("ABIs: " + ", ".join(sorted(abis)))
     print(f"Runtime APK assets copied (excluding x-game): {asset_count}")
     print(f"private_version cache key: {private_version}")
-    print("The embedded main.py now uses Ramen's per-game game, saves, and log directories.")
+    print("The private runtime was validated against Ramen's patched Ren'Py 8.5.3 SDK sources.")
     return 0
 
 
