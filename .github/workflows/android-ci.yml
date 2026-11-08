@@ -118,11 +118,10 @@ jobs:
           distribution: temurin
           java-version: '21'
 
-      - name: Set up Android SDK for Ren'Py
-        if: steps.renpy-runtime-cache.outputs.cache-hit != 'true'
+      - name: Set up Android SDK for Ramen and Ren'Py
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools platforms;android-36
+          packages: platform-tools platforms;android-36 platforms;android-37
 
       - name: Build and import Ren'Py 8.5.3 runtime
         id: build-renpy-runtime
