@@ -160,13 +160,23 @@ The original investigation log, Android loader notes, compatibility matrix and l
 The integration branch now contains a first host-side contract, separate from the Ren'Py engine payload:
 
 - RenPyGamePaths validates the imported record, resolves either a base folder containing game/ or a directly imported game/ directory, and creates files/renpy-data/<game-id>/saves and logs.
-- RenPyRuntimeAvailabilityProbe refuses to report ready unless the adapted org.renpy.android.PythonSDLActivity is declared with host protocol metadata v1, `librenpython.so` (which includes SDL2), `private.mp3`, common Ren'Py assets, and a `renpy-runtime.json` descriptor for Ren'Py 8.5.3 / protocol 1 are present.
+- RenPyRuntimeAvailabilityProbe refuses to report ready unless the adapted org.renpy.android.PythonSDLActivity is declared with host protocol metadata v2, `librenpython.so` (which includes SDL2), `private.mp3`, common Ren'Py assets, and a `renpy-runtime.json` descriptor for Ren'Py 8.5.3 / protocol 2 are present.
 - RenPyRuntimeLauncher passes these Intent extras to that Activity: io.github.helterfall.ramen.extra.RENPY_GAME_ID, io.github.helterfall.ramen.extra.RENPY_GAME_DIR, io.github.helterfall.ramen.extra.RENPY_SAVES_ROOT and io.github.helterfall.ramen.extra.RENPY_LOG_DIR.
 - The library card stays disabled while any part of the actual Runtime package is missing. No placeholder Activity is registered. The native-library contract is one `librenpython.so` per ABI; SDL2 is not a second shared object in the official 8.5.3 RAPT package.
 
+### Embedded process boundary and failed-start handling
+
+The Ramen host uses Android protocol v2. org.renpy.android.PythonSDLActivity runs in the dedicated application process :renpy, while the Ramen library remains in the default process. This is intentional: Ren'Py 8.5.3 calls System.exit(0) during Android shutdown to avoid unsafe Python interpreter finalization (Ren'Py issue #5280). Keeping that behavior inside the isolated Runtime process protects the Ramen process.
+
+The private runtime importer patches the exact 8.5.3 main.py, renpy/bootstrap.py, and renpy/display/core.py sources. When RENPY_RAMEN_EMBEDDED_HOST=1, task-removal calls become Activity.finish(); the existing System.exit(0) remains process-local. The early main.py guard checks RENPY_RAMEN_LAUNCH_ABORT before importing Ren'Py.
+
+The Java host sets ANDROID_PRIVATE before any validation because the official native entry point changes directory to it before starting Python. Runtime extraction now returns a boolean, and preparePython() catches preparation exceptions, sets the launch-abort flag, reports the error and closes only the Ren'Py Activity. A successful unpack must also leave main.py, renpy/bootstrap.py and renpy/display/core.py on disk.
+
+The runtime availability probe checks the protocol descriptor, Activity metadata, and the isolated process name. This is still a source-level protection and requires Android device/emulator testing to verify process/task restoration and real game startup.
+
 ### Required matching RAPT host changes
 
-The official 8.5.3 PythonSDLActivity.preparePython() must read the four Intent extras, validate their canonical paths, and call its existing nativeSetEnv() before Python bootstrap:
+The official 8.5.3 PythonSDLActivity.preparePython() must read the four Intent extras, validate their canonical paths, set ANDROID_PRIVATE before any operation that can fail, and call its existing nativeSetEnv() before Python bootstrap:
 
 | Environment variable | Source |
 |---|---|
@@ -174,10 +184,10 @@ The official 8.5.3 PythonSDLActivity.preparePython() must read the four Intent e
 | RENPY_RAMEN_SAVES_ROOT | absolute RENPY_SAVES_ROOT Intent extra |
 | RENPY_RAMEN_LOG_DIR | absolute RENPY_LOG_DIR Intent extra |
 
-The activity declaration must include metadata io.github.helterfall.ramen.RENPY_HOST_PROTOCOL = 1. The APK must package renpy-runtime.json with at least:
+The activity declaration must include android:process=\":renpy\" and metadata io.github.helterfall.ramen.RENPY_HOST_PROTOCOL = 2. The embedded host must set RENPY_RAMEN_EMBEDDED_HOST=1 before Python starts. The APK must package renpy-runtime.json with at least:
 
 ~~~json
-{"renpyVersion":"8.5.3","hostProtocol":1}
+{"renpyVersion":"8.5.3","hostProtocol":2}
 ~~~
 
 tools/renpy-8.5.3/apply_ramen_android_paths.py patches only the exact stock 8.5.3 renpy.py Git blob 2b2afe0ebcfcbba25dba246b45b074e839202528. It adds distributor hooks for the imported game path, per-game saves (also used by config.savedir for persistent data), and per-game logs. It refuses a different source revision and makes a backup for in-place use. Run its Python unit tests with:
