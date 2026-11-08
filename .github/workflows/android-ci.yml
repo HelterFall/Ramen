@@ -58,7 +58,6 @@ jobs:
         if: steps.renpy-runtime-cache.outputs.cache-hit == 'true'
         run: |
           python3 - <<'PY'
-          import gzip
           import hashlib
           import re
           import tarfile
@@ -100,7 +99,7 @@ jobs:
           version = hashlib.md5(private.read_bytes()).hexdigest()
           text = strings.read_text(encoding="utf-8")
           updated, count = re.subn(
-              r'(<string\\s+name="private_version"\\s*>).*?(</string>)',
+              r'(<string\s+name="private_version"\s*>).*?(</string>)',
               lambda match: match.group(1) + version + match.group(2),
               text,
               count=1,
