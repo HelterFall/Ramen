@@ -535,14 +535,6 @@ public class SDLActivity extends ComponentActivity implements View.OnSystemUiVis
     }
 
     @Override
-    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (mHIDDeviceManager != null) {
-            mHIDDeviceManager.onRequestPermissionsResult(requestCode, grantResults);
-        }
-    }
-
-    @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
 
         if (SDLActivity.mBrokenLibraries) {
@@ -1590,8 +1582,12 @@ public class SDLActivity extends ComponentActivity implements View.OnSystemUiVis
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         boolean result = (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED);
         nativePermissionResult(requestCode, result);
+        if (mHIDDeviceManager != null) {
+            mHIDDeviceManager.onRequestPermissionsResult(requestCode, grantResults);
+        }
     }
 
     /**
