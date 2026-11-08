@@ -620,7 +620,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
         uiState = SystemNnnPlayerUiState()
         releaseAssets()
         voiceExecutor.shutdownNow()
-        super.onCleared()
     }
 
     companion object {
