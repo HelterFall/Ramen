@@ -15,7 +15,7 @@ data class RenPyRuntimeAvailability(
         if (isReady) {
             "Встроенный Ren'Py Runtime 8.5.3 доступен."
         } else {
-            "Ren'Py распознан, но Runtime не включён в APK: " +
+            "Ren'Py распознан, но Android Runtime 8.5.3 не включён: " +
                 missingComponents.joinToString()
         }
 }
@@ -61,10 +61,6 @@ object RenPyRuntimeAvailabilityProbe {
         if (!File(nativeDirectory, "librenpython.so").isFile) {
             missing += "librenpython.so"
         }
-        if (!File(nativeDirectory, "libSDL2.so").isFile) {
-            missing += "libSDL2.so"
-        }
-
         val hasPrivateRuntimePayload = runCatching {
             context.assets.open("private.mp3").use { input -> input.read() >= 0 }
         }.getOrDefault(false)

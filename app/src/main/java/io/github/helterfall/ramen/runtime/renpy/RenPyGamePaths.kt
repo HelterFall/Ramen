@@ -9,7 +9,7 @@ import java.util.Locale
  * Canonical filesystem locations passed to the embedded Ren'Py host.
  * The selected game is copied into app-private storage by the SAF importer.
  */
-data class RenPyGamePaths(
+data class ResolvedRenPyGamePaths(
     val importedRoot: File,
     val gameDirectory: File,
     val dataRoot: File,
@@ -22,7 +22,7 @@ object RenPyGamePaths {
     private val safeId = Regex("[A-Za-z0-9-]{1,64}")
 
     @Throws(IOException::class)
-    fun resolve(filesDir: File, game: GameRecord): RenPyGamePaths {
+    fun resolve(filesDir: File, game: GameRecord): ResolvedRenPyGamePaths {
         if (game.engineId != "renpy") {
             throw IOException("The selected library entry is not a Ren'Py game.")
         }
@@ -71,7 +71,7 @@ object RenPyGamePaths {
         requireContained(logDirectory, dataRoot, "The Ren'Py log path is invalid.")
         ensureDirectory(logDirectory)
 
-        return RenPyGamePaths(importedRoot, gameDirectory, dataRoot, savesRoot, logDirectory)
+        return ResolvedRenPyGamePaths(importedRoot, gameDirectory, dataRoot, savesRoot, logDirectory)
     }
 
     private fun containsRenPyPayload(directory: File): Boolean =
