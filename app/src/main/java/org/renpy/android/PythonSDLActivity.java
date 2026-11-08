@@ -402,6 +402,7 @@ public class PythonSDLActivity extends SDLActivity {
 
     @Override
     protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
         Log.v("python", "onNewIntent()");
         setIntent(intent);
     }
