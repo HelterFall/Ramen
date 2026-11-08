@@ -318,10 +318,10 @@ fun RamenApp() {
                                         val launchError = RenPyRuntimeLauncher.launch(context, game)
                                         if (launchError == null) {
                                             statusMessage =
-                                                "Android принял команду запуска Ren'Py. Ожидаю запуск движка."
+                                                "Открываю игру во встроенном экране Ramen…"
                                             android.widget.Toast.makeText(
                                                 context,
-                                                "Открываю Ren'Py…",
+                                                "Открываю игру в Ramen…",
                                                 android.widget.Toast.LENGTH_SHORT
                                             ).show()
                                         } else {
