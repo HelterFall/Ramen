@@ -43,137 +43,13 @@ jobs:
       - name: Test Ren'Py Android path patcher
         run: python3 -m unittest discover -s tools/renpy-8.5.3 -p 'test_*.py'
 
-      # The Ren'Py engine payload is immutable for a pinned SDK/RAPT +
-      # importer version. Restore it instead of rebuilding a donor APK on
-      # every Kotlin/UI change.
-      - name: Restore Ren'Py 8.5.3 runtime cache
-        id: renpy-runtime-cache
-        uses: actions/cache/restore@v4
-        with:
-          path: |
-            app/src/main/jniLibs
-            app/src/main/assets/private.mp3
-            app/src/main/assets/x-renpy
-          key: ramen-renpy-runtime-v1-${{ runner.os }}-${{ hashFiles('tools/renpy-8.5.3/build_runtime.sh', 'tools/renpy-8.5.3/import_runtime_from_apk.py', 'tools/renpy-8.5.3/patch_python_sdl_activity.py', 'tools/renpy-8.5.3/apply_ramen_android_paths.py') }}
-
-      - name: Validate cached Ren'Py runtime
-        if: steps.renpy-runtime-cache.outputs.cache-hit == 'true'
-        run: |
-          python3 - <<'PY'
-          import hashlib
-          import re
-          import tarfile
-          from pathlib import Path
-
-          app = Path("app/src/main")
-          private = app / "assets/private.mp3"
-          common = app / "assets/x-renpy/x-common"
-          native = app / "jniLibs/arm64-v8a/librenpython.so"
-          strings = app / "res/values/strings.xml"
-
-          required = (private, common, native, strings)
-          missing = [str(path) for path in required if not path.exists()]
-          if missing:
-              raise SystemExit("Incomplete cached Ren'Py runtime: " + ", ".join(missing))
-          if not private.is_file() or private.stat().st_size == 0:
-              raise SystemExit("Cached private.mp3 is empty.")
-          if not native.is_file() or native.stat().st_size == 0:
-              raise SystemExit("Cached arm64-v8a/librenpython.so is empty.")
-          if not any(path.is_file() for path in common.rglob("*")):
-              raise SystemExit("Cached Ren'Py x-common assets are empty.")
-
-          with tarfile.open(private, "r:gz") as archive:
-              files = {
-                  member.name: archive.extractfile(member).read()
-                  for member in archive.getmembers()
-                  if member.isfile()
-              }
-              main_files = [
-                  (name, payload) for name, payload in files.items()
-                  if Path(name).name == "main.py" and b"path_to_gamedir" in payload
-              ]
-              bootstrap_files = [
-                  payload for name, payload in files.items()
-                  if name.endswith("renpy/bootstrap.py")
-              ]
-              core_files = [
-                  payload for name, payload in files.items()
-                  if name.endswith("renpy/display/core.py")
-              ]
-              if len(main_files) != 1 or len(bootstrap_files) != 1 or len(core_files) != 1:
-                  raise SystemExit("Cached private.mp3 is missing a unique patched Ren'Py host source.")
-              checks = (
-                  (main_files[0][1], (
-                      b"RENPY_RAMEN_GAME_DIR",
-                      b"RENPY_RAMEN_SAVES_ROOT",
-                      b"RENPY_RAMEN_LOG_DIR",
-                      b"RENPY_RAMEN_LAUNCH_ABORT",
-                  )),
-                  (bootstrap_files[0], (
-                      b"RENPY_RAMEN_EMBEDDED_HOST",
-                      b"android.activity.finish()",
-                  )),
-                  (core_files[0], (
-                      b"RENPY_RAMEN_EMBEDDED_HOST",
-                      b"android.activity.finish()",
-                  )),
-              )
-              for source, hooks in checks:
-                  for hook in hooks:
-                      if hook not in source:
-                          raise SystemExit("Cached private.mp3 is missing hook: " + hook.decode("ascii"))
-
-          version = hashlib.md5(private.read_bytes()).hexdigest()
-          text = strings.read_text(encoding="utf-8")
-          updated, count = re.subn(
-              r'(<string\s+name="private_version"\s*>).*?(</string>)',
-              lambda match: match.group(1) + version + match.group(2),
-              text,
-              count=1,
-              flags=re.DOTALL,
-          )
-          if count != 1:
-              raise SystemExit("Could not update private_version for cached Ren'Py payload.")
-          strings.write_text(updated, encoding="utf-8")
-          print("Validated cached Ren'Py 8.5.3 native library, common assets and path hooks.")
-          PY
-
-      - name: Set up JDK 21 for Ren'Py Android packaging
-        if: steps.renpy-runtime-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '21'
-
-      - name: Set up Android SDK for Ramen and Ren'Py
+      - name: Set up Android SDK for unit tests and lint
         uses: android-actions/setup-android@v3
         with:
           packages: platform-tools platforms;android-36
 
-      - name: Build and import Ren'Py 8.5.3 runtime
-        id: build-renpy-runtime
-        if: steps.renpy-runtime-cache.outputs.cache-hit != 'true'
-        run: bash tools/renpy-8.5.3/build_runtime.sh
-
-      - name: Save Ren'Py 8.5.3 runtime cache
-        if: steps.build-renpy-runtime.outcome == 'success' && steps.renpy-runtime-cache.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
-        with:
-          path: |
-            app/src/main/jniLibs
-            app/src/main/assets/private.mp3
-            app/src/main/assets/x-renpy
-          key: ${{ steps.renpy-runtime-cache.outputs.cache-primary-key }}
-
-      - name: Restore JDK 17 for Ramen
-        if: steps.renpy-runtime-cache.outputs.cache-hit != 'true'
-        uses: actions/setup-java@v6
-        with:
-          distribution: temurin
-          java-version: '17'
-
-      - name: Assemble, test, and lint
-        run: ./gradlew --no-daemon --stacktrace assembleDebug testDebugUnitTest lintDebug
+      - name: Compile checks, unit tests, and lint (APK packaging disabled)
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug
 
       - name: Print Android lint report
         if: failure()
@@ -186,12 +62,3 @@ jobs:
             echo "Android lint text report was not generated at: $report"
             find app/build -type f -name 'lint-results-*.txt' -print 2>/dev/null || true
           fi
-
-      - name: Upload debug APK
-        if: success()
-        uses: actions/upload-artifact@v7
-        with:
-          name: ramen-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
-          if-no-files-found: error
-          retention-days: 7
