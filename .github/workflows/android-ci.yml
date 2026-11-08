@@ -123,7 +123,7 @@ jobs:
       - name: Set up Android SDK for Ramen and Ren'Py
         uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools platforms;android-36 platforms;android-37
+          packages: platform-tools platforms;android-36
 
       - name: Build and import Ren'Py 8.5.3 runtime
         id: build-renpy-runtime
