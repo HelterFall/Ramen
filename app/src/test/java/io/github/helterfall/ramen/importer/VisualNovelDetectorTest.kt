@@ -139,7 +139,7 @@ class VisualNovelDetectorTest {
     }
 
     @Test
-    fun detectsRpaOnlyPayloadUsingValidatedRpaHeader() {
+    fun detectsRpaOnlyPayloadAndAllowsScriptsToBePackedInsideArchive() {
         val root = Files.createTempDirectory("ramen-renpy-rpa-detect").toFile()
         val gameFolder = File(root, "game")
 
@@ -153,8 +153,8 @@ class VisualNovelDetectorTest {
             assertEquals("renpy", result.engineId)
             assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
             assertEquals(true, result.evidence.contains("RPA-3.0"))
-            assertEquals("Ren'Py (RPA-архив без сценария)", result.engineLabel)
-            assertEquals(true, result.evidence.contains(".rpy/.rpyc"))
+            assertEquals("Ren'Py (RPA-архив)", result.engineLabel)
+            assertEquals(true, result.evidence.contains("scripts inside RPA archives"))
         } finally {
             root.deleteRecursively()
         }
