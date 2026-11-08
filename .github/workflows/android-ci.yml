@@ -34,6 +34,8 @@ jobs:
         uses: gradle/actions/setup-gradle@v6
         with:
           cache-provider: basic
+          # Same-repository PRs may persist their Gradle cache; untrusted forks stay read-only.
+          cache-read-only: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork }}
 
       - name: Verify Gradle Wrapper
         uses: gradle/actions/wrapper-validation@v6
