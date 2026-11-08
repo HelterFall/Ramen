@@ -28,12 +28,18 @@ object RenPyRuntimeAvailabilityProbe {
     const val REQUIRED_RENPY_VERSION = "8.5.3"
     const val HOST_PROTOCOL_VERSION = 2
 
+    // Keep playback unavailable until a real Android game-launch smoke test passes.
+    const val EMBEDDED_LAUNCH_ENABLED = false
+
     const val ACTIVITY_CLASS = "org.renpy.android.PythonSDLActivity"
     const val HOST_PROTOCOL_METADATA = "io.github.helterfall.ramen.RENPY_HOST_PROTOCOL"
     const val DESCRIPTOR_ASSET = "renpy-runtime.json"
 
     fun inspect(context: Context): RenPyRuntimeAvailability {
         val missing = mutableListOf<String>()
+        if (!EMBEDDED_LAUNCH_ENABLED) {
+            missing += "Ren'Py launch is temporarily disabled until Runtime import and device smoke tests pass"
+        }
 
         val activityInfo = runCatching {
             val component = ComponentName(context.packageName, ACTIVITY_CLASS)
@@ -92,7 +98,7 @@ object RenPyRuntimeAvailabilityProbe {
                 descriptor.optInt("hostProtocol", -1) == HOST_PROTOCOL_VERSION
         }.getOrDefault(false)
         if (!descriptorValid) {
-            missing += "$DESCRIPTOR_ASSET (8.5.3 / protocol 1)"
+            missing += "$DESCRIPTOR_ASSET (8.5.3 / protocol 2)"
         }
 
         return RenPyRuntimeAvailability(missing.isEmpty(), missing)
