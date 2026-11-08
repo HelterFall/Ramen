@@ -71,8 +71,8 @@ class RenPyEmbeddedHostPatcherTest(unittest.TestCase):
 
     def test_refuses_partial_embedded_host_patch(self):
         partial = STOCK_BOOTSTRAP.replace(
-            "        android.activity.finishAndRemoveTask()",
-            f"        {BOOTSTRAP_MARKER}\\n        android.activity.finishAndRemoveTask()",
+            "            android.activity.finishAndRemoveTask()",
+            f"            {BOOTSTRAP_MARKER}\\n            android.activity.finishAndRemoveTask()",
         )
         with self.assertRaises(ValueError):
             patch_bootstrap(partial, verify_source=False)
