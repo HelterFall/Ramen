@@ -50,9 +50,7 @@ jobs:
       - name: Set up Android SDK for Ren'Py
         uses: android-actions/setup-android@v3
         with:
-          packages: |
-            platform-tools
-            platforms;android-36
+          packages: platform-tools platforms;android-36
 
       - name: Build and import Ren'Py 8.5.3 runtime
         run: bash tools/renpy-8.5.3/build_runtime.sh
