@@ -307,6 +307,14 @@ public class PythonSDLActivity extends SDLActivity {
                 throw new IOException("The embedded Ren'Py private Runtime could not be extracted.");
             }
 
+            File extractedMain = new File(getFilesDir(), "main.py");
+            File extractedBootstrap = new File(getFilesDir(), "renpy/bootstrap.py");
+            File extractedDisplayCore = new File(getFilesDir(), "renpy/display/core.py");
+            if (!extractedMain.isFile() || !extractedBootstrap.isFile() ||
+                    !extractedDisplayCore.isFile()) {
+                throw new IOException("The extracted Ren'Py Runtime is incomplete.");
+            }
+
             Log.v("python", "Finished preparePython.");
         } catch (Exception error) {
             Log.e("python", "Ren'Py Runtime preparation failed; aborting Python startup.", error);
