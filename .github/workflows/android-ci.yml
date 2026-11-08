@@ -41,21 +41,107 @@ jobs:
       - name: Test Ren'Py Android path patcher
         run: python3 -m unittest discover -s tools/renpy-8.5.3 -p 'test_*.py'
 
+      # The Ren'Py engine payload is immutable for a pinned SDK/RAPT +
+      # importer version. Restore it instead of rebuilding a donor APK on
+      # every Kotlin/UI change.
+      - name: Restore Ren'Py 8.5.3 runtime cache
+        id: renpy-runtime-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            app/src/main/jniLibs
+            app/src/main/assets/private.mp3
+            app/src/main/assets/x-renpy
+          key: ramen-renpy-runtime-v1-${{ runner.os }}-${{ hashFiles('tools/renpy-8.5.3/build_runtime.sh', 'tools/renpy-8.5.3/import_runtime_from_apk.py', 'tools/renpy-8.5.3/patch_python_sdl_activity.py', 'tools/renpy-8.5.3/apply_ramen_android_paths.py') }}
+
+      - name: Validate cached Ren'Py runtime
+        if: steps.renpy-runtime-cache.outputs.cache-hit == 'true'
+        run: |
+          python3 - <<'PY'
+          import gzip
+          import hashlib
+          import re
+          import tarfile
+          from pathlib import Path
+
+          app = Path("app/src/main")
+          private = app / "assets/private.mp3"
+          common = app / "assets/x-renpy/x-common"
+          native = app / "jniLibs/arm64-v8a/librenpython.so"
+          strings = app / "res/values/strings.xml"
+
+          required = (private, common, native, strings)
+          missing = [str(path) for path in required if not path.exists()]
+          if missing:
+              raise SystemExit("Incomplete cached Ren'Py runtime: " + ", ".join(missing))
+          if not private.is_file() or private.stat().st_size == 0:
+              raise SystemExit("Cached private.mp3 is empty.")
+          if not native.is_file() or native.stat().st_size == 0:
+              raise SystemExit("Cached arm64-v8a/librenpython.so is empty.")
+          if not any(path.is_file() for path in common.rglob("*")):
+              raise SystemExit("Cached Ren'Py x-common assets are empty.")
+
+          with tarfile.open(private, "r:gz") as archive:
+              patched_main = [
+                  member for member in archive.getmembers()
+                  if member.isfile() and Path(member.name).name == "main.py"
+              ]
+              if len(patched_main) != 1:
+                  raise SystemExit("Cached private.mp3 has no unique Ren'Py main.py.")
+              source = archive.extractfile(patched_main[0]).read().decode("utf-8")
+              for hook in (
+                  "RENPY_RAMEN_GAME_DIR",
+                  "RENPY_RAMEN_SAVES_ROOT",
+                  "RENPY_RAMEN_LOG_DIR",
+              ):
+                  if hook not in source:
+                      raise SystemExit("Cached private.mp3 is missing hook: " + hook)
+
+          version = hashlib.md5(private.read_bytes()).hexdigest()
+          text = strings.read_text(encoding="utf-8")
+          updated, count = re.subn(
+              r'(<string\\s+name="private_version"\\s*>).*?(</string>)',
+              lambda match: match.group(1) + version + match.group(2),
+              text,
+              count=1,
+              flags=re.DOTALL,
+          )
+          if count != 1:
+              raise SystemExit("Could not update private_version for cached Ren'Py payload.")
+          strings.write_text(updated, encoding="utf-8")
+          print("Validated cached Ren'Py 8.5.3 native library, common assets and path hooks.")
+          PY
+
       - name: Set up JDK 21 for Ren'Py Android packaging
+        if: steps.renpy-runtime-cache.outputs.cache-hit != 'true'
         uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Set up Android SDK for Ren'Py
+        if: steps.renpy-runtime-cache.outputs.cache-hit != 'true'
         uses: android-actions/setup-android@v3
         with:
           packages: platform-tools platforms;android-36
 
       - name: Build and import Ren'Py 8.5.3 runtime
+        id: build-renpy-runtime
+        if: steps.renpy-runtime-cache.outputs.cache-hit != 'true'
         run: bash tools/renpy-8.5.3/build_runtime.sh
 
+      - name: Save Ren'Py 8.5.3 runtime cache
+        if: steps.build-renpy-runtime.outcome == 'success' && steps.renpy-runtime-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            app/src/main/jniLibs
+            app/src/main/assets/private.mp3
+            app/src/main/assets/x-renpy
+          key: ${{ steps.renpy-runtime-cache.outputs.cache-primary-key }}
+
       - name: Restore JDK 17 for Ramen
+        if: steps.renpy-runtime-cache.outputs.cache-hit != 'true'
         uses: actions/setup-java@v6
         with:
           distribution: temurin
