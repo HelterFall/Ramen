@@ -170,7 +170,7 @@ python3 "$ROOT/tools/renpy-8.5.3/import_runtime_from_apk.py" "$DONOR_APK" --proj
 
 test -s "$ROOT/app/src/main/assets/private.mp3"
 test -d "$ROOT/app/src/main/assets/x-renpy/x-common"
-test -s "$ROOT/app/src/main/jniLibs/arm64-v8a/libSDL2.so"
 test -s "$ROOT/app/src/main/jniLibs/arm64-v8a/librenpython.so"
+test ! -e "$ROOT/app/src/main/jniLibs/arm64-v8a/libSDL2.so"
 
 echo "Ren'Py 8.5.3 runtime payload imported into Ramen."
