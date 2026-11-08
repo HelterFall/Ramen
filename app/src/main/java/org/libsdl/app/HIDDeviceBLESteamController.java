@@ -474,7 +474,15 @@ class HIDDeviceBLESteamController extends BluetoothGattCallback implements HIDDe
                 mHandler.post(new Runnable() {
                     @Override
                     public void run() {
-                        mGatt.discoverServices();
+                        Context context = mManager.getContext();
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                                context.checkSelfPermission(android.Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                            return;
+                        }
+                        BluetoothGatt gatt = mGatt;
+                        if (gatt != null) {
+                            gatt.discoverServices();
+                        }
                     }
                 });
             }
