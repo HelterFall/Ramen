@@ -2,6 +2,7 @@ package io.github.helterfall.ramen.runtime.renpy
 
 import io.github.helterfall.ramen.library.GameRecord
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -44,13 +45,46 @@ class RenPyGamePathsTest {
     }
 
     @Test
+    fun rejectsAnRpaResourceArchiveWithoutRunnableScriptFiles() {
+        val filesRoot = Files.createTempDirectory("ramen-renpy-rpa-only").toFile()
+        try {
+            val gameRoot = File(filesRoot, "games/demo-1/game").apply { mkdirs() }
+            File(gameRoot, "ZATO_arch.rpa").writeBytes("RPA-3.0".toByteArray())
+
+            try {
+                RenPyGamePaths.resolve(filesRoot, record())
+                fail("Expected an RPA-only import to be rejected.")
+            } catch (error: IOException) {
+                assertTrue(error.message.orEmpty().contains("не найдены файлы сценария"))
+            }
+        } finally {
+            filesRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun findsScriptFilesInNestedGameSubdirectories() {
+        val filesRoot = Files.createTempDirectory("ramen-renpy-nested-script").toFile()
+        try {
+            val gameRoot = File(filesRoot, "games/demo-1/game/scripts").apply { mkdirs() }
+            File(gameRoot, "chapter_1.rpyc").writeBytes("RENPY RPC2".toByteArray())
+
+            val paths = RenPyGamePaths.resolve(filesRoot, record())
+
+            assertEquals(gameRoot.parentFile.canonicalFile, paths.gameDirectory)
+        } finally {
+            filesRoot.deleteRecursively()
+        }
+    }
+
+    @Test
     fun rejectsGamePathTraversal() {
         val filesRoot = Files.createTempDirectory("ramen-renpy-traversal").toFile()
         try {
             try {
                 RenPyGamePaths.resolve(filesRoot, record(relativeDirectory = "games/../outside"))
                 fail("Expected invalid path to be rejected.")
-            } catch (_: java.io.IOException) {
+            } catch (_: IOException) {
                 // Expected.
             }
         } finally {
@@ -66,7 +100,7 @@ class RenPyGamePathsTest {
             try {
                 RenPyGamePaths.resolve(filesRoot, record())
                 fail("Expected a missing script payload to be rejected.")
-            } catch (_: java.io.IOException) {
+            } catch (_: IOException) {
                 // Expected.
             }
         } finally {
