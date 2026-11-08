@@ -76,6 +76,41 @@ class RenPyGamePathsTest {
     }
 
     @Test
+    fun resolvesGameDirectoryInsideAnArchiveWrapperFolder() {
+        val filesRoot = Files.createTempDirectory("ramen-renpy-zip-wrapper").toFile()
+        try {
+            val gameRoot = File(filesRoot, "games/demo-1/MyNovel-1.0/game/scripts").apply { mkdirs() }
+            File(gameRoot, "chapter_1.rpyc").writeBytes("RENPY RPC2".toByteArray())
+
+            val paths = RenPyGamePaths.resolve(filesRoot, record())
+
+            assertEquals(gameRoot.parentFile.canonicalFile, paths.gameDirectory)
+        } finally {
+            filesRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun rejectsAmbiguousNestedGameDirectories() {
+        val filesRoot = Files.createTempDirectory("ramen-renpy-ambiguous-game").toFile()
+        try {
+            val first = File(filesRoot, "games/demo-1/disc-1/game").apply { mkdirs() }
+            val second = File(filesRoot, "games/demo-1/disc-2/game").apply { mkdirs() }
+            File(first, "script.rpyc").writeBytes("RENPY RPC2".toByteArray())
+            File(second, "script.rpyc").writeBytes("RENPY RPC2".toByteArray())
+
+            try {
+                RenPyGamePaths.resolve(filesRoot, record())
+                fail("Expected ambiguous game/ directories to be rejected.")
+            } catch (_: IOException) {
+                // Expected: guessing which archive root is correct is unsafe.
+            }
+        } finally {
+            filesRoot.deleteRecursively()
+        }
+    }
+
+    @Test
     fun rejectsGamePathTraversal() {
         val filesRoot = Files.createTempDirectory("ramen-renpy-traversal").toFile()
         try {
