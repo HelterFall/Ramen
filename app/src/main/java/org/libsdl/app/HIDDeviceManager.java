@@ -28,7 +28,7 @@ import java.util.List;
 public class HIDDeviceManager {
     private static final String TAG = "hidapi";
     private static final String ACTION_USB_PERMISSION = "org.libsdl.app.USB_PERMISSION";
-    private static final int REQUEST_BLUETOOTH_CONNECT = 0x5241;
+    public static final int REQUEST_BLUETOOTH_CONNECT = 0x5241;
 
     private static HIDDeviceManager sManager;
     private static int sManagerRefCount = 0;
