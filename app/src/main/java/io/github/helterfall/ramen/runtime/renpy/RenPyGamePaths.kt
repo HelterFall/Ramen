@@ -44,13 +44,7 @@ object RenPyGamePaths {
             throw IOException("The imported Ren'Py game folder is missing.")
         }
 
-        val nestedGameDirectory = File(importedRoot, "game").canonicalFile
-        val gameDirectory = when {
-            nestedGameDirectory.isDirectory && containsRenPyPayload(nestedGameDirectory) ->
-                nestedGameDirectory
-            containsRenPyPayload(importedRoot) -> importedRoot
-            else -> throw IOException("No Ren'Py scripts or resource archives were found in the imported game.")
-        }
+        val gameDirectory = resolveGameDirectory(importedRoot)
         if (!gameDirectory.toPath().startsWith(importedRoot.toPath())) {
             throw IOException("The Ren'Py game directory is outside the imported folder.")
         }
@@ -72,6 +66,43 @@ object RenPyGamePaths {
         ensureDirectory(logDirectory)
 
         return ResolvedRenPyGamePaths(importedRoot, gameDirectory, dataRoot, savesRoot, logDirectory)
+    }
+
+    private fun resolveGameDirectory(importedRoot: File): File {
+        val candidates = importedRoot.walkTopDown()
+            .maxDepth(MAX_GAME_DIRECTORY_SCAN_DEPTH)
+            .filter { directory ->
+                directory.isDirectory &&
+                    directory.name.equals("game", ignoreCase = true) &&
+                    containsRenPyPayload(directory)
+            }
+            .map { it.canonicalFile }
+            .distinctBy { it.path }
+            .toList()
+
+        val directGameDirectory = File(importedRoot, "game").canonicalFile
+        if (directGameDirectory in candidates) {
+            return directGameDirectory
+        }
+
+        if (candidates.size == 1) {
+            return candidates.single()
+        }
+        if (candidates.size > 1) {
+            throw IOException(
+                "More than one Ren'Py game/ directory was found in the imported archive. " +
+                    "Import the folder that contains the intended game/ directory."
+            )
+        }
+
+        // A folder import may select the game/ directory itself (or a game
+        // directory whose vendor chose a different name). Only use this
+        // fallback when no nested directory explicitly named game/ exists.
+        if (containsRenPyPayload(importedRoot)) {
+            return importedRoot
+        }
+
+        throw IOException("No Ren'Py game/ directory or script payload was found in the imported game.")
     }
 
     private fun containsRenPyPayload(directory: File): Boolean =
@@ -97,4 +128,5 @@ object RenPyGamePaths {
     }
 
     private const val MAX_PAYLOAD_SCAN_DEPTH = 12
+    private const val MAX_GAME_DIRECTORY_SCAN_DEPTH = 12
 }
