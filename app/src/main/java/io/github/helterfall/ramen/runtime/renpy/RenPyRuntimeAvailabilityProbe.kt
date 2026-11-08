@@ -58,6 +58,9 @@ object RenPyRuntimeAvailabilityProbe {
         }
 
         val nativeDirectory = context.applicationInfo.nativeLibraryDir
+        if (!File(nativeDirectory, "libSDL2.so").isFile) {
+            missing += "libSDL2.so"
+        }
         if (!File(nativeDirectory, "librenpython.so").isFile) {
             missing += "librenpython.so"
         }
