@@ -4,8 +4,8 @@ set -euo pipefail
 # Build the Ren'Py 8.5.3 Android payload from the matching public SDK + RAPT.
 # The temporary sample-game APK is only a packaging intermediate; it is never
 # installed, committed, or shipped inside Ramen.
-ROOT="$(cd "$(dirname "\${BASH_SOURCE[0]}")/../.." && pwd)"
-WORK="\${RUNNER_TEMP:-/tmp}/ramen-renpy-runtime"
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+WORK="${RUNNER_TEMP:-/tmp}/ramen-renpy-runtime"
 SDK_ZIP="$WORK/renpy-8.5.3-sdk.zip"
 RAPT_ZIP="$WORK/renpy-8.5.3-rapt.zip"
 SDK_UNPACK="$WORK/sdk"
@@ -43,7 +43,13 @@ fi
 rm -rf "$SDK_ROOT/rapt"
 cp -a "$RAPT_ROOT" "$SDK_ROOT/rapt"
 
-: "\${ANDROID_HOME:?Android SDK must be installed by android-actions/setup-android}"
+# Use the direct official Gradle distribution host and a longer timeout.
+RAPT_WRAPPER="$SDK_ROOT/rapt/prototype/gradle/wrapper/gradle-wrapper.properties"
+if [[ -f "$RAPT_WRAPPER" ]]; then
+  sed -i 's#services.gradle.org#downloads.gradle.org#; s/networkTimeout=10000/networkTimeout=120000/' "$RAPT_WRAPPER"
+fi
+
+: "${ANDROID_HOME:?Android SDK must be installed by android-actions/setup-android}"
 printf '%s\n' "$ANDROID_HOME" > "$SDK_ROOT/rapt/sdk.txt"
 chmod +x "$SDK_ROOT/renpy.sh"
 
