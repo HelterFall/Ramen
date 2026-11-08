@@ -136,72 +136,60 @@ public class PythonSDLActivity extends SDLActivity {
      * This determines if unpacking one the zip files included in
      * the .apk is necessary. If it is, the zip file is unpacked.
      */
-    public void unpackData(final String resource, File target) {
-
-        /**
-         * Delete main.pyo unconditionally. This fixes a problem where we have
-         * a main.py newer than main.pyo, but start.c won't run it.
-         */
+    public boolean unpackData(final String resource, File target) {
+        // Delete stale bytecode unconditionally, matching the official RAPT host.
         new File(target, "main.pyo").delete();
 
-        boolean shouldUnpack = false;
-
-        // The version of data in memory and on disk.
-        String data_version = resourceManager.getString(resource + "_version");
-        String disk_version = null;
-
-        String filesDir = target.getAbsolutePath();
-        String disk_version_fn = filesDir + "/" + resource + ".version";
-
-        // If no version, no unpacking is necessary.
-        if (data_version != null) {
-
-            try {
-                byte buf[] = new byte[64];
-                InputStream is = new FileInputStream(disk_version_fn);
-                int len = is.read(buf);
-                disk_version = new String(buf, 0, len);
-                is.close();
-            } catch (Exception e) {
-                disk_version = "";
-            }
-
-            if (! data_version.equals(disk_version)) {
-                shouldUnpack = true;
-            }
+        String dataVersion = resourceManager.getString(resource + "_version");
+        if (dataVersion == null || dataVersion.isEmpty()) {
+            Log.e("python", "Missing version resource for " + resource + ".");
+            return false;
         }
 
-
-        // If the disk data is out of date, extract it and write the
-        // version file.
-        if (shouldUnpack) {
-            Log.v("python", "Extracting " + resource + " assets.");
-
-            // Delete old libraries & renpy files.
-            recursiveDelete(new File(target, "lib"));
-            recursiveDelete(new File(target, "renpy"));
-
-            target.mkdirs();
-
-            AssetExtract ae = new AssetExtract(this);
-            if (!ae.extractTar(resource + ".mp3", target.getAbsolutePath())) {
-                toastError("Could not extract " + resource + " data.");
-                return;
+        String versionFile = new File(target, resource + ".version").getAbsolutePath();
+        String diskVersion = "";
+        try (InputStream input = new FileInputStream(versionFile)) {
+            byte[] buffer = new byte[64];
+            int length = input.read(buffer);
+            if (length > 0) {
+                diskVersion = new String(buffer, 0, length);
             }
-
-            try {
-                // Write .nomedia.
-                new File(target, ".nomedia").createNewFile();
-
-                // Write version file.
-                FileOutputStream os = new FileOutputStream(disk_version_fn);
-                os.write(data_version.getBytes());
-                os.close();
-            } catch (Exception e) {
-                Log.w("python", e);
-            }
+        } catch (Exception ignored) {
+            diskVersion = "";
         }
 
+        if (dataVersion.equals(diskVersion)) {
+            return true;
+        }
+
+        Log.v("python", "Extracting " + resource + " assets.");
+
+        // The version marker is written only after every extraction step succeeds.
+        recursiveDelete(new File(target, "lib"));
+        recursiveDelete(new File(target, "renpy"));
+        if (!target.mkdirs() && !target.isDirectory()) {
+            Log.e("python", "Could not create the private Runtime directory.");
+            return false;
+        }
+
+        AssetExtract extractor = new AssetExtract(this);
+        if (!extractor.extractTar(resource + ".mp3", target.getAbsolutePath())) {
+            Log.e("python", "Could not extract " + resource + " data.");
+            return false;
+        }
+
+        try {
+            new File(target, ".nomedia").createNewFile();
+            try (FileOutputStream output = new FileOutputStream(versionFile, false)) {
+                output.write(dataVersion.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                output.getFD().sync();
+            }
+        } catch (Exception error) {
+            Log.e("python", "Could not persist the extracted " + resource + " version marker.", error);
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -234,18 +222,35 @@ public class PythonSDLActivity extends SDLActivity {
 
         mActivity = this;
 
-        resourceManager = new ResourceManager(this);
+        // librenpython_android.c changes to ANDROID_PRIVATE before invoking main.py.
+        // Set the mandatory process environment before any operation can fail.
+        nativeSetEnv("ANDROID_PRIVATE", getFilesDir().getAbsolutePath());
+        nativeSetEnv("RENPY_RAMEN_EMBEDDED_HOST", "1");
 
-        File oldExternalStorage = new File(Environment.getExternalStorageDirectory(), getPackageName());
-        File externalStorage = getExternalFilesDir(null);
-        File path;
-
-        if (externalStorage == null) {
-            externalStorage = oldExternalStorage;
-        }
-
-        // RAMEN_ANDROID_INTENT_HANDOFF_V1
         try {
+            File oldExternalStorage = new File(
+                Environment.getExternalStorageDirectory(),
+                getPackageName()
+            );
+            File externalStorage = getExternalFilesDir(null);
+            if (externalStorage == null) {
+                externalStorage = oldExternalStorage;
+            }
+
+            nativeSetEnv("ANDROID_PUBLIC", externalStorage.getAbsolutePath());
+            nativeSetEnv("ANDROID_OLD_PUBLIC", oldExternalStorage.getAbsolutePath());
+
+            String apkFilePath;
+            try {
+                ApplicationInfo appInfo = getPackageManager().getApplicationInfo(getPackageName(), 0);
+                apkFilePath = appInfo.sourceDir;
+            } catch (NameNotFoundException error) {
+                throw new IOException("Could not resolve the installed Ramen APK path.", error);
+            }
+            nativeSetEnv("ANDROID_APK", apkFilePath);
+
+            resourceManager = new ResourceManager(this);
+
             Intent ramenIntent = getIntent();
             String ramenGameId = ramenIntent == null ? null :
                 ramenIntent.getStringExtra("io.github.helterfall.ramen.extra.RENPY_GAME_ID");
@@ -297,33 +302,35 @@ public class PythonSDLActivity extends SDLActivity {
             nativeSetEnv("RENPY_RAMEN_GAME_DIR", ramenGameDirectory.getAbsolutePath());
             nativeSetEnv("RENPY_RAMEN_SAVES_ROOT", ramenSavesRoot.getAbsolutePath());
             nativeSetEnv("RENPY_RAMEN_LOG_DIR", ramenLogDirectory.getAbsolutePath());
-        } catch (IOException e) {
-            throw new IllegalStateException("Could not validate Ramen Ren'Py launch paths.", e);
+
+            if (!unpackData("private", getFilesDir())) {
+                throw new IOException("The embedded Ren'Py private Runtime could not be extracted.");
+            }
+
+            Log.v("python", "Finished preparePython.");
+        } catch (Exception error) {
+            Log.e("python", "Ren'Py Runtime preparation failed; aborting Python startup.", error);
+
+            // main.py checks this before importing Ren'Py. Returning normally here
+            // keeps the JNI call exception-free, but Python cannot boot a partial Runtime.
+            try {
+                nativeSetEnv("RENPY_RAMEN_LAUNCH_ABORT", "1");
+            } catch (Exception envError) {
+                Log.e("python", "Could not set the Ren'Py launch-abort flag.", envError);
+            }
+
+            final String message = error.getMessage() == null
+                ? "Не удалось подготовить встроенный Ren'Py Runtime."
+                : error.getMessage();
+            runOnUiThread(new Runnable() {
+                @Override
+                public void run() {
+                    Toast.makeText(PythonSDLActivity.this, message, Toast.LENGTH_LONG).show();
+                    finish();
+                }
+            });
         }
-
-        unpackData("private", getFilesDir());
-
-        nativeSetEnv("ANDROID_PRIVATE", getFilesDir().getAbsolutePath());
-        nativeSetEnv("ANDROID_PUBLIC",  externalStorage.getAbsolutePath());
-        nativeSetEnv("ANDROID_OLD_PUBLIC", oldExternalStorage.getAbsolutePath());
-
-        // Figure out the APK path.
-        String apkFilePath;
-        ApplicationInfo appInfo;
-        PackageManager packMgmr = getApplication().getPackageManager();
-
-        try {
-            appInfo = packMgmr.getApplicationInfo(getPackageName(), 0);
-            apkFilePath = appInfo.sourceDir;
-        } catch (NameNotFoundException e) {
-            apkFilePath = "";
-        }
-
-        nativeSetEnv("ANDROID_APK", apkFilePath);
-
-        Log.v("python", "Finished preparePython.");
-
-    };
+    }
 
     // App lifecycle.
     public ImageView mPresplash = null;
