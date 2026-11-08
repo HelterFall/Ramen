@@ -153,6 +153,8 @@ class VisualNovelDetectorTest {
             assertEquals("renpy", result.engineId)
             assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
             assertEquals(true, result.evidence.contains("RPA-3.0"))
+            assertEquals("Ren'Py (RPA-архив без сценария)", result.engineLabel)
+            assertEquals(true, result.evidence.contains(".rpy/.rpyc"))
         } finally {
             root.deleteRecursively()
         }
