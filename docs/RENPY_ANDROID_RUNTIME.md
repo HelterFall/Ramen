@@ -1,7 +1,7 @@
 # Ren'Py Android Runtime Research for Ramen
 
-**Research date:** 2026-11-08  
-**Status:** feasibility research and detector support only; no Ren'Py game is launchable from Ramen yet.
+**Updated:** 2026-11-08  
+**Status:** the Ren'Py 8.5.3 engine payload is now built and imported by Android CI, and the app-side host bridge is integrated. Actual execution of an imported title on an Android device is not yet validated, so titles must remain non-playable until launch and lifecycle tests pass.
 
 ## Product target
 
@@ -58,7 +58,7 @@ Findings:
 
 ### Android Activity contract
 
-The official Android implementation is based on SDL and a Java PythonSDLActivity host which loads renpython, exposes the Activity through a static field, and bridges to Python with Pyjnius. The Android host also sets:
+The official 8.5.3 Android implementation is based on SDL2 and a Java PythonSDLActivity host which loads only `renpython`, exposes the Activity through a static field, and bridges to Python with Pyjnius. In this RAPT build, SDL2 is statically linked into `librenpython.so`; the APK contains no separate `libSDL2.so`. The Android host also sets:
 - ANDROID_PRIVATE to the app's internal files directory;
 - ANDROID_PUBLIC to the app-specific external files directory;
 - ANDROID_OLD_PUBLIC to a legacy app-specific external path;
@@ -160,9 +160,9 @@ The original investigation log, Android loader notes, compatibility matrix and l
 The integration branch now contains a first host-side contract, separate from the Ren'Py engine payload:
 
 - RenPyGamePaths validates the imported record, resolves either a base folder containing game/ or a directly imported game/ directory, and creates files/renpy-data/<game-id>/saves and logs.
-- RenPyRuntimeAvailabilityProbe refuses to report ready unless the adapted org.renpy.android.PythonSDLActivity is declared with host protocol metadata v1, librenpython.so, libSDL2.so, private.mp3, and a renpy-runtime.json descriptor for Ren'Py 8.5.3 / protocol 1 are present.
+- RenPyRuntimeAvailabilityProbe refuses to report ready unless the adapted org.renpy.android.PythonSDLActivity is declared with host protocol metadata v1, `librenpython.so` (which includes SDL2), `private.mp3`, common Ren'Py assets, and a `renpy-runtime.json` descriptor for Ren'Py 8.5.3 / protocol 1 are present.
 - RenPyRuntimeLauncher passes these Intent extras to that Activity: io.github.helterfall.ramen.extra.RENPY_GAME_ID, io.github.helterfall.ramen.extra.RENPY_GAME_DIR, io.github.helterfall.ramen.extra.RENPY_SAVES_ROOT and io.github.helterfall.ramen.extra.RENPY_LOG_DIR.
-- The library card stays disabled while any part of the actual Runtime package is missing. No placeholder Activity is registered.
+- The library card stays disabled while any part of the actual Runtime package is missing. No placeholder Activity is registered. The native-library contract is one `librenpython.so` per ABI; SDL2 is not a second shared object in the official 8.5.3 RAPT package.
 
 ### Required matching RAPT host changes
 
@@ -186,7 +186,7 @@ tools/renpy-8.5.3/apply_ramen_android_paths.py patches only the exact stock 8.5.
 python3 -m unittest discover -s tools/renpy-8.5.3 -p 'test_*.py'
 ~~~
 
-**Runtime payload status:** the official 8.5.3 RAPT/SDK binary packages are not present in this branch. The current source-control integration available for this work can inspect source files but cannot import the official binary archives into the repository. The current renpy-build master host is from the newer SDL3 line and must not be copied into the 8.5.3 / SDL2 profile. Consequently, the host bridge and exact-source patcher are prepared, but the Android Runtime is not yet embedded and no Ren'Py title can be launched by this build.
+**Runtime payload status (2026-11-08):** `tools/renpy-8.5.3/build_runtime.sh` downloads and checksum-verifies the matching official 8.5.3 SDK/RAPT packages, builds a temporary sample APK with the official Android packaging pipeline, and imports only the engine payload into Ramen. The temporary APK is a build-time donor only; it is not installed or shipped. The resulting universal payload provides `librenpython.so` for arm64-v8a, armeabi-v7a and x86_64, plus `private.mp3` and common engine assets. The official host source and ELF exports confirm SDL2 is included in `librenpython.so`, so the adapted host loads only `renpython`.
 
 
 ### RAPT Java host handoff patch
@@ -200,4 +200,4 @@ python3 tools/renpy-8.5.3/apply_ramen_android_paths.py /path/to/sdk/renpy.py --i
 python3 tools/renpy-8.5.3/patch_python_sdl_activity.py /path/to/rapt/PythonSDLActivity.java --in-place
 ~~~
 
-The Java patcher validates that the selected game directory is inside files/games/<game-id>, and that saves/log paths are exactly inside files/renpy-data/<game-id>. It does not add the upstream SDL Gradle dependencies, native libraries or Android manifest entry; those must come from the matching RAPT package and be integrated as one coherent build. The source file fingerprint is a source-revision guard, not proof that the binary RAPT archive has been incorporated.
+The Java patcher validates that the selected game directory is inside files/games/<game-id>, and that saves/log paths are exactly inside files/renpy-data/<game-id>. It is a source-level handoff helper. The current Ramen host Activity is checked in and mirrors the official RAPT 8.5.3 `getLibraries()` contract (`renpython` only); the imported `librenpython.so` contains the SDL2 JNI implementation. The source file fingerprint is a source-revision guard, not proof that a game has successfully launched on a device.
