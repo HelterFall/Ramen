@@ -89,8 +89,8 @@ class VisualNovelDetector {
             return unsupported(
                 engineId = "renpy",
                 engineLabel = "Ren'Py (runtime not installed)",
-                evidence = "Validated " + renpyArchive.second +
-                    " archive header in the game payload: $relativePath. " +
+                evidence = "Recognized " + renpyArchive.second +
+                    " magic prefix in the game payload: $relativePath. " +
                     "The archive is recognized, but its scripts have not been loaded " +
                     "and playback is not supported."
             )
