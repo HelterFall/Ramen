@@ -18,7 +18,7 @@ jobs:
   build:
     name: Build and check
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Check out source
@@ -40,6 +40,28 @@ jobs:
 
       - name: Test Ren'Py Android path patcher
         run: python3 -m unittest discover -s tools/renpy-8.5.3 -p 'test_*.py'
+
+      - name: Set up JDK 21 for Ren'Py Android packaging
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK for Ren'Py
+        uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            platforms;android-36
+
+      - name: Build and import Ren'Py 8.5.3 runtime
+        run: bash tools/renpy-8.5.3/build_runtime.sh
+
+      - name: Restore JDK 17 for Ramen
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
 
       - name: Assemble, test, and lint
         run: ./gradlew --no-daemon --stacktrace assembleDebug testDebugUnitTest lintDebug
