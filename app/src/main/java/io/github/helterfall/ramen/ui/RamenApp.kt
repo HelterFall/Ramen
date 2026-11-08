@@ -680,7 +680,11 @@ private fun GameCard(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = game.engineLabel,
+                text = if (game.engineId == "renpy" && game.evidence.contains("Recognized RPA-")) {
+                    "Ren'Py (RPA-архив без сценария)"
+                } else {
+                    game.engineLabel
+                },
                 color = RamenAccent,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
@@ -689,6 +693,8 @@ private fun GameCard(
                 text = when {
                     game.engineId == "renpy" && !renPyRuntimeReady ->
                         "Ren'Py распознан, но встроенный Runtime 8.5.3 пока не включён в эту сборку."
+                    game.engineId == "renpy" && game.evidence.contains("Recognized RPA-") ->
+                        "Найден архив ресурсов, но отсутствует отдельный сценарий .rpy или .rpyc."
                     game.engineId == "renpy" ->
                         "Доступен встроенный Ren'Py Runtime 8.5.3."
                     game.compatibilityStatus == "PARSER_AVAILABLE" ->
