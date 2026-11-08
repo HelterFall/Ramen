@@ -6,6 +6,7 @@ import android.media.AudioRecord;
 import android.media.AudioTrack;
 import android.media.MediaRecorder;
 import android.os.Build;
+import android.content.pm.PackageManager;
 import android.util.Log;
 
 public class SDLAudioManager
@@ -36,6 +37,17 @@ public class SDLAudioManager
     }
 
     protected static int[] open(boolean isCapture, int sampleRate, int audioFormat, int desiredChannels, int desiredFrames) {
+        // Audio capture is optional. Do not construct AudioRecord unless the
+        // user has granted microphone access; playback remains unaffected.
+        if (isCapture && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            SDLActivity activity = SDLActivity.mSingleton;
+            if (activity == null ||
+                    activity.checkSelfPermission(android.Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                Log.w(TAG, "Audio capture unavailable: RECORD_AUDIO permission has not been granted.");
+                return null;
+            }
+        }
+
         int channelConfig;
         int sampleSize;
         int frameSize;
