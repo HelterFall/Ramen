@@ -34,6 +34,7 @@ import android.graphics.RenderEffect as AndroidRenderEffect
 import android.graphics.RuntimeShader
 import android.os.Build
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -90,34 +91,20 @@ fun SystemNnnPlayerScreen(
     var skipMode by remember { mutableStateOf(false) }
     val screenEffectKey = listOf(state.screenEffectId, state.screenEffectParameters, state.screenEffectCommandOffset)
     var screenEffectFrame by remember(screenEffectKey) { mutableIntStateOf(0) }
-    val layerEffectKey = state.layerVisualConfigurations.toSortedMap().map { (layer, configuration) ->
-        listOf(layer, configuration.effectId, configuration.effectParameters, configuration.effectCommandOffset)
-    }
-    var layerEffectFrame by remember(layerEffectKey) { mutableIntStateOf(0) }
-
-    LaunchedEffect(layerEffectKey) {
-        val activeEffects = state.layerVisualConfigurations.values.filter { it.effectId != null }
-        val repeats = activeEffects.any { configuration ->
-            configuration.effectId == 29 || configuration.effectId == 55 ||
-                (configuration.effectId == 100 && (configuration.effectParameters.getOrNull(5) ?: 0) != 0) ||
-                (configuration.effectId == 18 && (configuration.effectParameters.getOrNull(2) ?: 0) != 0)
-        }
-        val finiteDuration = activeEffects
-            .filter { it.effectId != null && it.effectId in setOf(10, 11, 17, 18, 50) }
-            .maxOfOrNull { (it.effectParameters.firstOrNull() ?: 20).coerceIn(1, 9_999) }
-            ?: 0
-        if (repeats) {
-            while (true) {
-                delay(16L)
-                layerEffectFrame++
-            }
-        } else if (finiteDuration > 0) {
-            for (frame in 0..finiteDuration) {
-                layerEffectFrame = frame
-                if (frame < finiteDuration) delay(16L)
-            }
+    val layerEffectFrameStates = mutableMapOf<Int, State<Int>>()
+    for ((layerIndex, configuration) in state.layerVisualConfigurations.toSortedMap()) {
+        if (SystemNnnVisualEffectMath.usesViewportLayerClock(
+                configuration.effectId,
+                configuration.effectParameters
+            )
+        ) {
+            layerEffectFrameStates[layerIndex] =
+                rememberSystemNnnLayerEffectFrame(layerIndex, configuration)
         }
     }
+    // Read each State in this parent scope so only that layer's clock invalidates
+    // the scene compositor; changing another layer cannot restart this effect.
+    val layerEffectFrames = layerEffectFrameStates.mapValues { (_, frameState) -> frameState.value }
 
     LaunchedEffect(screenEffectKey) {
         val effectId = state.screenEffectId ?: return@LaunchedEffect
@@ -213,13 +200,13 @@ fun SystemNnnPlayerScreen(
                     ?: state.sprites.firstOrNull()?.bitmap?.width ?: 800).toFloat()
                 val referenceHeight = (state.backgroundBitmap?.height
                     ?: state.sprites.firstOrNull()?.bitmap?.height ?: 600).toFloat()
-                val layerShake = state.layerVisualConfigurations.entries
+                val layerShakeEntry = state.layerVisualConfigurations.entries
                     .sortedBy { it.key }
                     .firstOrNull { it.value.effectId == 18 }
-                    ?.value
+                val layerShake = layerShakeEntry?.value
                 val screenShake = when {
                     layerShake != null -> SystemNnnVisualEffectMath.shakeOffset(
-                        frame = layerEffectFrame,
+                        frame = layerShakeEntry?.key?.let { layerEffectFrames[it] } ?: 0,
                         frameCount = (layerShake.effectParameters.firstOrNull() ?: 20).coerceAtLeast(1),
                         vertical = (layerShake.effectParameters.getOrNull(1) ?: 0) != 0
                     )
@@ -230,16 +217,18 @@ fun SystemNnnPlayerScreen(
                     )
                     else -> SystemNnnVisualOffset(0f, 0f)
                 }
-                val globalHaikei = state.layerVisualConfigurations.entries
+                val globalHaikeiEntry = state.layerVisualConfigurations.entries
                     .sortedBy { it.key }
                     .firstOrNull {
                         it.value.effectId == 100 && (it.value.effectParameters.getOrNull(5) ?: 0) != 0
-                    }?.value
+                    }
+                val globalHaikei = globalHaikeiEntry?.value
                 val globalHaikeiParameters = globalHaikei?.effectParameters
                     ?: state.screenEffectParameters.takeIf {
                         state.screenEffectId == 100 && (it.getOrNull(5) ?: 0) != 0
                     }
-                val globalHaikeiFrame = if (globalHaikei == null) screenEffectFrame else layerEffectFrame
+                val globalHaikeiFrame = globalHaikeiEntry?.let { layerEffectFrames[it.key] ?: 0 }
+                    ?: screenEffectFrame
                 val globalHaikeiOffset = globalHaikeiParameters?.let {
                     SystemNnnVisualEffectMath.haikeiYureOffset(globalHaikeiFrame, it)
                 } ?: SystemNnnVisualOffset(0f, 0f)
@@ -279,7 +268,9 @@ fun SystemNnnPlayerScreen(
                 } else {
                     null
                 }
-                val gradeFrame = if (layerGradation == null) screenEffectFrame else layerEffectFrame
+                val gradeFrame = layerGradation?.let { (layerIndex, _) ->
+                    layerEffectFrames[layerIndex] ?: 0
+                } ?: screenEffectFrame
                 val viewportHeightPx = with(LocalDensity.current) { viewportDpHeight.toPx() }
                 val gradationRenderEffect = selectedGradation?.let { (_, parameters) ->
                     rememberNativeGradationRenderEffect(
@@ -646,6 +637,42 @@ private fun DialogueBox(
 
 /** Save/load UI actions are forwarded to the Activity; persistence is not part of this screen. */
 
+
+/**
+ * Drives the viewport-level part of one native layer effect. Its remember and
+ * LaunchedEffect keys are scoped to the layer and command, not to the whole map
+ * of active effects, so updates on neighbouring layers cannot reset this clock.
+ */
+@Composable
+private fun rememberSystemNnnLayerEffectFrame(
+    layerIndex: Int,
+    configuration: SystemNnnVisualLayerConfiguration
+): State<Int> {
+    val effectId = configuration.effectId
+    val parameters = configuration.effectParameters
+    val commandOffset = configuration.effectCommandOffset
+    val frameState = remember(layerIndex, effectId, parameters, commandOffset) {
+        mutableIntStateOf(0)
+    }
+
+    LaunchedEffect(layerIndex, effectId, parameters, commandOffset) {
+        if (SystemNnnVisualEffectMath.viewportLayerClockRepeats(effectId, parameters)) {
+            while (true) {
+                delay(16L)
+                frameState.intValue++
+            }
+        } else {
+            val duration = SystemNnnVisualEffectMath
+                .viewportLayerClockDurationFrames(effectId, parameters)
+                ?: return@LaunchedEffect
+            for (nextFrame in 0..duration) {
+                frameState.intValue = nextFrame
+                if (nextFrame < duration) delay(16L)
+            }
+        }
+    }
+    return frameState
+}
 
 /**
  * Layer-local overlay effects have independent native counters. A single shared
