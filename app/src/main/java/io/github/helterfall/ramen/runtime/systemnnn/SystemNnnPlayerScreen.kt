@@ -344,7 +344,6 @@ fun SystemNnnPlayerScreen(
                             viewportHeight = viewportDpHeight,
                             referenceWidth = referenceWidth,
                             referenceHeight = referenceHeight,
-                            layerEffectFrame = layerEffectFrame,
                             onBitmapDisposed = onBitmapDisposed,
                             suppressGradationOverlay = gradationHandledByShader
                         )
@@ -360,7 +359,6 @@ fun SystemNnnPlayerScreen(
                             viewportHeight = viewportDpHeight,
                             referenceWidth = referenceWidth,
                             referenceHeight = referenceHeight,
-                            layerEffectFrame = layerEffectFrame,
                             onBitmapDisposed = onBitmapDisposed,
                             suppressGradationOverlay = gradationHandledByShader
                         )
@@ -502,7 +500,6 @@ private fun BoxScope.SystemNnnRenderLayerContent(
     viewportHeight: androidx.compose.ui.unit.Dp,
     referenceWidth: Float,
     referenceHeight: Float,
-    layerEffectFrame: Int,
     onBitmapDisposed: (Bitmap) -> Unit,
     suppressGradationOverlay: Boolean
 ) {
@@ -530,10 +527,9 @@ private fun BoxScope.SystemNnnRenderLayerContent(
             if (effectId != null && effectId in LAYER_OVERLAY_EFFECT_IDS &&
                 !(suppressGradationOverlay && effectId == 50)
             ) {
-                SystemNnnScreenEffectOverlay(
+                SystemNnnLayerEffectOverlay(
                     effectId = effectId,
                     parameters = effectParameters,
-                    frame = layerEffectFrame,
                     referenceWidth = referenceWidth,
                     referenceHeight = referenceHeight,
                     seed = (configuration?.effectCommandOffset
@@ -650,6 +646,56 @@ private fun DialogueBox(
 
 /** Save/load UI actions are forwarded to the Activity; persistence is not part of this screen. */
 
+
+/**
+ * Layer-local overlay effects have independent native counters. A single shared
+ * counter makes an unrelated layer update restart or advance every other layer's
+ * FLASH/FADE/noise effect, which does not match the native per-effect instances.
+ */
+@Composable
+private fun SystemNnnLayerEffectOverlay(
+    effectId: Int,
+    parameters: List<Int>,
+    referenceWidth: Float,
+    referenceHeight: Float,
+    seed: Int,
+    modifier: Modifier
+) {
+    val animationKey = listOf(effectId, parameters, seed)
+    var frame by remember(animationKey) { mutableIntStateOf(0) }
+
+    LaunchedEffect(animationKey) {
+        val repeats = effectId == 29 || effectId == 55 ||
+            (effectId == 100 && (parameters.getOrNull(5) ?: 0) != 0) ||
+            (effectId == 18 && (parameters.getOrNull(2) ?: 0) != 0)
+        val duration = if (effectId == 29 || effectId == 55 || effectId == 100) {
+            9_999
+        } else {
+            (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+        }
+        if (repeats) {
+            while (true) {
+                delay(16L)
+                frame++
+            }
+        } else {
+            for (nextFrame in 0..duration) {
+                frame = nextFrame
+                if (nextFrame < duration) delay(16L)
+            }
+        }
+    }
+
+    SystemNnnScreenEffectOverlay(
+        effectId = effectId,
+        parameters = parameters,
+        frame = frame,
+        referenceWidth = referenceWidth,
+        referenceHeight = referenceHeight,
+        seed = seed,
+        modifier = modifier
+    )
+}
 
 /**
  * Draws one native DWQ layer. The reference compositor advances SETEFFECTRECT's
