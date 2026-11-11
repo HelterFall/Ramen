@@ -17,7 +17,7 @@
 - BEZIERMOVE, BSPLINE2 and CHARABURE add their offsets to the layer position in the native coordinate reference. There is no pre-render clamp; the outer viewport clips pixels outside its bounds. A trajectory can therefore look like an image disappearing if its coordinates are wrong or simply outside the visible canvas.
 
 ### Effect/rendering findings
-- Per-sprite Animatable clocks exist for CTRANS, SCROLL, CHANGE, MOVE, BEZIERMOVE, TURN, STRETCHBLT, COLORADDSUB and BSPLINE2, plus rectangle motion.
+- Per-sprite Animatable clocks exist for CTRANS, SCROLL, CHANGE, MOVE, BEZIERMOVE, TURN, STRETCHBLT, COLORADDSUB, BSPLINE2 and SENTENCE, plus rectangle motion.
 - Screen/layer overlay effects (including FADE, FLASH, SUNA, FILL and OLDFILM) use a shared layerEffectFrame. Its remember key is the full layer-configuration set; changing one layer configuration resets the clock used by all overlay layers. This can restart another layer's effect and makes simultaneous effects difficult to compare to native timing.
 - HAIKEIYURE mode 0 had a definite clock bug: its local progress was initialized but never animated. The current branch now advances this mode through a shared animation-policy helper. A unit test was added; final-head unit tests passed in Actions runs #42382482545 and #42382484261. A debug APK containing the runtime fix passed assembly/upload in run #42382360302. Physical-device visual acceptance remains outstanding.
 - HAIKEIYURE mode 1 remains an approximation: the renderer translates the already-composed viewport as a group, while the documented native callback changes the screen buffer at a particular point in the layer sequence.
@@ -25,6 +25,7 @@
 - KE/SUNA/OLDFILM/CHARABURE use deterministic Android sequences rather than the original process-global Windows RNG. They are reproducible, not bit-identical.
 - CLOUD is implemented only for a gated static software-renderer case (para[0] == 0, no mask). The target EXE's compile-time renderer is not established by that vector alone.
 - TURN and STRETCHBLT have dedicated transforms, but their native colour-key transparency modes are not fully implemented.
+- SENTENCE (133) now has a layer-local tile-atlas renderer for native horizontal/vertical traversal and wipe modes 0–6. Unit tests cover the math plan; target-scene use and pixel-level/device visual parity have not been verified.
 - CTRANS opacity, color adjustment and clipping have code paths in the current branch; older notes that call all optional clipping/color operations unsupported are stale. Exact target-parameter parity remains unverified.
 
 ### Tests and evidence boundary
@@ -236,11 +237,11 @@ This may affect uncommon glyphs or identifiers and can lead to an apparently val
 
 **Required work:** compare raw SPT pool bytes from the actual sample against CP932, Shift-JIS, and the title's extension table; add strict decoding tests while preserving raw bytes and record boundaries.
 
-### P2 — PRELOADDWQ and DRAW are not rendered
+### P2 — DRAW timing and animation-layer coverage remain partial
 
 - PRELOADDWQ resolves the same layer + Pool 2 resource operands as LOADDWQ and warms an 8-million-pixel-bounded LRU cache keyed by layer and normalized resource name. The following matching LOADDWQ consumes the prepared bitmap; if an injected resolver does not support preloading, the normal on-demand decode path remains the fallback.
 - SYSTEM_COMMAND DRAW publishes the accumulated scene and waits for the declared frame boundary. Exact native scheduler timing/animation integration remains only partially reproduced.
-- Animation-layer and other native effect systems are not represented by the current static sprite pipeline.
+- SENTENCE (133) has a tiled-atlas effect path, but animated-layer infrastructure and other native effect systems are not represented by the current static sprite pipeline.
 
 These omissions can affect timing, animation, and visual composition even when a later LOADDWQ successfully loads a static image.
 
