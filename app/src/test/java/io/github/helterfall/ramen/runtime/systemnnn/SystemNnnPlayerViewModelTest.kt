@@ -180,6 +180,40 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun preloadDwqWarmsTheRequestedLayerThenContinuesToTheVisibleLoad() {
+        val offsets = recordOffsets()
+        val assets = PreloadRecordingAssets
+        assets.reset()
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.PreloadImageLayer(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 4,
+                    resourceId = "bg\\scene_01"
+                ),
+                offsets[1] to SystemNnnDecodedCommand.LoadImageLayer(
+                    nextCommandOffset = offsets[2],
+                    layerIndex = 4,
+                    resourceId = "bg\\scene_01"
+                ),
+                offsets[2] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[3],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+
+        val viewModel = SystemNnnPlayerViewModel()
+        viewModel.start(testScript(), decoder, assets)
+
+        assertEquals(listOf(4 to "bg\\scene_01"), assets.preloadRequests)
+        assertEquals(listOf(4 to "bg\\scene_01"), assets.takeRequests)
+        assertEquals(listOf("bg\\scene_01"), assets.loadRequests)
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
+    @Test
     fun requestsSceneBitmapUsingGtbIndexRatherThanRawStringIdentifier() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(
@@ -802,6 +836,35 @@ class SystemNnnPlayerViewModelTest {
 
     private object EmptyAssets : SystemNnnSceneAssetResolver {
         override fun loadBitmap(resourceId: String) = null
+        override fun close() = Unit
+    }
+
+    private object PreloadRecordingAssets : SystemNnnSceneAssetResolver {
+        val preloadRequests = mutableListOf<Pair<Int, String>>()
+        val takeRequests = mutableListOf<Pair<Int, String>>()
+        val loadRequests = mutableListOf<String>()
+
+        fun reset() {
+            preloadRequests.clear()
+            takeRequests.clear()
+            loadRequests.clear()
+        }
+
+        override fun preloadBitmap(layerIndex: Int, resourceId: String): Boolean {
+            preloadRequests += layerIndex to resourceId
+            return true
+        }
+
+        override fun takePreloadedBitmap(layerIndex: Int, resourceId: String): android.graphics.Bitmap? {
+            takeRequests += layerIndex to resourceId
+            return null
+        }
+
+        override fun loadBitmap(resourceId: String): android.graphics.Bitmap? {
+            loadRequests += resourceId
+            return null
+        }
+
         override fun close() = Unit
     }
 
