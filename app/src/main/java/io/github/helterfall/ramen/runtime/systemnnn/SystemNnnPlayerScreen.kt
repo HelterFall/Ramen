@@ -98,10 +98,10 @@ fun SystemNnnPlayerScreen(
                 configuration.effectParameters
             )
         ) {
-            key(layerIndex) {
-                layerEffectFrameStates[layerIndex] =
-                    rememberSystemNnnLayerEffectFrame(layerIndex, configuration)
+            val frameState = key(layerIndex) {
+                rememberSystemNnnLayerEffectFrame(layerIndex, configuration)
             }
+            layerEffectFrameStates[layerIndex] = frameState
         }
     }
     // Read each State in this parent scope so only that layer's clock invalidates
