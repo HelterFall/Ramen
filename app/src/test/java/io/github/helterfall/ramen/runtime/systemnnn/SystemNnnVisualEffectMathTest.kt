@@ -837,8 +837,8 @@ class SystemNnnVisualEffectMathTest {
         )
         assertEquals(
             SystemNnnSentenceTile(
-                source = SystemNnnNativeRect(32, 32, 32, 32),
-                destination = SystemNnnNativeRect(32, 32, 32, 16),
+                source = SystemNnnNativeRect(32, 0, 32, 16),
+                destination = SystemNnnNativeRect(32, 0, 32, 16),
                 alpha = 1f
             ),
             partial?.partial
