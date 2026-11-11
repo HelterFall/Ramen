@@ -1,4 +1,4 @@
-## Current Ramen code status — 2026-11-08
+## Current Ramen code status — 2026-11-12
 
 The table and source notes below describe the pinned System-NNN family reference. They are not a promise of parity with the target executable. The current Ramen branch has since added or refined several code paths; use this status when reading older paragraphs in this file.
 
