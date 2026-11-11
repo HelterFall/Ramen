@@ -11,7 +11,7 @@ internal data class SystemNnnSentenceTile(
 )
 
 internal data class SystemNnnSentencePlan(
-    val completed: SystemNnnNativeRect?,
+    val completed: List<SystemNnnNativeRect>,
     val partial: SystemNnnSentenceTile?
 )
 
@@ -813,43 +813,59 @@ internal object SystemNnnVisualEffectMath {
             speedType = parameters.getOrNull(6) ?: 0
         ).coerceIn(0, totalSteps)
 
-        val printed = (progress / subdivisions).coerceIn(0L, tileCount).toInt()
+        val printed = (progress.toLong() / subdivisions.toLong())
+            .coerceIn(0L, tileCount).toInt()
         val printingPercent = (
             (progress % subdivisions).toLong() * 100L / subdivisions.toLong()
         ).toInt()
         val vertical = (parameters.getOrNull(3) ?: 0) != 0
         val wipe = parameters.getOrNull(4) ?: 0
+        val firstDiv = if (vertical) rows else columns
+        val writeBlock = printed / firstDiv
+        val centerBlock = printed % firstDiv
 
-        val completed = if (!vertical) {
-            val completedRows = printed / columns
-            if (completedRows > 0) {
-                SystemNnnNativeRect(0, 0, columns * tileWidth, completedRows * tileHeight)
-            } else null
-        } else {
-            val completedColumns = printed / rows
-            if (completedColumns > 0) {
-                SystemNnnNativeRect(
-                    (columns - completedColumns) * tileWidth,
-                    0,
-                    completedColumns * tileWidth,
-                    rows * tileHeight
+        val completed = buildList {
+            if (writeBlock > 0) {
+                add(
+                    if (!vertical) {
+                        SystemNnnNativeRect(0, 0, columns * tileWidth, writeBlock * tileHeight)
+                    } else {
+                        SystemNnnNativeRect(
+                            (columns - writeBlock) * tileWidth,
+                            0,
+                            writeBlock * tileWidth,
+                            rows * tileHeight
+                        )
+                    }
                 )
-            } else null
+            }
+            if (centerBlock > 0) {
+                add(
+                    if (!vertical) {
+                        SystemNnnNativeRect(
+                            0,
+                            writeBlock * tileHeight,
+                            centerBlock * tileWidth,
+                            tileHeight
+                        )
+                    } else {
+                        SystemNnnNativeRect(
+                            (columns - writeBlock - 1) * tileWidth,
+                            0,
+                            tileWidth,
+                            centerBlock * tileHeight
+                        )
+                    }
+                )
+            }
         }
 
         if (printed >= tileCount || printingPercent <= 0) {
             return SystemNnnSentencePlan(completed, null)
         }
 
-        val tileColumn: Int
-        val tileRow: Int
-        if (!vertical) {
-            tileColumn = printed % columns
-            tileRow = printed / columns
-        } else {
-            tileColumn = columns - (printed / rows) - 1
-            tileRow = printed % rows
-        }
+        val tileColumn = if (!vertical) centerBlock else columns - writeBlock - 1
+        val tileRow = if (!vertical) writeBlock else centerBlock
         val tileX = tileColumn * tileWidth
         val tileY = tileRow * tileHeight
         val fullTile = SystemNnnNativeRect(tileX, tileY, tileWidth, tileHeight)
