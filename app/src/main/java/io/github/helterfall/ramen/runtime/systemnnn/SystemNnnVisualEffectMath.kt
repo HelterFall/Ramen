@@ -573,6 +573,25 @@ internal object SystemNnnVisualEffectMath {
             effectId in setOf(9, 39, 40, 52, 62, 64, 65, 99, 119) ||
             (effectId == 100 && (parameters.getOrNull(5) ?: 0) == 0)
 
+    /**
+     * The viewport compositor needs a separate clock for each layer whose
+     * effect moves or grades the whole composed scene. Local sprite and overlay
+     * effects keep their own clocks in their respective render nodes.
+     */
+    fun usesViewportLayerClock(effectId: Int?, parameters: List<Int>): Boolean =
+        effectId == 18 || effectId == 50 ||
+            (effectId == 100 && (parameters.getOrNull(5) ?: 0) != 0)
+
+    fun viewportLayerClockRepeats(effectId: Int?, parameters: List<Int>): Boolean =
+        (effectId == 18 && (parameters.getOrNull(2) ?: 0) != 0) ||
+            (effectId == 100 && (parameters.getOrNull(5) ?: 0) != 0)
+
+    fun viewportLayerClockDurationFrames(effectId: Int?, parameters: List<Int>): Int? =
+        when (effectId) {
+            18, 50 -> (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+            else -> null
+        }
+
     fun hasNativeLayerEffectPath(
         effectId: Int,
         parameters: List<Int>,
