@@ -77,7 +77,7 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(20, SystemNnnVisualEffectMath.viewportLayerClockDurationFrames(50, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.viewportLayerClockRepeats(50, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.viewportLayerClockRepeats(100, listOf(20, 20, 0, 25, 25, 1)))
-        assertEquals(null, SystemNnnVisualEffectMath.viewportLayerClockDurationFrames(100, listOf(20, 20, 0, 25, 25, 1)))
+        assertEquals(20, SystemNnnVisualEffectMath.viewportLayerClockDurationFrames(100, listOf(20, 20, 0, 25, 25, 1)))
         assertEquals(null, SystemNnnVisualEffectMath.viewportLayerClockDurationFrames(8, emptyList()))
     }
 
