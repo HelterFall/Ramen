@@ -81,7 +81,7 @@ A "glass" area in a CRT should normally be modelled using the correct DWQ alpha/
 
 The current 24 ms typewriter is attached only to SystemNnnPlayerUiState.dialogueText and the Compose dialogue box. It does not animate a separate centered line, a title card, or an interstitial bitmap.
 
-The native family reference has effect 133 SENTENCE: it progressively reveals a tiled picture atlas using tile dimensions, direction, wipe mode and timing parameters. Ramen does not include 133 in its supported effect path. This is a candidate only if the target actually uses a tiled sentence/title image; it must not be assumed to be the missing title-text command. The target's relevant SPT command/resource and its timing must be identified from the diagnostic command trace.
+The native family reference has effect 133 SENTENCE: it progressively reveals a tiled picture atlas using tile dimensions, direction, wipe mode and timing parameters. Ramen now has a layer-local renderer for the row/column traversal and wipe modes 0–6, with regression tests for tile order, partial cells and final completion. Target-scene use and device visual parity remain unverified. This is only a candidate if the target actually attaches SENTENCE to a tiled artwork resource; it must not be assumed to be the missing title-text command. Identify the target SPT command/resource and timing from the diagnostic command trace.
 
 ### Layer persistence and apparent black interruptions
 
@@ -95,7 +95,7 @@ The ViewModel clears the full visual snapshot on SceneUpdate and explicit clear 
 2. **Layer evidence and CRT composite:** add final pixel bounds/visible intersection, alpha-presence/mask metadata, layer index, command offset, native rectangles and effect frame to diagnostics. Then correct monitor frame/glass/woman order without reducing the whole monitor's opacity.
 3. **GRADATION (50):** implement a screen-buffer vertical RGB grade at the correct layer/compositor point, then compare the red scene transition. Do not tint only the man sprite.
 4. **Clear/persistence and global flash:** trace scene/film boundaries and actual CLEAR commands; ensure the figure is gone before the interstitial. Check FLASH/FILL/GRADATION command scope and z-order so a true screen flash covers all intended content.
-5. **Non-dialogue title/text:** locate the actual SPT command and resource for the centered line, interstitial insert and game title. Implement progressive reveal only after distinguishing text commands from SENTENCE (133) tiled-image animation.
+5. **Non-dialogue title/text:** locate the actual SPT command and resource for the centered line, interstitial insert and game title. The SENTENCE (133) tile-atlas renderer now exists, but only applies if the target actually uses that effect; do not substitute it for an unidentified text command.
 6. **Improve native CRT parity:** separately improve OLDFILM, KE, SUNA random timing and HAIKEIYURE mode 1 buffer semantics. Keep warning labels until each is visually accepted.
 7. Protect the accepted audio path and ordinary background bitmap path throughout.
 
