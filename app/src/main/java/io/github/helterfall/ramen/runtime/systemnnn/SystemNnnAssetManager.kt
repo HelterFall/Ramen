@@ -7,6 +7,7 @@ import io.github.helterfall.ramen.runtime.nativeaudio.AndroidGpkImageDecoder
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import java.util.Locale
 
 enum class SystemNnnAssetBankType {
     INDEXED_IMAGE,
@@ -83,6 +84,13 @@ class SystemNnnAssetManager private constructor(
         val repository: SystemNnnVpkAudioRepository
     )
 
+    private data class PreloadedImageKey(
+        val layerIndex: Int,
+        val normalizedResourceId: String
+    )
+
+    private val preloadedImages = LinkedHashMap<PreloadedImageKey, Bitmap>(16, 0.75f, true)
+    private var preloadedImagePixels = 0L
     private var closed = false
 
     /** Aggregate count for diagnostics only; it is not a global GTB index range. */
@@ -209,6 +217,57 @@ class SystemNnnAssetManager private constructor(
         val bank = imageBanks.firstOrNull { it.info.id == bankId }
             ?: throw IOException("Unknown image-bank ID: " + bankId)
         return bank.repository.loadBitmapAtBlockOffset(blockOffset)
+    }
+
+    @Synchronized
+    override fun preloadBitmap(layerIndex: Int, resourceId: String): Boolean {
+        checkOpen()
+        if (layerIndex !in 0 until MAX_PRELOAD_LAYERS) {
+            throw IOException("PRELOADDWQ layer is outside the supported layer range.")
+        }
+        val key = PreloadedImageKey(
+            layerIndex,
+            resourceId.trim().replace('\\', '/').lowercase(Locale.ROOT)
+        )
+        if (preloadedImages.containsKey(key)) return true
+
+        // Native PRELOADDWQ loads into the picture slot belonging to this layer.
+        // Replacing that slot releases the older not-yet-displayed image.
+        val replacedKeys = preloadedImages.keys.filter { it.layerIndex == layerIndex }
+        replacedKeys.forEach { oldKey ->
+            preloadedImages.remove(oldKey)?.let { oldBitmap ->
+                preloadedImagePixels -= oldBitmap.width.toLong() * oldBitmap.height.toLong()
+                releaseBitmap(oldBitmap)
+            }
+        }
+
+        val bitmap = loadBitmap(resourceId) ?: return false
+        val pixels = bitmap.width.toLong() * bitmap.height.toLong()
+        if (pixels <= 0L || pixels > MAX_PRELOADED_IMAGE_PIXELS) {
+            releaseBitmap(bitmap)
+            return false
+        }
+        while (preloadedImagePixels + pixels > MAX_PRELOADED_IMAGE_PIXELS) {
+            val oldest = preloadedImages.entries.firstOrNull() ?: break
+            preloadedImages.remove(oldest.key)
+            preloadedImagePixels -= oldest.value.width.toLong() * oldest.value.height.toLong()
+            releaseBitmap(oldest.value)
+        }
+        preloadedImages[key] = bitmap
+        preloadedImagePixels += pixels
+        return true
+    }
+
+    @Synchronized
+    override fun takePreloadedBitmap(layerIndex: Int, resourceId: String): Bitmap? {
+        checkOpen()
+        val key = PreloadedImageKey(
+            layerIndex,
+            resourceId.trim().replace('\\', '/').lowercase(Locale.ROOT)
+        )
+        val bitmap = preloadedImages.remove(key) ?: return null
+        preloadedImagePixels -= bitmap.width.toLong() * bitmap.height.toLong()
+        return bitmap
     }
 
     override fun releaseBitmap(bitmap: Bitmap) {
@@ -383,6 +442,9 @@ class SystemNnnAssetManager private constructor(
     override fun close() {
         if (closed) return
         closed = true
+        preloadedImages.values.forEach { bitmap -> runCatching { releaseBitmap(bitmap) } }
+        preloadedImages.clear()
+        preloadedImagePixels = 0L
         imageBanks.forEach { runCatching { it.repository.close() } }
         audioBanks.forEach { runCatching { it.repository.close() } }
         runCatching { looseAudioRepository.close() }
@@ -394,6 +456,8 @@ class SystemNnnAssetManager private constructor(
         private const val MAX_NAME_LIST_BYTES = 4L * 1024L * 1024L
         private const val MAX_NAME_LIST_ENTRIES = 100_000
         private const val MAX_MML_BYTES = 4L * 1024L * 1024L
+        private const val MAX_PRELOAD_LAYERS = 32
+        private const val MAX_PRELOADED_IMAGE_PIXELS = 8_000_000L
         private const val ALTERNATE_PROJECT_DIRECTORY = "!eng files"
 
         private fun normalizeNativeResourceToken(value: String, kind: String): String {
