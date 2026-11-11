@@ -598,7 +598,7 @@ internal object SystemNnnVisualEffectMath {
 
     fun viewportLayerClockDurationFrames(effectId: Int?, parameters: List<Int>): Int? =
         when (effectId) {
-            18, 50 -> (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+            18, 50, 100 -> (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
             else -> null
         }
 
