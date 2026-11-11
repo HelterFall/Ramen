@@ -13,7 +13,7 @@ The table and source notes below describe the pinned System-NNN family reference
 - TURN and STRETCHBLT use Compose transforms. Native colour-key transparency mode 1 still needs pixel-level handling.
 - CHANGE currently combines two equal-size, distinct layers using Compose offscreen drawing and BlendMode.Plus; visually compare this with a real target transition before accepting it.
 - KE, SUNA, OLDFILM and CHARABURE use deterministic Android pseudo-random sequences. They are repeatable but do not reproduce the original Windows process-global RNG sequence.
-- Layer-overlay effects share a common frame counter in the current Compose screen. Its key changes when the complete layer configuration changes, so adding/changing one layer can restart the timer used by other layer overlays. Treat simultaneous effects as unverified.
+- Layer-overlay effects have independent frame counters keyed by effect, parameters and command seed; viewport-scoped effects are separately keyed by layer/command, and screen-level effects own their screen clock. This avoids restarting unrelated effects when one layer changes. Simultaneous native timing still requires device visual acceptance.
 
 ### Known layout boundary
 The player uses background bitmap dimensions as the native coordinate reference (or first sprite dimensions / 800×600 fallback). Native LOADDWQ layers without SETEFFECTRECT default to (0,0,bitmapWidth,bitmapHeight); legacy sprite references without native rectangles use bottom-center placement at 62% width and 82% height. These coordinate models must be checked against the actual target's screen dimensions and layer rectangles.
