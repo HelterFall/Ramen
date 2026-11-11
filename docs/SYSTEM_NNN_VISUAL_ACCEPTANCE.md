@@ -146,11 +146,11 @@ For a problematic layer, record: module, film, layer index, resource name, bitma
 
 A missing image and an image positioned outside the viewport can therefore look similar. Diagnostics should include the calculated bounds before clipping.
 
-### V3 — overlay effects share one layer frame counter
+### V3 — independent layer-overlay clocks
 
-The screen currently keeps a single layerEffectFrame for overlay effects such as FADE, FLASH, SUNA and OLDFILM. The state key is the full layer-configuration set; changing one layer configuration resets the counter used by all overlay layers. This can restart another layer's effect and makes simultaneous effects difficult to compare to native timing.
+**Code fix committed:** `d02b69255a6c0f9c6042b86fcae879ddfdbb08db` replaces the shared overlay frame with a clock owned by each keyed layer/effect command. Updating one layer's configuration therefore no longer restarts or advances another layer's FADE, FLASH, SUNA, OLDFILM or other overlay instance. The clock key includes effect ID, parameters and command offset.
 
-The geometric effects have per-sprite Animatable state, but the overlay effects do not have independent per-layer clocks. A later improvement should track start time/frame by layer and command offset.
+The shared `layerEffectFrame` remains for selected layer-level shake/gradation/global HAIKEIYURE paths; those are separate follow-up work and are not claimed to have independent timing yet. This source change has not been visually accepted on the target device.
 
 ### V4 — HAIKEIYURE mode 0 clock was fixed
 
