@@ -918,6 +918,9 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         }
     }
     val spriteModifier = when {
+        // CLOUD's native compositor writes viewport-sized output rows; it must
+        // not inherit a sprite's source bitmap rectangle or legacy character size.
+        isCloud -> Modifier.align(Alignment.TopStart).fillMaxSize()
         isKe -> Modifier.align(Alignment.TopStart).fillMaxSize()
         isTurn -> Modifier.align(Alignment.Center)
             .offset(
@@ -1179,7 +1182,9 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     cloudBitmap?.let { warped ->
         Canvas(Modifier.fillMaxSize()) {
             val outputHeight = (
-                size.height * warped.height.toFloat() / safeReferenceHeight
+                size.height * SystemNnnVisualEffectMath.cloudOutputHeightFraction(
+                    warped.height, safeReferenceHeight.roundToInt()
+                )
             ).roundToInt().coerceAtLeast(1)
             drawImage(
                 image = warped.asImageBitmap(),
