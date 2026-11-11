@@ -1073,6 +1073,51 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                     )
                 }
             }
+            effectId == 133 -> {
+                val reveal = SystemNnnVisualEffectMath.sentenceRevealPlan(
+                    frame = frame,
+                    parameters = parameters,
+                    imageWidth = sprite.bitmap.width,
+                    imageHeight = sprite.bitmap.height
+                )
+                Canvas(Modifier.fillMaxSize()) {
+                    val image = sprite.bitmap.asImageBitmap()
+                    val scaleX = size.width / sprite.bitmap.width.toFloat()
+                    val scaleY = size.height / sprite.bitmap.height.toFloat()
+
+                    fun drawSentencePart(
+                        source: SystemNnnNativeRect,
+                        destination: SystemNnnNativeRect,
+                        alpha: Float
+                    ) {
+                        if (source.width <= 0 || source.height <= 0 ||
+                            destination.width <= 0 || destination.height <= 0
+                        ) return
+
+                        drawImage(
+                            image = image,
+                            srcOffset = IntOffset(source.x, source.y),
+                            srcSize = IntSize(source.width, source.height),
+                            dstOffset = IntOffset(
+                                (destination.x * scaleX).roundToInt(),
+                                (destination.y * scaleY).roundToInt()
+                            ),
+                            dstSize = IntSize(
+                                (destination.width * scaleX).roundToInt().coerceAtLeast(1),
+                                (destination.height * scaleY).roundToInt().coerceAtLeast(1)
+                            ),
+                            alpha = alpha.coerceIn(0f, 1f)
+                        )
+                    }
+
+                    reveal?.completed?.forEach { completed ->
+                        drawSentencePart(completed, completed, 1f)
+                    }
+                    reveal?.partial?.let { tile ->
+                        drawSentencePart(tile.source, tile.destination, tile.alpha)
+                    }
+                }
+            }
             effectId == 40 && changePartner != null -> {
                 val blend = SystemNnnVisualEffectMath.changeBlend(frame, parameters)
                 Canvas(
