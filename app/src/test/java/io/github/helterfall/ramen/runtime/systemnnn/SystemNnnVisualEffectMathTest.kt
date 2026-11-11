@@ -551,6 +551,14 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
+    fun cloudOutputUsesOnlyItsNativeUpperViewportRows() {
+        assertEquals(0.5f, SystemNnnVisualEffectMath.cloudOutputHeightFraction(300, 600), 0.0001f)
+        assertEquals(1f, SystemNnnVisualEffectMath.cloudOutputHeightFraction(900, 600), 0.0001f)
+        assertEquals(0f, SystemNnnVisualEffectMath.cloudOutputHeightFraction(0, 600), 0f)
+        assertEquals(0f, SystemNnnVisualEffectMath.cloudOutputHeightFraction(300, 0), 0f)
+    }
+
+    @Test
     fun cloudUsesNativePerspectiveRowsAnd16Dot16HorizontalSampling() {
         val source = intArrayOf(
             0xff010101.toInt(), 0xff020202.toInt(), 0xff030303.toInt(), 0xff040404.toInt(),
