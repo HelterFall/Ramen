@@ -111,7 +111,7 @@ fun SystemNnnPlayerScreen(
     LaunchedEffect(screenEffectKey) {
         val effectId = state.screenEffectId ?: return@LaunchedEffect
         val parameters = state.screenEffectParameters
-        val duration = if (effectId == 29 || effectId == 55 || effectId == 100) 9_999
+        val duration = if (effectId == 29 || effectId == 55) 9_999
             else (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
         val repeats = effectId == 29 || effectId == 55 ||
             (effectId == 100 && (parameters.getOrNull(5) ?: 0) != 0) ||
@@ -658,15 +658,15 @@ private fun rememberSystemNnnLayerEffectFrame(
     }
 
     LaunchedEffect(layerIndex, effectId, parameters, commandOffset) {
+        val duration = SystemNnnVisualEffectMath
+            .viewportLayerClockDurationFrames(effectId, parameters)
+            ?: return@LaunchedEffect
         if (SystemNnnVisualEffectMath.viewportLayerClockRepeats(effectId, parameters)) {
             while (true) {
                 delay(16L)
-                frameState.intValue++
+                frameState.intValue = (frameState.intValue + 1) % duration
             }
         } else {
-            val duration = SystemNnnVisualEffectMath
-                .viewportLayerClockDurationFrames(effectId, parameters)
-                ?: return@LaunchedEffect
             for (nextFrame in 0..duration) {
                 frameState.intValue = nextFrame
                 if (nextFrame < duration) delay(16L)
