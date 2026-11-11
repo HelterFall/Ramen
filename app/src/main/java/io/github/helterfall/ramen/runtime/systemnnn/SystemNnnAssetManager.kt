@@ -229,7 +229,7 @@ class SystemNnnAssetManager private constructor(
             layerIndex,
             resourceId.trim().replace('\\', '/').lowercase(Locale.ROOT)
         )
-        if (preloadedImages.containsKey(key)) return true
+        if (preloadedImages[key] != null) return true
 
         // Native PRELOADDWQ loads into the picture slot belonging to this layer.
         // Replacing that slot releases the older not-yet-displayed image.
