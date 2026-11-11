@@ -184,6 +184,24 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun decodesPreloadDwqFromItsLayerAndPoolTwoResourceOperands() {
+        val script = testScript(
+            records = listOf(record(5, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_PRELOADDWQ, 3u, 0u)),
+            textCount = 0,
+            secondaryTexts = listOf("bg\\scene_01")
+        )
+
+        assertEquals(
+            SystemNnnDecodedCommand.PreloadImageLayer(
+                nextCommandOffset = RECORD_START + 20L,
+                layerIndex = 3,
+                resourceId = "bg\\scene_01"
+            ),
+            decoder().decodeNext(script, RECORD_START)
+        )
+    }
+
+    @Test
     fun decodesSetEffectAndPreservesNativeParameters() {
         val script = testScript(
             records = listOf(
@@ -1121,6 +1139,7 @@ class SystemNnnCommandDecoderImplTest {
         const val CODE_SYSTEMFUNCTION_CLEARALLEFFECT = 0x33330012u
         const val CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER = 0x33330014u
         const val CODE_SYSTEMFUNCTION_LOADDWQ = 0x33330015u
+        const val CODE_SYSTEMFUNCTION_PRELOADDWQ = 0x3333001Fu
         const val CODE_SYSTEMFUNCTION_SETEFFECT = 0x33330013u
         const val CODE_SYSTEMFUNCTION_SETEFFECTRECT = 0x33330016u
 
