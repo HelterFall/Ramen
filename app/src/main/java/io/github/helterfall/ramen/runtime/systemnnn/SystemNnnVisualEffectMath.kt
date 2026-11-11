@@ -403,6 +403,16 @@ internal object SystemNnnVisualEffectMath {
      * The output is screen-width by para[1] rows. Source X uses the native
      * 16.16 accumulator and source Y is sampled once per output row.
      */
+    /**
+     * A software CLOUD pass is rendered at the top of the full logical viewport.
+     * Its output bitmap contains only the requested upper rows, not a scaled
+     * replacement for the source layer's native rectangle.
+     */
+    fun cloudOutputHeightFraction(outputHeight: Int, screenHeight: Int): Float {
+        if (outputHeight <= 0 || screenHeight <= 0) return 0f
+        return (outputHeight.toFloat() / screenHeight.toFloat()).coerceIn(0f, 1f)
+    }
+
     fun cloudWarpPixels(
         frame: Long,
         parameters: List<Int>,
