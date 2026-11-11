@@ -1,8 +1,9 @@
 # System-NNN runtime audit
 
-## Current checkpoint — 2026-11-08: user-observed acceptance and graphics review
+## Current checkpoint — 2026-11-12: renderer integration and graphics review
 
-**Branch / PR:** docs/system-nnn-launch-roadmap / Draft PR #28.  
+**Branch / PR:** docs/system-nnn-launch-roadmap / Draft PR #28 (open, not merged).  
+**Latest PR CI:** run #43049927415 passed all unit tests on head `6dbd5eeabb35e5b10f2d0453f760a103ba71e7a7`. A new debug APK has not been built for the SENTENCE renderer.
 **Current purpose:** focus validation on foreground image layers, positioning, movement and visual effects.  
 **Audio status:** user reports that audio is working very well in actual observation. Audio is accepted and closed as an active workstream. Reopen only for a concrete user-reported defect.  
 **Background status:** user confirms backgrounds render normally. Preserve this as a regression baseline.  
