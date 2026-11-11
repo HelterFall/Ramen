@@ -61,6 +61,27 @@ class SystemNnnVisualEffectMathTest {
 
 
     @Test
+    fun viewportEffectClocksAreScopedToEffectsThatMoveOrGradeTheComposedScene() {
+        assertTrue(SystemNnnVisualEffectMath.usesViewportLayerClock(18, listOf(12, 0, 0)))
+        assertTrue(SystemNnnVisualEffectMath.usesViewportLayerClock(50, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.usesViewportLayerClock(100, listOf(20, 20, 0, 25, 25, 1)))
+        assertFalse(SystemNnnVisualEffectMath.usesViewportLayerClock(100, listOf(20, 20, 0, 25, 25, 0)))
+        assertFalse(SystemNnnVisualEffectMath.usesViewportLayerClock(55, emptyList()))
+    }
+
+    @Test
+    fun viewportEffectClockPolicyPreservesFiniteAndRepeatingModes() {
+        assertEquals(12, SystemNnnVisualEffectMath.viewportLayerClockDurationFrames(18, listOf(12, 0, 0)))
+        assertFalse(SystemNnnVisualEffectMath.viewportLayerClockRepeats(18, listOf(12, 0, 0)))
+        assertTrue(SystemNnnVisualEffectMath.viewportLayerClockRepeats(18, listOf(12, 0, 1)))
+        assertEquals(20, SystemNnnVisualEffectMath.viewportLayerClockDurationFrames(50, emptyList()))
+        assertFalse(SystemNnnVisualEffectMath.viewportLayerClockRepeats(50, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.viewportLayerClockRepeats(100, listOf(20, 20, 0, 25, 25, 1)))
+        assertEquals(null, SystemNnnVisualEffectMath.viewportLayerClockDurationFrames(100, listOf(20, 20, 0, 25, 25, 1)))
+        assertEquals(null, SystemNnnVisualEffectMath.viewportLayerClockDurationFrames(8, emptyList()))
+    }
+
+    @Test
     fun colorAddSubUsesNativeStartAndEndRgbParameterOrder() {
         val parameters = listOf(80, -130, -255, -255, -230, -255, -255, 1, 0, 0)
         // Native CCalcuSpeed adds 0.5 then truncates toward zero, including
