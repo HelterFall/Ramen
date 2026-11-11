@@ -1,0 +1,1070 @@
+## 2026-11-05 — module-name reference negative control
+
+- Refined the 511 module-name hits: all seven record codes that reference module-name strings also reference ordinary non-module Pool 2 entries in much greater numbers (33,348 other targets vs 511 module-name targets). Counts by code are now in SYSTEM_NNN_COMMAND_MAP_NOTES.md.
+- The 15 same-index 0x3333/0x1A and 0x3333/0x1B references in each source script are never in the same film interval. In 13 cases id1B is physically earlier and in two cases later; therefore do not describe them as local pairs or a paired call sequence.
+- For code 0x3333/0x1A, all 948 records (module-name and non-module targets alike) are followed by 0x5556/0x000C. The shared context is not a unique module-dispatch signature.
+- Updated wording to preserve the result as exact module-name cross-references only. No opcode semantics, module calls, or boot transitions were inferred or implemented.
+
+---
+## 2026-11-05 — film interval envelope and candidate module-name references
+
+- Reused the already documented project catalog, descriptor-3 vector validation, Pool 1 scan, and command record map; no earlier scans were repeated.
+- Across the 19 modules with ordinary films, all 948 film intervals show an exact structural envelope: 0x3333/0x50 at the descriptor-3 target, one adjacent 0x3333/0x52 record exactly +20 bytes later, one 0x3333/0x1A near the end of the interval, then 0x5556/0x0C immediately after it.
+- All three function records have length 5 DWORDs. The preceding record before 0x3333/0x1A is 0x5556/0x0E in 884/948 cases; the remaining 64 cases have other raw record codes.
+- A bounded [1, Pool2Index] scan found 511 references to strings that exactly match a module name from project.xtx. Counts and source/target pairs are in SYSTEM_NNN_COMMAND_MAP_NOTES.md.
+- Each of the 15 0x3333/0x1A module-name references has one same-index 0x3333/0x1B reference in the same source module, but these records are never in the same film interval (13 id1B records occur earlier; 2 later). They are not adjacent or proven call pairs. All seven opcodes also reference many non-module Pool 2 strings; see the negative-control table in SYSTEM_NNN_COMMAND_MAP_NOTES.md.
+- Another public NNNLib analysis from different titles describes Pool 2 as including script jump-target names and calls out sys/backscript as system UI there. This is supporting family-level evidence only, not an opcode specification for this title.
+- Updated filmStartOffset() to require each ordinary film pointer target to be a five-DWORD 0x3333/0x50 record followed immediately by a five-DWORD 0x3333/0x52 record. CI #362 passed on the exact code commit before this documentation refresh.
+- No semantics are assigned to 0x3333/0x1A, 0x3333/0x1B, 0x3333/0x52, or 0x2222/0x0004; no transitions are implemented. The next step is to compare these references with non-module Pool 2 targets and prove the system boot dispatch.
+
+---
+## 2026-11-05 — descriptor 3/4 pointer-vector semantics confirmed
+
+- Re-read the already parsed descriptor 3 vector as DWORD pointers at `(logicalBase + index) * 4`; this is distinct from searching for a monotonic logical-address table.
+- Across all 20 supplied SPT modules, every vector target lands on an exact command-record boundary.
+- The first `descriptor4.count` targets are type-7 `SYSTEM_FUNCTION 0x3333/0x51`; every later target is type-7 `SYSTEM_FUNCTION 0x3333/0x50`. The counts match per module and in aggregate: 80 reserved records + 948 ordinary film records = 1,028 pointer entries.
+- `sys.spt` has three reserved targets and zero ordinary film targets. `backspt.spt` has four reserved targets plus 19 ordinary film targets; `01.spt` has two plus 67.
+- This confirms the descriptor 4 reserved-prefix interpretation in the current reader for all supplied modules. Updated `filmStartOffset()` to validate the full vector and reject targets with the wrong record class. Tests now cover this classification.
+- The `function.xtx` sidecar was cross-checked: its four name/label rows do not directly map to the 80 `0x3333/0x51` records or their Pool 2 references. No function semantics or module transition was inferred.
+- The next unresolved question remains the actual project boot path: determine how the special `sys` sequence hands off to `backspt` or another module. Do not choose the first project-list entry or the first ordinary film as a substitute for that dispatch.
+
+---
+
+## 2026-11-05 — sys module and film-0 entry candidates cross-checked
+
+- Parsed the current length-prefixed record stream for all 20 SPT modules from the uploaded cleaned Steam package, without copying any game files into Git.
+- Under the current descriptor-3/descriptor-4 interpretation, `sys.spt` has 3 film-table entries and 3 reserved entries, so it has no ordinary `film 0` slot.
+- Each of the other 19 modules has a `film 0` table slot whose DWORD target resolves to a parsed command-record boundary. This includes both `backspt.spt` (target `0x884`) and `01.spt` (target `0x20C4`); neither is uniquely identified as the startup module.
+- `sys.spt` secondary Pool 2 has 17 records. Fourteen are exact module-name tokens (`op1`, `01`–`08`, `082`, `akane`, `aoi`, `kiika`, `day`); the other three are short system/menu labels.
+- Three `SYSTEM_FUNCTION` records in `sys.spt` use code `0x3333/81` with payload pairs `[1,0]`, `[1,14]`, and `[1,15]`, which index those three non-module Pool 2 labels. This is evidence of a separate system/UI path, not proof of its full execution semantics.
+- These findings support treating `sys` specially and explain why a normal film-0 player cannot simply start it. They do not establish whether `sys` enters `backspt`, a story module, or another route.
+- Next: decode the referenced `SYSTEM_FUNCTION`/system-command behavior and trace any actual module dispatch value. Do not turn raw module-name strings into transitions without reference-use evidence.
+
+---
+
+## 2026-11-05 — project.xtx inspected and module catalog wired
+
+- Inspected the user-provided cleaned Steam folder archive in-place; only `project.xtx` and bounded SPT headers were read. No game files were added to Git.
+- `project.xtx` is 109 bytes of ASCII with CRLF line endings and declares 20 modules, in this order: `sys`, `backspt`, `01`, `02`, `03`, `04`, `05`, `06`, `07`, `08`, `082`, `akane`, `aoi`, `kiika`, `yamiko`, `yuka`, `day`, `op1`, `yuka2`, `_staff`.
+- All 20 declared modules have exactly one matching sibling `.spt` file in the supplied archive; there are no unlisted SPT files. ZIP entry order differs from project order.
+- All 20 headers carry the demasked `SPTHEADER0` signature. The manifest contains no explicit entrypoint field.
+- Under the current film-table reader, `sys.spt` has 3 film entries and 3 reserved entries, while both `backspt.spt` (23/4) and `01.spt` (69/2) have a candidate film-0 entry. This does not establish which module starts the game or how the system scripts transfer control.
+- Added a bounded, ASCII-only `SystemNnnProjectCatalog` parser that validates module names, rejects duplicates/path-like values, and resolves sibling SPT files. Added synthetic tests.
+- `SystemNnnPlayerActivity` no longer prefers `01.spt`. With a multi-module `project.xtx`, it now stops with an explicit unresolved-entrypoint message rather than launching an arbitrary module. Single-module manifests and unambiguous one-SPT imports remain eligible.
+- Next investigation: trace the launch/transfer references in `sys`, `backspt`, and `01`, then confirm against scene records. Do not infer boot semantics from the manifest order or file names.
+
+---
+
+## 2026-11-05 — Header descriptor 3/4 and scene.dat cross-check
+
+- scene.dat is 1,164 bytes, version 1, with 69 variable-length records of the form [u32 type][u32 valueCount][u32 values...]; all records end exactly at EOF.
+- Its 69-record count equals SPT descriptor 3 count only for 01.spt. The other 19 modules have different descriptor 3 counts.
+- Across all 20 SPTs, the first decoded DWORD at physical offset 0x40 equals descriptor3.logicalBase + descriptor3.entryCount. The next DWORD at 0x44 is not mapped.
+- The descriptor 3 logical first address does not begin a unique strictly increasing UInt32 table under the Pool 1/Pool 2 validation rule in any sample. Descriptor 4 (base zero, count 1–20) also lacks a uniquely located table.
+- No direct field-by-field link from scene.dat records to 0x3333 or 0x5556 marker parameters was found. Keep all fields metadata-only.
+
+---
+
+## 2026-11-05 — Reference-kind comparison and opaque marker diagnostics
+
+- Pool 1 reference kinds 1/2/3 all address the same string-record format. Counts: 37,008 / 125 / 250. Kind 2/3 are clustered in seven modules; simple length and CRLF statistics do not establish their semantics.
+- 0x3333 pattern: 7/6666 → parameter/3333 → [N,0]. Candidate next cell at start + (N+4)*4 contains 0x6666 in 122,992/136,349 cases (90.21%).
+- 0x5556 pattern: 2/6666 → parameter/5556 → raw UInt32. Immediate next cell contains 0x6666 in 10,757/12,300 cases (87.46%).
+- Added read-only scanOpaqueMarkerPatterns(); it reports candidate positions without executing or skipping bytes. Meanings and full command boundaries remain unverified.
+- Synthetic tests cover exact prefixes, candidate offsets, out-of-range N, and the 5556 successor position. CI for this code change is pending.
+
+---
+
+## 2026-11-05 — Pool 1 references mapped and read-only scanner implemented
+
+- Across all 16 modules with non-empty Pool 1, the three-cell pattern `(6,0x6666) → (kind=1..3,0x2222) → (u32 index)` yields exactly the indices `0..Pool1Count-1` in code-area order, with no gap, duplicate or descent.
+- All 20 modules match; four empty-pool modules contain no such references. Package total is 37,383 references for 37,383 Pool 1 records. Kind counts: 1=37,008; 2=125; 3=250.
+- Added the read-only Kotlin API `scanPool1References()` and synthetic unit tests. No execution semantics or player behavior was added. Kind meanings remain unknown.
+- Details: [SYSTEM_NNN_COMMAND_MAP_NOTES.md](SYSTEM_NNN_COMMAND_MAP_NOTES.md). CI for the new code change is still to be checked.
+
+---
+
+## 2026-11-05 — Command-area analysis update
+
+- Added [SYSTEM_NNN_COMMAND_MAP_NOTES.md](SYSTEM_NNN_COMMAND_MAP_NOTES.md) with reproducible per-module offsets, marker counts and exact pair patterns.
+- Across all 20 modules, the four observed adjacent-cell families are exact: `7/6666 → */3333`, `6/6666 → */2222`, `2/6666 → */5556`, and `1/6666 → 2/5555`.
+- New invariant: Pool 1 entry count equals the number of `0x2222` cells with parameter 1, 2 or 3 in every module; package total is 37,383 on both sides.
+- These are structural correlations only. No command meanings or individual command-to-string mappings have been established; the VM decoder remains disabled.
+- No Kotlin changes and no new CI run. Next step: compare bounded operands after each `0x2222` pair with the Pool 1 logical-address table at individual-record level.
+
+---
+
+# Актуальная контрольная точка — 2026-11-05
+
+> Этот блок имеет приоритет над более ранними статусными заметками ниже.
+
+- **Целевая игра:** *Gore Screaming Show*, только очищенная Steam-сборка с удалённым NSFW-контентом. В Git не добавлять коммерческие бинарники, извлечённые сценарии или игровые ресурсы.
+- **Рабочая ветка:** `docs/system-nnn-launch-roadmap`; [PR #28](https://github.com/HelterFall/Ramen/pull/28) открыт как draft и не слит в `main`.
+- **Последний зелёный CI по WGQ fix:** [#351](https://github.com/HelterFall/Ramen/actions/runs/41902266343), commit `f0287ab6411429aca0f0c7a62d07304aeaf88f29`. Assemble, unit tests, lint и debug APK upload прошли; физической проверки игры нет.
+- **SPT:** парсер двух индексированных пулов проверен на всех 20 модулях; присутствуют структурный reader и read-only reference/marker scanners.
+- **VM:** PR #28 содержит только первый поднабор команд: PRINT/LPRINT/APPEND, SELECT/CASE и ограниченные CALCU-выражения. Неизвестные команды и неподдерживаемые record types завершаются ошибкой. Это не полный System-NNN runtime.
+- **WGQ:** standalone image catalog теперь фильтрует файлы bounded header probe на поддерживаемый Black Cyc packed-BMP формат. Настоящие indexed WGQ+GTB пары остаются поддержаны. Если самостоятельных image candidates нет, поиск GPK/GTB продолжается по остальному дереву.
+- **Что осталось незакрытым:** реальный entrypoint (Activity всё ещё предпочитает `01.spt`), переходы между модулями, все команды VM, выбор среди шести GPK/GTB-банков, все VPK/VTB-банки, классификация фактических WGQ-файлов, сопоставление голосов и BGM, физический тест Android.
+- **UI:** System-NNN обозначается как экспериментальный запуск; частичная реализация не должна выглядеть как полная совместимость.
+- **Регрессии, которых нельзя допустить:** не ломать Resource Inspector, импорт ZIP/folder и существующее чтение поддерживаемых GPK/GTB и VPK/VTB форматов; не возвращать искусственный лимит 512.
+- **Версия игры:** не использовать и не восстанавливать NSFW-материалы. Проверять именно очищенную Steam-сборку.
+
+**Следующий технический приоритет:** доказать выбор стартового модуля и межмодульную навигацию; затем построить read-only каталог всех ресурсных банков. Не назначать семантику по имени файла, порядку каталогов или неподтверждённой гипотезе.
+
+---
+
+# System-NNN — карта запуска и рабочий журнал
+
+> **Цель:** довести поддержку System-NNN в Ramen от распознавания файлов до проверенного запуска выбранного пользователем тестового комплекта **Gore Screaming Show (очищенная сборка)** на Android.
+>
+> **Главное правило:** не объявлять формат или игру поддержанными только потому, что файл распознан, unit-тест прошёл или приложение собралось. Каждый вывод должен иметь уровень доказательности.
+
+## 0. Где мы сейчас
+
+- Каноническая ветка проекта — `main`.
+- Проверенный на момент начала этой работы head: `302efb471e929b5136ad7a306e6c793c87f52a81` (4 ноября 2026). Последний просмотренный commit менял только `docs/DEVELOPMENT_LOG.md`; перед следующим изменением кода всё равно нужно заново проверить актуальный head и CI.
+- PR #27 уже влит. Его код содержит System-NNN loader, экспериментальный player, Resource Inspector и парсеры ресурсов.
+- Последний известный CI для merge-коммита #27 — Actions run [#279](https://github.com/HelterFall/Ramen/actions/runs/41676851845): `assembleDebug`, unit tests, lint и загрузка debug APK прошли. Это **не** проверка запуска игры на телефоне.
+- Пользователь подтвердил, что GPK/GTB и VPK/VTB уже читаются на его текущем наборе файлов. Это принимаем как пользовательскую проверку, но не делаем вывод о поддержке всех разновидностей этих форматов.
+- Resource Inspector сохраняем: он нужен для исследования ресурсов.
+- Ветки PR #25 и #26 не сливать целиком без отдельного сравнения с `main`.
+
+### Что фактически есть в приложении
+
+| Часть | Текущее состояние | Что это означает |
+|---|---|---|
+| Импорт папки/архива | Реализован | Игра попадает во внутреннее хранилище приложения |
+| Resource Inspector | Реализован | Можно исследовать распознанные пары ресурсов |
+| GPK/GTB | Парсер есть; пользователь подтвердил чтение своих файлов | Не означает, что проверены все варианты DWQ |
+| VPK/VTB | Парсер есть; пользователь подтвердил чтение своих файлов | Покрытие пока ограничено теми аудиоструктурами, которые понимает текущий код |
+| SPT loader | Экспериментальный | Проверяет заголовок и извлекает кандидаты таблиц/строк |
+| System-NNN player | Путь запуска подключён | Реальная последовательность сцен и команд ещё не доказана |
+| Полный запуск выбранной игры | Не подтверждён | Нужна проверка на реальном комплекте файлов и Android-устройстве |
+
+## 1. Самые важные известные риски
+
+### R1 — SPT распознаётся, но сценарий ещё не доказан
+
+Текущий `SystemNnnScriptLoader.kt` снимает XOR `0xFF`, проверяет строку `SPTHEADER[0-9]` у смещения `0x30`, читает четыре пары count/offset и извлекает строки-кандидаты Shift-JIS. В коде используются наблюдавшиеся значения `0xC5BA`, `0x32B20` и `0x32B64`.
+
+Текущий `SystemNnnCommandDecoderImpl.kt` считает, что основная таблица содержит 1299 little-endian UInt32. Если значение меньше количества GPK-ресурсов — трактует его как индекс ресурса; иначе берёт следующую строку из текстового списка. Это пока гипотеза. Значение таблицы не используется как подтверждённое абсолютное смещение текста.
+
+Тесты декодера создают искусственный SPT и искусственные строки. Они проверяют внутреннее правило программы, но не доказывают, что именно так устроен реальный сценарий. Проверки выбора и ветвления в ViewModel используют FakeDecoder, поэтому тоже не доказывают, что реальные команды уже декодируются.
+
+### R2 — WGQ нельзя классифицировать только по расширению
+
+Текущая реализация `SystemNnnGpkBitmapRepository.kt` находит файлы `.wgq` в папке `wgq` и рассматривает их как отдельные DWQ-картинки. Поиск ориентируется на расширение, а найденная папка может получить приоритет над GPK/GTB.
+
+Внешние описания форматов указывают, что WGQ также используется как аудио/BGM-ресурс. Это не доказывает, что каждый WGQ в выбранной игре — звук, но доказывает, что правило «всё с расширением .wgq — изображение» ненадёжно.
+
+**Исправление:** сначала анализировать заголовок/тип содержимого, затем решать, является ли файл изображением или аудио. Если WGQ в папке не распознаны как картинки, не блокировать резервный поиск валидной пары GPK/GTB.
+
+### R3 — VPK/VTB понимает не все известные варианты аудио
+
+Текущий VPK/VTB reader рассчитан на конкретный вид индекса и Ogg-потока. В частности, он предполагает 12-байтовые записи VTB и фиксированную структуру VPK с 64-байтовым блоком, 44-байтовым WAV/Riff-описанием и Ogg-потоком с позиции 108.
+
+В общедоступных реализациях Black Cyc встречаются и другие типы VAW/WGQ payload: WAV, сжатый WAV и Ogg с разными смещениями. Поэтому нужно не переписывать рабочий parser наугад, а добавить проверку вариантов на реальных заголовках.
+
+Отдельно: текущий player назначает голос по порядковому номеру реплики; связь реплики с голосовым индексом пока не подтверждена. Фоновая музыка также не подключена к старту player.
+
+### R4 — выбор основного сценария основан на имени файла
+
+Activity предпочитает `01.spt`, а иначе выбирает первый SPT по имени. Пока нет доказательства, что это главный сценарий для любого комплекта. Нужна проверка по структуре и связям файлов, а не только по имени.
+
+### R5 — зелёные тесты пока не являются проверкой игры
+
+Существующие unit-тесты в основном используют искусственно созданные файлы. CI проверяет сборку, unit tests и lint. Ни то ни другое не заменяет проверку реального комплекта от импорта до нескольких сцен на телефоне.
+
+## 2. План работ — выполнять по порядку
+
+Статусы: **ГОТОВО** — подтверждено; **В РАБОТЕ** — выполняется сейчас; **ОЖИДАЕТ** — ещё не начинали; **ЗАБЛОКИРОВАНО** — не хватает конкретных данных; **ПРОВЕРИТЬ** — реализация есть, но нужна проверка на реальном примере.
+
+### Этап 0. Зафиксировать исходную точку
+
+- [x] Выбрать `main` как каноническую ветку.
+- [x] Подтвердить, что PR #27 объединён и содержит экспериментальный System-NNN путь.
+- [x] Записать известный зелёный CI #279.
+- [x] Сохранить результаты анализа SPT в `docs/SYSTEM_NNN_SPT_FORMAT_NOTES.md`.
+- [ ] Перед каждой новой порцией изменений проверить текущий SHA `main`, открытые PR и самый свежий CI.
+- [ ] Получить воспроизводимый отчёт инвентаризации именно выбранной очищенной сборки; сами игровые бинарники в Git не добавлять.
+
+**Готово, когда:** известно, какой exact commit проверяется, какие файлы входят в тестовый комплект и какие форматы реально обнаружены.
+
+### Этап 1. Проверить ресурсы до изменения парсеров
+
+- [ ] Получить список файлов, размеров и SHA-256 из папки игры.
+- [ ] Найти все SPT, GPK/GTB, VPK/VTB, VAW/WGQ и сопутствующие файлы.
+- [ ] Для каждой пары проверить, что индекс и архив относятся друг к другу, а не просто лежат рядом.
+- [ ] Снять короткие диагностические заголовки и классифицировать содержимое по байтам.
+- [ ] Проверить WGQ: какие файлы действительно являются изображениями, какие аудио, а какие пока неизвестны.
+- [ ] Сверить, что GPK/GTB и VPK/VTB из выбранного набора открываются через Resource Inspector.
+- [ ] Создать маленькие тестовые копии заголовков/структур для unit-тестов без включения коммерческих игровых данных.
+
+**Готово, когда:** каждый ресурс имеет статус «подтверждённый тип», «неизвестный» или «повреждённый», а не классифицируется по расширению.
+
+### Этап 2. Доказать структуру SPT
+
+Имеющиеся заметки основаны на `hu.txt` (скрипт анализа) и `ho.txt` (текстовый вывод), а не на приложенном оригинальном бинарном SPT. В отчёте указано: размер 389 500 байт (`0x5F17C`), подпись `SPTHEADER0` после XOR `0xFF` у `0x30`, кандидаты таблиц 1299 записей у `0xC5BA`, 1124 у `0x167F2`, 69 у `0xC390`, а также строка Shift-JIS около `0x32B64`. Эти числа пока считаются **наблюдениями из отчёта**, а не независимо проверенными фактами о бинарнике.
+
+- [ ] Получить доступный для анализа оригинальный SPT из выбранного тестового комплекта.
+- [ ] Рассчитать SHA-256 и сохранить его рядом с локальным отчётом, не добавляя сам бинарник в Git.
+- [ ] Вывести ограниченные hex-окна вокруг `0xC390`, `0xC5BA`, `0x16752`, `0x167F2`, `0x32B20`, `0x32B64`.
+- [ ] Проверить границы и ширину записей каждой из четырёх таблиц.
+- [ ] Понять роль шести маркеров `text\\0` и пяти DWORD около `0x32B20`.
+- [ ] Установить, являются ли значения таблиц индексами, относительными/абсолютными адресами или кодами команд.
+- [ ] Проверить правила на нескольких реальных строках/ресурсах, а не на одном искусственном примере.
+- [ ] Добавить минимальный обезличенный/синтетический fixture, который воспроизводит доказанную структуру.
+
+**Готово, когда:** для каждой читаемой записи известны её границы и смысл; неизвестные значения остаются неизвестными и не превращаются в текст по умолчанию.
+
+### Этап 3. Реализовать команды сценария
+
+- [ ] Отделить чтение байтов и таблиц от смысла команд.
+- [ ] Ввести явное представление распознанных команд и их исходных смещений.
+- [ ] Сопоставить подтверждённые команды с переходом сцены, показом текста, ожиданием, выбором, ветвлением, звуком и завершением — только если эти команды подтверждены данными.
+- [ ] Неизвестные команды сохранять в диагностике и безопасно останавливать/пропускать по явно заданным правилам, а не интерпретировать как произвольный текст.
+- [ ] Написать тесты на реальные доказанные примеры и ошибочные/обрезанные данные.
+- [ ] Исправить текст UI: «распознан SPT» не должно выглядеть как «игра полностью поддерживается».
+
+**Готово, когда:** один и тот же сценарный образец даёт предсказуемую последовательность команд и тесты подтверждают её.
+
+### Этап 4. Связать сценарий с ресурсами и плеером
+
+- [ ] Определять основной SPT по подтверждённым признакам, а не только по имени `01.spt`.
+- [ ] Проверить порядок смены фонов/изображений.
+- [ ] Проверить привязку диалогового текста к позиции в сценарии.
+- [ ] Проверить систему выборов и переходов, если она присутствует в тестовом сценарии.
+- [ ] Связать реплики с голосовыми ресурсами по подтверждённым ссылкам/индексам, а не только по порядковому номеру.
+- [ ] Добавить проигрывание фоновой музыки, когда будет установлен формат и способ выбора трека.
+- [ ] Проверить паузу, возобновление, остановку звука, поворот экрана и освобождение памяти.
+- [ ] Проверить шрифты и кодировку на реальном японском тексте; отсутствие квадратиков/битых символов должно подтверждаться визуально.
+
+**Готово, когда:** несколько последовательных фрагментов игры воспроизводятся в правильном порядке без подмены текста или ресурсов.
+
+### Этап 5. Проверка на Android и выпуск результата
+
+- [ ] Собрать debug APK с записанным SHA коммита.
+- [ ] Установить на физическое Android-устройство.
+- [ ] Проверить полный путь: импорт → обнаружение → Inspector → запуск → сцены/диалоги → звук → возврат в библиотеку.
+- [ ] Проверить холодный запуск, повторный запуск, поворот экрана, паузу/возобновление и нехватку памяти.
+- [ ] Записать модель устройства, версию Android, SHA приложения и точный результат каждого пункта.
+- [ ] Повторить CI после исправлений.
+- [ ] Только после прохождения чек-листа менять статус на «поддерживается».
+
+**Итоговый критерий:** игра запускается из импортированной папки на устройстве и проходит согласованный сценарий проверки без критических ошибок. Успешная сборка или открытие одного ресурса этим критерием не являются.
+
+## 3. Правила, чтобы не гадать
+
+1. **Сначала наблюдение, потом гипотеза, потом код.** Не менять пороги, смещения и таблицы просто потому, что так «похоже».
+2. **Каждая догадка должна быть помечена.** В журнале отдельно писать, что видно в байтах, что делает код и что пока предполагается.
+3. **Тест должен проверять внешний факт.** Тест на искусственном файле полезен для регрессии, но не является доказательством формата оригинальной игры.
+4. **Не ломать уже работающие форматы ради нового варианта.** Для WGQ/VAW/VPK сначала добавить распознавание типов и отрицательные тесты.
+5. **Сохранять исходные данные.** Парсеры работают read-only; игровые файлы не переписывать.
+6. **Не хранить коммерческие игровые бинарники в Git.** В репозиторий добавлять только собственные синтетические fixtures и безопасные диагностические сводки.
+7. **После каждого этапа фиксировать результат и CI.** Не оставлять журнал на конец большого объёма изменений.
+
+### Уровни доказательности
+
+- **Код:** реализация обнаружена в исходниках.
+- **Unit test:** конкретный тест успешно прошёл на записанном commit.
+- **CI:** конкретный GitHub Actions run успешно завершился.
+- **На устройстве:** указанное устройство прошло конкретную проверку.
+- **Подтверждено пользователем:** пользователь видел результат на своём наборе файлов.
+- **Гипотеза:** ещё требует проверки.
+
+## 4. Рабочий журнал
+
+### 2026-11-04 — аудит и создание карты запуска
+
+**Что сделано**
+- Повторно сверено состояние репозитория и документов на `main`.
+- Подтверждён текущий просмотренный head: `302efb471e929b5136ad7a306e6c793c87f52a81`.
+- Проверено, что последний просмотренный commit — документационное изменение, фиксирующее успешный CI #279.
+- Записаны известные риски SPT decoder, WGQ image/audio classification, ограниченного VPK/VTB audio reader, назначения голоса по порядку диалогов и выбора SPT по имени.
+- Подготовлена последовательная карта от инвентаризации файлов до device acceptance.
+
+**Что не делалось**
+- Исходники приложения не изменялись.
+- Не менялись SPT/GPK/GTB/VPK/VTB парсеры.
+- Не запускалась игра на устройстве.
+- Не создавался новый бинарный игровой fixture.
+- Этот документальный этап сам по себе не запускает Android CI и не подтверждает совместимость игры.
+
+**Следующий конкретный шаг**
+1. Сверить реальный состав тестового комплекта через inventory report.
+2. Затем начать этап 1 с классификации WGQ по содержимому и проверкой резервного пути GPK/GTB.
+3. Не переходить к переписыванию SPT decoder, пока таблицы и ссылки не подтверждены реальными байтами.
+
+### Шаблон для каждой следующей записи
+
+```text
+## YYYY-MM-DD — короткое название
+
+Ветка / commit:
+Цель:
+Что изменено:
+Файлы:
+Доказательства:
+Тесты и CI:
+Проверка на устройстве:
+Что не получилось:
+Гипотезы / неизвестное:
+Следующий шаг:
+```
+
+## 5. Справочные материалы
+
+- [VNTools — описания форматов и инструменты исследования](https://github.com/abunomaru/VNTools)
+- [GARbro — AudioVAW.cs](https://github.com/morkt/GARbro/blob/master/ArcFormats/BlackCyc/AudioVAW.cs)
+- [Текущие заметки по SPT в репозитории](SYSTEM_NNN_SPT_FORMAT_NOTES.md)
+- [Build matrix и проверенные сборки](BUILD_MATRIX.md)
+- [Общий журнал проекта](DEVELOPMENT_LOG.md)
+- [Главный handoff проекта](../HANDOFF.md)
+
+Источники описывают известные реализации форматов в общем виде. Они помогают сформировать проверки, но не доказывают, что каждый вариант в конкретном тестовом комплекте устроен идентично.
+
+
+## 6. Инвентаризация по скриншотам пользователя — 2026-11-04
+
+**Важно о путях:** каждый скриншот показывает хлебные крошки, поэтому каталоги ниже записаны относительно корня `Download/Gore Screaming Show/`. Это соседние каталоги, не вложенные друг в друга.
+
+### Корень `Download/Gore Screaming Show/`
+
+Видны каталоги:
+- `!eng files/` — 3 объекта;
+- `cdvaw/` — 166 объектов;
+- `dwq/` — 12 объектов;
+- `init/` — 31 объект;
+- `movie/` — 1 объект;
+- `nya/` — 5 объектов;
+- `sav/` — 1 объект;
+- `spt/` — 30 объектов;
+- `vaw/` — 2 объекта;
+- `wgq/` — 111 объектов.
+
+Также в корне видны `gss.exe` (627 KB), `ddraw.dll` (82.94 KB), `ogg.dll` (49.15 KB), `vorbis.dll` (0.97 MB), `Neuton.ttf` (2.74 MB), `sjis_ext.bin` (18 B), а также uninstall-файлы и два текстовых файла. Это наблюдение по видимой части списка, не полный бинарный inventory.
+
+### `Download/Gore Screaming Show/dwq/`
+
+На скриншоте видны шесть пар с совпадающими basename:
+
+| Пара | GPK | GTB |
+|---|---:|---:|
+| `bg0` | 67.59 MB | 2.99 KB |
+| `ev0` | 872 MB | 9.27 KB |
+| `sc0` | 3.24 MB | 0.90 KB |
+| `sm0` | 20.69 MB | 20.57 KB |
+| `sys0` | 31.08 MB | 3.09 KB |
+| `ta0` | 662 MB | 11.48 KB |
+
+Совпадающие имена и соседство являются сильным признаком парности, но содержимое каждой пары всё равно должно пройти парсер. Особенно крупные `ev0.gpk` и `ta0.gpk` требуют потокового чтения без загрузки всего архива в память.
+
+### `Download/Gore Screaming Show/cdvaw/`
+
+В видимой части списка присутствуют пары:
+- `aa.vpk` 87.63 MB + `aa.vtb` 21.72 KB;
+- `bb.vpk` 29.39 MB + `bb.vtb` 9.55 KB;
+- `cc.vpk` 51.95 MB + `cc.vtb` 14.16 KB;
+- `dd.vpk` 101 MB + `dd.vtb` 21.86 KB;
+- `ee.vpk` 32.75 MB + `ee.vtb` 8.08 KB;
+- `ff.vpk` 21.60 MB + `ff.vtb` 8.17 KB;
+- начало строки `gg.vpk` также видно, но размер и соответствующая строка `gg.vtb` на снимке обрезаны.
+
+Скриншот не показывает весь каталог `cdvaw/`; количество пар и полный список имён пока не фиксируются.
+
+### `Download/Gore Screaming Show/wgq/`
+
+Каталог содержит 111 объектов. На видимой части списка:
+- `gss01_1.wgq` — 584 KB;
+- `gss01_2.wgq` — 1.80 MB;
+- `gss02_1.wgq` — 142 KB;
+- `gss02_2.wgq` — 1.76 MB;
+- `gss02a_1.wgq` — 35.74 KB;
+- `gss02a_2.wgq` — 1.45 MB;
+- `gss03_1.wgq` — 161 KB;
+- `gss03_2.wgq` — 1.08 MB;
+- `gss03a.wgq` — 1.42 MB;
+- `gss04_1.wgq` — 382 KB;
+- `gss04_2.wgq` — 1.33 MB;
+- `gss04a_1.wgq` — 466 KB;
+- начало `gss04a_2.wgq` видно, размер обрезан.
+
+По имени, размеру и расширению нельзя надёжно решить, картинка это или аудио. Нужен анализ заголовков/содержимого.
+
+## 7. Сверка скриншотов с текущим кодом main
+
+Код проверен на `main` после предыдущей документальной записи; SHA исходников записаны здесь, чтобы вывод можно было повторить.
+
+### Подтверждённая ошибка выбора изображений
+
+Файл `SystemNnnGpkBitmapRepository.kt`, SHA `746202bd23ba7078afa086e6d07efcde8b68596c`:
+
+1. `forGameDirectory()` сначала проверяет `<game root>/wgq`.
+2. Если каталог существует, вызывает `findBlackCycWgqFiles()`.
+3. Если внутри есть хотя бы один `.wgq`, код либо пытается найти пару GTB/WGQ **внутри wgq/**, либо сразу создаёт repository, считая каждый отдельный WGQ изображением.
+4. Поиск обычных GTB/GPK по остальному дереву выполняется только если каталог `wgq/` не существует.
+
+Файл `ResourceArchiveParsers.kt`, SHA `59be627175d2802bb7721b7a38765c056b86186d`, подтверждает, что `findBlackCycWgqFiles()` фильтрует файлы только по расширению `.wgq`; он не классифицирует содержимое до включения файлов в image catalog.
+
+**Почему это важно для показанной папки:** у пользователя есть обе соседние папки `dwq/` с парами GPK/GTB и `wgq/` со 111 отдельными WGQ. Поэтому текущий порядок выбора может отдать приоритет каталогу WGQ и не дойти до GPK/GTB из dwq/. Если WGQ окажутся аудиофайлами или неподдерживаемым типом, запуск может получить неверный список изображений или остановиться на декодировании. Это очень вероятная проблема на данном комплекте, но окончательная причина старта/падения должна быть подтверждена заголовками и логом приложения.
+
+### Подтверждённые ограничения аудио и SPT
+
+- `VpkVtbArchiveParser`, SHA `59be627175d2802bb7721b7a38765c056b86186d`: ожидает 12-байтовые VTB-записи, 64-байтовый текстовый префикс VPK, 44-байтовый RIFF/WAVE дескриптор и Ogg-поток с позиции 108. Это текущая поддерживаемая разновидность, а не универсальный декодер каждого VAW/WGQ.
+- `SystemNnnPlayerActivity.kt`, SHA `28e77012ecd83e5def8419bea4225e10c5a5a3cd`: находит VTB по дереву игры и ищет совпадающий VAW или VPK в той же папке; предпочитает VAW при наличии. Это делает отдельную проверку корневого `vaw/` и папки `cdvaw/` важной.
+- `SystemNnnCommandDecoderImpl.kt`, SHA `e897f680136aa10578c07baddd68cf45d9716a0f`: продолжает трактовать значение main table по правилу «индекс GPK, иначе следующая строка по порядку». Семантика реальных записей пока не подтверждена.
+- `SystemNnnScriptLoader.kt`, SHA `3bf76d4fbfe59857663b3f3828ded34bd4335d35`: читает только ограниченный наблюдавшийся вариант SPT с фиксированными границами `0x32B20` и `0x32B64`; полный формат команд не разобран.
+
+### Обновлённый следующий шаг
+
+Первым делом не менять SPT. Нужно открыть `Download/Gore Screaming Show/spt/` и прислать снимок списка файлов с именами и размерами. Внутри 30 объектов — это позволит установить, какие сценарии есть и не выбирать ли сейчас `01.spt` просто по имени. Затем отдельно осмотрим `vaw/` и проверим 1–2 WGQ по заголовкам.
+
+## 8. Содержимое `Download/Gore Screaming Show/spt/` по скриншотам — 2026-11-04
+
+Хлебные крошки на всех трёх изображениях показывают один и тот же путь: `Download/Gore Screaming Show/spt/`.
+
+### Видимые сценарии и размеры
+- `_staff.spt` — 5.88 KB
+- `01.spt` — 390 KB
+- `02.spt` — 327 KB
+- `03.spt` — 812 KB
+- `04.spt` — 268 KB
+- `05.spt` — 237 KB
+- `06.spt` — 52.37 KB
+- `07.spt` — 245 KB
+- `08.spt` — 90.73 KB
+- `082.spt` — 449 KB
+- `akane.spt` — 1.54 MB
+- `aoi.spt` — 1.30 MB
+- `backspt.spt` — 147 KB
+- `day.spt` — 23.49 KB
+- `kiika.spt` — 1.52 MB
+- `op1.spt` — 90.12 KB
+- `sys.spt` — 1.88 KB
+- `yamiko.spt` — 1.11 MB
+- `yuka.spt` — 1.00 MB
+- `yuka2.spt` — 184 KB
+
+### Видимые сопутствующие файлы
+- `bgmlist.xtx` — 1.51 KB
+- `cglist01.xtx` — 5.43 KB
+- `charaname.xtx` — 0.96 KB
+- `command.xtx` — 4 B
+- `function.xtx` — 79 B
+- `namecol.xtx` — 0 B
+- `project.xtx` — 109 B
+- `scene.dat` — 1.16 KB
+- `selist.xtx` — 5.27 KB
+- `var.fxf` — 3.47 KB
+
+На снимках видны 30 объектов в каталоге; список выше отражает все имена, которые удалось прочитать на предоставленных кадрах. Если часть строк была перекрыта/не попала в кадр, не считать этот перечень исчерпывающим.
+
+### Что это меняет в плане
+- `01.spt` существует и имеет размер 390 KB, близкий к ранее исследованному файлу размером 389,500 байт. Это сильный кандидат на тот самый ранее проанализированный сценарий, но без контрольной суммы нельзя утверждать, что это один и тот же файл.
+- Есть несколько нумерованных сценариев (`01.spt`–`08.spt`, плюс `082.spt`) и отдельные именованные SPT (`akane`, `aoi`, `kiika`, `yamiko`, `yuka`, `yuka2`). Нельзя считать, что вся игра состоит из одного `01.spt`.
+- `bgmlist.xtx`, `cglist01.xtx`, `charaname.xtx`, `selist.xtx`, `project.xtx`, `scene.dat`, `sys.spt` и `command.xtx` могут содержать важные таблицы/настройки проекта. Их роль пока не доказана по одним именам.
+- Следующий диагностический образец: именно `spt/01.spt` и небольшие сопутствующие файлы `project.xtx`, `command.xtx`, `bgmlist.xtx`, `cglist01.xtx`, `charaname.xtx`, `selist.xtx`, `scene.dat`. Сначала анализировать заголовки, таблицы и ссылки; не делать выводов о смысле команд только по именам файлов.
+
+
+## 9. Анализ предоставленного ZIP с реальными файлами SPT — 2026-11-04
+
+Пользователь прислал `hui.zip`. В архиве ровно 8 ожидаемых файлов:
+- `01.spt` — 389,500 байт
+- `bgmlist.xtx` — 1,507 байт
+- `cglist01.xtx` — 5,433 байта
+- `charaname.xtx` — 964 байта
+- `command.xtx` — 4 байта
+- `project.xtx` — 109 байт
+- `scene.dat` — 1,164 байта
+- `selist.xtx` — 5,271 байт
+
+### Подтверждено по 01.spt
+- После XOR 0xFF в заголовке по адресу 0x30 находится `SPTHEADER0`.
+- Четыре пары count/offset:
+  - @0x10: count 1299, offset 50618 (0xC5BA)
+  - @0x18: count 1124, offset 92146 (0x167F2)
+  - @0x20: count 69, offset 50064 (0xC390)
+  - @0x28: count 2, offset 0
+- Это совпадает с ранее записанным результатом для образца 389,500 байт. Теперь подтверждено, что старые измерения были сделаны с тем же самым 01.spt.
+- У таблицы по 0xC5BA начало после XOR: `33 33 02 00 00 00 FF FF FF FF ...`. Само по себе это не доказывает, что все 1299 значений — последовательные индексы изображений или текстов.
+- По 0x32B20 находятся указатели и метки `text`; это структурная область сценария, но пока нельзя приписывать каждой записи смысл без трассировки ссылок.
+
+### Подтверждено по сопутствующим файлам
+- `project.xtx` — текстовый список имён сценариев/модулей (20 строк), включая `sys`, `backspt`, `01`–`08`, `082`, именные сценарии и `_staff`. Это прямое подтверждение, что проект организован как набор нескольких сценарных модулей, а не только 01.spt.
+- `bgmlist.xtx`, `cglist01.xtx`, `charaname.xtx`, `selist.xtx` — текстовые таблицы Shift-JIS/совместимого японского текстового формата с CRLF. Структурно: bgmlist 46 строк с одним разделителем-запятой; cglist01 540 строк без запятых; charaname 85 строк, 84 непустых; selist 195 строк, 190 непустых, в основном по одному разделителю-запятой. Содержимое пользовательских строк не копируется в журнал.
+- `command.xtx` содержит только две пустые CRLF-строки (4 байта), поэтому в этом экземпляре он не даёт словаря команд.
+- `scene.dat` — бинарный файл 1,164 байта (291 32-битное LE слово при грубом разбиении); первое слово равно длине файла. Это похоже на структурированный индекс/таблицу, но его формат ещё не доказан.
+
+### Выводы и следующие шаги
+1. Предыдущая гипотеза о «все большие значения — следующая строка текста» остаётся неподтверждённой и не должна становиться правилом интерпретатора.
+2. Сначала описать все четыре таблицы SPT (границы, типы элементов, повторяющиеся значения, ссылки внутрь файла), затем сопоставить их с именами/списками в XTX и сценами из scene.dat.
+3. Сделать независимый диагностический отчёт по каждому SPT, а не захардкодить смещения 0x32B20/0x32B64 для всех файлов.
+4. Следующий полезный образец — ещё один компактный SPT, например `sys.spt` или `day.spt`, либо сами файлы уже доступны из исходной папки пользователя; это поможет понять, какие поля общие между файлами. Для полной проверки нужны также остальные SPT, но их можно передавать выборочно.
+5. Код приложения не изменялся; это анализ реальных бинарных данных и обновление документации.
+
+## 10. Полный анализ ZIP со всеми SPT и sidecar-файлами — 2026-11-04
+
+### Целостность и состав архива
+
+- Получен `hui(1).zip`.
+- SHA-256 ZIP: `20a06b948bfb7d5c0fb5b2fc6a02396161c29e8959d1743599f81de3fea93509`.
+- Размер ZIP: 1,969,339 байт.
+- Распакованный размер файлов: 9,815,703 байта.
+- Архив содержит одну корневую папку `hui/`, 30 файлов и запись каталога (31 ZIP entry).
+- Проверка ZIP CRC завершилась успешно; повреждённых элементов не обнаружено.
+- Внутри: 20 файлов `.spt` и 10 вспомогательных файлов. Это полный набор из показанной папки `spt/`, а не весь каталог игры с крупными ресурсными архивами.
+
+### Проектный список и состав SPT
+
+`project.xtx` содержит 20 имён модулей. Набор имён в нём точно совпадает с basename всех 20 SPT-файлов в архиве — нет ни отсутствующих, ни лишних имён.
+
+Список проекта в исходном порядке:
+`sys`, `backspt`, `01`, `02`, `03`, `04`, `05`, `06`, `07`, `08`, `082`, `akane`, `aoi`, `kiika`, `yamiko`, `yuka`, `day`, `op1`, `yuka2`, `_staff`.
+
+Это сильное подтверждение, что SPT — набор взаимосвязанных модулей проекта. Но порядок строк сам по себе ещё не доказывает entrypoint или последовательность выполнения.
+
+### Общие признаки всех 20 SPT
+
+- Все 20 файлов после побайтного XOR `0xFF` имеют сигнатуру `SPTHEADER0` по offset `0x30`.
+- У всех первый little-endian DWORD равен 20.
+- Все четыре пары count/offset находятся на тех же позициях заголовка: `0x10/0x14`, `0x18/0x1C`, `0x20/0x24`, `0x28/0x2C`.
+- Сами count и offset сильно различаются между файлами. Поэтому нельзя использовать смещения из `01.spt` для остальных сценариев.
+
+Ниже записаны сырые значения заголовков. Имена «основная», «вторая», «третья» и «четвёртая» — удобные обозначения полей в текущем коде Ramen, а не доказанные официальные названия таблиц.
+
+| Файл | Размер, байт | Основная пара (count@offset) | Вторая пара | Третья пара | Четвёртый count |
+|---|---:|---:|---:|---:|---:|
+| `01.spt` | 389,500 | `1299@0xC5BA` | `1124@0x167F2` | `69@0xC390` | 2 |
+| `_staff.spt` | 5,876 | `0@0x540` | `29@0x544` | `3@0x525` | 1 |
+| `02.spt` | 327,220 | `1074@0x9CA2` | `987@0x12E7D` | `53@0x9B06` | 3 |
+| `03.spt` | 812,064 | `2606@0x1A3F3` | `2843@0x2E70F` | `178@0x19F92` | 20 |
+| `04.spt` | 268,448 | `816@0x94C6` | `964@0xF573` | `56@0x930A` | 2 |
+| `05.spt` | 236,980 | `900@0x6F0C` | `640@0xDCA2` | `37@0x6DD6` | 6 |
+| `06.spt` | 52,372 | `191@0x17C4` | `90@0x319A` | `10@0x1774` | 2 |
+| `07.spt` | 244,720 | `924@0x73E5` | `602@0xE52D` | `27@0x72BD` | 2 |
+| `08.spt` | 90,728 | `302@0x2DC2` | `292@0x53BD` | `15@0x2D35` | 3 |
+| `082.spt` | 449,152 | `2088@0xF7DA` | `1664@0x19B36` | `55@0xF5B3` | 8 |
+| `akane.spt` | 1,542,956 | `6063@0x293B1` | `3660@0x5A7B7` | `103@0x28E38` | 3 |
+| `aoi.spt` | 1,300,584 | `5571@0x20CF9` | `2722@0x4CA3B` | `86@0x20903` | 4 |
+| `backspt.spt` | 146,592 | `0@0x7F21` | `916@0x7F25` | `23@0x7E45` | 4 |
+| `day.spt` | 23,492 | `0@0x150A` | `106@0x150E` | `5@0x14C9` | 2 |
+| `kiika.spt` | 1,517,704 | `6416@0x28BEA` | `3624@0x58F08` | `112@0x286CA` | 5 |
+| `op1.spt` | 90,124 | `32@0x4E79` | `384@0x5211` | `23@0x4DA1` | 3 |
+| `sys.spt` | 1,884 | `0@0x1A9` | `17@0x1AD` | `3@0x19A` | 3 |
+| `yamiko.spt` | 1,112,972 | `4424@0x1F193` | `2882@0x410B1` | `59@0x1ED7F` | 4 |
+| `yuka.spt` | 999,916 | `4068@0x1BBF8` | `2542@0x3A6DE` | `96@0x1B7FC` | 2 |
+| `yuka2.spt` | 184,420 | `609@0x669A` | `524@0xABC5` | `15@0x6582` | 1 |
+
+### Что нынешний Ramen способен принять
+
+Текущий `SystemNnnScriptLoader` требует:
+- размер не меньше `0x32B65`;
+- ненулевой count основной таблицы;
+- main offset внутри фиксированного окна до `0x32B20`;
+- фиксированные command/text boundaries в пределах файла.
+
+По этим условиям проходит только 12 из 20 файлов:
+`01`, `02`, `03`, `04`, `05`, `07`, `082`, `akane`, `aoi`, `kiika`, `yamiko`, `yuka`.
+
+Остальные 8:
+- `_staff.spt`, `backspt.spt`, `day.spt`, `sys.spt` — основной count равен нулю, хотя остальные descriptors присутствуют;
+- `06.spt`, `08.spt`, `op1.spt`, `yuka2.spt` — размер меньше жёстко заданной границы `0x32B65`.
+
+Это не значит, что эти восемь файлов повреждены. Они входят в `project.xtx`, а часть, вероятно, является служебными или дополнительными модулями. Parser обязан различать «пустая основная таблица» и «неверный SPT», а не считать эти случаи одним и тем же.
+
+### Почему текущую таблицу UInt32 нельзя считать доказанной
+
+У `01.spt` первые байты области по `0xC5BA` после XOR начинаются с последовательностей вроде `33 33 02 00`, далее встречаются повторяющиеся двухбайтовые маркеры `0x3333`, `0x6666`, `0x2222`, `0x5556`. Это похоже на смешанную структуру с тегами/операндами, но семантика и границы записей ещё не установлены.
+
+Чтение этих байтов как простого списка 1299 независимых UInt32 и сравнение каждого числа с количеством изображений не подтверждено. Значение count не доказывает размер записи. Нельзя пока делать вывод «маленькое число — номер картинки, большое — следующая реплика».
+
+### Текстовые области и независимый ориентир
+
+- В `01.spt` есть шесть маркеров `text\\0` около `0x32B34`–`0x32B5C`.
+- В `02.spt` найден один такой маркер около `0x28350`.
+- В остальных 18 SPT точный маркер `text\\0` не найден.
+- Следовательно, даже наблюдаемый маркер и текстовая область не имеют единого доказанного фиксированного offset для всех файлов.
+
+Публичный проект VNTools указывает для SPT сигнатуру `SPTHEADER0`, Shift-JIS и XOR `0xFF`, а его реализация `SPTScript` не разбирает VM-команды: она эвристически ищет текстовые фрагменты, начиная примерно с `0x1000`, по NUL/control-byte и Shift-JIS признакам. Это может быть полезным независимым способом находить кандидаты строк, но не является спецификацией инструкций или полноценным интерпретатором. См. [VNTools README и исходник](https://github.com/abunomaru/VNTools/blob/c9a767aa722856bb90b751cc0051c3f6f5dbcfd4/systemnnn_tools.py). Общие сведения о подписи/кодировке также описаны в README VNTools. <Cite ref="turn198338view0" />
+
+Для сравнения воспроизведён только счётчик кандидатов этой эвристики; сами строки не сохранялись и не выводились:
+- `01`: 131; `_staff`: 2; `02`: 229; `03`: 560; `04`: 280;
+- `05`: 186; `06`: 27; `07`: 120; `08`: 40; `082`: 381;
+- `akane`: 656; `aoi`: 454; `backspt`: 66; `day`: 13; `kiika`: 473;
+- `op1`: 48; `sys`: 0; `yamiko`: 432; `yuka`: 396; `yuka2`: 74.
+
+Всего 4,568 **кандидатов строк по эвристике**, не подтверждённых реплик. Для `01.spt` текущий Ramen splitter по фиксированному offset даёт 2,502 NUL-delimited Shift-JIS кандидата; внешняя эвристика на том же файле нашла 131 кандидата другого типа. Эти значения нельзя сравнивать как количество реальных диалогов: они показывают, что простой split по NUL и строгая Shift-JIS декодировка создают много ложных «строк».
+
+### Служебные файлы
+
+| Файл | Наблюдение |
+|---|---|
+| `project.xtx` | 109 байт, 20 строк/имён модулей, точное соответствие набору SPT |
+| `bgmlist.xtx` | 1,507 байт, 46 строк CRLF |
+| `cglist01.xtx` | 5,433 байта, 540 строк CRLF |
+| `charaname.xtx` | 964 байта, 85 строк CRLF |
+| `selist.xtx` | 5,271 байт, 195 строк CRLF |
+| `function.xtx` | 79 байт, 3 строки CRLF |
+| `command.xtx` | 4 байта: две пустые CRLF-строки |
+| `namecol.xtx` | 0 байт |
+| `var.fxf` | 3,468 байт; XOR `0xFF` превращает начало в читаемую ASCII-подобную таблицу |
+| `scene.dat` | 1,164 байта; первый LE DWORD равен 1,164; грубое разбиение даёт 291 DWORD, формат пока неизвестен |
+
+Текстовые значения служебных таблиц не копировались в журнал. Здесь сохранены только размеры, количество строк и структурные признаки.
+
+### Вывод для реализации
+
+1. Не переносить hardcoded `0x32B20` и `0x32B64` на все SPT.
+2. Не считать main count доказательством того, что далее лежит массив UInt32 индексов изображений/диалогов.
+3. `project.xtx` должен стать входом для модели проекта: он перечисляет все 20 модулей. Но entrypoint ещё нужно найти по `scene.dat`, служебным таблицам и ссылкам между SPT.
+4. Сначала сделать read-only диагностический вывод для каждого SPT: заголовок, descriptor ranges, кандидаты указателей, текстовые offset candidates и ошибки границ.
+5. Потом исследовать `scene.dat` и связи модулей; только после этого писать переходы между сценариями и семантику команд.
+6. Эвристическое нахождение строк использовать лишь как подсказку для offset-карты, не как VM и не как runtime.
+
+### Что не изменилось
+
+- Kotlin-код не изменялся.
+- Тесты/CI не запускались на этом документальном этапе.
+- Ни одна строка сценария не экспортировалась в отчёт.
+- Нельзя утверждать, что игра запускается или что найден entrypoint.
+- Следующий шаг — исследовать отношения `project.xtx` ↔ `scene.dat` ↔ SPT descriptors, затем вернуться к WGQ/DWQ resource selection на основании байтового sample.
+
+
+
+## 11. Сверка количества игровых архивов с текущим runtime — 2026-11-04
+
+По скриншотам корня игры подтверждены:
+- в `dwq/` находятся шесть пар GPK/GTB: `bg0`, `ev0`, `sc0`, `sm0`, `sys0`, `ta0`;
+- в `cdvaw/` находится 166 объектов; на видимой части минимум шесть пар VPK/VTB (`aa`–`ff`) и начало `gg.vpk`;
+- в `wgq/` — 111 отдельных объектов с расширением `.wgq`;
+- отдельная папка `vaw/` содержит два объекта.
+
+### Дополнительное ограничение изображения
+
+В `SystemNnnGpkBitmapRepository.forGameDirectory()` текущий код:
+1. сначала проверяет корневую `wgq/`;
+2. если там найдены файлы `.wgq`, рассматривает их как standalone DWQ images либо ищет индексированную пару GTB/WGQ внутри той же папки;
+3. поиск обычных GPK/GTB в остальном дереве выполняется только если корневой `wgq/` отсутствует.
+
+У пользователя `wgq/` и `dwq/` — соседние каталоги. Значит, текущая ветка выбора может вообще не дойти до шести GPK/GTB пар в `dwq/`. Это подтверждённое несоответствие алгоритма выбора показанной структуре каталогов.
+
+Даже если исправить приоритет каталогов, repository сейчас возвращает один найденный GPK/GTB archive. В каталоге пользователя видно шесть пар с разными basename. Поэтому простой выбор первого `bg0.gpk` не доказывает, что все индексы ресурсов из сценариев смогут разрешиться. Нужна модель нескольких архивов и правило выбора архива по доказанному resource ID/типу, а не только первый совпавший файл.
+
+### Дополнительное ограничение аудио
+
+`SystemNnnPlayerActivity.prepareAudioRepository()` проходит по VTB, ищет одноимённый VAW/VPK в той же папке и возвращает первый непустой `SystemNnnVpkAudioRepository`. Он не объединяет все найденные каталоги/банки в единый resolver.
+
+По видимой части `cdvaw/` у игры уже как минимум шесть пар VPK/VTB. Поэтому текущий runtime потенциально видит лишь первый банк голосов, а остальные пары остаются недоступными для текущего player. Последовательная привязка аудио по номеру реплики остаётся отдельной неподтверждённой гипотезой.
+
+### WGQ и фоновая музыка
+
+Публичный справочник VNTools относит `.wgq` к BGM-файлам с 64-байтовым заголовком и Ogg payload, а не к общему типу картинок. <Cite ref="turn198338view0" />
+
+В нашем конкретном комплекте заголовок ни одного WGQ пока не проверен, поэтому классифицировать все 111 файлов как аудио по одному расширению тоже нельзя. Правильный следующий шаг — проверять содержимое по заголовку и сигнатуре. Текущая логика Ramen при этом трактует standalone `.wgq` как DWQ-картинку, а стартовая Activity не передаёт player фоновый музыкальный трек.
+
+### Последовательность исправлений ресурсной подсистемы
+
+1. Добавить строгую классификацию WGQ по header/PACKTYPE и реальной payload signature.
+2. Искать валидные GPK/GTB из `dwq/` независимо от наличия соседней `wgq/`.
+3. Не останавливать resolver на первом GPK/GTB: спроектировать каталог нескольких архивов на основании структуры индексов и ссылок SPT.
+4. Аналогично собрать каталог всех VPK/VTB банков, не только первого найденного.
+5. Развести типы ресурсов: сценические изображения, голоса/звуковые эффекты и BGM.
+6. После подтверждения этих связей подключить BGM и синхронизацию голоса.
+
+Нельзя выполнять пункты 3–6 через догадку, что basename или порядок файлов равен индексу ресурса. Для этого потребуется сопоставить GTB/VTB names и SPT/sidecar references.
+
+
+## 12. Подтверждённая структура двух SPT-пулов на всём наборе — 2026-11-04
+
+### Независимая техническая опора
+
+Найден разбор другого проекта семейства NNNLib:
+- [System-NNN reference](https://github.com/flamecho/pretrans-extractor/blob/main/references/engines/system-nnn.md)
+- [SPT parser implementation](https://github.com/flamecho/pretrans-extractor/blob/main/scripts/cloverlib_extract.py)
+- [second SPT parser implementation](https://github.com/flamecho/pretrans-extractor/blob/main/scripts/cloverlib2_extract.py)
+
+Эти материалы относятся к другому продукту на том же семействе движка, поэтому сами по себе не доказывают совместимость с этим комплектом. Но описанная ими структура была независимо проверена на всех 20 SPT из ZIP пользователя.
+
+### Реально проверенная схема
+
+В каждом SPT после XOR `0xFF`:
+- `u32 @ 0x00 = 0x20`;
+- `SPTHEADER0` начинается по `0x30`;
+- по `0x10` расположены четыре пары `u32 count + u32 base`.
+
+Первые две пары оказались описателями двух индексированных пулов:
+- **Pool 1** — основная группа строк/реплик;
+- **Pool 2** — дополнительные записи, среди которых встречаются подписи, метки и ссылки на другие модули.
+
+Важно: `base` из заголовка — не физическое смещение таблицы в файле. Для пула с количеством `count` физическая таблица адресов обнаруживается поиском 4-байтового значения `base + count`, выровненного на 4 байта. Кандидат принимается только если далее находится ровно `count` строго возрастающих little-endian UInt32. В этом комплекте для каждой непустой таблицы нашёлся ровно один такой кандидат.
+
+После таблицы идут `count` записей:
+- каждая запись заканчивается NUL;
+- следующая запись начинается на следующей 4-байтовой границе;
+- число найденных записей точно равно count из заголовка.
+
+**Дополнительная сильная проверка:** для каждой соседней пары адресов `address[i+1] - address[i]` равно размеру соответствующей записи, округлённому вверх до 4-байтовой границы и выраженному в 4-байтовых единицах. Это сошлось для всех 36 непустых пулов во всех 20 файлах — ни одного несовпадения.
+
+### Проверка всех 20 модулей
+
+- Pool 1 имеет ненулевой count в 16 файлах; для всех 16 таблица адресов найдена однозначно, число записей равно count.
+- В четырёх файлах `sys.spt`, `backspt.spt`, `day.spt`, `_staff.spt` Pool 1 имеет count 0. Это допустимый пустой пул, а не признак повреждённого SPT.
+- Pool 2 имеет ненулевой count во всех 20 файлах. Все 20 таблиц найдены однозначно; число выровненных NUL-записей совпало с count.
+- В каждом из 16 файлов с непустым Pool 1 после его последней записи обнаруживается 16-байтовый служебный блок. В нём повторяется структура с парами `(1, 0x6666)`, `(2, 0x5555)`, `(1, 0x4444)`. Таблица адресов Pool 2 начинается ровно через 16 байт после конца Pool 1.
+- После Pool 2 данные доходят ровно до EOF файла во всех 20 модулях.
+
+### Точная карта `01.spt`
+
+Размер: 389,500 байт (`0x5F17C`).
+
+| Участок | Физическое смещение | Размер / число |
+|---|---:|---:|
+| Таблица адресов Pool 1 | `0x316E8` | 1299 × UInt32 |
+| Записи Pool 1 | `0x32B34` | 1299 записей |
+| Служебный блок | `0x59FB8` | 16 байт |
+| Таблица адресов Pool 2 | `0x59FC8` | 1124 × UInt32 |
+| Записи Pool 2 | `0x5B158` | 1124 записи |
+| Конец Pool 2 / файла | `0x5F17C` | EOF |
+
+Заголовок при этом содержит `base1=0xC5BA` и `base2=0x167F2`. Эти значения задают логические адресные диапазоны. Поэтому старый код, трактующий `0xC5BA` как физическое начало массива команд, читает не ту область.
+
+Начало Pool 1 в `01.spt` содержит шесть коротких записей `text`; они входят в count 1299. Первая запись после этих маркеров начинается с физического `0x32B64`. Таким образом, прежний фиксированный `TEXT_POOL_OFFSET=0x32B64` был не началом всего Pool 1, а смещением после шести записей в конкретном файле.
+
+### Связи модулей
+
+- `project.xtx` содержит 20 имён, и это множество точно совпадает с именами 20 SPT-файлов.
+- Независимый NNNLib reference описывает `project.xtx` как порядок загрузки модулей. В текущем комплекте его строки начинаются с `sys`, затем `backspt`, затем `01`; поэтому это важный кандидат на правильную последовательность загрузки, но порядок загрузки ещё не доказывает порядок выполнения.
+- В Pool 2 файла `sys.spt` найдены отдельные записи, совпадающие с именами модулей `op1`, `01`–`08`, `082`, `akane`, `aoi`, `kiika`, `day`.
+- В Pool 2 `01.spt` есть ссылка-имя `yuka`; в `03.spt` — `yamiko` и `_staff`; в нескольких именных сценариях — `_staff`; в `yuka.spt` — `yuka2`.
+- Это доказывает наличие межмодульных имён/ссылок в данных. Само действие перехода и его opcode пока не установлены.
+
+### Что теперь исправлено в понимании формата
+
+Старое предположение, что main count — это массив из UInt32 индексов картинок/диалогов, неверно для наблюдаемой структуры. Это количество строк Pool 1; UInt32 таблица — таблица логических адресов этих записей, физически найденная по содержимому.
+
+Текущий `SystemNnnScriptLoader` нужно заменить/переработать так, чтобы он:
+1. находил адресные таблицы динамически, а не принимал header base за file offset;
+2. сохранял обе таблицы логических адресов;
+3. извлекал оба NUL-пула с 4-байтовым выравниванием;
+4. принимал пустой Pool 1, если Pool 2 корректен;
+5. сохранял сырые байты записей и ошибки декодирования CP932/Shift-JIS, не теряя границы;
+6. не делал вид, что чтение двух текстовых пулов уже означает разбор команд VM.
+
+### `scene.dat` — результат и открытый вопрос
+
+`scene.dat` разбирается как:
+- общий размер `1164` в первом UInt32;
+- версия `1` во втором UInt32;
+- `69` записей далее;
+- каждая запись: `type UInt32`, `valueCount UInt32`, затем `valueCount` UInt32 значений.
+
+Последняя запись заканчивается ровно на EOF. Типы встречаются со значениями 4, 10, 11, 12, 13, 14, 15 и 18; counts — от 1 до 5.
+
+У `01.spt` descriptor 3 также имеет count 69. Это возможная связь, но пока не доказано, что записи `scene.dat` соответствуют элементам третьего SPT descriptor. Внешний NNNLib reference относит `.fxf` и `scene.dat` к переменным/UI binary data, а третий SPT descriptor — к отдельной небольшой таблице без строк. До сравнения внутренних полей не объединять эти структуры в одну модель.
+
+### `var.fxf`
+
+После XOR `0xFF` файл читается как CP932-таблица из 200 строк и 6 колонок с именами переменных/полей состояния. Это подтверждает, что `var.fxf` относится к слою переменных, но семантика всех полей и связь с `scene.dat` ещё не исследованы.
+
+### Следующая очередь
+
+1. Реализовать и протестировать Kotlin-чтение Pool 1/Pool 2 по подтверждённой адресной структуре, включая пустой Pool 1.
+2. Добавить read-only отчёт по третьему и четвёртому descriptor без выдумывания их семантики.
+3. Сопоставить `scene.dat`, `var.fxf` и третий descriptor 01.spt на уровне ID/полей.
+4. Разобрать инструкционный поток и его ссылки на логические адреса пулов; пока не запускать его как последовательный UInt32 массив.
+5. Использовать `project.xtx` как вероятный load-order, но проверить это на переходах из `sys.spt` и других модулей.
+
+
+## 13. Реализация двух индексированных SPT-пулов в Kotlin — 2026-11-04
+
+<badge color="success">Код собран, unit-тесты и lint прошли в CI #298</badge>
+
+### Что изменено
+
+Файл `app/src/main/java/io/github/helterfall/ramen/parser/SystemNnnScriptLoader.kt` переработан:
+- больше не использует header logical base как физическое смещение;
+- находит физическую таблицу каждого из двух пулов по первому логическому адресу `base + count`;
+- проверяет выравнивание кандидата и строго возрастающую последовательность UInt32;
+- считывает ровно указанное количество NUL-записей, переходя к следующей записи по 4-байтовой границе;
+- для соседних адресов проверяет соответствие разности логических адресов размеру предыдущей выровненной записи в 4-байтовых ячейках;
+- при непустом Pool 1 проверяет 16-байтовый межпуловый блок и точное положение таблицы Pool 2;
+- сохраняет третий и четвёртый header descriptors как метаданные; их назначение не выдумывает;
+- сохраняет исходные байты записей и логический адрес, даже если строгая Shift-JIS-декодировка не сработала.
+
+В модели `SystemNnnScript` теперь доступны два пула отдельно (`textPool` и `secondaryTextPool`) и общая карта `stringPools`. Старый `textPoolOffset` оставлен для совместимости с существующим кодом, но теперь указывает на реальное начало первого доступного пула, а не на фиксированное смещение.
+
+### Тесты
+
+- Переписан `SystemNnnScriptLoaderTest`: тестовые SPT теперь содержат реальную схему адресных таблиц и 4-байтовых записей.
+- Добавлена проверка обоих пулов и сохранения raw bytes при ошибочной кодировке.
+- Добавлена проверка модулей с пустым Pool 1.
+- Синтетические fixtures используют count/base из всех 20 реальных файлов, загруженных пользователем. Это регрессионная проверка всех наблюдавшихся форм заголовка, но не подмена бинарников игры в репозитории.
+- Тесты VisualNovelDetector раньше использовали искусственный SPT только с подписью и устаревшим фиксированным текстовым смещением. После изменения настоящего парсера эти fixtures стали некорректными; они заменены на маленький, но структурно валидный SPT с двумя пулами.
+
+### Предохранитель от ложного исполнения
+
+Старый `SystemNnnCommandDecoderImpl` считал логическую базу физическим местом массива UInt32 и трактовал малые числа как индексы картинок, а остальные — как следующую реплику. Исследование настоящих SPT показало, что это неверная гипотеза.
+
+Поэтому:
+- `SystemNnnCommandDecoderImpl` теперь явно отказывает с сообщением, что декодер команд ещё не реализован;
+- `SystemNnnPlayerActivity` пока передаёт `commandDecoder = null`, чтобы не показывать выдуманные диалоги и смены фона;
+- экран может сообщить, что SPT-пулы прочитаны, но VM-интерпретатор ещё не подключён.
+
+Это осознанно ограничивает запуск сейчас. Следующий этап — декодировать реальный поток инструкций и переходы между модулями; данный коммит не делает игру проигрываемой.
+
+### CI и результат
+
+- Первый запуск после изменений SPT (#297) собрал и скомпилировал проект, но два теста `VisualNovelDetectorTest` упали, потому что их fixtures не соответствовали новому SPT-формату. Это была проблема тестовых данных, а не падение парсера на настоящем проекте.
+- После исправления fixtures CI #298 завершился успешно:
+  - `assembleDebug` — success;
+  - `testDebugUnitTest` — success;
+  - `lintDebug` — success;
+  - загрузка `ramen-debug-apk` — success.
+- [GitHub Actions run #298](https://github.com/HelterFall/Ramen/actions/runs/41846795259).
+- APK artifact: `ramen-debug-apk`, 11,647,447 байт.
+
+### Что не проверено
+
+- APK не устанавливался на физическое устройство в рамках этой сессии.
+- Реальная новелла ещё не проигрывается: VM-команды не декодируются.
+- Реальные SPT бинарники пользователя не коммитились в Git; Kotlin tests используют синтетические fixtures на основе их заголовков и проверенных правил структуры.
+- WGQ/DWQ приоритеты и каталоги нескольких GPK/GTB, VPK/VTB архивов пока не исправлены.
+
+### Следующий шаг
+
+Построить read-only карту инструкционного потока: найти границы команд, opcode/operand пары, ссылки на логические адреса обоих пулов и переходы между 20 модулями. Никаких переходов/команд пока не исполнять, пока их смысл не доказан на нескольких реальных сценариях.
+
+
+## 14. Финальная проверка Pool 2 EOF и детектора — CI #301 — 2026-11-04
+
+### Дополнительные правки поверх версии CI #298
+
+- После разбора Pool 2 парсер теперь требует, чтобы конец последней записи Pool 2 совпадал с физическим концом файла (EOF). Это дополнительный структурный якорь, который подтвердился на всех 20 предоставленных SPT.
+- `VisualNovelDetector` теперь сообщает количество записей суммарно из обоих индексированных пулов, а не только из Pool 1. Это важно для модулей, в которых Pool 1 пустой.
+- Добавлен тест, который намеренно дописывает лишний байт после корректного Pool 2 и проверяет, что такой файл отвергается.
+- Тесты детектора теперь проверяют, что в диагностике учитываются обе записи миниатюрного fixture (по одной из каждого пула).
+
+### CI #301
+
+<badge color="success">Успешно</badge>
+
+- Run: [Android CI #301](https://github.com/HelterFall/Ramen/actions/runs/41847591081)
+- `assembleDebug`: success
+- `testDebugUnitTest`: success
+- `lintDebug`: success
+- `Upload debug APK`: success
+- Артефакт: `ramen-debug-apk`, 11,647,505 байт.
+- Build: `BUILD SUCCESSFUL in 1m 23s`.
+
+CI #298 ранее также прошёл успешно, но CI #301 проверяет уже последнюю версию с EOF-проверкой и изменениями диагностики.
+
+### Итог этапа SPT-pools
+
+Теперь есть bounded read-only разбор двух индексированных строковых пулов, проверка таблиц логических адресов, выравнивания записей, межпулового блока, пустого первого пула и окончания второго пула на EOF. Реальный runtime-команд пока нет. Старый предположительный декодер по UInt32 отключён, а player получает `commandDecoder = null`.
+
+### Не проверено
+
+- APK не устанавливался на физическом Android-устройстве.
+- Ни одна реальная сцена не воспроизводится на этом этапе: opcode/operand semantics ещё не реализованы.
+- Не исправлены выбор WGQ/DWQ, multi-GPK/GTB, multi-VPK/VTB и подключение BGM.
+
+### Следующий шаг
+
+Строить read-only карту командного участка SPT: определить границы команд, какие поля являются opcode/operand, как используются логические адреса Pool 1/Pool 2 и как вызываются другие модули. Не включать исполнение, пока эти правила не будут доказаны несколькими сценариями.
+
+
+## 15. Первичная карта кандидатных команд в SPT — 2026-11-04
+
+### Метод
+
+- Использован полный загруженный набор из 20 SPT после XOR 0xFF.
+- Для каждого файла взят ограниченный участок от физического смещения 0x40 до найденной физической таблицы Pool 1; если Pool 1 пуст, до физической таблицы Pool 2.
+- Участок просмотрен по 4-байтовой сетке как пары `UInt16 param + UInt16 candidateOpcode`.
+- В качестве candidateOpcode проверялись маркеры, встречающиеся в независимом NNNLib-описании другого проекта: `0x6666`, `0x5555`, `0x5556`, `0x3333`, `0x2222`, `0x4444`, `0x8000`, `0x9000`, `0xA000`, `0xA500`.
+- Эта проверка ищет повторяющиеся структуры. Она **не** доказывает, что каждая ячейка — инструкция, что все opcode применимы к этой игре или что значения параметров уже расшифрованы.
+
+### Подтверждённая повторяющаяся пара
+
+Во всех 20 файлах:
+- каждая четырёхбайтовая запись с параметром `7` и вторым UInt16 `0x6666` непосредственно сопровождается следующей четырёхбайтовой записью с вторым UInt16 `0x3333`;
+- количество таких соседних пар точно равно количеству записей `0x3333`;
+- равенство выполняется для всех модулей, включая `sys.spt`, `day.spt`, `_staff.spt` и `backspt.spt`, у которых Pool 1 пуст или используется отдельно от обычных модулей.
+
+Это сильный структурный якорь для дальнейшего разбора границ/групп инструкций. Но пока неизвестно, описывает ли `0x6666/7` длину, группу, тип следующего блока или другую управляющую связь. Не присваивать ему смысл «показать текст» или аналогичный без дополнительных доказательств.
+
+### Ещё одна неполная корреляция
+
+Пара `param=1, candidateOpcode=0x2222` встречается ровно столько раз, сколько записей Pool 1 в 9 из 16 файлов с непустым Pool 1:
+`01`, `03`, `06`, `08`, `082`, `kiika`, `op1`, `yuka`, `yuka2`.
+
+В остальных семи модулях с непустым Pool 1 количества отличаются:
+`02`, `04`, `05`, `07`, `akane`, `aoi`, `yamiko`.
+В четырёх файлах с пустым Pool 1 счётчик `0x2222/1` также равен нулю.
+
+Это может указывать на связь отдельных команд с записями Pool 1, но различия в семи модулях не позволяют считать это универсальным правилом.
+
+### Сколько ячеек похоже на известные маркеры
+
+В выбранном окне доля ячеек, у которых второй UInt16 входит в указанный набор маркеров, составляет от 26.7% до 58.1% в зависимости от модуля. Для `01.spt` это 17,078 из 50,602 четырёхбайтовых ячеек (33.7%); для `sys.spt` — 240 из 413 (58.1%).
+
+Значит, выбранный участок нельзя без дополнительной сегментации объявлять сплошным массивом команд фиксированного вида: часть ячеек может быть операндами, данными, заполнением или иными структурами. Даже если выравнивание по 4 байта подтверждено для наблюдаемых записей, оно пока не определяет границы каждого исполняемого блока.
+
+### Следующий шаг — только диагностика
+
+1. Построить для каждого SPT карту подряд идущих четырёхбайтовых ячеек: offset, param, второе UInt16, тип кандидата.
+2. Выделить повторяющиеся шаблоны вокруг соседней пары `0x6666/7 → 0x3333`, включая длину промежутков до следующих известных маркеров.
+3. Сопоставить candidate records `0x2222/1` с таблицей логических адресов Pool 1 там, где количество совпало, и отдельно изучить семь исключений.
+4. Проверить одни и те же шаблоны в `sys`, `01`, `02`, `03`, `backspt` и именных модулях.
+5. Не реализовывать интерпретацию и не включать исполнение в player, пока смысл операндов/переходов не будет подтверждён на нескольких сценариях.
+
+В этой сессии код интерпретатора не менялся; это следующий read-only этап анализа командной области.
+
+
+## 2026-11-05 — next bridge: scene catalog and candidate module references
+
+### New evidence from hui(4).zip
+
+- scene.dat is a bounded version-1 container with 69 variable-length rows and exact EOF at byte 1164.
+- nya/scenevoice.xtx lists 69 sequential IDs (@sc01–@sc69).
+- 01.spt descriptor 3 also has 69 entries; descriptor 4 marks a 2-entry reserved prefix, leaving 67 ordinary film slots.
+- The three 69-counts are useful evidence for a shared scene/catalog layer, but they do not yet prove that row N, voice ID N, and pointer slot N refer to the same scene.
+
+### Code added to PR #28
+
+- SystemNnnSceneCatalogReader parses scene.dat with bounded file/record/value limits, version and declared-size checks, and strict EOF validation. Opaque row values are preserved as UInt32; no enum labels or meaning are invented.
+- The same reader extracts only ASCII @scNN identifiers from scenevoice.xtx, including CRLF line endings.
+- compareWithFilmTable() reports the count relationship between the sidecars and an SPT descriptor-3 pointer vector. It explicitly reports sameIndexMappingProven = false.
+- SystemNnnModuleReferenceScanner emits per-record candidates for exact [1, Pool2Index] references to project.xtx module-name strings. Results include the record offset and code identifier for further contextual comparison. They are not executable transitions.
+
+### Interpreter and scene-link status
+
+The existing decoder already handles a limited subset (PRINT/LPRINT/APPEND, SELECT/CASE, bounded CALCU, and selected control records). The unresolved part is not the SPT record envelope: it is the meaning and runtime behavior of the remaining command/function records, especially how a script names a target module/film and how control returns.
+
+The archive replay still finds 511 module-name string references across the 20 modules, but multiple unrelated record families use the same payload shape for non-module labels. The scanner makes those records inspectable; it does not promote them to an executable module call.
+
+### Next implementation order
+
+1. Use the new diagnostics to test scene.dat row N ↔ descriptor-3 slot N ↔ @scNN N against the actual per-slot record payloads. Record exact matches and counterexamples.
+2. Partition module-name candidates by source film interval, preceding/following records, and the candidate target string class. Compare them to control records and the existing CASE/brace handling.
+3. Find a second independently corroborated transition with a resolvable target film and return behavior before implementing a call stack.
+4. Only then add explicit runtime state such as currentModule, currentFilm, and a bounded return stack, plus synthetic fixtures derived from the proven record envelope.
+5. Keep multi-module auto-start disabled until the startup dispatch from sys/system UI or a directly proven main film is established.
+
+### What this code does not claim
+
+- It does not identify an actual scene ordering.
+- It does not prove that scenevoice.xtx is a one-to-one voice routing table for the 69 records.
+- It does not implement module calls, returns, or startup dispatch.
+- It does not make the novel playable end-to-end or change asset-bank selection.
+
+
+### Additional diagnostic: candidate references now carry source-film ownership
+
+The validated descriptor-3 pointer vector is now available as typed `SystemNnnFilmTableEntry` entries. The module-reference scanner annotates each exact Pool 2 module-name candidate with the nearest preceding physical film-table target:
+- original descriptor-3 table index;
+- ordinary 0-based film number, or null for reserved-prefix entries;
+- original command-record offset and module-name target remain unchanged.
+
+This gives a concrete grouping key for reviewing the 511 candidates by source module and source film. It does **not** prove that any candidate performs a call/jump, or what film should be selected in the destination module.
+
+Before adding a runtime module stack, the next pass should group candidates by source-film interval and inspect their neighboring records/branch structure. A destination film selector and return rule must be demonstrated separately.
+
+
+### Archive replay result for source-film ownership
+
+An independent read-only replay over all 20 SPT modules in the new archive confirms that all 511 exact module-name references can be attached to a preceding ordinary descriptor-3 interval:
+- 511 of 511 candidates are assigned;
+- 173 distinct source-film intervals are involved;
+- 7 source modules contain candidates: 01 (2), 03 (19), akane (49), aoi (173), kiika (213), yamiko (17), yuka (38).
+
+This is a useful diagnostic partition, not proof of module navigation. The 15 same-index 0x3333/0x1A and 0x3333/0x1B module-name references still occupy different source-film intervals (13 earlier / 2 later). They are not local call/return pairs.
+
+Next: add or run a deterministic report grouped by source module, source film, record family/code, and target Pool 2 string; use surrounding record context to narrow dispatch candidates. Runtime behavior remains gated on proving a destination film and a return rule.
+
+
+### In-app export of candidate module-reference context
+
+The Resource Inspector Text Data tab now exports a deterministic UTF-8 report for every discovered project.xtx:
+- module-name candidate references are grouped by source module and validated source-film interval;
+- each candidate includes exact code/offset information and bounded previous/next record context from inside that interval;
+- context previews retain at most four opaque payload DWORDs per neighbor;
+- per-module parsing failures are preserved as warnings;
+- no dialogue, Pool 1 text, or resource payload is written;
+- output is capped at 20,000 candidates and the report labels all entries as unproven candidates, not transitions.
+
+The export does not turn references into executable control flow. Its purpose is to give the next reverse-engineering pass a stable report that can be compared across the main and alternate SPT sets.
+
+
+## 2026-11-05 — module transfers located in the actual control-opcode family
+
+Across the 20 SPT modules in the new archive, the actual cross-module candidates are type-2 CONTROL records in family `0x5556`:
+- 14 SCRIPT (`0x000A`) records in `sys` target op1, 01, 02, 03, 04, 05, 06, 07, 08, 082, akane, aoi, kiika and day;
+- 3 SCRIPTJUMP (`0x0015`) records: 01→yuka, 03→yamiko, yuka→yuka2;
+- 12 SUBSCRIPT (`0x0016`) records target `_staff` from 03, akane, aoi, kiika, yamiko and yuka.
+
+Each carries exactly one DWORD Pool 2 operand that resolves to a project.xtx module name. The Text Data export separates these typed control candidates from 511 generic module-name string references.
+
+The pinned NNNLib reference from another title supports the names and broad load model (SCRIPT/SUBSCRIPT nested, SCRIPTJUMP replaces), but does not prove target-specific return behavior. It also identifies `0x3333/0x0053` as CONFIGMASK; earlier matches of that code to `_staff` are not transitions.
+
+Next: prove the target return-selector table and map CONTROL SUB/RETURN. Do not yet add module execution, call stack or automatic boot from sys.
+
+
+### Local SUB table mapping
+
+Across all 20 SPT modules, all 1,069 CONTROL SUB records (0x5556/0x0009) have two DWORD operands. The first operand is in descriptor-3 range and resolves to a validated five-DWORD SYSTEM_FUNCTION target, either 0x3333/0x50 or reserved 0x3333/0x51. The second operand is a unique dense sequence 0..N−1 within each module.
+
+The Resource Inspector report now exposes each mapping as: source module + SUB ID + command offset → descriptor3 table index + target command offset + target function code.
+
+There are 1,008 CONTROL RETURN records versus 1,069 SUB records; do not pair them by occurrence order. Runtime SUB/RETURN execution remains disabled until branch behavior and return-stack semantics are proven for this title.
+## 2026-11-05 — film-table sequence and SETFILM execution
+
+A full read-only replay across all 20 SPT modules found a consistent pattern for all **948 ordinary descriptor-3 film entries**:
+- exactly one SYSTEM_FUNCTION `0x3333/0x001A SETFILM` per ordinary physical film interval;
+- its two payload DWORDs are `[1, N]`;
+- the next record is CONTROL `0x5556/0x000C ENDFILM`;
+- the one-based `N` equals `descriptor3 tableIndex - reservedPrefixCount + 1`;
+- no ordinary interval failed this check.
+
+Ramen now validates SETFILM against its physical descriptor-3 owner, reports the current one-based film number in ViewModel state, and treats ENDFILM as a sequential film boundary rather than terminating the player. Local SUB/RETURN remains responsible for restoring the caller after a film subroutine. Gallery/scene-selection behavior is not implemented.
+
+The decoder has an integrated test for the target shape:
+`SUB → descriptor3 film target → SETFILM → ENDFILM → RETURN → caller continuation`.
+
+This validates module-local film identity, but does not prove a direct mapping from `scene.dat` rows or `@scNN` identifiers to a descriptor-3 film slot. The 69-count correlation remains only cardinality evidence.
+
+### Project-level routing and scene.dat routes are now wired
+
+- All 20 modules declared by the primary spt/project.xtx are loaded in manifest order. The canonical primary manifest wins over the alternate !eng files/spt/project.xtx.
+- Runtime starts from sys. Target SCRIPT/SUBSCRIPT push a module frame containing the caller continuation; SCRIPTJUMP replaces the current module; NEXT restores the saved parent; END resets sys; EXIT ends playback. Module names resolve from the one-word Pool 2 operand and must exist in the project catalog.
+- Project decoders share one variable map but retain independent local SUB stacks. Native target `gss.exe` exposes run-mode slots 0..2: normal sys-controller playback allows two nested module frames; direct scene replay begins at slot 1 and allows one nested frame. SCRIPT/SUBSCRIPT push a slot, SCRIPTJUMP replaces the current slot, and NEXT returns to the previous slot.
+- IF/ELSIF/ELSE executes the bounded RPN conditions and skips brace spans using their declared lengths.
+
+### scene.dat scene-to-module-to-film mapping
+
+The native scene.dat parser now follows the CSceneList layout (fileSize, characterCount, then per-character sceneCount, followed by rows of sptNumber, filmCount and signed filmNumbers). The project route is direct: abs(sptNumber) indexes project.xtx; abs(filmNumber)−1 indexes the selected module's ordinary descriptor3 film slots. Negative sptNumber marks H-scene; negative filmNumber disables completion tracking but not playback.
+
+For the supplied primary archive the one character group has 69 rows and 150 film references. Module index → (scene rows, film refs, ordinary film slots): 4→(2,4,158), 10→(4,4,47), 11→(15,23,100), 12→(14,36,82), 13→(16,42,107), 14→(2,2,55), 15→(14,33,94), 18→(2,6,14). Every film index fits its specific module. 43 of the 150 film references are negative/completion-untracked.
+
+The Activity accepts scene replay via EXTRA_SCENE_CHARACTER_INDEX, EXTRA_SCENE_INDEX and optional EXTRA_SCENE_FILM_CHOICE_INDEX. The ViewModel starts the selected module at its film-table target and replays the remaining films in that scene row. ENDFILM remains sequential in normal gameplay but advances the scene replay queue in gallery/replay mode. The visible gallery picker is still separate follow-up UI work.
+
+### Multi-bank asset manager (initial runtime integration)
+
+- Added a project-level catalog over every validated same-stem GTB↔GPK/WGQ image pair and VTB↔VPK/VAW audio pair found under the imported game directory.
+- Each bank has a stable ID derived from its relative index-file path, and exposes its own row count. Image names and audio names are resolved only when unique across banks; numeric row lookups require a single bank or an explicit bank ID.
+- Loose VAW files and unpaired WGQ files are retained in the catalog as unresolved candidates rather than being guessed as voice, BGM, or image resources. The supplied archive has one 69-row GPK/GTB image bank, one 90-row VPK/VTB audio bank, two loose VAW files, and one unindexed WGQ Ogg/`PACKTYPE=6` file.
+- `SystemNnnAssetManager` now replaces the two independent first-match discoveries in `SystemNnnPlayerActivity` and is passed to the ViewModel as both the scene image resolver and audio resource repository. Its close operation is idempotent.
+- Remaining asset work: identify the native command-to-resource operands for SPT backgrounds/sprites, determine how the loose VAW and WGQ `PACKTYPE=6` resources are addressed, and verify any multi-bank selection rules against target dispatch before using a global index.
+
+### WGQ / MML path findings
+
+- Target loader at `gss.exe` VA `0x0047B440` formats both `wgq/<token>.mml` and `wgq/<token>.wgq` from the same caller-supplied token. It tries MML first and falls back to WGQ when MML cannot be opened; the two are alternative input paths in this loader, not a proven pair.
+- A separate native loader at VA `0x0047B060` opens `wgq/<token>.wgq`, seeks 64 bytes into the file, then supplies the remaining stream to a dedicated reader at VA `0x0047B790`.
+- The supplied archive's `gss01_1.wgq` and `gsstxt01.mml` names do not match. The project-level asset catalog now lists loose `.mml` files separately from unindexed `.wgq`; it does not infer their relationship.
+- Ramen does not yet implement the native WGQ streaming decoder. Do not treat the Ogg capture marker as proof that the file can be played directly; the native code routes it through a dedicated reader.
+
+### Native DWQ bank namespaces
+
+- The target image manager at `gss.exe` VA `0x0043C100` loops over a fixed ten-entry prefix table; six entries are active: `ta`, `bg`, `ev`, `sc`, `sm`, `sys`. It constructs `dwq/<prefix><slot>.gtb` plus the same-stem `.gpk` for each configured slot.
+- The asset catalog now preserves `nativeNamespace` and `bankSlot` for matching indexed image banks, e.g. `sc0.gtb` → (`sc`, `0`). A bank's stable runtime ID is still its relative GTB path.
+- The SPT command-to-namespace/slot dispatch is not yet implemented. Do not use summed image-bank counts as a global row index. Resolve by unique GTB resource name or an explicit bank ID until the native command operand mapping is proven.
+- Same-stem archive pairing now tries candidates in deterministic native priority order and moves to the next candidate if validation fails. Successful pairs alone are marked as paired.

@@ -7,6 +7,50 @@ import io.github.helterfall.ramen.inspection.VpkVtbArchiveParser
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
+import java.util.Locale
+
+/**
+ * Index-based audio access exposed to the player. Implementations must keep
+ * bank-local indexes explicit; a catalog containing several banks must not
+ * silently concatenate them into a guessed global voice table.
+ */
+data class SystemNnnMusicPlaylist(
+    val files: List<File>,
+    val repeatCount: Int,
+    val infiniteLoopStartIndex: Int? = null
+)
+
+interface SystemNnnAudioResourceRepository : Closeable {
+    val entries: List<VpkAudioResource>
+
+    fun findResource(resourceId: String): VpkAudioResource?
+
+    @Throws(IOException::class)
+    fun materialize(resourceId: String): File
+
+    @Throws(IOException::class)
+    fun materializeByIndex(index: Long): File
+
+    @Throws(IOException::class)
+    fun materializeSound(resourceId: String): File = materialize(resourceId)
+
+    @Throws(IOException::class)
+    fun materializeMusic(resourceId: String, repeatCount: Int): SystemNnnMusicPlaylist =
+        SystemNnnMusicPlaylist(listOf(materialize(resourceId)), repeatCount.coerceAtLeast(0))
+
+    fun musicResourceName(oneBasedNumber: Int): String? = null
+    fun soundResourceName(zeroBasedNumber: Int): String? = null
+}
+
+internal fun audioResourceNameMatches(candidate: String, requested: String): Boolean {
+    fun key(value: String): String {
+        val normalized = value.trim().replace('\\', '/')
+        val baseName = normalized.substringAfterLast('/')
+        return baseName.substringBeforeLast('.', baseName).lowercase(Locale.ROOT)
+    }
+    return candidate.trim().replace('\\', '/').equals(requested.trim().replace('\\', '/'), true) ||
+        key(candidate) == key(requested)
+}
 
 /**
  * Opens a matching .vtb/.vpk pair, validates its index and Ogg page boundaries,
@@ -19,14 +63,14 @@ class SystemNnnVpkAudioRepository(
     indexFile: File,
     archiveFile: File,
     private val cacheDirectory: File
-) : Closeable {
+) : SystemNnnAudioResourceRepository {
 
     private val indexSource = FileRandomAccessSource(indexFile)
     private val archiveSource = FileRandomAccessSource(archiveFile)
     private val stagedFiles = LinkedHashSet<File>()
     private var closed = false
 
-    val entries: List<VpkAudioResource>
+    override val entries: List<VpkAudioResource>
 
     init {
         entries = try {
@@ -37,15 +81,15 @@ class SystemNnnVpkAudioRepository(
         }
     }
 
-    fun findResource(resourceId: String): VpkAudioResource? {
+    override fun findResource(resourceId: String): VpkAudioResource? {
         checkOpen()
         val trimmed = resourceId.trim()
-        return entries.firstOrNull { it.name.equals(trimmed, ignoreCase = true) }
+        return entries.firstOrNull { audioResourceNameMatches(it.name, trimmed) }
             ?: trimmed.toIntOrNull()?.let(entries::getOrNull)
     }
 
     @Throws(IOException::class)
-    fun materialize(resourceId: String): File {
+    override fun materialize(resourceId: String): File {
         checkOpen()
         val resource = findResource(resourceId)
             ?: throw IOException("VPK/VAW audio resource was not found: " + resourceId)
@@ -57,7 +101,7 @@ class SystemNnnVpkAudioRepository(
     }
 
     /** Resolves the zero-based VTB row synchronized with a dialogue step. */
-    fun materializeByIndex(index: Long): File {
+    override fun materializeByIndex(index: Long): File {
         checkOpen()
         if (index < 0L || index >= entries.size.toLong()) {
             throw IOException("VAW/VTB voice index is outside the audio catalog: " + index)

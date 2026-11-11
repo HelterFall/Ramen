@@ -1,0 +1,173 @@
+## Current Ramen code status — 2026-11-12
+
+The table and source notes below describe the pinned System-NNN family reference. They are not a promise of parity with the target executable. The current Ramen branch has since added or refined several code paths; use this status when reading older paragraphs in this file.
+
+### Current implementation gates
+- Layer progress clocks: CTRANS (9), SCROLL (39), CHANGE (40), MOVE (52), BEZIERMOVE (62), TURN (64), STRETCHBLT (65), COLORADDSUB (99), BSPLINE2 (119), and rectangle motion.
+- Layer/viewport paths also exist for NOP (0), TRANS (8), FADEIN/FADEOUT (10/11), FLASH (17), SHAKE (18), KE (27), SUNA (29), FILL (54), GRADATION (50, signed RGB screen-buffer gradient), OLDFILM (55), BUFFER (66), CLOUD (82, bounded upper-band software path; observed p0=0 is static in pinned native reference), HAIKEIYURE (100, parameter-gated modes), CHARABURE (132), and SENTENCE (133, tiled picture reveal).
+- HAIKEIYURE mode 0's missing local frame advance has been fixed in the current branch; a regression unit test has been added. Final-head unit tests passed in runs #42382482545 and #42382484261, and a debug APK containing the fix was successfully assembled/uploaded in run #42382360302. Physical visual acceptance is still outstanding.
+- CTRANS has code paths for opacity, optional colour adjustment and clipping in the current Compose renderer. These paths are source-level implementations and still need target-scene visual acceptance.
+- CLOUD (82) is a partial-height software path that can render an upper cloud band over stationary scenery. The observed vector is 0,300,13,4,9999,200,1362,200,0,1,255,160,110,50, so the output has 300 rows; at a 600-pixel logical height it occupies the upper half, which may be intended. Crucially, para[0] is countMax: SetParam assigns it to lp->countMax, CAllEffect::CountUp increments only while count < countMax, and CLOUD::Print updates m_x/m_y only while lp->count > 0. With para[0] = 0, this pinned native implementation does not advance the cloud offsets. Thus the Android frame-0 output is not proven to be the source of the reported stationary-band discrepancy; the layer/effect/resource that actually moves the observed clouds must be identified from a runtime trace. This is separate from the full-scene moving cloud and town panoramas: those already move in the right directions but expose blank regions, and their sizing/rectangle/cropping/wrap cause is not yet identified.
+- GRADATION (50) now has a Compose screen-buffer approximation at the issuing layer's compositor position. It reproduces the native vertical RGB offset using the effect duration, speed type/subframe, start/end channel offsets and configured Y range. On Android 13+ the accumulated scene up to the issuing layer is filtered with an AGSL screen-buffer shader, preserving alpha while applying signed RGB channel deltas and the native vertical range. On older Android versions the positive-only BlendMode.Plus fallback remains; negative offsets are explicitly unsupported there. The path can run as a local layer effect or on the reserved screen-effect layer 31. Visual parity with the target scene/build remains unverified.
+- SENTENCE (133) now has a layer-local tiled-atlas reveal path in Ramen, based on the pinned family implementation: horizontal or vertical tile order, completed row/column batches, and wipe modes 0–6 (instant, alpha, centered scale, centered crop, axis wipe, shrink, shrink+fade). Unsupported partial wipe values preserve the native no-partial-blit behavior. Target-scene usage and device visual parity remain unverified; this is not proof that SENTENCE draws the missing centered/title text.
+- TURN and STRETCHBLT use Compose transforms. Native colour-key transparency mode 1 still needs pixel-level handling.
+- CHANGE currently combines two equal-size, distinct layers using Compose offscreen drawing and BlendMode.Plus; visually compare this with a real target transition before accepting it.
+- KE, SUNA, OLDFILM and CHARABURE use deterministic Android pseudo-random sequences. They are repeatable but do not reproduce the original Windows process-global RNG sequence.
+- Layer-overlay effects have independent frame counters keyed by effect, parameters and command seed; viewport-scoped effects are separately keyed by layer/command, and screen-level effects own their screen clock. This avoids restarting unrelated effects when one layer changes. Simultaneous native timing still requires device visual acceptance.
+
+### Known layout boundary
+The player uses background bitmap dimensions as the native coordinate reference (or first sprite dimensions / 800×600 fallback). Native LOADDWQ layers without SETEFFECTRECT default to (0,0,bitmapWidth,bitmapHeight); legacy sprite references without native rectangles use bottom-center placement at 62% width and 82% height. These coordinate models must be checked against the actual target's screen dimensions and layer rectangles.
+
+The user confirms that background images are visually correct, foreground layers remain imperfect, and effect/motion behaviour is not yet accepted. Audio is accepted by the user and is not an active investigation.
+
+---
+# System-NNN visual effect reference
+
+This file records source-level facts verified against the public reference runtime
+`tinyan/SystemNNN`, revision `78a05053c78b3b80065a9a209c6685a7c60a2e83`.
+It is a comparison aid, not a claim that Ramen has implemented every effect.
+
+Reference files:
+- [effectlist.h](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectLib/effectlist.h) — native numeric IDs.
+- [allEffect.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectLib/allEffect.cpp) — registration, `SetEffectScript`, `SetLayerScript`, and `PrintLayers`.
+- [commoneffect.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectLib/commoneffect.cpp) — default `CheckNeedPicPrint` returns TRUE.
+- [Picture.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanPictureLib/Picture.cpp) — DWQ row loading and alpha-mask handling.
+
+## Source-picture decision verified for effects seen in the test title
+
+`PrintLayers` calls `CheckNeedPicPrint` before blitting the original layer picture,
+then calls that effect's `Print`. Therefore FALSE means the effect must not get an
+extra ordinary source-picture blit; it does **not** mean the effect itself can be
+skipped. TRUE means the native runtime blits the source picture before calling
+the effect's Print method.
+
+| Native ID | Effect | Source file | Native source-picture rule |
+|---:|---|---|---|
+| 0 | NOP | [base implementation](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectLib/commoneffect.cpp) | TRUE (base default) |
+| 8 | TRANS | [effectTrans.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectTrans.cpp) | FALSE |
+| 9 | CTRANS | [effectCTrans.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCTrans.cpp) | FALSE |
+| 19 | ANIME | [effectAnime.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectAnimeLIB/effectAnime.cpp) | FALSE |
+| 12 | FLOWER | [effectFlower.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectFlower.cpp) | TRUE (inherits base default) |
+| 13 | RAIN | [effectRain.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectRain.cpp) | TRUE (inherits base default) |
+| 17 | FLASH | [effectFlash.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectScreenLIB/effectFlash.cpp) | TRUE (inherits base default); later changes its command to FILL |
+| 27 | KE | [effectKe.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectSpecialLIB/effectKe.cpp) | FALSE |
+| 29 | SUNA | [effectSuna.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectScreenLIB/effectSuna.cpp) | TRUE (inherits base default) |
+| 40 | CHANGE | [effectchange.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectchange.cpp) | FALSE |
+| 54 | FILL | [effectfill.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectScreenLIB/effectfill.cpp) | FALSE |
+| 55 | OLDFILM | [effectoldfilm.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectScreenLIB/effectoldfilm.cpp) | TRUE (inherits base default) |
+| 61 | SPECIALMOVE | [effectSpecialMove.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectSpecialMove.cpp) | FALSE |
+| 64 | TURN | [effectTurn.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectTransformLIB/effectTurn.cpp) | FALSE |
+| 65 | STRETCHBLT | [effectStretchBlt.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectTransformLIB/effectStretchBlt.cpp) | FALSE |
+| 66 | BUFFER | [effectBuffer.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectEtcLIB/effectBuffer.cpp) | FALSE; `CheckAllPrint` is also FALSE |
+| 82 | CLOUD | [effectCloud.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectCloud.cpp) | FALSE |
+| 90 | CHARAFLASH | [effectCharaFlash.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaFlash.cpp) | FALSE |
+| 93 | GRASSPLANE | [effectGrassPlane.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectGrassPlane.cpp) | FALSE |
+| 94 | POLESCROLL | [effectPoleScroll.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectSpecialLIB/effectPoleScroll.cpp) | FALSE |
+| 95 | WATERDROP | [effectWaterDrop.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectLib/effectWaterDrop.cpp) | FALSE |
+| 99 | COLORADDSUB | [effectColorAddSub.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectColorAddSub.cpp) | FALSE |
+| 107 | CHARARASTER | [effectCharaRaster.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaRaster.cpp) | FALSE |
+| 110 | CHARAGHOST | [effectCharaGhost.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaGhost.cpp) | FALSE |
+| 113 | LUPIN | [effectLupin.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectLib/effectLupin.cpp) | FALSE |
+| 124 | CHARAGREY | [effectCharaGrey.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaGrey.cpp) | FALSE |
+| 125 | CHARABOKASHI | [effectCharaBokashi.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaBokashi.cpp) | FALSE |
+| 126 | BGBOKASHI | [effectBGBokashi.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectSpecialLIB/effectBGBokashi.cpp) | FALSE |
+| 127 | SEPIA | [effectCharaSepia.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaSepia.cpp) | FALSE |
+| 131 | ADDSUB | [effectCharaAddSub.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaAddSub.cpp) | FALSE |
+| 132 | CHARABURE | [effectCharaBure.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectCharaLIB/effectCharaBure.cpp) | FALSE |
+| 100 | HAIKEIYURE | [effectHaikeiYure.cpp](https://github.com/tinyan/SystemNNN/blob/78a05053c78b3b80065a9a209c6685a7c60a2e83/nyanEffectNaturalLIB/effectHaikeiYure.cpp) | Conditional: FALSE when `para[5] == 0`, TRUE otherwise |
+
+## Required comparison for every additional effect
+
+Before changing an effect implementation, check these exact native methods in
+the corresponding `.cpp` file and record the result here:
+
+1. `SetParam`: operand count, defaults, clamping, and state initialized.
+2. `InitParameter`: whether it re-applies defaults or reconstructs state.
+3. `CountIsMax`: whether it changes the command, clears the layer, or continues.
+4. `CheckNeedPicPrint` and `CheckAllPrint`: whether the source picture is blitted
+   and whether the layer participates in the normal pass.
+5. `Print`: source/destination picture, screen buffer, blend, mask and clipping
+   operations; whether another layer or global resource is read.
+6. Registration in `allEffect.cpp`: an enum value without a registered object is
+   not automatically an implemented effect.
+
+Then compare Ramen's decoded operands and the resulting layer/resource state
+against the native behavior. A green unit-test run validates code-level cases
+only; final acceptance still requires the same scene on the target title/device.
+
+## DWQ image comparison
+
+The image loader needs a separate audit from effect rendering:
+
+- `LoadDWQHeader` determines whether a mask exists and whether the image was
+  already cropped; these are different flags.
+- `LoadDWQData` reads ordinary DWQ rows in the native stored order.
+- `LoadMask` decodes the following mask stream; the native alpha byte comes
+  from `rgbquad[index].rgbRed`.
+- `CutDataByMask` changes the visible image bounds when the image was not
+  pre-cropped.
+
+Do not infer these rules from the BMP header alone. Record PACKTYPE, header flags,
+image data range, mask range, dimensions, bit depth, row orientation and alpha
+statistics from the actual resource being decoded.
+
+## Android parity work recorded on the current branch
+
+- **TURN (64):** the Compose painter now uses native angle/scale/opacity operand order, source-center pivot offsets, optional quadratic/cubic spline translation, and RGB add/subtract. The DWQ bitmap's decoded alpha mask is retained for native transparency mode 2; mode 0 explicitly ignores it. Native color-key mode 1 still needs a dedicated pixel path and is not claimed as exact.
+- **CTRANS (9):** frame-interpolated RGB offsets and the native interpolated clip rectangle are now applied when the destination rectangle is known. Its opacity continues to use the native start/end and speed operands. The renderer still depends on the decoder having produced the native DWQ mask alpha correctly.
+- **BUFFER (66):** the ordinary bitmap fallback is suppressed. This follows the native implementation: optional CPicture::Shrink() reallocates/copies the image buffer, Print() is a no-op, and CheckAllPrint() is FALSE. Android does not need to imitate the native allocation-only operation.
+
+These are source-level ports of the described paths, not device-verified parity.
+
+### FLASH (17) — screen pulse followed by native FILL
+
+effectFlash.cpp confirms that FLASH inherits the normal source-picture blit, fills the whole screen while count % (onTime + offTime) < onTime, and changes its command to FILL at countMax. The Android layer now draws the same opaque RGB pulse above lower layers and keeps the final fill after the transition. The supplied screenshots show FLASH on layer 13, but the earlier diagnostic summary did not retain its full operand vector; defaults and operand order are taken from the pinned source.
+
+### CLOUD (82) — native software perspective sampler
+
+effectCloud.cpp has distinct Direct3D and non-D3D implementations. The supplied vector is 0,300,13,4,9999,200,1362,200,0,1,255,160,110,50. It does not identify the executable's compile-time renderer. The pinned source has two branches: _TINYAN3DLIB_ uses the Direct3D CloudPhase2 mesh/shader and GouraudBlt, while #else uses the CPU row/pixel sampler. In SetParam, para[0] becomes lp->countMax and count is reset to zero. CAllEffect::CountUp increments count only when count < countMax. Both CLOUD::Print paths update m_x/m_y only while lp->count > 0. Therefore para[0] == 0 makes this exact vector static in the pinned native implementation; the Android frame-0 result is consistent with that case. para[8] == 0 selects the unmasked path and para[9] == 1 enables the row-wise RGB add/sub gradient from row 50. Ramen ports the non-D3D software sampler (perspective depth per output row, source-Y wrapping, native 16.16 source-X accumulator, and saturating RGB addition/subtraction). The supplied vector alone cannot prove whether the target EXE was built with _TINYAN3DLIB_, so exact parity for a D3D-compiled target remains unverified. The actual layer/resource that produces the user's observed cloud drift is not yet identified. Mask modes and other native paths remain unsupported and must not be silently substituted.
+
+### HAIKEIYURE (100) — layer-local mode
+
+effectHaikeiYure.cpp distinguishes para[5] == 0 from para[5] == 1. Mode 0 suppresses the ordinary source blit, moves the layer picture, and restores the newly exposed edge strips from the source or configured solid color. That layer-local mode is now rendered by the Android screen canvas with the source phase/speed operands and fill rule. Mode 1 calls the global MoveScreen() path; it is intentionally still reported as incomplete. The screenshots show effect 100, but no literal operand vector for that event was present in the diagnostic summary, so the device result must confirm which mode the game selects.
+
+### Remaining effects from the screenshots
+
+- **KE (27):** native Print draws animated atlas fragments at randomized positions; initialization and every update consume the process-global C rand() stream. It remains explicitly incomplete until that random stream/order can be matched.
+- **SUNA (29):** native rendering uses a generated random noise tile and random source offsets. It remains explicitly incomplete rather than using a visually unrelated grain overlay.
+- **OLDFILM (55):** remains a deterministic scratch approximation; native random timing is not claimed as exact.
+
+### Evidence boundary
+
+The repository intentionally does not contain the commercial game's raw .spt, .gpk or extracted assets. This comparison uses the parameter vectors exported by the previously supplied runtime diagnostics plus the pinned public System-NNN reference sources linked above. It is not a new byte-for-byte replay of raw SPT files. The earlier diagnostics include the exact CLOUD vector and TURN, STRETCHBLT, COLORADDSUB and CTRANS vectors; the screenshots add visible evidence for effects 0, 17, 27, 29, 65 and 100, but do not expose all of their operands.
+
+### STRETCHBLT (65) — Compose path added from observed source parameters
+
+The Android layer renderer now maps native scale X/Y, center offsets, frame interpolation,
+overall transparency for native mode 2, and optional RGB add/subtract to a dedicated
+Compose transform. This is a source-level mapping, not a bit-exact copy of the native
+software sampler. Native color-key transparency mode 1 still requires a pixel-level
+key comparison. The supplied runtime diagnostic samples for STRETCHBLT use native
+transparency mode 0, so they do not depend on that unimplemented mode.
+
+### COLORADDSUB (99) — Compose path added for observed RGB operations
+
+The Android layer renderer now interpolates the native start/end RGB offsets and applies
+a saturating color-matrix adjustment while retaining the decoded bitmap alpha. The
+uploaded runtime diagnostics use native transparency flag 1 and speed type 0 for these
+entries. Other transparency modes still require dedicated pixel-level parity checks.
+
+## Values observed in the supplied runtime diagnostic
+
+These are literal parameter vectors from the supplied log, not inferred parameter examples:
+
+| Effect | Observed layer/resource | Observed parameters |
+|---|---|---|
+| TURN (64) | layer 4, `ta_effe_light01`, 600×600 | `700,375,312,0,0,220,300,2,100,100,0,0,0,0,0,0` |
+| STRETCHBLT (65) | multiple layers, including film 3 | `430,0,0,205,205,200,200,5,3,0,100,100,0,0` |
+| COLORADDSUB (99) | layer 7 | `80,-130,-255,-255,-230,-255,-255,1,0,0` |
+| CTRANS (9) | layers 1, 2, 5 and 6 | `2000,100,0,2,100,0,0,0,800,600,0,0,800,600` |
+| CLOUD (82) | layer 1 | `0,300,13,4,9999,200,1362,200,0,1,255,160,110,50` |
+
+TURN, STRETCHBLT and COLORADDSUB now have dedicated Compose rendering paths.
+CTRANS has the observed opacity/mask path. CLOUD has a bounded software compositor for a partial-height upper cloud band. For the observed p1=300 / 600-height viewport, drawing the upper 300 rows can be intended. Because the supplied p0=0 sets native countMax to zero, this exact vector is stationary in the pinned reference; do not infer that frame-0 rendering is an Android defect. Identify the actual layer/effect/resource responsible for the scene's observed cloud motion. The separate full-scene moving panoramas require a native-rectangle/bitmap-coverage investigation and must not be conflated with CLOUD (82).
