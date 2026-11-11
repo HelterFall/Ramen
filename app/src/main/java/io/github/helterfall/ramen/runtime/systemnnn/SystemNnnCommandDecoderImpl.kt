@@ -368,10 +368,7 @@ class SystemNnnCommandDecoderImpl(
             CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER -> decodeClearEffectLayer(script, record)
             CODE_SYSTEMFUNCTION_CLEARALLEFFECT ->
                 SystemNnnDecodedCommand.ClearAllImageLayers(record.endOffsetExclusive)
-            // PRELOADDWQ affects only the native image cache; display is
-            // deferred until a later LOADDWQ record selects a layer.
-            CODE_SYSTEMFUNCTION_PRELOADDWQ ->
-                SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+            CODE_SYSTEMFUNCTION_PRELOADDWQ -> decodePreloadDwq(script, record)
             CODE_SYSTEMFUNCTION_PREPAREOVERRAP -> skipKnownUnimplemented(
                 record, script, "PREPAREOVERRAP captures the current screen before a native transition."
             )
@@ -626,6 +623,20 @@ class SystemNnnCommandDecoderImpl(
             layerIndex = layerValue.toInt(),
             resourceId = resource.text
         )
+    }
+
+    private fun decodePreloadDwq(
+        script: SystemNnnScript,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand {
+        return when (val decoded = decodeLoadDwq(script, record)) {
+            is SystemNnnDecodedCommand.LoadImageLayer -> SystemNnnDecodedCommand.PreloadImageLayer(
+                nextCommandOffset = decoded.nextCommandOffset,
+                layerIndex = decoded.layerIndex,
+                resourceId = decoded.resourceId
+            )
+            else -> decoded
+        }
     }
 
     private fun decodeClearEffectLayer(
