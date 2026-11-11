@@ -13,7 +13,7 @@ class SystemNnnVisualEffectMathTest {
         for (effectId in listOf(-1, 1, 4, 5, 6, 7)) {
             assertFalse(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))
         }
-        for (effectId in listOf(0, 8, 9, 66, 82)) {
+        for (effectId in listOf(0, 8, 9, 66, 82, 133)) {
             assertTrue(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))
         }
     }
@@ -26,6 +26,7 @@ class SystemNnnVisualEffectMathTest {
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(64, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(65, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(99, emptyList()))
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(133, emptyList()))
         // BUFFER (66) has native Print() == no-op and CheckAllPrint() == FALSE.
         assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(66, emptyList()))
 
@@ -790,6 +791,140 @@ class SystemNnnVisualEffectMathTest {
         assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, subtractive))
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, subtractive, supportsSignedGradation = true))
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(50, clipped))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(133, emptyList()))
+    }
+
+
+    @Test
+    fun sentenceRevealUsesRowMajorOrderAndNativeCenteredScaleWipe() {
+        val plan = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            frame = 1,
+            parameters = listOf(8, 32, 32, 0, 2, 2, 0, 0),
+            imageWidth = 64,
+            imageHeight = 32
+        )
+
+        assertEquals(emptyList<SystemNnnNativeRect>(), plan?.completed)
+        assertEquals(
+            SystemNnnSentenceTile(
+                source = SystemNnnNativeRect(0, 0, 32, 32),
+                destination = SystemNnnNativeRect(8, 8, 16, 16),
+                alpha = 1f
+            ),
+            plan?.partial
+        )
+
+        val completedTopRow = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            frame = 4,
+            parameters = listOf(8, 32, 32, 0, 0, 1, 0, 0),
+            imageWidth = 64,
+            imageHeight = 64
+        )
+        assertEquals(
+            listOf(SystemNnnNativeRect(0, 0, 64, 32)),
+            completedTopRow?.completed
+        )
+        assertEquals(null, completedTopRow?.partial)
+    }
+
+    @Test
+    fun sentenceRevealUsesRightToLeftColumnsAndVerticalWipe() {
+        val partial = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            frame = 1,
+            parameters = listOf(8, 32, 32, 1, 4, 2, 0, 0),
+            imageWidth = 64,
+            imageHeight = 64
+        )
+        assertEquals(
+            SystemNnnSentenceTile(
+                source = SystemNnnNativeRect(32, 0, 32, 32),
+                destination = SystemNnnNativeRect(32, 0, 32, 16),
+                alpha = 1f
+            ),
+            partial?.partial
+        )
+
+        val firstTileCompleted = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            frame = 2,
+            parameters = listOf(8, 32, 32, 1, 4, 2, 0, 0),
+            imageWidth = 64,
+            imageHeight = 64
+        )
+        assertEquals(
+            listOf(SystemNnnNativeRect(32, 0, 32, 32)),
+            firstTileCompleted?.completed
+        )
+
+        val wholeRightColumn = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            frame = 4,
+            parameters = listOf(8, 32, 32, 1, 4, 2, 0, 0),
+            imageWidth = 64,
+            imageHeight = 64
+        )
+        assertEquals(
+            listOf(SystemNnnNativeRect(32, 0, 32, 64)),
+            wholeRightColumn?.completed
+        )
+    }
+
+    @Test
+    fun sentenceRevealImplementsAlphaCropShrinkAndUnknownWipeFallback() {
+        val parameters = listOf(8, 32, 32, 0, 1, 2, 0, 0)
+        val alpha = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            1, parameters, imageWidth = 64, imageHeight = 32
+        )
+        assertEquals(0.5f, alpha?.partial?.alpha)
+
+        val crop = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            1, parameters.toMutableList().apply { this[4] = 3 },
+            imageWidth = 64, imageHeight = 32
+        )
+        assertEquals(SystemNnnNativeRect(8, 8, 16, 16), crop?.partial?.source)
+        assertEquals(SystemNnnNativeRect(8, 8, 16, 16), crop?.partial?.destination)
+
+        val shrink = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            1, parameters.toMutableList().apply { this[4] = 5 },
+            imageWidth = 64, imageHeight = 32
+        )
+        assertEquals(SystemNnnNativeRect(-8, -8, 48, 48), shrink?.partial?.destination)
+        assertEquals(1f, shrink?.partial?.alpha)
+
+        val shrinkAndFade = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            1, parameters.toMutableList().apply { this[4] = 6 },
+            imageWidth = 64, imageHeight = 32
+        )
+        assertEquals(0.5f, shrinkAndFade?.partial?.alpha)
+
+        val unsupportedPartialWipe = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            1, parameters.toMutableList().apply { this[4] = 7 },
+            imageWidth = 64, imageHeight = 32
+        )
+        assertEquals(null, unsupportedPartialWipe?.partial)
+    }
+
+    @Test
+    fun sentenceRevealRejectsInvalidTileGeometryAndCompletesAtFinalFrame() {
+        assertEquals(
+            null,
+            SystemNnnVisualEffectMath.sentenceRevealPlan(
+                1, emptyList(), imageWidth = 16, imageHeight = 16
+            )
+        )
+        assertEquals(
+            null,
+            SystemNnnVisualEffectMath.sentenceRevealPlan(
+                1, listOf(20, 0, 32), imageWidth = 64, imageHeight = 64
+            )
+        )
+
+        val complete = SystemNnnVisualEffectMath.sentenceRevealPlan(
+            frame = 8,
+            parameters = listOf(8, 32, 32, 0, 1, 2, 0, 0),
+            imageWidth = 64,
+            imageHeight = 64
+        )
+        assertEquals(listOf(SystemNnnNativeRect(0, 0, 64, 64)), complete?.completed)
+        assertEquals(null, complete?.partial)
     }
 
 }
