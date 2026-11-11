@@ -92,6 +92,14 @@ fun interface SystemNnnSceneAssetResolver : Closeable {
     @Throws(IOException::class)
     fun loadBitmapByIndex(index: Long): Bitmap? = null
 
+    /** Warms the native layer's image cache without publishing the image. */
+    @Throws(IOException::class)
+    fun preloadBitmap(layerIndex: Int, resourceId: String): Boolean = false
+
+    /** Transfers a previously warmed image to the renderer, if available. */
+    @Throws(IOException::class)
+    fun takePreloadedBitmap(layerIndex: Int, resourceId: String): Bitmap? = null
+
     /** Resolves a named image in one explicit native DWQ namespace/slot. */
     @Throws(IOException::class)
     fun loadBitmapFromNativeBank(namespace: String, slot: Int, resourceId: String): Bitmap? = null
@@ -169,6 +177,12 @@ sealed interface SystemNnnDecodedCommand {
     ) : SystemNnnDecodedCommand
 
     data class LoadImageLayer(
+        val nextCommandOffset: Long,
+        val layerIndex: Int,
+        val resourceId: String
+    ) : SystemNnnDecodedCommand
+
+    data class PreloadImageLayer(
         val nextCommandOffset: Long,
         val layerIndex: Int,
         val resourceId: String
@@ -1192,6 +1206,33 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         commandsWithoutVisibleOutput += 1
                     }
 
+                    is SystemNnnDecodedCommand.PreloadImageLayer -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        if (command.layerIndex !in 0 until MAX_IMAGE_LAYERS) {
+                            throw IOException("PRELOADDWQ supplied an invalid effect layer.")
+                        }
+                        nextCommandOffset = command.nextCommandOffset
+                        val cached = runCatching {
+                            resolver.preloadBitmap(command.layerIndex, command.resourceId)
+                        }.onFailure { failure ->
+                            diagnosticLog?.recordException(
+                                "image_preload_failure",
+                                failure,
+                                "module=" + (currentModuleName ?: "standalone") +
+                                    " layer=" + command.layerIndex + " resource=" + command.resourceId
+                            )
+                        }.getOrDefault(false)
+                        diagnosticLog?.record(
+                            "image_preload",
+                            "module=" + (currentModuleName ?: "standalone") +
+                                " offset=0x" + commandOffset.toString(16) +
+                                " layer=" + command.layerIndex +
+                                " resource=" + command.resourceId +
+                                " cached=" + cached
+                        )
+                        commandsWithoutVisibleOutput += 1
+                    }
+
                     is SystemNnnDecodedCommand.ClearImageLayer -> {
                         diagnosticLog?.record(
                             "layer_clear",
@@ -1937,6 +1978,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         "bitmap=${existing.bitmap.width}x${existing.bitmap.height} " +
                         "nativeRect=${existing.nativeRect}"
                 )
+                resolver.takePreloadedBitmap(layer, reference.resourceId)?.let(resolver::releaseBitmap)
                 resolved += existing
                 activePixelCount += existing.bitmap.width.toLong() * existing.bitmap.height.toLong()
                 return@forEach
@@ -1945,7 +1987,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
             val bitmap = runCatching {
                 validateNativeBankIdentity(reference.nativeBankNamespace, reference.nativeBankSlot)
                 if (reference.nativeBankNamespace == null) {
-                    loadBitmap(reference.resourceId, resolver)
+                    resolver.takePreloadedBitmap(layer, reference.resourceId)?.also { preloaded ->
+                        bitmapOwners[preloaded] = resolver
+                        recordDecodedBitmap("preloaded:" + reference.resourceId, preloaded)
+                    } ?: loadBitmap(reference.resourceId, resolver)
                 } else {
                     loadBitmapFromNativeBank(
                         reference.nativeBankNamespace,
