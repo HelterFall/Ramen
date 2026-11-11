@@ -4,6 +4,17 @@ import kotlin.math.cos
 import kotlin.math.pow
 import kotlin.math.sqrt
 
+internal data class SystemNnnSentenceTile(
+    val source: SystemNnnNativeRect,
+    val destination: SystemNnnNativeRect,
+    val alpha: Float
+)
+
+internal data class SystemNnnSentencePlan(
+    val completed: SystemNnnNativeRect?,
+    val partial: SystemNnnSentenceTile?
+)
+
 internal data class SystemNnnVisualOffset(
     val x: Float,
     val y: Float
@@ -580,7 +591,7 @@ internal object SystemNnnVisualEffectMath {
         hasRectMotion: Boolean
     ): Boolean =
         hasRectMotion ||
-            effectId in setOf(9, 39, 40, 52, 62, 64, 65, 99, 119) ||
+            effectId in setOf(9, 39, 40, 52, 62, 64, 65, 99, 119, 133) ||
             (effectId == 100 && (parameters.getOrNull(5) ?: 0) == 0)
 
     /**
@@ -608,7 +619,7 @@ internal object SystemNnnVisualEffectMath {
         supportsSignedGradation: Boolean = false
     ): Boolean =
         when (effectId) {
-            0, 8, 9, 10, 11, 17, 18, 27, 29, 39, 40, 52, 54, 55, 62, 64, 65, 66, 99, 119, 132 -> true
+            0, 8, 9, 10, 11, 17, 18, 27, 29, 39, 40, 52, 54, 55, 62, 64, 65, 66, 99, 119, 132, 133 -> true
             50 -> supportsSignedGradation || supportsAdditiveGradation(parameters)
             82 -> (parameters.getOrNull(0) ?: 9_999) == 0 &&
                 (parameters.getOrNull(8) ?: 0) == 0
@@ -640,7 +651,7 @@ internal object SystemNnnVisualEffectMath {
      */
     fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean =
         when (effectId) {
-            27, 39, 54, 64, 65, 66, 99 -> false
+            27, 39, 54, 64, 65, 66, 99, 133 -> false
             82 -> (parameters.getOrNull(0) ?: 9_999) != 0 ||
                 (parameters.getOrNull(8) ?: 0) != 0
             100 -> (parameters.getOrNull(5) ?: 0) != 0
@@ -758,6 +769,159 @@ internal object SystemNnnVisualEffectMath {
 
         val value = start.toDouble() + (end.toLong() - start.toLong()).toDouble() * ratio
         return (value + 0.5).toInt()
+    }
+
+    /**
+     * Plans the native SENTENCE (133) tile-atlas reveal. The native effect draws
+     * complete rows/columns in batches and only needs a separate blit for the
+     * currently-revealing tile.
+     */
+    fun sentenceRevealPlan(
+        frame: Int,
+        parameters: List<Int>,
+        imageWidth: Int,
+        imageHeight: Int
+    ): SystemNnnSentencePlan? {
+        val tileWidth = parameters.getOrNull(1) ?: 32
+        val tileHeight = parameters.getOrNull(2) ?: 32
+        if (imageWidth <= 0 || imageHeight <= 0 || tileWidth <= 0 || tileHeight <= 0) {
+            return null
+        }
+
+        // The native implementation uses integer division and leaves any partial
+        // right/bottom edge outside the tile grid untouched.
+        val columns = imageWidth / tileWidth
+        val rows = imageHeight / tileHeight
+        if (columns <= 0 || rows <= 0) return null
+
+        val tileCount = columns.toLong() * rows.toLong()
+        val requestedSubdivisions = (parameters.getOrNull(5) ?: 1).coerceAtLeast(1).toLong()
+        // CCalcuSpeed accepts Int operands; cap pathological values instead of
+        // overflowing the native total-step product on Android.
+        val subdivisions = minOf(
+            requestedSubdivisions,
+            (Int.MAX_VALUE.toLong() / tileCount).coerceAtLeast(1L)
+        ).toInt()
+        val totalSteps = (tileCount * subdivisions.toLong()).toInt()
+        val duration = (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+        val progress = nativeSpeedValue(
+            count = frame,
+            countMax = duration,
+            startData = 0,
+            endData = totalSteps,
+            delayCount = parameters.getOrNull(7) ?: 0,
+            speedType = parameters.getOrNull(6) ?: 0
+        ).coerceIn(0, totalSteps)
+
+        val printed = (progress / subdivisions).coerceIn(0L, tileCount).toInt()
+        val printingPercent = (
+            (progress % subdivisions).toLong() * 100L / subdivisions.toLong()
+        ).toInt()
+        val vertical = (parameters.getOrNull(3) ?: 0) != 0
+        val wipe = parameters.getOrNull(4) ?: 0
+
+        val completed = if (!vertical) {
+            val completedRows = printed / columns
+            if (completedRows > 0) {
+                SystemNnnNativeRect(0, 0, columns * tileWidth, completedRows * tileHeight)
+            } else null
+        } else {
+            val completedColumns = printed / rows
+            if (completedColumns > 0) {
+                SystemNnnNativeRect(
+                    (columns - completedColumns) * tileWidth,
+                    0,
+                    completedColumns * tileWidth,
+                    rows * tileHeight
+                )
+            } else null
+        }
+
+        if (printed >= tileCount || printingPercent <= 0) {
+            return SystemNnnSentencePlan(completed, null)
+        }
+
+        val tileColumn: Int
+        val tileRow: Int
+        if (!vertical) {
+            tileColumn = printed % columns
+            tileRow = printed / columns
+        } else {
+            tileColumn = columns - (printed / rows) - 1
+            tileRow = printed % rows
+        }
+        val tileX = tileColumn * tileWidth
+        val tileY = tileRow * tileHeight
+        val fullTile = SystemNnnNativeRect(tileX, tileY, tileWidth, tileHeight)
+        val percent = printingPercent
+
+        val partial = when (wipe) {
+            // 0: blit the complete current tile as soon as its subdivision starts.
+            0 -> SystemNnnSentenceTile(fullTile, fullTile, 1f)
+            // 1: reveal the complete tile with native percentage transparency.
+            1 -> SystemNnnSentenceTile(fullTile, fullTile, percent / 100f)
+            // 2: stretch the complete tile into a growing centered rectangle.
+            2 -> {
+                val width = tileWidth * percent / 100
+                val height = tileHeight * percent / 100
+                if (width <= 0 || height <= 0) null else {
+                    val destination = SystemNnnNativeRect(
+                        tileX + (tileWidth - width) / 2,
+                        tileY + (tileHeight - height) / 2,
+                        width,
+                        height
+                    )
+                    SystemNnnSentenceTile(fullTile, destination, 1f)
+                }
+            }
+            // 3: crop a centered rectangle from the source tile without scaling it.
+            3 -> {
+                val width = tileWidth * percent / 100
+                val height = tileHeight * percent / 100
+                if (width <= 0 || height <= 0) null else {
+                    val crop = SystemNnnNativeRect(
+                        tileX + (tileWidth - width) / 2,
+                        tileY + (tileHeight - height) / 2,
+                        width,
+                        height
+                    )
+                    SystemNnnSentenceTile(crop, crop, 1f)
+                }
+            }
+            // 4: wipe horizontally within a row or vertically within a column.
+            4 -> {
+                val width = if (vertical) tileWidth else tileWidth * percent / 100
+                val height = if (vertical) tileHeight * percent / 100 else tileHeight
+                if (width <= 0 || height <= 0) null else {
+                    val destination = SystemNnnNativeRect(tileX, tileY, width, height)
+                    SystemNnnSentenceTile(destination, destination, 1f)
+                }
+            }
+            // 5/6: shrink a two-times tile into place; mode 6 also fades it in.
+            5, 6 -> {
+                val scalePercent = 200 - percent
+                val width = tileWidth.toLong().times(scalePercent).div(100L).toInt()
+                val height = tileHeight.toLong().times(scalePercent).div(100L).toInt()
+                if (width <= 0 || height <= 0) null else {
+                    val destination = SystemNnnNativeRect(
+                        tileX + (tileWidth - width) / 2,
+                        tileY + (tileHeight - height) / 2,
+                        width,
+                        height
+                    )
+                    SystemNnnSentenceTile(
+                        fullTile,
+                        destination,
+                        if (wipe == 6) percent / 100f else 1f
+                    )
+                }
+            }
+            // The native Print implementation has no partial-tile branch for other
+            // wipe values; completed rows/columns still render.
+            else -> null
+        }
+
+        return SystemNnnSentencePlan(completed, partial)
     }
 
     fun changeBlend(
