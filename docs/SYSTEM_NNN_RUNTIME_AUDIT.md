@@ -101,7 +101,7 @@ The new tests establish the local filename-to-resource-to-temporary-file path us
 1. **Audio:** synthetic tests now cover BGM/SE name-list mapping and MML/WGQ/VAW materialization, and the Activity lifecycle now pauses/resumes all audio channels, including while asynchronous preparation is pending. Audible restoration on the actual game/device is not confirmed. Music segment transitions are not guaranteed gapless and explicit Android Audio Focus is not implemented.
 2. **Voice:** the user has observed that dialogue voices play normally alongside the text in novellas. No active voice-playback bug is reported, so numeric bank-routing investigation is not being treated as a current blocker unless a reproducible symptom appears.
 3. **Movies:** the inventory contains an MPG file, but no connected Android movie event/player surface is implemented.
-4. **Unimplemented commands:** DRAW and PRELOADDWQ remain no-ops.
+4. **Command coverage:** DRAW is a timed scene-publication boundary; PRELOADDWQ is now decoded and connected to a bounded, layer-keyed image cache. OVERLAP capture/composition and several native message-window controls remain incomplete.
 5. **Memory/decoding:** packed DWQ decoding now rejects blocks larger than 128 MiB before allocating the input buffer. Within that bound it can still retain the compressed block, an intermediate pixel array, and the Bitmap simultaneously; streaming/direct-to-bitmap decoding remains desirable.
 6. **Text/fonts:** XTX/MML use CP932/Windows-31J handling, while the SPT pool uses Shift-JIS; `sjis_ext.bin` is not integrated into the SPT decoder. MFT font compatibility is not established.
 7. **Application modes:** save/load controls remain placeholders; native title/system menus and the complete gallery experience are not implemented.
@@ -110,7 +110,7 @@ The new tests establish the local filename-to-resource-to-temporary-file path us
 
 1. Validate BGM and SE audibly on a physical Android device with the actual imported game, including pause/resume and interruption behavior. Only then decide whether gapless playback or Audio Focus changes are needed.
 2. Perform a visual acceptance pass on the target game/device for compositor effects used by the actual sample.
-3. Continue with movie support, DRAW/PRELOADDWQ, streaming/direct-to-bitmap image decoding, fonts, save/load, and native UI modes.
+3. Continue with movie support, OVERLAP screen capture/composition, streaming/direct-to-bitmap image decoding, fonts, save/load, and native UI modes.
 
 The earlier material below is the historical audit snapshot `f4eda6eb494e5ebebcc852dd18b68901657f07ad`. Its old visual-compositor and voice-routing statements should be read as historical findings, not as the current code snapshot. The PR remains open and Draft; `main` was not changed.
 
@@ -238,8 +238,8 @@ This may affect uncommon glyphs or identifiers and can lead to an apparently val
 
 ### P2 — PRELOADDWQ and DRAW are not rendered
 
-- PRELOADDWQ is decoded as a no-op. This preserves command progression but does not reproduce the native image preloading/cache behavior.
-- SYSTEM_COMMAND DRAW is skipped as a bounded record. Its target-specific payload is not rendered.
+- PRELOADDWQ resolves the same layer + Pool 2 resource operands as LOADDWQ and warms an 8-million-pixel-bounded LRU cache keyed by layer and normalized resource name. The following matching LOADDWQ consumes the prepared bitmap; if an injected resolver does not support preloading, the normal on-demand decode path remains the fallback.
+- SYSTEM_COMMAND DRAW publishes the accumulated scene and waits for the declared frame boundary. Exact native scheduler timing/animation integration remains only partially reproduced.
 - Animation-layer and other native effect systems are not represented by the current static sprite pipeline.
 
 These omissions can affect timing, animation, and visual composition even when a later LOADDWQ successfully loads a static image.
