@@ -122,7 +122,7 @@ class LiveMakerVirtualMachineTest {
         withSource(bytes) { source ->
             val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
             assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
-            assertEquals(2L, vm.variablesSnapshot()["selected"])
+            assertEquals(2, vm.variablesSnapshot()["selected"])
             assertTrue(!vm.variablesSnapshot().containsKey("wrong"))
             assertTrue(!vm.variablesSnapshot().containsKey("alsoWrong"))
         }
