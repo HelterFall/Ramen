@@ -91,7 +91,7 @@ Currently implemented in the VM:
 - `WhileInit` / `While` / `WhileLoop` execution, plus conditional `Break` / `Continue` transfers;
 - conditional `Exit` and timed `Wait` events; `StopEvent` independently controls event-loop processing while waiting;
 - cross-page `Jump` / `Call` handoff events (including preserved call-argument expressions), a call stack, and host-driven script loading/return;
-- `LiveMakerGameSession` coordinates the VM with loose `.lsb` pages and bounded on-demand reads of `.lsb` entries from VF v102 archives; target `LineNo` values are resolved to command-array indices.
+- `LiveMakerGameSession` coordinates the VM with loose `.lsb` pages and bounded on-demand reads of `.lsb` entries from VF v102 archives; target command-array indices are validated before the destination page is entered.
 
 Not implemented as engine semantics yet:
 - fully validated behavior against commercial LSB samples and uncommon nested control-flow edge cases;
@@ -105,7 +105,6 @@ Commands outside the VM subset are returned to the host as `HostCommandRequired`
 
 - Parser: `app/src/main/java/io/github/helterfall/ramen/inspection/LiveMakerLsbParser.kt`
 - VM: `app/src/main/java/io/github/helterfall/ramen/runtime/livemaker/LiveMakerVirtualMachine.kt`
-- Page repositories and session: `app/src/main/java/io/github/helterfall/ramen/runtime/livemaker/LiveMakerGameSession.kt`
 - Page repositories and session: `app/src/main/java/io/github/helterfall/ramen/runtime/livemaker/LiveMakerGameSession.kt`
 - Synthetic parser fixture: `app/src/test/java/io/github/helterfall/ramen/inspection/LiveMakerLsbFixture.kt`
 - Parser tests: `app/src/test/java/io/github/helterfall/ramen/inspection/LiveMakerLsbParserTest.kt`
