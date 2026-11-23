@@ -238,7 +238,8 @@ class LiveMakerGameSession(
         pageReference = transfer.page,
         targetLineNo = transfer.labelIndex,
         isCall = transfer.isCall,
-        returnVariable = transfer.returnVariable
+        returnVariable = transfer.returnVariable,
+        callArguments = transfer.arguments
     )
 
     private fun enterTransferredPage(
@@ -315,9 +316,11 @@ private class ByteArrayRandomAccessSource(
 }
 
 private fun liveMakerCompiledPagePath(pageReference: String): String {
-    val normalized = pageReference.trim().replace('\\', '/')
+    val normalized = pageReference.replace('\\', '/')
     if (normalized.isBlank() ||
         normalized.startsWith('/') ||
+        '\u0000' in normalized ||
+        normalized.any { it.isISOControl() } ||
         DRIVE_PREFIX.matches(normalized)
     ) {
         throw IOException("LiveMaker page reference is empty or absolute.")
