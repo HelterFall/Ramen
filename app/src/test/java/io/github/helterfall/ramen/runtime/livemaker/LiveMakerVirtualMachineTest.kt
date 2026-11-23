@@ -220,6 +220,32 @@ class LiveMakerVirtualMachineTest {
         }
     }
 
+    @Test
+    fun pausesOnUnsupportedExpressionUntilHostChoosesHowToResume() {
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.calc(
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 2, // GetProp requires a host adapter.
+                        name = "____hostResult",
+                        operands = emptyList()
+                    )
+                )
+            )
+        )
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+
+            val unsupported = vm.runUntilEvent() as LiveMakerVmEvent.UnsupportedExpression
+            assertEquals(0, unsupported.commandIndex)
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.AwaitingHost)
+
+            // The host explicitly skips this operation; the VM must not retry it implicitly.
+            vm.resume(nextCommandIndex = 1)
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+        }
+    }
+
     private fun ByteArray.withIndent(indent: Long): ByteArray {
         val copy = copyOf()
         val offset = 1

@@ -101,7 +101,7 @@ Not implemented as engine semantics yet:
 - TpWord glyph decoding and text layout;
 - graphics, component lifecycle, transitions, audio, menus, input, save/load, and resource resolution.
 
-Commands outside the VM subset are returned to the host as `HostCommandRequired`; the VM does not silently pretend they ran. The first host can choose to implement a command or stop execution.
+Commands outside the VM subset are returned to the host as `HostCommandRequired`; the VM does not silently pretend they ran. Unsupported expression evaluation returns `UnsupportedExpression` and pauses execution until the host calls `resume()`; the host can retry the current command or provide a next command index to skip it.
 
 ## Ramen files and tests
 

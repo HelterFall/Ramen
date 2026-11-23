@@ -302,14 +302,21 @@ class LiveMakerVirtualMachine(
                     }
                 }
             } catch (error: VmEvaluationException) {
-                return LiveMakerVmEvent.UnsupportedExpression(command.index, error.message ?: "Unsupported expression.")
+                waitingForHost = true
+                return LiveMakerVmEvent.UnsupportedExpression(
+                    command.index,
+                    error.message ?: "Unsupported expression."
+                )
             }
         }
 
         return LiveMakerVmEvent.Running
     }
 
-    /** Resume after a TextBlock, Delay, or host-required command has been handled. */
+    /**
+     * Resume after a blocking event has been handled.
+     * For UnsupportedExpression, retry the current command or pass a command index to skip it.
+     */
     fun resume(nextCommandIndex: Int? = null) {
         if (nextCommandIndex != null) {
             require(nextCommandIndex in 0..script.commands.size) {
@@ -740,8 +747,10 @@ class LiveMakerVirtualMachine(
         else -> null
     }
 
-    private fun unsupported(command: LiveMakerCommand, reason: String) =
-        LiveMakerVmEvent.UnsupportedExpression(command.index, reason)
+    private fun unsupported(command: LiveMakerCommand, reason: String): LiveMakerVmEvent.UnsupportedExpression {
+        waitingForHost = true
+        return LiveMakerVmEvent.UnsupportedExpression(command.index, reason)
+    }
 
     private class VmEvaluationException(message: String) : RuntimeException(message)
 
