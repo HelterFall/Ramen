@@ -22,6 +22,13 @@ interface LiveMakerScriptRepository : Closeable {
     override fun close() = Unit
 }
 
+/**
+ * Signals that a repository does not contain the requested page.
+ * I/O failures and malformed page data must remain ordinary [IOException]s.
+ */
+class LiveMakerPageNotFoundException(pageReference: String) :
+    IOException("LiveMaker page '$pageReference' was not found in the configured repository.")
+
 /** Loads compiled .lsb pages from an already-imported game directory. */
 class DirectoryLiveMakerScriptRepository(
     rootDirectory: File,
@@ -36,24 +43,31 @@ class DirectoryLiveMakerScriptRepository(
     override fun loadPage(pageReference: String): LiveMakerLsb {
         val relativePath = liveMakerCompiledPagePath(pageReference)
         val file = findCaseInsensitive(relativePath)
-            ?: throw IOException("LiveMaker page '$pageReference' was not found in the game directory.")
         return FileRandomAccessSource(file).use(scriptParser::parse)
     }
 
-    private fun findCaseInsensitive(relativePath: String): File? {
+    private fun findCaseInsensitive(relativePath: String): File {
         var current = root
         for (segment in relativePath.split('/')) {
-            val child = current.listFiles()
-                ?.firstOrNull { it.name.equals(segment, ignoreCase = true) }
-                ?: return null
-            current = child
+            val children = current.listFiles()
+            if (children == null) {
+                if (!current.isDirectory) {
+                    throw LiveMakerPageNotFoundException(relativePath)
+                }
+                throw IOException("Unable to list LiveMaker game directory '${current.path}'.")
+            }
+            current = children.firstOrNull { it.name.equals(segment, ignoreCase = true) }
+                ?: throw LiveMakerPageNotFoundException(relativePath)
         }
 
         val canonical = current.canonicalFile
         if (canonical == root || !canonical.toPath().startsWith(root.toPath())) {
             throw IOException("Resolved LiveMaker page escaped the imported game directory.")
         }
-        return canonical.takeIf { it.isFile }
+        if (!canonical.isFile) {
+            throw LiveMakerPageNotFoundException(relativePath)
+        }
+        return canonical
     }
 }
 
@@ -85,7 +99,7 @@ class VfArchiveLiveMakerScriptRepository(
             candidatePath != null &&
                 candidatePath.equals(target, ignoreCase = true) &&
                 candidatePath.endsWith(".lsb", ignoreCase = true)
-        } ?: throw IOException("LiveMaker page '$pageReference' was not found in the VF archive.")
+        } ?: throw LiveMakerPageNotFoundException(pageReference)
 
         val output = ByteArrayOutputStream()
         FileRandomAccessSource(archiveFile).use { source ->
@@ -111,15 +125,15 @@ class CompositeLiveMakerScriptRepository(
     private val repositories: List<LiveMakerScriptRepository>
 ) : LiveMakerScriptRepository {
     override fun loadPage(pageReference: String): LiveMakerLsb {
-        var lastFailure: IOException? = null
+        var lastMissing: LiveMakerPageNotFoundException? = null
         for (repository in repositories) {
             try {
                 return repository.loadPage(pageReference)
-            } catch (error: IOException) {
-                lastFailure = error
+            } catch (missing: LiveMakerPageNotFoundException) {
+                lastMissing = missing
             }
         }
-        throw lastFailure ?: IOException("No LiveMaker page repositories were configured.")
+        throw lastMissing ?: LiveMakerPageNotFoundException(pageReference)
     }
 
     override fun close() {
@@ -213,7 +227,7 @@ class LiveMakerGameSession(
 
         val destination = try {
             pageRepository.loadPage(pageReference)
-        } catch (_: IOException) {
+        } catch (_: LiveMakerPageNotFoundException) {
             null
         }
 

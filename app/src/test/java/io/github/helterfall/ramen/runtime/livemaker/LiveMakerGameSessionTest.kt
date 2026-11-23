@@ -116,6 +116,34 @@ class LiveMakerGameSessionTest {
     }
 
     @Test
+    fun resolvesCompiledPageFromEmbeddedExecutableArchive() {
+        val root = Files.createTempDirectory("ramen-livemaker-exe-pages").toFile()
+        try {
+            val childBytes = LiveMakerLsbFixture.build(
+                commands = listOf(LiveMakerLsbFixture.variableNew("exeArchiveLoaded", 17))
+            )
+            val executableBytes = LiveMakerArchiveFixture.executable(
+                listOf(
+                    LiveMakerFixtureFile(
+                        name = "scenario/embedded.lsb",
+                        payload = childBytes
+                    )
+                ),
+                archiveOffset = 48
+            )
+            val executableFile = File(root, "Game.exe").apply { writeBytes(executableBytes) }
+            val repository = VfArchiveLiveMakerScriptRepository(executableFile)
+            val loaded = repository.loadPage("scenario/embedded.lsc")
+
+            assertTrue(loaded.isComplete)
+            assertEquals(103, loaded.version)
+            assertEquals(15, loaded.commands.single().typeId)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun exposesMissingPageResolutionToHostAndAcceptsProvidedPage() {
         val callerBytes = LiveMakerLsbFixture.build(
             commands = listOf(
@@ -152,7 +180,7 @@ class LiveMakerGameSessionTest {
 
         val repository = object : LiveMakerScriptRepository {
             override fun loadPage(pageReference: String): io.github.helterfall.ramen.inspection.LiveMakerLsb {
-                throw IOException("Page not in configured repositories.")
+                throw LiveMakerPageNotFoundException(pageReference)
             }
         }
         val session = LiveMakerGameSession(parse(callerBytes), "main.lsb", repository)
@@ -168,6 +196,44 @@ class LiveMakerGameSessionTest {
         assertEquals(1L, entered.targetCommandIndex)
         assertEquals(1, entered.commandIndex)
         assertEquals("host-value", session.evaluateExpression(entered.callArguments.single()))
+    }
+
+    @Test
+    fun propagatesPageReadFailuresInsteadOfTreatingThemAsMissingPages() {
+        val callerBytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.callPage(
+                    page = "broken/chapter.lsc",
+                    labelIndex = 0,
+                    resultVariable = "result",
+                    arguments = emptyList()
+                )
+            )
+        )
+        var fallbackCalled = false
+        val brokenRepository = object : LiveMakerScriptRepository {
+            override fun loadPage(pageReference: String): io.github.helterfall.ramen.inspection.LiveMakerLsb {
+                throw IOException("Corrupt LSB page.")
+            }
+        }
+        val fallbackRepository = object : LiveMakerScriptRepository {
+            override fun loadPage(pageReference: String): io.github.helterfall.ramen.inspection.LiveMakerLsb {
+                fallbackCalled = true
+                throw LiveMakerPageNotFoundException(pageReference)
+            }
+        }
+        val session = LiveMakerGameSession(
+            initialScript = parse(callerBytes),
+            initialPageReference = "main.lsb",
+            pageRepository = CompositeLiveMakerScriptRepository(
+                listOf(brokenRepository, fallbackRepository)
+            )
+        )
+
+        val failure = runCatching { session.runUntilEvent() }.exceptionOrNull()
+        assertTrue(failure is IOException)
+        assertEquals("Corrupt LSB page.", failure?.message)
+        assertTrue(!fallbackCalled)
     }
 
     @Test

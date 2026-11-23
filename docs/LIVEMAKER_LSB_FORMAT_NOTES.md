@@ -35,6 +35,8 @@ Every command record begins with:
 
 Command records do not have an independent record-size prefix. A parser that does not know a command's body layout cannot safely skip that command and continue with the next one. Ramen therefore returns a partial parse when it encounters an unknown command type.
 
+For compiled `LabelReference` values, `Label` is a zero-based index into the command array; `0` means the start of the page. `LineNo` is source/debug metadata and is not a Jump/Call transfer target.
+
 ## Expressions
 
 A `LiveParser` expression is a UInt32-prefixed array of operations. Each operation contains:
