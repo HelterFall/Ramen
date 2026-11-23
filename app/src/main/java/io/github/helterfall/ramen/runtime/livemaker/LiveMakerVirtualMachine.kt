@@ -371,6 +371,9 @@ class LiveMakerVirtualMachine(
         variables[name] = value
     }
 
+    /** Evaluates an expression in the current caller state for a host-side Call adapter. */
+    fun evaluateExpression(expression: LiveMakerExpression): Any? = evaluate(expression)
+
 
     /**
      * Find the next Elseif/Else at the same indentation level.
