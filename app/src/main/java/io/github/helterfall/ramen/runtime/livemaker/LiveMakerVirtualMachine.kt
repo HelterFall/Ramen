@@ -10,6 +10,8 @@ import io.github.helterfall.ramen.inspection.LiveMakerParameterValue
 sealed interface LiveMakerVmEvent {
     data class TextBlock(
         val tpWordBytes: ByteArray,
+        val targetExpression: LiveMakerExpression,
+        val historyExpression: LiveMakerExpression,
         val shouldWait: Boolean,
         val stopEventProcessing: Boolean,
         val commandIndex: Int
@@ -26,6 +28,7 @@ sealed interface LiveMakerVmEvent {
         val labelIndex: Long,
         val isCall: Boolean,
         val returnVariable: String?,
+        val arguments: List<LiveMakerExpression>,
         val commandIndex: Int
     ) : LiveMakerVmEvent
 
@@ -127,6 +130,10 @@ class LiveMakerVirtualMachine(
                     20 -> {
                         val rawText = command.binaryBlobs.firstOrNull()
                             ?: return unsupported(command, "TextIns is missing its TpWord block.")
+                        val targetExpression = command.expressions.getOrNull(0)
+                            ?: return unsupported(command, "TextIns is missing its target expression.")
+                        val historyExpression = command.expressions.getOrNull(1)
+                            ?: return unsupported(command, "TextIns is missing its history expression.")
                         val requestedWait = command.expressions.getOrNull(2)
                             ?.let { truthy(evaluate(it)) } ?: true
                         val stopEventProcessing = script.version > 106 &&
@@ -138,6 +145,8 @@ class LiveMakerVirtualMachine(
                         waitingForHost = shouldWait
                         return LiveMakerVmEvent.TextBlock(
                             tpWordBytes = rawText.copyOf(),
+                            targetExpression = targetExpression,
+                            historyExpression = historyExpression,
                             shouldWait = shouldWait,
                             stopEventProcessing = stopEventProcessing,
                             commandIndex = command.index
@@ -153,7 +162,12 @@ class LiveMakerVirtualMachine(
                         if (truthy(condition)) {
                             waitingForHost = true
                             return LiveMakerVmEvent.ScriptTransfer(
-                                page, label, false, null, command.index
+                                page = page,
+                                labelIndex = label,
+                                isCall = false,
+                                returnVariable = null,
+                                arguments = emptyList(),
+                                commandIndex = command.index
                             )
                         }
                     }
@@ -168,7 +182,12 @@ class LiveMakerVirtualMachine(
                         if (truthy(condition)) {
                             waitingForHost = true
                             return LiveMakerVmEvent.ScriptTransfer(
-                                page, label, true, resultName, command.index
+                                page = page,
+                                labelIndex = label,
+                                isCall = true,
+                                returnVariable = resultName,
+                                arguments = command.expressions.drop(1),
+                                commandIndex = command.index
                             )
                         }
                     }
