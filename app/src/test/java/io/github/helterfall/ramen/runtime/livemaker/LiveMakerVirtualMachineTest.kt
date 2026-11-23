@@ -70,6 +70,43 @@ class LiveMakerVirtualMachineTest {
         }
     }
 
+    @Test
+    fun waitStillWaitsWhenStopEventIsFalse() {
+        val bytes = LiveMakerLsbFixture.build(
+            version = 107,
+            commands = listOf(
+                LiveMakerLsbFixture.wait(
+                    milliseconds = 250,
+                    shouldWait = true,
+                    stopEventProcessing = false
+                )
+            )
+        )
+        withSource(bytes) { source ->
+            val script = LiveMakerLsbParser().parse(source)
+            val vm = LiveMakerVirtualMachine(script)
+            val event = vm.runUntilEvent() as LiveMakerVmEvent.Delay
+
+            assertEquals(250L, event.milliseconds)
+            assertEquals(false, event.stopEventProcessing)
+        }
+    }
+
+    @Test
+    fun textInsDoesNotWaitWhenStopEventIsFalseInVersion107() {
+        val bytes = LiveMakerLsbFixture.build(
+            version = 107,
+            commands = listOf(LiveMakerLsbFixture.textInsert("x".toByteArray()))
+        )
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            val event = vm.runUntilEvent() as LiveMakerVmEvent.TextBlock
+
+            assertEquals(false, event.shouldWait)
+            assertEquals(false, event.stopEventProcessing)
+        }
+    }
+
     private fun withSource(bytes: ByteArray, block: (ReadOnlyRandomAccessSource) -> Unit) {
         val directory = Files.createTempDirectory("ramen-livemaker-vm-test").toFile()
         try {
