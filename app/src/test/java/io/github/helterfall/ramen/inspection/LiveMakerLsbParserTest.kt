@@ -55,7 +55,7 @@ class LiveMakerLsbParserTest {
     @Test
     fun stopsCleanlyAtUnknownCommandWithoutGuessingItsLength() {
         val bytes = LiveMakerLsbFixture.build(
-            commands = listOf(LiveMakerLsbFixture.command(3, ByteArray(0))),
+            commands = listOf(LiveMakerLsbFixture.command(3, LiveMakerLsbFixture.emptyString())),
             unknownCommandType = 0xFE
         )
 
