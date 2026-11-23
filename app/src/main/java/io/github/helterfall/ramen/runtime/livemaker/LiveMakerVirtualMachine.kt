@@ -6,6 +6,7 @@ import io.github.helterfall.ramen.inspection.LiveMakerLsb
 import io.github.helterfall.ramen.inspection.LiveMakerOperation
 import io.github.helterfall.ramen.inspection.LiveMakerParameter
 import io.github.helterfall.ramen.inspection.LiveMakerParameterValue
+import java.nio.charset.Charset
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.asin
@@ -587,9 +588,14 @@ class LiveMakerVirtualMachine(
 
         return when (functionId) {
             0 -> {
-                requireCount(1)
-                val value = numberArg(0)
-                if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+                requireCount(1, 2)
+                val value = numberArg(0).toLong().toString()
+                val width = if (args.size == 2) numberArg(1).toInt().coerceIn(0, 64) else 0
+                if (value.startsWith("-")) {
+                    "-" + value.substring(1).padStart((width - 1).coerceAtLeast(0), '0')
+                } else {
+                    value.padStart(width, '0')
+                }
             }
             1 -> {
                 requireCount(1, 2)
@@ -598,15 +604,26 @@ class LiveMakerVirtualMachine(
                 val width = if (args.size == 2) numberArg(1).toInt().coerceIn(0, 64) else 0
                 hex.padStart(width, '0')
             }
-            4, 5 -> {
-                requireCount(1)
-                when (val value = arg(0)) {
-                    is String -> value.length
-                    is Collection<*> -> value.size
-                    is Map<*, *> -> value.size
-                    is Array<*> -> value.size
-                    else -> throw VmEvaluationException("Function $functionId expects a string or collection.")
+            4 -> {
+                requireCount(1, 2)
+                val values = when (val value = arg(0)) {
+                    is List<*> -> value
+                    is Array<*> -> value.asList()
+                    else -> throw VmEvaluationException("GetArraySize expects an array.")
                 }
+                if (values.any { it is Collection<*> || it is Array<*> }) {
+                    throw VmEvaluationException("GetArraySize for multi-dimensional arrays is not implemented.")
+                }
+                if (args.size == 2 && numberArg(1).toInt() != 0) {
+                    throw VmEvaluationException("GetArraySize currently supports only dimension 0.")
+                }
+                values.size
+            }
+            5 -> {
+                requireCount(1)
+                val value = arg(0) as? String
+                    ?: throw VmEvaluationException("Length expects a string.")
+                value.toByteArray(CP932).size
             }
             13 -> {
                 requireCount(2)
@@ -663,16 +680,28 @@ class LiveMakerVirtualMachine(
             74 -> { requireCount(1); stringArg(0).uppercase() }
             82 -> {
                 requireCount(2)
-                val count = numberArg(0).toInt().coerceIn(0, 65_536)
-                val character = when (val value = arg(1)) {
-                    is String -> value.firstOrNull()?.toString() ?: ""
-                    else -> numberArg(1).toInt().toChar().toString()
+                val character = stringArg(0)
+                if (character.length != 1) {
+                    throw VmEvaluationException("StringOfChar expects a single character as its first argument.")
                 }
+                val count = numberArg(1).toInt().coerceIn(0, 65_536)
                 character.repeat(count)
             }
             83 -> {
-                requireCount(3)
-                stringArg(0).replace(stringArg(1), stringArg(2))
+                requireCount(3, 5)
+                val source = stringArg(0)
+                val search = stringArg(1)
+                val replacement = stringArg(2)
+                val replaceAll = args.getOrNull(3)?.let(::truthy) ?: false
+                val ignoreCase = args.getOrNull(4)?.let(::truthy) ?: false
+                if (search.isEmpty()) {
+                    source
+                } else if (replaceAll) {
+                    source.replace(search, replacement, ignoreCase)
+                } else {
+                    val index = source.indexOf(search, ignoreCase = ignoreCase)
+                    if (index < 0) source else source.replaceRange(index, index + search.length, replacement)
+                }
             }
             126 -> { requireCount(2); min(numberArg(0), numberArg(1)) }
             127 -> { requireCount(2); max(numberArg(0), numberArg(1)) }
@@ -756,5 +785,6 @@ class LiveMakerVirtualMachine(
 
     companion object {
         private const val OP_TO = 1
+        private val CP932: Charset = Charset.forName("windows-31j")
     }
 }

@@ -221,6 +221,105 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun matchesLiveNovelBuiltInStringAndArrayFunctionSignatures() {
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.calc(
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 82,
+                        name = "____repeated",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString("あ"),
+                            LiveMakerLsbFixture.paramInt(5)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "repeated",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____repeated"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 83,
+                        name = "____firstReplacement",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString("ABCabc"),
+                            LiveMakerLsbFixture.paramString("A"),
+                            LiveMakerLsbFixture.paramString("X")
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "firstReplacement",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____firstReplacement"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 83,
+                        name = "____allReplacement",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString("ABCabc"),
+                            LiveMakerLsbFixture.paramString("A"),
+                            LiveMakerLsbFixture.paramString("X"),
+                            LiveMakerLsbFixture.paramFlag(true),
+                            LiveMakerLsbFixture.paramFlag(true)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "allReplacement",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____allReplacement"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 5,
+                        name = "____byteLength",
+                        operands = listOf(LiveMakerLsbFixture.paramString("あ"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "byteLength",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____byteLength"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 0,
+                        name = "____paddedNumber",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramInt(87),
+                            LiveMakerLsbFixture.paramInt(3)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "paddedNumber",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____paddedNumber"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 4,
+                        name = "____arraySize",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("values"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "arraySize",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____arraySize"))
+                    )
+                )
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            vm.setVariable("values", listOf("zero", "one", "two"))
+
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            assertEquals("あああああ", vm.variablesSnapshot()["repeated"])
+            assertEquals("XBCabc", vm.variablesSnapshot()["firstReplacement"])
+            assertEquals("XBCXbc", vm.variablesSnapshot()["allReplacement"])
+            assertEquals(2, vm.variablesSnapshot()["byteLength"])
+            assertEquals("087", vm.variablesSnapshot()["paddedNumber"])
+            assertEquals(3, vm.variablesSnapshot()["arraySize"])
+        }
+    }
+
+    @Test
     fun pausesOnUnsupportedExpressionUntilHostChoosesHowToResume() {
         val bytes = LiveMakerLsbFixture.build(
             commands = listOf(

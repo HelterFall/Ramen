@@ -5,6 +5,7 @@
 The compiled `.lsb` version is independent of the VF archive version. The parser accepts compiled LSB versions `103` through `117`. Versions `103`–`116` map to LiveMaker 2; version `117` maps to LiveMaker 3. A `vf` archive can therefore be VF version 102 while containing scripts whose LSB version is 103 or later.
 
 Primary format reference: `pylivemaker`'s published `livemaker.lsb.lmscript`, `livemaker.lsb.command`, and `livemaker.lsb.core` source:
+- LiveNovel calculation and built-in function reference: https://pylivemaker.readthedocs.io/en/latest/_static/LiveNovel/calc.html
 - https://pylivemaker.readthedocs.io/en/latest/_modules/livemaker/lsb/lmscript.html
 - https://pylivemaker.readthedocs.io/en/latest/_modules/livemaker/lsb/command.html
 - https://pylivemaker.readthedocs.io/en/latest/_modules/livemaker/lsb/core.html
@@ -87,7 +88,7 @@ The parser preserves command metadata, expressions, strings, integer fields, com
 Currently implemented in the VM:
 - a bounded step loop;
 - variable creation/deletion;
-- a growing expression subset (literal/variable values, assignment, array indexing, arithmetic, comparisons, logical/bitwise operations, string concatenation, and a bounded set of pure string/math functions);
+- a growing expression subset (literal/variable values, assignment, array indexing, arithmetic, comparisons, logical/bitwise operations, string concatenation, and a bounded set of pure string/math functions); the tested built-in subset includes CP932 byte-counting `Length`, one-dimensional `GetArraySize`, width-aware `IntToStr`, and LiveNovel-compatible `StringOfChar` / `StringReplace` argument order and defaults;
 - `TextIns` surfaced to the host as raw TpWord bytes plus target/history expressions;
 - `If` / `Elseif` / `Else` branch selection by command indentation;
 - `WhileInit` / `While` / `WhileLoop` execution, plus conditional `Break` / `Continue` transfers;
@@ -97,7 +98,7 @@ Currently implemented in the VM:
 
 Not implemented as engine semantics yet:
 - fully validated behavior against commercial LSB samples and uncommon nested control-flow edge cases;
-- the complete LiveParser operator/function library, host-side function adapters, and 80-bit float evaluation;
+- the complete LiveParser operator/function library, multi-dimensional array sizing, host-side function adapters, and 80-bit float evaluation;
 - TpWord glyph decoding and text layout;
 - graphics, component lifecycle, transitions, audio, menus, input, save/load, and resource resolution.
 
