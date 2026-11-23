@@ -105,6 +105,18 @@ class LiveMakerVirtualMachine(
 
             try {
                 when (command.typeId) {
+                    0 -> {
+                        if (truthy(evaluateRequired(command, 0))) {
+                            programCounter += 1
+                        } else {
+                            enterNextConditionalBranch(command.indent, programCounter + 1)
+                        }
+                    }
+                    1, 2 -> {
+                        // Reaching an Elseif/Else by falling through means an earlier
+                        // branch was already taken. Skip the remaining alternatives.
+                        programCounter = skipConditionalRemainder(programCounter, command.indent)
+                    }
                     3, 27 -> programCounter += 1
                     45 -> {
                         completed = true
@@ -113,6 +125,47 @@ class LiveMakerVirtualMachine(
                     14 -> {
                         evaluateRequired(command, 0)
                         programCounter += 1
+                    }
+                    31 -> {
+                        val condition = truthy(evaluateRequired(command, 0))
+                        val endIndex = command.integers.firstOrNull()
+                            ?: return unsupported(command, "While is missing its End index.")
+                        if (condition) {
+                            programCounter += 1
+                        } else {
+                            programCounter = checkedCommandTarget(endIndex + 2L, command)
+                        }
+                    }
+                    32 -> {
+                        // WhileInit runs once before the corresponding While command.
+                        evaluateRequired(command, 0)
+                        programCounter += 1
+                    }
+                    33 -> {
+                        evaluateRequired(command, 0)
+                        val startIndex = command.integers.firstOrNull()
+                            ?: return unsupported(command, "WhileLoop is missing its Start index.")
+                        programCounter = checkedCommandTarget(startIndex + 1L, command)
+                    }
+                    34 -> {
+                        val shouldBreak = truthy(evaluateRequired(command, 0))
+                        val endIndex = command.integers.firstOrNull()
+                            ?: return unsupported(command, "Break is missing its End index.")
+                        programCounter = if (shouldBreak) {
+                            checkedCommandTarget(endIndex + 2L, command)
+                        } else {
+                            programCounter + 1
+                        }
+                    }
+                    35 -> {
+                        val shouldContinue = truthy(evaluateRequired(command, 0))
+                        val startIndex = command.integers.firstOrNull()
+                            ?: return unsupported(command, "Continue is missing its Start index.")
+                        programCounter = if (shouldContinue) {
+                            checkedCommandTarget(startIndex + 1L, command)
+                        } else {
+                            programCounter + 1
+                        }
                     }
                     15 -> {
                         val variableName = command.strings.firstOrNull()
@@ -289,6 +342,73 @@ class LiveMakerVirtualMachine(
     /** Accept a host-supplied game variable value. */
     fun setVariable(name: String, value: Any?) {
         variables[name] = value
+    }
+
+
+    /**
+     * Find the next Elseif/Else at the same indentation level.
+     * Nested conditional markers have a greater indent and are ignored.
+     */
+    private fun nextConditionalBranch(indent: Long, fromIndex: Int): Int? {
+        var index = fromIndex
+        while (index < script.commands.size) {
+            val candidate = script.commands[index]
+            if (candidate.indent < indent) return null
+            if (candidate.indent == indent) {
+                return index.takeIf { candidate.typeId == 1 || candidate.typeId == 2 }
+            }
+            index += 1
+        }
+        return null
+    }
+
+    private fun enterNextConditionalBranch(indent: Long, fromIndex: Int) {
+        var searchFrom = fromIndex
+        while (true) {
+            val branchIndex = nextConditionalBranch(indent, searchFrom)
+            if (branchIndex == null) {
+                programCounter = firstCommandAtOrOutsideIndent(indent, searchFrom)
+                return
+            }
+
+            val branch = script.commands[branchIndex]
+            when (branch.typeId) {
+                1 -> {
+                    val condition = branch.expressions.firstOrNull()
+                        ?: throw VmEvaluationException("Elseif command is missing its condition.")
+                    if (truthy(evaluate(condition))) {
+                        programCounter = branchIndex + 1
+                        return
+                    }
+                    searchFrom = branchIndex + 1
+                }
+                2 -> {
+                    programCounter = branchIndex + 1
+                    return
+                }
+                else -> error("Unexpected conditional branch type.")
+            }
+        }
+    }
+
+    private fun skipConditionalRemainder(branchIndex: Int, indent: Long): Int =
+        firstCommandAtOrOutsideIndent(indent, branchIndex + 1)
+
+    private fun firstCommandAtOrOutsideIndent(indent: Long, fromIndex: Int): Int {
+        var index = fromIndex
+        while (index < script.commands.size && script.commands[index].indent > indent) {
+            index += 1
+        }
+        return index
+    }
+
+    private fun checkedCommandTarget(target: Long, command: LiveMakerCommand): Int {
+        if (target < 0L || target > script.commands.size.toLong()) {
+            throw VmEvaluationException(
+                "Command " + command.index + " contains out-of-range control-flow target " + target + "."
+            )
+        }
+        return target.toInt()
     }
 
     private fun evaluateRequired(command: LiveMakerCommand, index: Int): Any? {
