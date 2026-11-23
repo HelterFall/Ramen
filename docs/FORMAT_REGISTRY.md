@@ -25,8 +25,9 @@ Evidence must only move forward when new bytes, documentation, or repeatable tes
 | Ogg | `OggS` | Ogg stream | Page structure and codec are not parsed by this inspector. |
 | PNG | `89 50 4E 47 0D 0A 1A 0A` | PNG image | Signature only. |
 | JPEG | `FF D8 FF` | JPEG image | Start marker only. |
+| LiveMaker VF v102 | `vf` signature, UInt32 version 102; embedded EXEs end with UInt32LE archive offset + `lv` | Parsed VF directory with bounded offsets; compression flags 0/1 can be copied/decompressed | Parser and synthetic unit fixtures are implemented; encryption flags 2/3, checksum verification, `.lsb` interpretation, and playback remain unsupported. |
 
-Implementation: `app/src/main/java/io/github/helterfall/ramen/inspection/BinaryArtifactInspector.kt`.
+Implementation: `app/src/main/java/io/github/helterfall/ramen/inspection/BinaryArtifactInspector.kt`. LiveMaker parser: `app/src/main/java/io/github/helterfall/ramen/inspection/LiveMakerArchiveParser.kt`; format notes: [LiveMaker VF v102](LIVEMAKER_VF102_FORMAT_NOTES.md).
 
 The inspector accepts either a `File` convenience wrapper or an open `ReadOnlyRandomAccessSource`; the caller owns the source lifetime. `Sha256FileHasher` computes per-file fingerprints incrementally. `DirectoryInventoryScanner` combines relative paths, sizes, hashes, and artifact reports under bounded file-count, depth, and total-hash budgets.
 
