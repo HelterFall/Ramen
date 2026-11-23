@@ -87,11 +87,13 @@ Currently implemented in the VM:
 - variable creation/deletion;
 - a small expression subset (literal/variable values, assignment, basic arithmetic, comparisons, logical/bitwise operations and string concatenation);
 - `TextIns` surfaced to the host as raw TpWord bytes plus target/history expressions;
+- `If` / `Elseif` / `Else` branch selection by command indentation;
+- `WhileInit` / `While` / `WhileLoop` execution, plus conditional `Break` / `Continue` transfers;
 - conditional `Exit` and timed `Wait` events; `StopEvent` independently controls event-loop processing while waiting;
 - cross-page `Jump` / `Call` handoff events (including preserved call-argument expressions), a call stack, and host-driven script loading/return.
 
 Not implemented as engine semantics yet:
-- `If` / `Elseif` / `Else` and loop control-flow evaluation;
+- fully validated behavior against commercial LSB samples and uncommon nested control-flow edge cases;
 - the complete LiveParser operator/function library and 80-bit float evaluation;
 - TpWord glyph decoding and text layout;
 - graphics, component lifecycle, transitions, audio, menus, input, save/load, and resource resolution.
