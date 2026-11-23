@@ -18,12 +18,20 @@ class LiveMakerGameSessionTest {
     fun resolvesCallPageFromDirectoryAndMapsLineNoToCommandIndex() {
         val root = Files.createTempDirectory("ramen-livemaker-session").toFile()
         try {
+            val callArgument = LiveMakerLsbFixture.expression(
+                LiveMakerLsbFixture.operation(
+                    type = 0,
+                    name = "____arg",
+                    operands = listOf(LiveMakerLsbFixture.paramInt(23))
+                )
+            )
             val callerBytes = LiveMakerLsbFixture.build(
                 commands = listOf(
                     LiveMakerLsbFixture.callPage(
                         page = "chapter_b.lsc",
                         labelIndex = 77,
-                        resultVariable = "callResult"
+                        resultVariable = "callResult",
+                        arguments = listOf(callArgument)
                     ),
                     LiveMakerLsbFixture.exitWhenTrue()
                 )
@@ -50,6 +58,8 @@ class LiveMakerGameSessionTest {
             assertEquals(77L, entered.targetLineNo)
             assertEquals(0, entered.commandIndex)
             assertTrue(entered.isCall)
+            assertEquals(1, entered.callArguments.size)
+            assertEquals(23, session.evaluateExpression(entered.callArguments.single()))
             assertEquals("chapter_b.lsc", session.currentPageReference())
 
             val finished = session.runUntilEvent() as LiveMakerSessionEvent.EngineEvent
@@ -107,7 +117,16 @@ class LiveMakerGameSessionTest {
                 LiveMakerLsbFixture.callPage(
                     page = "external/chapter.lsc",
                     labelIndex = 44,
-                    resultVariable = "externalResult"
+                    resultVariable = "externalResult",
+                    arguments = listOf(
+                        LiveMakerLsbFixture.expression(
+                            LiveMakerLsbFixture.operation(
+                                type = 0,
+                                name = "____arg",
+                                operands = listOf(LiveMakerLsbFixture.paramString("host-value"))
+                            )
+                        )
+                    )
                 )
             )
         )
@@ -132,25 +151,23 @@ class LiveMakerGameSessionTest {
         assertEquals("external/chapter.lsc", resolution.pageReference)
         assertEquals(44L, resolution.targetLineNo)
         assertTrue(resolution.isCall)
+        assertEquals(1, resolution.callArguments.size)
 
         val entered = session.provideResolvedPage(parse(calleeBytes))
         assertEquals("external/chapter.lsc", entered.pageReference)
         assertEquals(0, entered.commandIndex)
+        assertEquals("host-value", session.evaluateExpression(entered.callArguments.single()))
     }
 
     @Test
     fun rejectsPageTraversalBeforeReadingAnyFile() {
         val root = Files.createTempDirectory("ramen-livemaker-page-path").toFile()
         try {
-            File(root.parentFile, "escape.lsb").writeBytes(
-                LiveMakerLsbFixture.build(commands = emptyList())
-            )
             val repository = DirectoryLiveMakerScriptRepository(root)
             val failure = runCatching { repository.loadPage("../escape.lsc") }.exceptionOrNull()
             assertTrue(failure is IOException)
         } finally {
             root.deleteRecursively()
-            File(root.parentFile, "escape.lsb").delete()
         }
     }
 
