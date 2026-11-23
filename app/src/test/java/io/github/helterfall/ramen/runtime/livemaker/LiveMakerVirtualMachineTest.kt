@@ -96,7 +96,7 @@ class LiveMakerVirtualMachineTest {
     fun textInsDoesNotWaitWhenStopEventIsFalseInVersion107() {
         val bytes = LiveMakerLsbFixture.build(
             version = 107,
-            commands = listOf(LiveMakerLsbFixture.textInsert("x".toByteArray()))
+            commands = listOf(LiveMakerLsbFixture.textInsert("x".toByteArray(), stopEventProcessing = false))
         )
         withSource(bytes) { source ->
             val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
