@@ -34,6 +34,7 @@ sealed interface LiveMakerVmEvent {
     ) : LiveMakerVmEvent
 
     data object Running : LiveMakerVmEvent
+    data object AwaitingHost : LiveMakerVmEvent
     data object Completed : LiveMakerVmEvent
 }
 
@@ -77,10 +78,7 @@ class LiveMakerVirtualMachine(
     fun runUntilEvent(): LiveMakerVmEvent {
         if (completed) return LiveMakerVmEvent.Completed
         if (waitingForHost) {
-            return LiveMakerVmEvent.UnsupportedExpression(
-                programCounter,
-                "The VM is waiting for the host to call resume()."
-            )
+            return LiveMakerVmEvent.AwaitingHost
         }
 
         var executed = 0
@@ -201,7 +199,13 @@ class LiveMakerVirtualMachine(
     }
 
     /** Resume after a TextBlock, Delay, or host-required command has been handled. */
-    fun resume() {
+    fun resume(nextCommandIndex: Int? = null) {
+        if (nextCommandIndex != null) {
+            require(nextCommandIndex in 0..script.commands.size) {
+                "Resume command index is outside the current script."
+            }
+            programCounter = nextCommandIndex
+        }
         waitingForHost = false
     }
 
