@@ -6,6 +6,17 @@ import io.github.helterfall.ramen.inspection.LiveMakerLsb
 import io.github.helterfall.ramen.inspection.LiveMakerOperation
 import io.github.helterfall.ramen.inspection.LiveMakerParameter
 import io.github.helterfall.ramen.inspection.LiveMakerParameterValue
+import kotlin.math.abs
+import kotlin.math.acos
+import kotlin.math.asin
+import kotlin.math.atan
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.hypot
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.sin
+import kotlin.math.tan
 
 sealed interface LiveMakerVmEvent {
     data class TextBlock(
@@ -458,9 +469,10 @@ class LiveMakerVirtualMachine(
             2 -> {
                 val (a, b) = pair()
                 if (a is String || b is String) {
-                    throw VmEvaluationException("Plus string coercion is not implemented.")
+                    (a?.toString() ?: "") + (b?.toString() ?: "")
+                } else {
+                    numericBinary(a, b) { x, y -> x + y }
                 }
-                numericBinary(a, b) { x, y -> x + y }
             }
             3 -> numericPair(pair()) { a, b -> a - b }
             4 -> numericPair(pair()) { a, b -> a * b }
@@ -482,6 +494,11 @@ class LiveMakerVirtualMachine(
                 (number(a) ?: throw VmEvaluationException("XOR operand is not numeric.")).toLong() xor
                     (number(b) ?: throw VmEvaluationException("XOR operand is not numeric.")).toLong()
             }
+            10 -> evaluateArrayIndex(values)
+            11 -> evaluatePureFunction(
+                operation.functionId ?: throw VmEvaluationException("Function operator has no function id."),
+                values
+            )
             12 -> compare(pair()) { a, b -> a == b }
             13 -> compare(pair()) { a, b -> compareNumbers(a, b) > 0 }
             14 -> compare(pair()) { a, b -> compareNumbers(a, b) < 0 }
@@ -496,6 +513,165 @@ class LiveMakerVirtualMachine(
             19 -> values.joinToString("") { it?.toString() ?: "" }
             20 -> compare(pair()) { a, b -> a != b }
             else -> throw VmEvaluationException("Expression operator " + operation.typeId + " is not supported.")
+        }
+    }
+
+
+    private fun evaluateArrayIndex(values: List<Any?>): Any? {
+        if (values.size < 2) {
+            throw VmEvaluationException("DimTo expects a base value and at least one index.")
+        }
+        return values.drop(1).fold(values.first()) { current, indexValue ->
+            val index = number(indexValue)?.toInt()
+                ?: throw VmEvaluationException("DimTo index is not numeric.")
+            when (current) {
+                is List<*> -> current.getOrNull(index)
+                    ?: throw VmEvaluationException("DimTo list index is out of range.")
+                is Array<*> -> current.getOrNull(index)
+                    ?: throw VmEvaluationException("DimTo array index is out of range.")
+                is String -> current.getOrNull(index)?.toString()
+                    ?: throw VmEvaluationException("DimTo string index is out of range.")
+                else -> throw VmEvaluationException("DimTo base value is not indexable.")
+            }
+        }
+    }
+
+    /**
+     * Pure, deterministic LiveMaker functions only. Functions with filesystem, process,
+     * UI, input, database, network, or device side effects are intentionally left to a host.
+     */
+    private fun evaluatePureFunction(functionId: Int, args: List<Any?>): Any? {
+        fun arg(index: Int): Any? =
+            args.getOrNull(index) ?: throw VmEvaluationException("Function $functionId is missing argument $index.")
+
+        fun stringArg(index: Int): String =
+            arg(index)?.toString() ?: ""
+
+        fun numberArg(index: Int): Double =
+            number(arg(index)) ?: stringArg(index).toDoubleOrNull()
+                ?: throw VmEvaluationException("Function $functionId expects numeric argument $index.")
+
+        fun requireCount(minimum: Int, maximum: Int = minimum) {
+            if (args.size !in minimum..maximum) {
+                throw VmEvaluationException(
+                    "Function $functionId expects $minimum..$maximum arguments; got ${args.size}."
+                )
+            }
+        }
+
+        return when (functionId) {
+            0 -> {
+                requireCount(1)
+                val value = numberArg(0)
+                if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
+            }
+            1 -> {
+                requireCount(1, 2)
+                val value = numberArg(0).toLong()
+                val hex = value.toString(16).uppercase()
+                val width = if (args.size == 2) numberArg(1).toInt().coerceIn(0, 64) else 0
+                hex.padStart(width, '0')
+            }
+            4, 5 -> {
+                requireCount(1)
+                when (val value = arg(0)) {
+                    is String -> value.length
+                    is Collection<*> -> value.size
+                    is Map<*, *> -> value.size
+                    is Array<*> -> value.size
+                    else -> throw VmEvaluationException("Function $functionId expects a string or collection.")
+                }
+            }
+            13 -> {
+                requireCount(2)
+                stringArg(0).compareTo(stringArg(1)).coerceIn(-1, 1)
+            }
+            14 -> {
+                requireCount(2)
+                stringArg(0).compareTo(stringArg(1), ignoreCase = true).coerceIn(-1, 1)
+            }
+            15 -> {
+                requireCount(2)
+                val index = stringArg(1).indexOf(stringArg(0))
+                if (index < 0) 0 else index + 1
+            }
+            17 -> {
+                requireCount(1)
+                stringArg(0).trim()
+            }
+            20 -> {
+                requireCount(1)
+                when (val value = arg(0)) {
+                    is Boolean -> !value
+                    is Number -> value.toLong().inv()
+                    else -> throw VmEvaluationException("Not expects a Boolean or integer.")
+                }
+            }
+            37 -> {
+                requireCount(1)
+                numberArg(0).toLong()
+            }
+            38 -> {
+                requireCount(1)
+                numberArg(0)
+            }
+            39 -> { requireCount(1); sin(numberArg(0)) }
+            40 -> { requireCount(1); cos(numberArg(0)) }
+            41 -> { requireCount(1); tan(numberArg(0)) }
+            42 -> { requireCount(1); asin(numberArg(0)) }
+            43 -> { requireCount(1); acos(numberArg(0)) }
+            44 -> { requireCount(1); atan(numberArg(0)) }
+            45 -> { requireCount(2); atan2(numberArg(0), numberArg(1)) }
+            46 -> { requireCount(2); hypot(numberArg(0), numberArg(1)) }
+            48 -> {
+                requireCount(1)
+                val value = numberArg(0)
+                if (value % 1.0 == 0.0) abs(value.toLong()) else abs(value)
+            }
+            49 -> { requireCount(1); abs(numberArg(0)) }
+            50 -> {
+                requireCount(1)
+                variables.containsKey(stringArg(0))
+            }
+            73 -> { requireCount(1); stringArg(0).lowercase() }
+            74 -> { requireCount(1); stringArg(0).uppercase() }
+            82 -> {
+                requireCount(2)
+                val count = numberArg(0).toInt().coerceIn(0, 65_536)
+                val character = when (val value = arg(1)) {
+                    is String -> value.firstOrNull()?.toString() ?: ""
+                    else -> numberArg(1).toInt().toChar().toString()
+                }
+                character.repeat(count)
+            }
+            83 -> {
+                requireCount(3)
+                stringArg(0).replace(stringArg(1), stringArg(2))
+            }
+            126 -> { requireCount(2); min(numberArg(0), numberArg(1)) }
+            127 -> { requireCount(2); max(numberArg(0), numberArg(1)) }
+            128 -> { requireCount(2); min(numberArg(0), numberArg(1)) }
+            129 -> { requireCount(2); max(numberArg(0), numberArg(1)) }
+            138 -> {
+                requireCount(2)
+                stringArg(0).toLongOrNull() ?: numberArg(1).toLong()
+            }
+            139 -> {
+                requireCount(2)
+                stringArg(0).toDoubleOrNull() ?: numberArg(1)
+            }
+            152 -> {
+                requireCount(1)
+                numberArg(0).toInt().toChar().toString()
+            }
+            153 -> {
+                requireCount(1)
+                stringArg(0).firstOrNull()?.code
+                    ?: throw VmEvaluationException("Ord received an empty string.")
+            }
+            else -> throw VmEvaluationException(
+                "LiveMaker function $functionId requires a host adapter or is not implemented."
+            )
         }
     }
 
