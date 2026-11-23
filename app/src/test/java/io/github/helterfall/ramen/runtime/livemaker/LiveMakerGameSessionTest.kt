@@ -165,7 +165,8 @@ class LiveMakerGameSessionTest {
 
         val entered = session.provideResolvedPage(parse(calleeBytes))
         assertEquals("external/chapter.lsc", entered.pageReference)
-        assertEquals(0, entered.commandIndex)
+        assertEquals(1L, entered.targetCommandIndex)
+        assertEquals(1, entered.commandIndex)
         assertEquals("host-value", session.evaluateExpression(entered.callArguments.single()))
     }
 
