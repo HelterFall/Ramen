@@ -132,7 +132,7 @@ sealed interface LiveMakerSessionEvent {
 
     data class PageEntered(
         val pageReference: String,
-        val targetLineNo: Long,
+        val targetCommandIndex: Long,
         val commandIndex: Int,
         val isCall: Boolean,
         val callArguments: List<io.github.helterfall.ramen.inspection.LiveMakerExpression>
@@ -141,7 +141,7 @@ sealed interface LiveMakerSessionEvent {
     /** The host can supply a page from another source by calling provideResolvedPage(). */
     data class PageResolutionRequired(
         val pageReference: String,
-        val targetLineNo: Long,
+        val targetCommandIndex: Long,
         val isCall: Boolean,
         val returnVariable: String?,
         val callArguments: List<io.github.helterfall.ramen.inspection.LiveMakerExpression>
@@ -151,8 +151,8 @@ sealed interface LiveMakerSessionEvent {
 /**
  * Coordinates a LiveMaker VM with loose-file and VF archive page repositories.
  *
- * LabelReference stores a command LineNo, not an array index. The session maps this value
- * back to the matching command before loading the destination page.
+ * In compiled LSB, LabelReference stores a zero-based command-array index. LineNo is only
+ * source/debug metadata and is not used to resolve Jump/Call destinations.
  */
 class LiveMakerGameSession(
     initialScript: LiveMakerLsb,
@@ -236,7 +236,7 @@ class LiveMakerGameSession(
         transfer: LiveMakerVmEvent.ScriptTransfer
     ) = LiveMakerSessionEvent.PageResolutionRequired(
         pageReference = transfer.page,
-        targetLineNo = transfer.labelIndex,
+        targetCommandIndex = transfer.labelIndex,
         isCall = transfer.isCall,
         returnVariable = transfer.returnVariable,
         callArguments = transfer.arguments
@@ -261,7 +261,7 @@ class LiveMakerGameSession(
         pendingTransfer = null
         return LiveMakerSessionEvent.PageEntered(
             pageReference = transfer.page,
-            targetLineNo = transfer.labelIndex,
+            targetCommandIndex = transfer.labelIndex,
             commandIndex = commandIndex,
             isCall = transfer.isCall,
             callArguments = transfer.arguments
@@ -270,15 +270,18 @@ class LiveMakerGameSession(
 
     private fun resolveCommandIndex(
         script: LiveMakerLsb,
-        lineNo: Long,
+        commandIndex: Long,
         pageReference: String
     ): Int {
-        if (lineNo == 0L) return 0
-        val index = script.commands.indexOfLast { it.lineNo == lineNo }
-        if (index < 0) {
-            throw IOException("LiveMaker page '$pageReference' has no command with LineNo $lineNo.")
+        if (commandIndex < 0L ||
+            commandIndex > Int.MAX_VALUE.toLong() ||
+            commandIndex > script.commands.size.toLong()
+        ) {
+            throw IOException(
+                "LiveMaker page '$pageReference' has out-of-range command index $commandIndex."
+            )
         }
-        return index
+        return commandIndex.toInt()
     }
 
     override fun close() {
