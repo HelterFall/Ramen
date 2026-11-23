@@ -11,10 +11,15 @@ sealed interface LiveMakerVmEvent {
     data class TextBlock(
         val tpWordBytes: ByteArray,
         val shouldWait: Boolean,
+        val stopEventProcessing: Boolean,
         val commandIndex: Int
     ) : LiveMakerVmEvent
 
-    data class Delay(val milliseconds: Long, val commandIndex: Int) : LiveMakerVmEvent
+    data class Delay(
+        val milliseconds: Long,
+        val stopEventProcessing: Boolean,
+        val commandIndex: Int
+    ) : LiveMakerVmEvent
 
     data class ScriptTransfer(
         val page: String,
@@ -122,13 +127,19 @@ class LiveMakerVirtualMachine(
                     20 -> {
                         val rawText = command.binaryBlobs.firstOrNull()
                             ?: return unsupported(command, "TextIns is missing its TpWord block.")
-                        val shouldWait = command.expressions.getOrNull(2)
+                        val requestedWait = command.expressions.getOrNull(2)
                             ?.let { truthy(evaluate(it)) } ?: true
+                        val stopEventProcessing = script.version > 106 &&
+                            (command.expressions.getOrNull(3)
+                                ?.let { truthy(evaluate(it)) } ?: false)
+                        val shouldWait = requestedWait &&
+                            (script.version <= 106 || stopEventProcessing)
                         programCounter += 1
                         waitingForHost = shouldWait
                         return LiveMakerVmEvent.TextBlock(
                             tpWordBytes = rawText.copyOf(),
                             shouldWait = shouldWait,
+                            stopEventProcessing = stopEventProcessing,
                             commandIndex = command.index
                         )
                     }
@@ -165,8 +176,12 @@ class LiveMakerVirtualMachine(
                         val shouldExit = truthy(evaluateRequired(command, 0))
                         programCounter += 1
                         if (shouldExit) {
-                            completed = true
-                            return LiveMakerVmEvent.Completed
+                            if (callStack.isNotEmpty()) {
+                                returnFromCall()
+                            } else {
+                                completed = true
+                                return LiveMakerVmEvent.Completed
+                            }
                         }
                     }
                     7 -> {
@@ -177,10 +192,17 @@ class LiveMakerVirtualMachine(
                         } else {
                             0L
                         }
+                        val stopEventProcessing = script.version > 106 &&
+                            (command.expressions.getOrNull(2)
+                                ?.let { truthy(evaluate(it)) } ?: false)
                         programCounter += 1
                         if (shouldWait && duration > 0L) {
                             waitingForHost = true
-                            return LiveMakerVmEvent.Delay(duration, command.index)
+                            return LiveMakerVmEvent.Delay(
+                                duration,
+                                stopEventProcessing,
+                                command.index
+                            )
                         }
                     }
                     else -> {
