@@ -1,6 +1,7 @@
 package io.github.helterfall.ramen.inspection
 
 import java.io.ByteArrayOutputStream
+import java.nio.charset.Charset
 
 internal object LiveMakerLsbFixture {
     fun build(
@@ -133,7 +134,7 @@ internal object LiveMakerLsbFixture {
         }.toByteArray()
 
     private fun writeString(output: ByteArrayOutputStream, value: String) {
-        val bytes = value.toByteArray(Charsets.forName("windows-31j"))
+        val bytes = value.toByteArray(Charset.forName("windows-31j"))
         writeU32(output, bytes.size.toLong())
         output.write(bytes)
     }
