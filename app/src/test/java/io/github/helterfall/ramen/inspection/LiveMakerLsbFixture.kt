@@ -189,6 +189,27 @@ internal object LiveMakerLsbFixture {
             operands.forEach(output::write)
         }.toByteArray()
 
+    fun functionOperation(
+        functionId: Int,
+        name: String,
+        operands: List<ByteArray>
+    ): ByteArray = ByteArrayOutputStream().also { output ->
+        output.write(11) // OpeDataType.Func
+        writeString(output, name)
+        writeU32(output, operands.size.toLong())
+        output.write(functionId)
+        operands.forEach(output::write)
+    }.toByteArray()
+
+    fun calc(vararg operations: ByteArray): ByteArray =
+        command(14, expression(*operations))
+
+    fun paramString(value: String): ByteArray =
+        ByteArrayOutputStream().also { output ->
+            output.write(4) // ParamType.Str
+            writeString(output, value)
+        }.toByteArray()
+
     fun paramInt(value: Int): ByteArray =
         ByteArrayOutputStream().also { output ->
             output.write(1)
