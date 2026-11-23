@@ -107,6 +107,59 @@ class LiveMakerVirtualMachineTest {
         }
     }
 
+    @Test
+    fun selectsElseifBranchAndSkipsTheElseBodyAfterward() {
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.ifBranch(false),
+                LiveMakerLsbFixture.variableNew("wrong", 1).withIndent(1),
+                LiveMakerLsbFixture.elseifBranch(true),
+                LiveMakerLsbFixture.variableNew("selected", 2).withIndent(1),
+                LiveMakerLsbFixture.elseBranch(),
+                LiveMakerLsbFixture.variableNew("alsoWrong", 3).withIndent(1)
+            )
+        )
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            assertEquals(2L, vm.variablesSnapshot()["selected"])
+            assertTrue(!vm.variablesSnapshot().containsKey("wrong"))
+            assertTrue(!vm.variablesSnapshot().containsKey("alsoWrong"))
+        }
+    }
+
+    @Test
+    fun executesWhileInitConditionAndLoopIncrement() {
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.whileInit(
+                    LiveMakerLsbFixture.assignInt("counter", 0)
+                ),
+                LiveMakerLsbFixture.whileCondition(
+                    LiveMakerLsbFixture.lessThanVariable("counter", 3),
+                    endIndex = 2
+                ),
+                LiveMakerLsbFixture.command(27, LiveMakerLsbFixture.emptyString(), indent = 1),
+                LiveMakerLsbFixture.whileLoop(
+                    LiveMakerLsbFixture.incrementVariable("counter"),
+                    startIndex = 0
+                )
+            )
+        )
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            assertEquals(3L, vm.variablesSnapshot()["counter"])
+        }
+    }
+
+    private fun ByteArray.withIndent(indent: Long): ByteArray {
+        val copy = copyOf()
+        val offset = 1
+        repeat(4) { i -> copy[offset + i] = ((indent ushr (8 * i)) and 0xFFL).toByte() }
+        return copy
+    }
+
     private fun withSource(bytes: ByteArray, block: (ReadOnlyRandomAccessSource) -> Unit) {
         val directory = Files.createTempDirectory("ramen-livemaker-vm-test").toFile()
         try {
