@@ -134,7 +134,8 @@ sealed interface LiveMakerSessionEvent {
         val pageReference: String,
         val targetLineNo: Long,
         val commandIndex: Int,
-        val isCall: Boolean
+        val isCall: Boolean,
+        val callArguments: List<io.github.helterfall.ramen.inspection.LiveMakerExpression>
     ) : LiveMakerSessionEvent
 
     /** The host can supply a page from another source by calling provideResolvedPage(). */
@@ -142,7 +143,8 @@ sealed interface LiveMakerSessionEvent {
         val pageReference: String,
         val targetLineNo: Long,
         val isCall: Boolean,
-        val returnVariable: String?
+        val returnVariable: String?,
+        val callArguments: List<io.github.helterfall.ramen.inspection.LiveMakerExpression>
     ) : LiveMakerSessionEvent
 }
 
@@ -179,6 +181,10 @@ class LiveMakerGameSession(
     fun currentCommandIndex(): Int = vm.currentCommandIndex()
 
     fun setVariable(name: String, value: Any?) = vm.setVariable(name, value)
+
+    fun evaluateExpression(
+        expression: io.github.helterfall.ramen.inspection.LiveMakerExpression
+    ): Any? = vm.evaluateExpression(expression)
 
     fun resume(nextCommandIndex: Int? = null) = vm.resume(nextCommandIndex)
 
@@ -239,6 +245,7 @@ class LiveMakerGameSession(
         transfer: LiveMakerVmEvent.ScriptTransfer,
         destination: LiveMakerLsb
     ): LiveMakerSessionEvent.PageEntered {
+        pendingTransfer = transfer
         if (!destination.isComplete) {
             throw IOException("The destination LiveMaker page has an incomplete LSB parse.")
         }
@@ -255,7 +262,8 @@ class LiveMakerGameSession(
             pageReference = transfer.page,
             targetLineNo = transfer.labelIndex,
             commandIndex = commandIndex,
-            isCall = transfer.isCall
+            isCall = transfer.isCall,
+            callArguments = transfer.arguments
         )
     }
 
