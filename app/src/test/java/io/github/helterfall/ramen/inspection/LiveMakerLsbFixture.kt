@@ -61,7 +61,10 @@ internal object LiveMakerLsbFixture {
             )
         ))
 
-    fun textInsert(rawTpWord: ByteArray): ByteArray =
+    fun textInsert(
+        rawTpWord: ByteArray,
+        stopEventProcessing: Boolean? = null
+    ): ByteArray =
         command(20, ByteArrayOutputStream().also { output ->
             writeU32(output, rawTpWord.size.toLong())
             output.write(rawTpWord)
@@ -70,7 +73,14 @@ internal object LiveMakerLsbFixture {
             output.write(expression(
                 operation(0, "____arg", listOf(paramFlag(true)))
             )) // Wait
+            if (stopEventProcessing != null) {
+                output.write(expression(
+                    operation(0, "____arg", listOf(paramFlag(stopEventProcessing)))
+                )) // StopEvent (LSB version > 106)
+            }
         }.toByteArray())
+
+    fun emptyString(): ByteArray = byteArrayOf(0, 0, 0, 0)
 
     fun callPage(
         page: String,
