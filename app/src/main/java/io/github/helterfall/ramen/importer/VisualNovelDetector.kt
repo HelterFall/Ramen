@@ -1,5 +1,7 @@
 package io.github.helterfall.ramen.importer
 
+import io.github.helterfall.ramen.inspection.FileRandomAccessSource
+import io.github.helterfall.ramen.inspection.LiveMakerArchiveParser
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
 import java.io.File
 
@@ -25,6 +27,38 @@ class VisualNovelDetector {
 
         val files = scannedFiles.map { file ->
             file.relativeTo(gameDirectory).invariantSeparatorsPath.lowercase()
+        }
+
+        // A structurally valid LiveMaker VF v102 archive is stronger evidence than an EXE
+        // extension or an MZ signature. Both ZIP and SAF folder imports reach this detector
+        // after copying their contents into Ramen's private game directory.
+        val liveMakerArchive = scannedFiles.asSequence()
+            .filter { file ->
+                file.length() >= MIN_LIVEMAKER_CONTAINER_SIZE &&
+                    file.extension.lowercase() in LIVEMAKER_CONTAINER_EXTENSIONS
+            }
+            .mapNotNull { file ->
+                val archive = runCatching {
+                    FileRandomAccessSource(file).use { source ->
+                        LiveMakerArchiveParser().parse(source)
+                    }
+                }.getOrNull()
+                archive?.let { file to it }
+            }
+            .firstOrNull()
+
+        if (liveMakerArchive != null) {
+            val (file, archive) = liveMakerArchive
+            val relativePath = file.relativeTo(gameDirectory).invariantSeparatorsPath
+            return GameDetection(
+                engineId = "livemaker-vf102",
+                engineLabel = "LiveMaker VF v102 (парсер доступен)",
+                compatibilityStatus = "PARSER_AVAILABLE",
+                evidence = "Validated LiveMaker VF v102 archive in $relativePath at " +
+                    "0x${archive.archiveOffset.toString(16)}; " +
+                    "${archive.entries.size} directory entries parsed. " +
+                    "The LiveMaker playback runtime is not connected yet."
+            )
         }
 
         // Parse valid SPT candidates before assigning a parser-available status.
@@ -127,5 +161,7 @@ class VisualNovelDetector {
     companion object {
         private const val MAX_SCAN_DEPTH = 4
         private const val MAX_SCANNED_FILES = 10_000
+        private const val MIN_LIVEMAKER_CONTAINER_SIZE = 10L
+        private val LIVEMAKER_CONTAINER_EXTENSIONS = setOf("exe", "dat", "vf", "ext")
     }
 }
