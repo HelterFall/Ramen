@@ -153,6 +153,73 @@ class LiveMakerVirtualMachineTest {
         }
     }
 
+    @Test
+    fun evaluatesPureStringMathAndArrayExpressionFunctions() {
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.calc(
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 17, // Trim
+                        name = "____trimmed",
+                        operands = listOf(LiveMakerLsbFixture.paramString("  LiveMaker  "))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "trimmed",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____trimmed"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 2,
+                        name = "____joined",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString("Live"),
+                            LiveMakerLsbFixture.paramString("Maker")
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "joined",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____joined"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 39, // Sin
+                        name = "____sine",
+                        operands = listOf(LiveMakerLsbFixture.paramInt(0))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "sine",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____sine"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 10, // DimTo
+                        name = "____second",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramVar("values"),
+                            LiveMakerLsbFixture.paramInt(1)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "second",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____second"))
+                    )
+                )
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            vm.setVariable("values", listOf("zero", "one", "two"))
+
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            assertEquals("LiveMaker", vm.variablesSnapshot()["trimmed"])
+            assertEquals("LiveMaker", vm.variablesSnapshot()["joined"])
+            assertEquals("one", vm.variablesSnapshot()["second"])
+            assertEquals(0.0, vm.variablesSnapshot()["sine"])
+        }
+    }
+
     private fun ByteArray.withIndent(indent: Long): ByteArray {
         val copy = copyOf()
         val offset = 1
