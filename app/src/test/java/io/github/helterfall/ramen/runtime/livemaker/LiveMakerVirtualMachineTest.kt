@@ -1,7 +1,5 @@
 package io.github.helterfall.ramen.runtime.livemaker
 
-import io.github.helterfall.ramen.inspection.LiveMakerEdition
-import io.github.helterfall.ramen.inspection.LiveMakerLsb
 import io.github.helterfall.ramen.inspection.LiveMakerLsbFixture
 import io.github.helterfall.ramen.inspection.LiveMakerLsbParser
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
@@ -34,6 +32,41 @@ class LiveMakerVirtualMachineTest {
 
             vm.resume()
             assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+        }
+    }
+
+    @Test
+    fun loadsCalledScriptAndReturnsToCaller() {
+        val callerBytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.callPage("chapter_b.lsb", 0, "returnValue"),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+        val calleeBytes = LiveMakerLsbFixture.build(
+            commands = listOf(LiveMakerLsbFixture.variableNew("localValue", 7))
+        )
+
+        withSource(callerBytes) { callerSource ->
+            withSource(calleeBytes) { calleeSource ->
+                val caller = LiveMakerLsbParser().parse(callerSource)
+                val callee = LiveMakerLsbParser().parse(calleeSource)
+                val vm = LiveMakerVirtualMachine(caller)
+
+                val transfer = vm.runUntilEvent() as LiveMakerVmEvent.ScriptTransfer
+                assertTrue(transfer.isCall)
+                assertEquals("chapter_b.lsb", transfer.page)
+                assertEquals("returnValue", transfer.returnVariable)
+
+                vm.loadTransferredScript(
+                    newScript = callee,
+                    isCall = transfer.isCall,
+                    returnVariable = transfer.returnVariable
+                )
+                assertTrue(vm.returnFromCall(123))
+                assertEquals(123, vm.variablesSnapshot()["returnValue"])
+                assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            }
         }
     }
 
