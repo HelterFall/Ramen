@@ -23,10 +23,15 @@ internal object LiveMakerLsbFixture {
         return output.toByteArray()
     }
 
-    fun command(type: Int, body: ByteArray, lineNo: Int = 0): ByteArray =
+    fun command(
+        type: Int,
+        body: ByteArray,
+        lineNo: Int = 0,
+        indent: Long = 0L
+    ): ByteArray =
         ByteArrayOutputStream().also { output ->
             output.write(type)
-            writeU32(output, 0) // indent
+            writeU32(output, indent)
             output.write(0) // mute
             output.write(0) // not update
             writeU32(output, lineNo.toLong())
@@ -97,6 +102,62 @@ internal object LiveMakerLsbFixture {
         writeU32(output, 0) // zero call arguments
     }.toByteArray())
 
+    fun ifBranch(condition: Boolean, indent: Long = 0L): ByteArray =
+        command(0, expression(
+            operation(0, "____cond", listOf(paramFlag(condition)))
+        ), indent = indent)
+
+    fun elseifBranch(condition: Boolean, indent: Long = 0L): ByteArray =
+        command(1, expression(
+            operation(0, "____cond", listOf(paramFlag(condition)))
+        ), indent = indent)
+
+    fun elseBranch(indent: Long = 0L): ByteArray =
+        command(2, ByteArray(0), indent = indent)
+
+    fun whileInit(calcExpression: ByteArray, indent: Long = 0L): ByteArray =
+        command(32, calcExpression, indent = indent)
+
+    fun whileCondition(
+        conditionExpression: ByteArray,
+        endIndex: Int,
+        indent: Long = 0L
+    ): ByteArray =
+        command(31, conditionExpression + u32Bytes(endIndex.toLong()), indent = indent)
+
+    fun whileLoop(
+        calcExpression: ByteArray,
+        startIndex: Int,
+        indent: Long = 0L
+    ): ByteArray =
+        command(33, calcExpression + u32Bytes(startIndex.toLong()), indent = indent)
+
+    fun breakLoop(
+        conditionExpression: ByteArray,
+        endIndex: Int,
+        indent: Long = 0L
+    ): ByteArray =
+        command(34, conditionExpression + u32Bytes(endIndex.toLong()), indent = indent)
+
+    fun continueLoop(
+        conditionExpression: ByteArray,
+        startIndex: Int,
+        indent: Long = 0L
+    ): ByteArray =
+        command(35, conditionExpression + u32Bytes(startIndex.toLong()), indent = indent)
+
+    fun assignInt(name: String, value: Int): ByteArray =
+        expression(operation(1, name, listOf(paramInt(value))))
+
+    fun lessThanVariable(name: String, value: Int): ByteArray =
+        expression(operation(14, "____condition", listOf(paramVar(name), paramInt(value))))
+
+    fun incrementVariable(name: String): ByteArray =
+        expression(
+            operation(2, "____next", listOf(paramVar(name), paramInt(1))),
+            operation(1, name, listOf(paramVar("____next")))
+        )
+
     fun wait(
         milliseconds: Int,
         shouldWait: Boolean,
@@ -142,6 +203,9 @@ internal object LiveMakerLsbFixture {
             output.write(0)
             writeString(output, name)
         }.toByteArray()
+
+    private fun u32Bytes(value: Long): ByteArray =
+        ByteArrayOutputStream().also { writeU32(it, value) }.toByteArray()
 
     private fun writeString(output: ByteArrayOutputStream, value: String) {
         val bytes = value.toByteArray(Charset.forName("windows-31j"))
