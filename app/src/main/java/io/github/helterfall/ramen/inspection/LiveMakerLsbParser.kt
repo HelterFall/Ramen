@@ -2,7 +2,6 @@ package io.github.helterfall.ramen.inspection
 
 import java.io.IOException
 import java.nio.ByteBuffer
-import java.nio.ByteOrder
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
@@ -133,7 +132,8 @@ class LiveMakerLsbParser(
                 version = version,
                 typeId = header.typeId,
                 parameterFlags = parameterFlags
-            ) ?: run {
+            )
+            if (body == null) {
                 unsupportedIndex = commandIndex
                 unsupportedType = header.typeId
                 break
@@ -342,7 +342,7 @@ class LiveMakerLsbParser(
             ?: throw IOException("LiveMaker component command " + typeId + " has no parameter map.")
         flags.forEachIndexed { index, enabled ->
             if (enabled) {
-                // The first bit corresponds to the reserved PR_NONE (property ID 1).
+                // Bit zero maps to PR_NAME (property ID 1); PR_NONE is not present in the bit stream.
                 propertyIds += index + 1
                 expressions += readExpression(cursor)
             }
@@ -352,7 +352,7 @@ class LiveMakerLsbParser(
     private fun readExpression(cursor: Cursor): LiveMakerExpression {
         val count = cursor.readCount("expression operation count", maxExpressionOperations)
         val operations = ArrayList<LiveMakerOperation>(count)
-        repeat(count) { operationIndex ->
+        repeat(count) {
             val typeId = cursor.readU8("expression operation type")
             if (typeId !in 0..20) {
                 throw IOException("Unknown LiveMaker expression operation type " + typeId + ".")
