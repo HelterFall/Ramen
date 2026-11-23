@@ -91,7 +91,8 @@ internal object LiveMakerLsbFixture {
         page: String,
         labelIndex: Int,
         resultVariable: String,
-        condition: Boolean = true
+        condition: Boolean = true,
+        arguments: List<ByteArray> = emptyList()
     ): ByteArray = command(5, ByteArrayOutputStream().also { output ->
         writeString(output, page)
         writeU32(output, labelIndex.toLong())
@@ -99,7 +100,8 @@ internal object LiveMakerLsbFixture {
         output.write(expression(
             operation(0, "____arg", listOf(paramFlag(condition)))
         ))
-        writeU32(output, 0) // zero call arguments
+        writeU32(output, arguments.size.toLong())
+        arguments.forEach(output::write)
     }.toByteArray())
 
     fun ifBranch(condition: Boolean, indent: Long = 0L): ByteArray =
