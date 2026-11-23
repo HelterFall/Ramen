@@ -29,7 +29,7 @@ class LiveMakerGameSessionTest {
                 commands = listOf(
                     LiveMakerLsbFixture.callPage(
                         page = "chapter_b.lsc",
-                        labelIndex = 77,
+                        labelIndex = 0,
                         resultVariable = "callResult",
                         arguments = listOf(callArgument)
                     ),
@@ -116,7 +116,7 @@ class LiveMakerGameSessionTest {
             commands = listOf(
                 LiveMakerLsbFixture.callPage(
                     page = "external/chapter.lsc",
-                    labelIndex = 44,
+                    labelIndex = 0,
                     resultVariable = "externalResult",
                     arguments = listOf(
                         LiveMakerLsbFixture.expression(
