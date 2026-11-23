@@ -86,6 +86,18 @@ internal object LiveMakerLsbFixture {
         writeU32(output, 0) // zero call arguments
     }.toByteArray())
 
+    fun wait(
+        milliseconds: Int,
+        shouldWait: Boolean,
+        stopEventProcessing: Boolean
+    ): ByteArray = command(7, expression(
+        operation(0, "____arg", listOf(paramFlag(shouldWait)))
+    ) + expression(
+        operation(0, "____arg", listOf(paramInt(milliseconds)))
+    ) + expression(
+        operation(0, "____arg", listOf(paramFlag(stopEventProcessing)))
+    ))
+
     fun exitWhenTrue(): ByteArray = command(
         6,
         expression(operation(0, "____arg", listOf(paramFlag(true))))
