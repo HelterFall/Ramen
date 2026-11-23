@@ -106,6 +106,7 @@ Commands outside the VM subset are returned to the host as `HostCommandRequired`
 - Parser: `app/src/main/java/io/github/helterfall/ramen/inspection/LiveMakerLsbParser.kt`
 - VM: `app/src/main/java/io/github/helterfall/ramen/runtime/livemaker/LiveMakerVirtualMachine.kt`
 - Page repositories and session: `app/src/main/java/io/github/helterfall/ramen/runtime/livemaker/LiveMakerGameSession.kt`
+- Page repositories and session: `app/src/main/java/io/github/helterfall/ramen/runtime/livemaker/LiveMakerGameSession.kt`
 - Synthetic parser fixture: `app/src/test/java/io/github/helterfall/ramen/inspection/LiveMakerLsbFixture.kt`
 - Parser tests: `app/src/test/java/io/github/helterfall/ramen/inspection/LiveMakerLsbParserTest.kt`
 - VM tests: `app/src/test/java/io/github/helterfall/ramen/runtime/livemaker/LiveMakerVirtualMachineTest.kt`
