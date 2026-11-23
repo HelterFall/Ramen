@@ -15,7 +15,7 @@ import org.junit.Test
 
 class LiveMakerGameSessionTest {
     @Test
-    fun resolvesCallPageFromDirectoryAndMapsLineNoToCommandIndex() {
+    fun resolvesCallPageByCommandIndexRatherThanDebugLineNo() {
         val root = Files.createTempDirectory("ramen-livemaker-session").toFile()
         try {
             val callArgument = LiveMakerLsbFixture.expression(
@@ -29,7 +29,7 @@ class LiveMakerGameSessionTest {
                 commands = listOf(
                     LiveMakerLsbFixture.callPage(
                         page = "chapter_b.lsc",
-                        labelIndex = 0,
+                        labelIndex = 1,
                         resultVariable = "callResult",
                         arguments = listOf(callArgument)
                     ),
@@ -38,6 +38,11 @@ class LiveMakerGameSessionTest {
             )
             val childBytes = LiveMakerLsbFixture.build(
                 commands = listOf(
+                    LiveMakerLsbFixture.command(
+                        type = 3,
+                        body = LiveMakerLsbFixture.emptyString(),
+                        lineNo = 12
+                    ),
                     LiveMakerLsbFixture.command(
                         type = 3,
                         body = LiveMakerLsbFixture.emptyString(),
@@ -55,8 +60,8 @@ class LiveMakerGameSessionTest {
 
             val entered = session.runUntilEvent() as LiveMakerSessionEvent.PageEntered
             assertEquals("chapter_b.lsc", entered.pageReference)
-            assertEquals(77L, entered.targetLineNo)
-            assertEquals(0, entered.commandIndex)
+            assertEquals(1L, entered.targetCommandIndex)
+            assertEquals(1, entered.commandIndex)
             assertTrue(entered.isCall)
             assertEquals(1, entered.callArguments.size)
             assertEquals(23, session.evaluateExpression(entered.callArguments.single()))
@@ -116,7 +121,7 @@ class LiveMakerGameSessionTest {
             commands = listOf(
                 LiveMakerLsbFixture.callPage(
                     page = "external/chapter.lsc",
-                    labelIndex = 0,
+                    labelIndex = 1,
                     resultVariable = "externalResult",
                     arguments = listOf(
                         LiveMakerLsbFixture.expression(
@@ -136,6 +141,11 @@ class LiveMakerGameSessionTest {
                     type = 3,
                     body = LiveMakerLsbFixture.emptyString(),
                     lineNo = 44
+                ),
+                LiveMakerLsbFixture.command(
+                    type = 3,
+                    body = LiveMakerLsbFixture.emptyString(),
+                    lineNo = 89
                 )
             )
         )
@@ -149,7 +159,7 @@ class LiveMakerGameSessionTest {
 
         val resolution = session.runUntilEvent() as LiveMakerSessionEvent.PageResolutionRequired
         assertEquals("external/chapter.lsc", resolution.pageReference)
-        assertEquals(44L, resolution.targetLineNo)
+        assertEquals(1L, resolution.targetCommandIndex)
         assertTrue(resolution.isCall)
         assertEquals(1, resolution.callArguments.size)
 
