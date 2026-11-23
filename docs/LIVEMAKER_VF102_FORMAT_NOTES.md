@@ -58,6 +58,6 @@ The per-entry `encrypt_flag` byte is distinct from the compression identifier. C
 - `safeRelativePath` rejects absolute and traversal paths before extraction.
 - `VisualNovelDetector` recognizes a structurally valid LiveMaker container in an imported game directory and reports `PARSER_AVAILABLE`.
 - Existing ZIP and SAF folder importers already invoke the detector after staging the copied game.
-- No `.lsb` decoder, VM, scene renderer, save system, or audio runtime is included yet.
+- A compiled `.lsb` parser and an initial host-driven VM subset are now present; see [LiveMaker LSB format notes](LIVEMAKER_LSB_FORMAT_NOTES.md). They do not yet provide the complete command semantics or an Android scene player.
 
 Automated tests build synthetic VF v102 fixtures and exercise standalone archives, embedded EXEs, CP932 names, stored data, zlib data, invalid trailers, path traversal, and detector recognition. These fixtures validate the implementation against the documented layout; they do not replace testing against a real, appropriately licensed sample.
