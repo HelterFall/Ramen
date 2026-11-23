@@ -71,6 +71,21 @@ internal object LiveMakerLsbFixture {
             )) // Wait
         }.toByteArray())
 
+    fun callPage(
+        page: String,
+        labelIndex: Int,
+        resultVariable: String,
+        condition: Boolean = true
+    ): ByteArray = command(5, ByteArrayOutputStream().also { output ->
+        writeString(output, page)
+        writeU32(output, labelIndex.toLong())
+        writeString(output, resultVariable)
+        output.write(expression(
+            operation(0, "____arg", listOf(paramFlag(condition)))
+        ))
+        writeU32(output, 0) // zero call arguments
+    }.toByteArray())
+
     fun exitWhenTrue(): ByteArray = command(
         6,
         expression(operation(0, "____arg", listOf(paramFlag(true))))
