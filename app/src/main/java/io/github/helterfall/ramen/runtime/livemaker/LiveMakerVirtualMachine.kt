@@ -65,17 +65,20 @@ sealed interface LiveMakerVmEvent {
  */
 class LiveMakerVirtualMachine(
     private var script: LiveMakerLsb,
-    private val maxInstructionsPerStep: Int = 10_000
+    private val maxInstructionsPerStep: Int = 10_000,
+    initialScriptIdentifier: String? = null
 ) {
     private data class CallFrame(
         val script: LiveMakerLsb,
         val returnCommandIndex: Int,
-        val resultVariable: String?
+        val resultVariable: String?,
+        val scriptIdentifier: String?
     )
 
     private val variables = linkedMapOf<String, Any?>()
     private val callStack = ArrayDeque<CallFrame>()
     private var programCounter = 0
+    private var scriptIdentifier: String? = initialScriptIdentifier
     private var completed = false
     private var waitingForHost = false
 
@@ -89,6 +92,9 @@ class LiveMakerVirtualMachine(
     fun variablesSnapshot(): Map<String, Any?> = variables.toMap()
 
     fun currentCommandIndex(): Int = programCounter
+
+    /** Logical page/script identifier, restored automatically when returning from a Call. */
+    fun currentScriptIdentifier(): String? = scriptIdentifier
 
     /**
      * Runs until a host event, the end of the script, or the bounded instruction budget.
@@ -322,7 +328,8 @@ class LiveMakerVirtualMachine(
         newScript: LiveMakerLsb,
         entryCommandIndex: Int = 0,
         isCall: Boolean,
-        returnVariable: String? = null
+        returnVariable: String? = null,
+        scriptIdentifier: String? = null
     ) {
         require(waitingForHost) { "The VM is not waiting for a script transfer." }
         require(newScript.isComplete) { "Cannot execute a partially parsed LiveMaker script." }
@@ -330,9 +337,17 @@ class LiveMakerVirtualMachine(
             "Script entry command index is outside the command list."
         }
         if (isCall) {
-            callStack.addLast(CallFrame(script, programCounter, returnVariable))
+            callStack.addLast(
+                CallFrame(
+                    script = script,
+                    returnCommandIndex = programCounter,
+                    resultVariable = returnVariable,
+                    scriptIdentifier = this.scriptIdentifier
+                )
+            )
         }
         script = newScript
+        this.scriptIdentifier = scriptIdentifier
         programCounter = entryCommandIndex
         completed = false
         waitingForHost = false
@@ -343,6 +358,7 @@ class LiveMakerVirtualMachine(
         if (callStack.isEmpty()) return false
         val frame = callStack.removeLast()
         script = frame.script
+        scriptIdentifier = frame.scriptIdentifier
         programCounter = frame.returnCommandIndex
         frame.resultVariable?.let { variables[it] = returnValue }
         completed = false
