@@ -21,7 +21,8 @@ At project start, **no engine is supported yet**.
 | KiriKiri / KAG | Research | Evaluate available mobile runtime projects, supported versions, formats, build requirements, and licence obligations. |
 | LiveMaker VF v102 | Archive + LSB parser available; initial VM subset | VF v102 archive parsing, compiled `.lsb` command parsing (versions 103–117), and a host-driven VM subset have synthetic tests. This is not yet a complete command interpreter or Android scene player; validate against a real v102 sample before expanding compatibility claims. |
 | ONScripter | Later / research | Consider after the first runtime and compatibility test system exist. |
-| Native/proprietary Windows VN engines | Research | Start with PE architecture/import metadata and byte-level container identification. Each engine family requires independent format evidence and a feasibility report; no Windows executable is launched by the inspector. |\n| Unity-based visual novels | Later | Unity is a general-purpose engine; version and build variations make this a separate, substantial compatibility project. |
+| Native/proprietary Windows VN engines | Research | Start with PE architecture/import metadata and byte-level container identification. Each engine family requires independent format evidence and a feasibility report; no Windows executable is launched by the inspector. |
+| Unity-based visual novels | Later | Unity is a general-purpose engine; version and build variations make this a separate, substantial compatibility project. |
 
 ## Native / proprietary engine research
 
