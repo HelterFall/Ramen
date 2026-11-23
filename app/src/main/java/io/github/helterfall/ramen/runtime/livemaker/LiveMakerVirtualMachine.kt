@@ -44,10 +44,17 @@ sealed interface LiveMakerVmEvent {
  * calls, and other platform features are surfaced as events rather than silently skipped.
  */
 class LiveMakerVirtualMachine(
-    private val script: LiveMakerLsb,
+    private var script: LiveMakerLsb,
     private val maxInstructionsPerStep: Int = 10_000
 ) {
+    private data class CallFrame(
+        val script: LiveMakerLsb,
+        val returnCommandIndex: Int,
+        val resultVariable: String?
+    )
+
     private val variables = linkedMapOf<String, Any?>()
+    private val callStack = ArrayDeque<CallFrame>()
     private var programCounter = 0
     private var completed = false
     private var waitingForHost = false
@@ -79,6 +86,10 @@ class LiveMakerVirtualMachine(
         var executed = 0
         while (executed < maxInstructionsPerStep) {
             if (programCounter >= script.commands.size) {
+                if (callStack.isNotEmpty()) {
+                    returnFromCall()
+                    continue
+                }
                 completed = true
                 return LiveMakerVmEvent.Completed
             }
@@ -88,12 +99,10 @@ class LiveMakerVirtualMachine(
 
             try {
                 when (command.typeId) {
-                    3, 27, 2, 22, 45, 46, 47, 61, 62, 63 -> {
-                        if (command.typeId == 45) {
-                            completed = true
-                            return LiveMakerVmEvent.Completed
-                        }
-                        programCounter += 1
+                    3, 27 -> programCounter += 1
+                    45 -> {
+                        completed = true
+                        return LiveMakerVmEvent.Completed
                     }
                     14 -> {
                         evaluateRequired(command, 0)
@@ -177,6 +186,8 @@ class LiveMakerVirtualMachine(
                         }
                     }
                     else -> {
+                        // The host must apply the command before the VM advances.
+                        programCounter += 1
                         waitingForHost = true
                         return LiveMakerVmEvent.HostCommandRequired(command)
                     }
@@ -189,12 +200,48 @@ class LiveMakerVirtualMachine(
         return LiveMakerVmEvent.Running
     }
 
-    /** Resume after TextBlock, Delay, ScriptTransfer, or HostCommandRequired was handled. */
+    /** Resume after a TextBlock, Delay, or host-required command has been handled. */
     fun resume() {
         waitingForHost = false
     }
 
-    /** Accept a return value supplied by the host after a cross-page Call. */
+    /**
+     * Switches to a page resolved by the host after ScriptTransfer.
+     * For a Call, the current script and return position are pushed onto the call stack.
+     */
+    fun loadTransferredScript(
+        newScript: LiveMakerLsb,
+        entryCommandIndex: Int = 0,
+        isCall: Boolean,
+        returnVariable: String? = null
+    ) {
+        require(waitingForHost) { "The VM is not waiting for a script transfer." }
+        require(newScript.isComplete) { "Cannot execute a partially parsed LiveMaker script." }
+        require(entryCommandIndex in 0..newScript.commands.size) {
+            "Script entry command index is outside the command list."
+        }
+        if (isCall) {
+            callStack.addLast(CallFrame(script, programCounter, returnVariable))
+        }
+        script = newScript
+        programCounter = entryCommandIndex
+        completed = false
+        waitingForHost = false
+    }
+
+    /** Returns from a called page and optionally writes its result into the caller variable. */
+    fun returnFromCall(returnValue: Any? = null): Boolean {
+        if (callStack.isEmpty()) return false
+        val frame = callStack.removeLast()
+        script = frame.script
+        programCounter = frame.returnCommandIndex
+        frame.resultVariable?.let { variables[it] = returnValue }
+        completed = false
+        waitingForHost = false
+        return true
+    }
+
+    /** Accept a host-supplied game variable value. */
     fun setVariable(name: String, value: Any?) {
         variables[name] = value
     }
