@@ -86,9 +86,9 @@ Currently implemented in the VM:
 - a bounded step loop;
 - variable creation/deletion;
 - a small expression subset (literal/variable values, assignment, basic arithmetic, comparisons, logical/bitwise operations and string concatenation);
-- `TextIns` surfaced to the host as raw TpWord bytes;
-- conditional `Exit` and timed `Wait` events;
-- cross-page `Jump` / `Call` handoff events, a call stack, and host-driven script loading/return.
+- `TextIns` surfaced to the host as raw TpWord bytes plus target/history expressions;
+- conditional `Exit` and timed `Wait` events; `StopEvent` independently controls event-loop processing while waiting;
+- cross-page `Jump` / `Call` handoff events (including preserved call-argument expressions), a call stack, and host-driven script loading/return.
 
 Not implemented as engine semantics yet:
 - `If` / `Elseif` / `Else` and loop control-flow evaluation;
