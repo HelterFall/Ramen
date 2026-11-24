@@ -167,7 +167,6 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     onHistoryDismiss = ::dismissHistory,
                     onResourcesClick = ::showResources,
                     onResourcesDismiss = ::dismissResources,
-                    onSceneComponentClick = ::onSceneComponentClick,
                     onCopyErrorLog = ::copyErrorLog
                 )
             }
@@ -307,35 +306,15 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     val target = session.objectStore.snapshotAll()
                         .asSequence()
                         .filter { snapshot ->
-                            val p = snapshot.properties
-                            val visible = when (val value = p[LiveMakerObjectStore.PR_VISIBLE]) {
-                                is Boolean -> value
-                                is Number -> value.toInt() != 0
-                                is String -> value.isNotBlank() && value != "0"
-                                else -> true
-                            }
-                            val left = (p[LiveMakerObjectStore.PR_LEFT] as? Number)?.toFloat() ?: 0f
-                            val top = (p[LiveMakerObjectStore.PR_TOP] as? Number)?.toFloat() ?: 0f
-                            val width = (p[LiveMakerObjectStore.PR_WIDTH] as? Number)?.toFloat() ?: 0f
-                            val height = (p[LiveMakerObjectStore.PR_HEIGHT] as? Number)?.toFloat() ?: 0f
-                            val hasHandler = listOf(
-                                LiveMakerObjectStore.PR_ONLBTNDOWN,
-                                LiveMakerObjectStore.PR_ONSELECT,
-                                LiveMakerObjectStore.PR_ONLBTNUP
-                            ).any { propertyId ->
-                                when (val handler = p[propertyId]) {
-                                    is Number -> handler.toInt() >= 0
-                                    is Boolean -> handler
-                                    else -> !handler?.toString().isNullOrBlank()
-                                }
-                            }
-                            visible && hasHandler &&
-                                width > 0f && height > 0f &&
-                                x >= left && y >= top && x <= left + width && y <= top + height
+                            val component = LiveMakerSceneComponent.from(snapshot)
+                            component.visible && component.clickable &&
+                                component.width > 0f && component.height > 0f &&
+                                x >= component.left && y >= component.top &&
+                                x <= component.left + component.width &&
+                                y <= component.top + component.height
                         }
                         .maxByOrNull { snapshot ->
-                            (snapshot.properties[LiveMakerObjectStore.PR_PRIORITY] as? Number)
-                                ?.toFloat() ?: 0f
+                            LiveMakerSceneComponent.from(snapshot).priority
                         }
 
                     if (target != null) {
@@ -418,52 +397,6 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     isCompleted = isCompleted(next),
                     errorMessage = null
                 )
-            }
-        }
-    }
-
-    private fun onSceneComponentClick(objectName: String) {
-        worker.execute {
-            val session = liveSession ?: return@execute
-            try {
-                session.setObjectProperty(objectName, LiveMakerObjectStore.PR_SELECTED, true)
-                val handled = session.triggerObjectEvent(
-                    objectName,
-                    LiveMakerObjectStore.PR_ONLBTNDOWN
-                ) || session.triggerObjectEvent(
-                    objectName,
-                    LiveMakerObjectStore.PR_ONSELECT
-                ) || session.triggerObjectEvent(
-                    objectName,
-                    LiveMakerObjectStore.PR_ONLBTNUP
-                )
-                if (handled) {
-                    val (next, presentation) = nextPresentation(session)
-                    val images = sceneObjects.values.sortedBy { it.priority }
-                    val components = session.objectStore.snapshotAll()
-                        .map(LiveMakerSceneComponent::from)
-                        .filter { it.isRenderable }
-                    mainHandler.post {
-                        if (!isFinishing && !isDestroyed) {
-                            uiState.value = uiState.value.copy(
-                                eventDescription = presentation.description,
-                                canContinue = presentation.canContinue,
-                                dialogueText = presentation.dialogueText,
-                                speakerName = currentSpeakerName,
-                                messageWindowVisible = messageWindowVisible,
-                                waitingForTap = presentation.waitingForTap,
-                                sceneImages = images,
-                                sceneComponents = components,
-                                isCompleted = isCompleted(next),
-                                errorMessage = null
-                            )
-                        }
-                    }
-                } else {
-                    publishSceneState(session)
-                }
-            } catch (error: Exception) {
-                publishError(error)
             }
         }
     }
@@ -1450,7 +1383,6 @@ private fun LiveMakerPlayerScreen(
     onHistoryDismiss: () -> Unit,
     onResourcesClick: () -> Unit,
     onResourcesDismiss: () -> Unit,
-    onSceneComponentClick: (String) -> Unit,
     onCopyErrorLog: () -> Unit
 ) {
     Box(
@@ -1517,30 +1449,17 @@ private fun LiveMakerPlayerScreen(
                 state.sceneImages
                     .filterNot { it.isBackground }
                     .forEach { image ->
-                        val clickTarget = state.sceneComponents.firstOrNull {
-                            it.objectName == image.objectName && it.clickable && it.visible
-                        }
-                        val imageModifier = Modifier
-                            .offset(
-                                x = stageWidth * (image.left / canvasWidth),
-                                y = stageHeight * (image.top / canvasHeight)
-                            )
-                            .width(stageWidth * (image.width / canvasWidth).coerceIn(0.01f, 2f))
-                            .height(stageHeight * (image.height / canvasHeight).coerceIn(0.01f, 2f))
-                            .graphicsLayer(alpha = if (image.visible) image.alpha else 0f)
-                            .then(
-                                if (clickTarget != null) {
-                                    Modifier.clickable {
-                                        onSceneComponentClick(image.objectName)
-                                    }
-                                } else {
-                                    Modifier
-                                }
-                            )
                         Image(
                             bitmap = image.bitmap.asImageBitmap(),
                             contentDescription = image.resourcePath,
-                            modifier = imageModifier,
+                            modifier = Modifier
+                                .offset(
+                                    x = stageWidth * (image.left / canvasWidth),
+                                    y = stageHeight * (image.top / canvasHeight)
+                                )
+                                .width(stageWidth * (image.width / canvasWidth).coerceIn(0.01f, 2f))
+                                .height(stageHeight * (image.height / canvasHeight).coerceIn(0.01f, 2f))
+                                .graphicsLayer(alpha = if (image.visible) image.alpha else 0f),
                             contentScale = ContentScale.Fit
                         )
                     }
@@ -1569,13 +1488,6 @@ private fun LiveMakerPlayerScreen(
                                         Color(component.borderColor),
                                         RoundedCornerShape(2.dp)
                                     )
-                                } else {
-                                    Modifier
-                                }
-                            )
-                            .then(
-                                if (component.clickable) {
-                                    Modifier.clickable { onSceneComponentClick(component.objectName) }
                                 } else {
                                     Modifier
                                 }
