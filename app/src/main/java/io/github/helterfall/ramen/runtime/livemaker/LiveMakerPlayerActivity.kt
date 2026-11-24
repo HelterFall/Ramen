@@ -759,15 +759,21 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                         }
                     }
                     textPlayback = LiveMakerTextPlayback(engineEvent, segments)
-                    val waiting = advanceTextPlayback(textPlayback!!)
+                    advanceTextPlayback(textPlayback!!)
+                    val description = when {
+                        decoded.plainText.isNotBlank() ->
+                            "Диалог · TpWord v" + decoded.version
+                        decoded.events.isNotEmpty() ->
+                            "События TpWord: " + decoded.events.joinToString { it.name }
+                        decoded.inlineImages.isNotEmpty() ->
+                            "Встроенные изображения: " + decoded.inlineImages.joinToString()
+                        else ->
+                            "Пустой TpWord · v" + decoded.version +
+                                " · glyphs=" + decoded.body.size +
+                                " · chars=" + decoded.characterCount
+                    }
                     LiveMakerEventPresentation(
-                        description = if (decoded.inlineImages.isEmpty()) {
-                            "TextIns · " + decoded.version + " · CP932/TpWord · команда " +
-                                engineEvent.commandIndex
-                        } else {
-                            "TextIns · команда " + engineEvent.commandIndex +
-                                " · inline images: " + decoded.inlineImages.joinToString()
-                        },
+                        description = description,
                         canContinue = textPlayback?.waitingForTap == true,
                         dialogueText = textPlayback?.currentText.orEmpty(),
                         waitingForTap = textPlayback?.waitingForTap == true
@@ -809,60 +815,66 @@ class LiveMakerPlayerActivity : ComponentActivity() {
      * CRLF-separated and may be positional or NAME=value fields.
      */
     private fun handleTpWordEvent(event: LiveMakerTpWordEvent, session: LiveMakerGameSession) {
-        fun argument(name: String, position: Int): String? {
-            val named = event.arguments.firstOrNull { it.substringBefore('=').equals(name, true) }
-                ?.substringAfter('=', missingDelimiterValue = "")
-                ?.trim()
-                ?.trim('"', '\'')
-                ?.takeIf { it.isNotEmpty() }
-            if (named != null) return named
-            return event.arguments.asSequence()
-                .filterNot { it.contains('=') }
-                .drop(position)
-                .firstOrNull()
-                ?.trim()
-                ?.trim('"', '\'')
-                ?.takeIf { it.isNotEmpty() }
+        val positionalArguments = event.arguments.filterNot { it.contains('=') }
+
+        fun clean(value: String?): String? =
+            value?.trim()?.trim('"', '\'')?.takeIf { it.isNotEmpty() }
+
+        fun argument(names: List<String>, position: Int): String? {
+            val named = event.arguments.firstOrNull { raw ->
+                raw.contains('=') && names.any { key ->
+                    raw.substringBefore('=').trim().equals(key, ignoreCase = true)
+                }
+            }?.substringAfter('=', missingDelimiterValue = "")
+            return clean(named) ?: clean(positionalArguments.getOrNull(position))
         }
 
         when (event.name.uppercase()) {
             "CREATECG", "CHANGECG" -> {
                 val repository = mediaRepository ?: return
-                val objectName = argument("NAME", 0)
-                    ?: argument("OBJECT", 0)
-                    ?: argument("TARGET", 0)
+                val sourceArgument = argument(
+                    listOf("SOURCE", "SRC", "FILE", "CG", "IMAGE", "PATH"),
+                    1
+                )
+                val objectName = argument(
+                    listOf("NAME", "OBJECT", "TARGET", "ID"),
+                    0
+                ) ?: sourceArgument
+                    ?.substringAfterLast('/')
+                    ?.substringBeforeLast('.')
+                    ?.takeIf { it.isNotBlank() }
                     ?: throw IOException(event.name + " is missing its object name.")
-                val source = argument("SOURCE", 1)
-                    ?: argument("FILE", 1)
-                    ?: argument("CG", 1)
-                    ?: objectName
+                val source = sourceArgument ?: objectName
                 val asset = repository.findAsset(source)
-                    ?: throw IOException("TpWord CG resource '" + source + "' was not found or is ambiguous.")
+                    ?: throw IOException(
+                        "TpWord CG resource '" + source + "' was not found or is ambiguous."
+                    )
                 if (asset.extension !in setOf("gal", "png")) {
                     throw IOException("TpWord CG resource '" + source + "' is not a GAL or PNG image.")
                 }
 
                 val bitmap = decodeImage(repository.readAsset(asset), asset.extension)
-                val alphaValue = argument("ALPHA", 6)?.toFloatOrNull() ?: 255f
+                val alphaValue = argument(listOf("ALPHA", "OPACITY"), 6)?.toFloatOrNull() ?: 255f
                 val image = LiveMakerSceneBitmap(
                     objectName = objectName,
                     resourcePath = asset.path,
                     bitmap = bitmap,
-                    left = argument("X", 2)?.toFloatOrNull()
-                        ?: argument("LEFT", 2)?.toFloatOrNull() ?: 0f,
-                    top = argument("Y", 3)?.toFloatOrNull()
-                        ?: argument("TOP", 3)?.toFloatOrNull() ?: 0f,
-                    width = (argument("WIDTH", 4)?.toFloatOrNull() ?: bitmap.width.toFloat())
-                        .coerceAtLeast(1f),
-                    height = (argument("HEIGHT", 5)?.toFloatOrNull() ?: bitmap.height.toFloat())
-                        .coerceAtLeast(1f),
+                    left = argument(listOf("X", "LEFT"), 2)?.toFloatOrNull() ?: 0f,
+                    top = argument(listOf("Y", "TOP"), 3)?.toFloatOrNull() ?: 0f,
+                    width = (argument(listOf("WIDTH", "W"), 4)?.toFloatOrNull()
+                        ?: bitmap.width.toFloat()).coerceAtLeast(1f),
+                    height = (argument(listOf("HEIGHT", "H"), 5)?.toFloatOrNull()
+                        ?: bitmap.height.toFloat()).coerceAtLeast(1f),
                     alpha = (if (alphaValue > 1f) alphaValue / 255f else alphaValue).coerceIn(0f, 1f),
-                    priority = argument("PRIORITY", 7)?.toFloatOrNull() ?: sceneObjects.size.toFloat(),
+                    priority = argument(listOf("PRIORITY", "Z"), 7)?.toFloatOrNull()
+                        ?: sceneObjects.size.toFloat(),
                     isBackground = objectName.contains("bg", true) ||
                         objectName.contains("back", true) ||
                         asset.path.contains("background", true)
                 )
-                sceneObjects.put(objectName, image)
+                // Replacing the map entry releases the previous bitmap reference; never
+                // recycle it here because Compose may still have a recorded draw using it.
+                sceneObjects[objectName] = image
                 session.createObject(
                     objectName,
                     null,
@@ -880,6 +892,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 )
                 publishSceneState(session)
             }
+
             "DELETECG" -> {
                 val targets = event.arguments.flatMap { raw ->
                     raw.substringAfter('=', raw).trim().trim('"', '\'')
@@ -891,14 +904,17 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 }
                 publishSceneState(session)
             }
+
             "PLAYSND" -> {
                 val repository = mediaRepository ?: return
-                val source = argument("SOURCE", 0)
-                    ?: argument("FILE", 0)
-                    ?: argument("NAME", 0)
-                    ?: throw IOException("PLAYSND is missing its sound resource.")
+                val source = argument(
+                    listOf("SOURCE", "SRC", "FILE", "NAME", "SOUND", "AUDIO", "PATH"),
+                    0
+                ) ?: throw IOException("PLAYSND is missing its sound resource.")
                 val asset = soundObjects[source] ?: repository.findAsset(source)
-                    ?: throw IOException("TpWord sound resource '" + source + "' was not found or is ambiguous.")
+                    ?: throw IOException(
+                        "TpWord sound resource '" + source + "' was not found or is ambiguous."
+                    )
                 if (asset.extension !in setOf("ogg", "wav")) {
                     throw IOException("TpWord sound resource '" + source + "' is not OGG or WAV.")
                 }
@@ -926,11 +942,17 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     }
                 }
             }
+
             "WAIT" -> {
-                val milliseconds = (argument("TIME", 0) ?: argument("MS", 0) ?: "0")
-                    .toLongOrNull() ?: throw IOException("TpWord WAIT duration is not an integer.")
-                if (milliseconds > 0L) Thread.sleep(milliseconds.coerceAtMost(MAX_TPWORD_WAIT_MS))
+                val milliseconds = (
+                    argument(listOf("TIME", "MS", "DURATION", "MILLISECONDS"), 0) ?: "0"
+                ).toLongOrNull()
+                    ?: throw IOException("TpWord WAIT duration is not an integer.")
+                if (milliseconds > 0L) {
+                    Thread.sleep(milliseconds.coerceAtMost(MAX_TPWORD_WAIT_MS))
+                }
             }
+
             // PAUSE, PG and CLR are converted to text segments by the decoder.
             else -> Unit
         }
