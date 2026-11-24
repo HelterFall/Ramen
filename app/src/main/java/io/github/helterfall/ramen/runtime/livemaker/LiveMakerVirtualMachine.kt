@@ -722,7 +722,7 @@ class LiveMakerVirtualMachine(
             menuItemStates.getOrPut(menuItemKey()) { linkedMapOf() }[property] = value
         }
 
-        return when (functionId) {        return when (functionId) {
+        return when (functionId) {
             2 -> {
                 requireCount(2)
                 objectStore.getProperty(stringArg(0), numberArg(1).toInt())
