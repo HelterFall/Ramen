@@ -477,6 +477,13 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             return true
         }
 
+        if (command.typeId in LiveMakerSceneCommandAdapter.requestedSceneCommandIds &&
+            command.typeId !in LiveMakerSceneCommandAdapter.androidHandledSceneCommandIds
+        ) {
+            // VM-owned scene commands must never be accepted as host callbacks.
+            return false
+        }
+
         val values = LiveMakerSceneCommandAdapter.registerComponent(
             command,
             session.objectStore,
@@ -493,23 +500,60 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             // ImgNew. PR_NAME=1, PR_SOURCE=3, PR_LEFT=4, PR_TOP=5, PR_WIDTH=6,
             // PR_HEIGHT=7, PR_ALPHA=12, PR_PRIORITY=13, PR_VISIBLE=48.
             9 -> {
-                if (repository == null) return false
-                val source = values[3]?.toString()?.takeIf { it.isNotBlank() } ?: return false
-                val asset = repository.findAsset(source)
-                    ?: throw IOException(
-                        "LiveMaker image resource '" + source + "' was not found or is ambiguous."
+                val source = values[3]?.toString()?.takeIf { it.isNotBlank() }.orEmpty()
+                val objectName = values[1]?.toString()?.takeIf { it.isNotBlank() }
+                    ?: source.ifBlank { "image-${command.index}" }
+                if (!session.objectStore.contains(objectName)) {
+                    session.createObject(
+                        objectName,
+                        command.typeId,
+                        values + (LiveMakerObjectStore.PR_NAME to objectName)
                     )
-                if (asset.extension !in setOf("gal", "png")) {
-                    throw IOException("ImgNew resource '" + source + "' is not a GAL or PNG image.")
                 }
 
-                val objectName = values[1]?.toString()?.takeIf { it.isNotBlank() } ?: source
-                val bitmap = decodeImage(repository.readAsset(asset), asset.extension)
+                // Keep VM execution moving and render the object geometry when its asset
+                // is unavailable. A decoded archive bitmap replaces the placeholder.
+                if (repository == null || source.isBlank()) {
+                    publishSceneState(session)
+                    return true
+                }
+                val asset = repository.findAsset(source)
+                if (asset == null || asset.extension !in setOf("gal", "png")) {
+                    publishSceneState(session)
+                    mainHandler.post {
+                        if (!isFinishing && !isDestroyed) {
+                            uiState.value = uiState.value.copy(
+                                errorMessage = "Image resource '$source' is unavailable; showing a placeholder."
+                            )
+                        }
+                    }
+                    return true
+                }
+
+                val bitmap = runCatching {
+                    decodeImage(repository.readAsset(asset), asset.extension)
+                }.getOrElse { error ->
+                    publishSceneState(session)
+                    mainHandler.post {
+                        if (!isFinishing && !isDestroyed) {
+                            uiState.value = uiState.value.copy(
+                                errorMessage = error.message ?: "Could not decode image '$source'; showing a placeholder."
+                            )
+                        }
+                    }
+                    return true
+                }
                 val width = number(values[6], bitmap.width.toFloat()).coerceAtLeast(1f)
                 val height = number(values[7], bitmap.height.toFloat()).coerceAtLeast(1f)
                 val alphaValue = number(values[12], 255f)
                 val alpha = (if (alphaValue > 1f) alphaValue / 255f else alphaValue)
                     .coerceIn(0f, 1f)
+                val visible = when (val flag = values[48]) {
+                    is Boolean -> flag
+                    is Number -> flag.toInt() != 0
+                    is String -> flag.isNotBlank() && flag != "0"
+                    else -> true
+                }
                 val lowerName = objectName.lowercase()
                 val lowerPath = asset.path.lowercase()
                 val isBackground = lowerName.contains("bg") ||
@@ -528,7 +572,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     alpha = alpha,
                     priority = number(values[13], sceneObjects.size.toFloat()),
                     isBackground = isBackground,
-                    visible = number(values[48], 1f) != 0f
+                    visible = visible
                 )
                 sceneObjects.put(objectName, image)
                 publishSceneState(session)
@@ -594,6 +638,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     session.deleteObject(target)
                     publishSceneState(session)
                 } else {
+                    session.setObjectProperty(target, LiveMakerObjectStore.PR_TEXT, "")
+                    publishSceneState(session)
                     mainHandler.post {
                         if (!isFinishing && !isDestroyed) {
                             uiState.value = uiState.value.copy(dialogueText = "")
@@ -1094,7 +1140,10 @@ private fun LiveMakerPlayerScreen(
                 }
 
             state.sceneComponents
-                .filter { it.isRenderable && !it.isImage && it.visible }
+                .filter { component ->
+                    component.isRenderable && component.visible &&
+                        (!component.isImage || state.sceneImages.none { it.objectName == component.objectName })
+                }
                 .forEach { component ->
                     val componentModifier = Modifier
                         .offset(
@@ -1127,7 +1176,9 @@ private fun LiveMakerPlayerScreen(
                     Box(modifier = componentModifier) {
                         if (component.text.isNotBlank()) {
                             Text(
-                                text = component.text,
+                                text = component.text.ifBlank {
+                                    if (component.isImage) component.source.orEmpty() else ""
+                                },
                                 color = Color.White,
                                 style = MaterialTheme.typography.bodySmall
                             )
