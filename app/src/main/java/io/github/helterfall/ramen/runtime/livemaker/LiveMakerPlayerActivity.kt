@@ -893,6 +893,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     source = session.variablesSnapshot()[variableName]?.toString()
                         ?: throw IOException("TpWord CG variable '" + variableName + "' has no value.")
                 }
+                source = decodeLiveMakerEventEscapes(source)
 
                 val previous = sceneObjects[objectName]
                 val bitmap: Bitmap
@@ -1006,10 +1007,12 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 val source = args.get(0, "SOURCE", "SRC", "FILE", "NAME", "SOUND", "AUDIO", "PATH")
                     ?: throw IOException("PLAYSND is missing its audio source.")
                 val channel = args.get(1, "CHANNEL", "BUS") ?: "SE"
-                val resolvedSource = if (source.startsWith("?")) {
-                    session.variablesSnapshot()[source.drop(1)]?.toString()
-                        ?: throw IOException("TpWord audio variable '" + source.drop(1) + "' has no value.")
-                } else source
+                val resolvedSource = decodeLiveMakerEventEscapes(
+                    if (source.startsWith("?")) {
+                        session.variablesSnapshot()[source.drop(1)]?.toString()
+                            ?: throw IOException("TpWord audio variable '" + source.drop(1) + "' has no value.")
+                    } else source
+                )
                 val asset = soundObjects[resolvedSource] ?: repository.findAsset(resolvedSource)
                     ?: throw IOException(
                         "TpWord sound resource '" + resolvedSource + "' was not found or is ambiguous."
@@ -1023,9 +1026,11 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             "REPLAYSND" -> {
                 val repository = mediaRepository ?: return
                 val channel = args.get(0, "CHANNEL", "BUS") ?: "SE"
-                val source = args.get(1, "SOURCE", "SRC", "FILE", "NAME")
-                    ?: currentAudioResourceName
-                    ?: return
+                val source = decodeLiveMakerEventEscapes(
+                    args.get(1, "SOURCE", "SRC", "FILE", "NAME")
+                        ?: currentAudioResourceName
+                        ?: return
+                )
                 val asset = soundObjects[source] ?: repository.findAsset(source)
                     ?: throw IOException("TpWord sound resource '" + source + "' was not found or is ambiguous.")
                 startTpWordAudio(repository.stageAudio(asset, File(cacheDir, "livemaker-audio")), asset, channel)
