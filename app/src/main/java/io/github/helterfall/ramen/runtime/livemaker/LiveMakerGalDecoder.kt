@@ -1014,7 +1014,7 @@ class LiveMakerGalDecoder(
         private const val DEFAULT_MAX_DECODED_LAYER_BYTES = 64L * 1024L * 1024L
         private const val DEFAULT_MAX_XML_BYTES = 4 * 1024 * 1024
         private val GALX_XML_CHARSET: Charset = Charset.forName("windows-31j")
-        private val GALX_FRAME_OPEN_TAG = Regex("<Frame(?=\\\\s)[^>]*>")
+        private val GALX_FRAME_OPEN_TAG = Regex("<Frame\\b[^>]*>")
         private const val MAX_NAME_BYTES = 1024 * 1024
         private const val MAX_LAYERS = 32
         private const val MAX_FRAMES = 100_000
