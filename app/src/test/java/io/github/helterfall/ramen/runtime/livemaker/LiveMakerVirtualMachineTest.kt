@@ -6,6 +6,9 @@ import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import io.github.helterfall.ramen.inspection.FileRandomAccessSource
 import java.io.File
 import java.nio.file.Files
+import java.time.Clock
+import java.time.Instant
+import java.time.ZoneId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -502,6 +505,162 @@ class LiveMakerVirtualMachineTest {
         }
     }
 
+
+    @Test
+    fun setHistoryMaxCountUpdatesBacklogAndSystemGetters() {
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.calc(
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 144,
+                        name = "____setHistoryLimit",
+                        operands = listOf(LiveMakerLsbFixture.paramInt(2))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 143,
+                        name = "____functionLimit",
+                        operands = emptyList()
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "functionLimit",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____functionLimit"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 0,
+                        name = "____systemLimit",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("@HistoryMaxCount"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "systemLimit",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____systemLimit"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 142,
+                        name = "____historyCount",
+                        operands = emptyList()
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "historyCount",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____historyCount"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 0,
+                        name = "____systemHistoryCount",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("@HistoryCount"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "systemHistoryCount",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____systemHistoryCount"))
+                    )
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(bytes) { source ->
+            val historyHost = LiveMakerTextHistoryHostAdapter()
+            historyHost.addText("first", includeInHistory = true)
+            historyHost.addText("second", includeInHistory = true)
+            historyHost.addText("third", includeInHistory = true)
+            val vm = LiveMakerVirtualMachine(
+                LiveMakerLsbParser().parse(source),
+                textHistoryHost = historyHost
+            )
+
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            assertEquals(2, historyHost.maxEntries)
+            assertEquals(listOf("second", "third"), historyHost.snapshot().entries.map { it.text })
+            assertEquals(2, vm.variablesSnapshot()["functionLimit"])
+            assertEquals(2, vm.variablesSnapshot()["systemLimit"])
+            assertEquals(2, vm.variablesSnapshot()["historyCount"])
+            assertEquals(2, vm.variablesSnapshot()["systemHistoryCount"])
+        }
+    }
+
+    @Test
+    fun resolvesLiveNovelDateTimeInputAndScreenSystemVariables() {
+        val clock = Clock.fixed(
+            Instant.parse("2024-06-15T12:34:56Z"),
+            ZoneId.of("UTC")
+        )
+        val environment = LiveMakerSystemEnvironment(
+            clock = clock,
+            screenWidthPx = 1920,
+            screenHeightPx = 1080,
+            title = "Test LiveNovel",
+            isDebug = true,
+            fileExistsResolver = { it == "data/start.lsb" },
+            commandLineArguments = listOf("chapter-1", "normal")
+        ).apply {
+            updatePointer(321, 123, leftClick = true, leftPush = true)
+            updateKeyState(32, clicked = true, pressed = true, repeated = false)
+        }
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.calc(
+                    LiveMakerLsbFixture.operation(1, "year", listOf(LiveMakerLsbFixture.paramVar("@Year"))),
+                    LiveMakerLsbFixture.operation(1, "month", listOf(LiveMakerLsbFixture.paramVar("@Month"))),
+                    LiveMakerLsbFixture.operation(1, "day", listOf(LiveMakerLsbFixture.paramVar("@Day"))),
+                    LiveMakerLsbFixture.operation(1, "week", listOf(LiveMakerLsbFixture.paramVar("@Week"))),
+                    LiveMakerLsbFixture.operation(1, "hour", listOf(LiveMakerLsbFixture.paramVar("@Hour"))),
+                    LiveMakerLsbFixture.operation(1, "minute", listOf(LiveMakerLsbFixture.paramVar("@Minute"))),
+                    LiveMakerLsbFixture.operation(1, "second", listOf(LiveMakerLsbFixture.paramVar("@Second"))),
+                    LiveMakerLsbFixture.operation(1, "mouseX", listOf(LiveMakerLsbFixture.paramVar("@MouseX"))),
+                    LiveMakerLsbFixture.operation(1, "mouseY", listOf(LiveMakerLsbFixture.paramVar("@MouseY"))),
+                    LiveMakerLsbFixture.operation(1, "leftClick", listOf(LiveMakerLsbFixture.paramVar("@LClick"))),
+                    LiveMakerLsbFixture.operation(1, "leftPush", listOf(LiveMakerLsbFixture.paramVar("@LPush"))),
+                    LiveMakerLsbFixture.operation(1, "keyClick", listOf(LiveMakerLsbFixture.paramVar("@KeyClick[32]"))),
+                    LiveMakerLsbFixture.operation(1, "paramStr", listOf(LiveMakerLsbFixture.paramVar("@ParamStr[0]"))),
+                    LiveMakerLsbFixture.operation(1, "screenWidth", listOf(LiveMakerLsbFixture.paramVar("@ScrWidth"))),
+                    LiveMakerLsbFixture.operation(1, "screenHeight", listOf(LiveMakerLsbFixture.paramVar("@ScrHeight"))),
+                    LiveMakerLsbFixture.operation(1, "title", listOf(LiveMakerLsbFixture.paramVar("@Title"))),
+                    LiveMakerLsbFixture.operation(1, "debug", listOf(LiveMakerLsbFixture.paramVar("@IsDebug"))),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 71,
+                        name = "____fileExists",
+                        operands = listOf(LiveMakerLsbFixture.paramString("data/start.lsb"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "fileExists",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____fileExists"))
+                    )
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(
+                LiveMakerLsbParser().parse(source),
+                systemEnvironment = environment
+            )
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            val values = vm.variablesSnapshot()
+            assertEquals(2024, values["year"])
+            assertEquals(6, values["month"])
+            assertEquals(15, values["day"])
+            assertEquals(7, values["week"]) // Saturday; LiveMaker numbers Sunday as 1.
+            assertEquals(12, values["hour"])
+            assertEquals(34, values["minute"])
+            assertEquals(56, values["second"])
+            assertEquals(321, values["mouseX"])
+            assertEquals(123, values["mouseY"])
+            assertEquals(true, values["leftClick"])
+            assertEquals(true, values["leftPush"])
+            assertEquals(true, values["keyClick"])
+            assertEquals("chapter-1", values["paramStr"])
+            assertEquals(1920, values["screenWidth"])
+            assertEquals(1080, values["screenHeight"])
+            assertEquals("Test LiveNovel", values["title"])
+            assertEquals(true, values["debug"])
+            assertEquals(true, values["fileExists"])
+        }
+    }
 
     @Test
     fun coercesEmptyNullAndNumericStringOperandsInCommandNinety() {

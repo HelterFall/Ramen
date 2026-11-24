@@ -193,13 +193,17 @@ class LiveMakerGameSession(
     initialPageReference: String,
     private val pageRepository: LiveMakerScriptRepository,
     maxInstructionsPerStep: Int = 10_000,
-    val objectStore: LiveMakerObjectStore = LiveMakerObjectStore()
+    val objectStore: LiveMakerObjectStore = LiveMakerObjectStore(),
+    private val systemEnvironment: LiveMakerSystemEnvironment = LiveMakerSystemEnvironment(),
+    private val textHistoryHost: LiveMakerTextHistoryHostAdapter = LiveMakerTextHistoryHostAdapter()
 ) : Closeable {
     private val vm = LiveMakerVirtualMachine(
         script = initialScript,
         maxInstructionsPerStep = maxInstructionsPerStep,
         initialScriptIdentifier = initialPageReference,
-        objectStore = objectStore
+        objectStore = objectStore,
+        systemEnvironment = systemEnvironment,
+        textHistoryHost = textHistoryHost
     )
     private var pendingTransfer: LiveMakerVmEvent.ScriptTransfer? = null
 
@@ -217,6 +221,29 @@ class LiveMakerGameSession(
     fun currentCommandIndex(): Int = vm.currentCommandIndex()
 
     fun setVariable(name: String, value: Any?) = vm.setVariable(name, value)
+
+    fun updateScreenSize(widthPx: Int, heightPx: Int) =
+        vm.updateScreenSize(widthPx, heightPx)
+
+    fun updatePointerState(
+        x: Int,
+        y: Int,
+        leftClick: Boolean = false,
+        rightClick: Boolean = false,
+        leftPush: Boolean = false,
+        rightPush: Boolean = false
+    ) = vm.updatePointerState(x, y, leftClick, rightClick, leftPush, rightPush)
+
+    fun updateKeyState(
+        keyCode: Int,
+        clicked: Boolean,
+        pressed: Boolean,
+        repeated: Boolean = false
+    ) = vm.updateKeyState(keyCode, clicked, pressed, repeated)
+
+    fun setAdditionalFileExistsResolver(resolver: (String) -> Boolean) {
+        systemEnvironment.additionalFileExistsResolver = resolver
+    }
 
     fun createObject(
         name: String,

@@ -145,10 +145,21 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             var preparedAssets: LiveMakerMediaAssetRepository? = null
             try {
                 val gameDirectory = resolvePrivateGameDirectory(gameId)
-                val bootstrap = LiveMakerStartupScriptResolver(gameDirectory).openSession()
+                val systemEnvironment = LiveMakerSystemEnvironment(
+                    screenWidthPx = resources.displayMetrics.widthPixels,
+                    screenHeightPx = resources.displayMetrics.heightPixels,
+                    title = applicationInfo.loadLabel(packageManager).toString(),
+                    isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
+                )
+                systemEnvironment.pcTickCountResolver = { android.os.SystemClock.elapsedRealtime() }
+                val bootstrap = LiveMakerStartupScriptResolver(gameDirectory).openSession(
+                    systemEnvironment = systemEnvironment,
+                    textHistoryHost = historyHost
+                )
                 preparedSession = bootstrap.session
                 val assets = LiveMakerMediaAssetRepository(gameDirectory)
                 preparedAssets = assets
+                bootstrap.session.setAdditionalFileExistsResolver { assets.containsResource(it) }
                 // Host-command dispatch needs the repositories before the first VM step.
                 liveSession = bootstrap.session
                 mediaRepository = assets

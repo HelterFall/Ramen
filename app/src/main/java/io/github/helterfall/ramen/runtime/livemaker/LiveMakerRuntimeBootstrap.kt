@@ -10,6 +10,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
+import java.nio.charset.Charset
 
 data class LiveMakerStartupSession(
     val session: LiveMakerGameSession,
@@ -25,7 +26,10 @@ class LiveMakerStartupScriptResolver(
     private val scriptParser: LiveMakerLsbParser = LiveMakerLsbParser()
 ) {
     @Throws(IOException::class)
-    fun openSession(): LiveMakerStartupSession {
+    fun openSession(
+        systemEnvironment: LiveMakerSystemEnvironment = LiveMakerSystemEnvironment(),
+        textHistoryHost: LiveMakerTextHistoryHostAdapter = LiveMakerTextHistoryHostAdapter()
+    ): LiveMakerStartupSession {
         val root = gameDirectory.canonicalFile
         if (!root.isDirectory) throw IOException("LiveMaker game directory is unavailable.")
 
@@ -55,10 +59,57 @@ class LiveMakerStartupScriptResolver(
             throw IOException("В импортированной папке не найден корректный файл LiveMaker .lsb.")
         }
 
+        val suppliedFileResolver = systemEnvironment.fileExistsResolver
+        systemEnvironment.fileExistsResolver = { requested ->
+            val normalized = requested.trim().replace('\\', '/').trimStart('/')
+            val safeRelative = normalized.isNotEmpty() &&
+                normalized.split('/').none { it.isBlank() || it == "." || it == ".." }
+            val looseFileExists = if (safeRelative) {
+                runCatching {
+                    val candidate = File(root, normalized).canonicalFile
+                    candidate.toPath().startsWith(root.toPath()) && candidate.isFile
+                }.getOrDefault(false)
+            } else {
+                false
+            }
+            looseFileExists ||
+                composite.pageReferences().any { it.equals(normalized, ignoreCase = true) } ||
+                runCatching { suppliedFileResolver(requested) }.getOrDefault(false)
+        }
+
+        val suppliedTextFileResolver = systemEnvironment.readTextFileResolver
+        systemEnvironment.readTextFileResolver = { requested ->
+            val normalized = requested.trim().replace('\\', '/').trimStart('/')
+            val safeRelative = normalized.isNotEmpty() &&
+                normalized.split('/').none { it.isBlank() || it == "." || it == ".." }
+            val looseText = if (safeRelative) {
+                runCatching {
+                    val candidate = File(root, normalized).canonicalFile
+                    if (candidate.toPath().startsWith(root.toPath()) &&
+                        candidate.isFile && candidate.length() <= MAX_TEXT_FILE_BYTES
+                    ) {
+                        val decoded = String(candidate.readBytes(), Charset.forName("windows-31j"))
+                        decoded.replace("\\r\\n", "\\n").replace('\\r', '\\n').split('\\n')
+                    } else {
+                        null
+                    }
+                }.getOrNull()
+            } else {
+                null
+            }
+            looseText ?: runCatching { suppliedTextFileResolver(requested) }.getOrNull()
+        }
+
         return try {
             val script = composite.loadPage(pageReference)
             LiveMakerStartupSession(
-                LiveMakerGameSession(script, pageReference, composite),
+                LiveMakerGameSession(
+                    script,
+                    pageReference,
+                    composite,
+                    systemEnvironment = systemEnvironment,
+                    textHistoryHost = textHistoryHost
+                ),
                 pageReference,
                 script.version,
                 script.commands.size
@@ -73,6 +124,7 @@ class LiveMakerStartupScriptResolver(
     companion object {
         private const val MAX_SCAN_DEPTH = 12
         private const val MAX_DISCOVERED_FILES = 10_000
+        private const val MAX_TEXT_FILE_BYTES = 8L * 1024L * 1024L
         private val ARCHIVE_EXTENSIONS = setOf("exe", "dat", "vf", "ext")
 
         /** Prefer ゲームメイン.lsb, then ノベルシステム/START.lsb, then the first LSB. */

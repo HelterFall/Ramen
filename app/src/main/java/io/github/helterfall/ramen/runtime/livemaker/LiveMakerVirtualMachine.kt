@@ -7,6 +7,10 @@ import io.github.helterfall.ramen.inspection.LiveMakerOperation
 import io.github.helterfall.ramen.inspection.LiveMakerParameter
 import io.github.helterfall.ramen.inspection.LiveMakerParameterValue
 import java.nio.charset.Charset
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.temporal.ChronoUnit
 import kotlin.math.abs
 import kotlin.math.acos
 import kotlin.math.asin
@@ -68,7 +72,9 @@ class LiveMakerVirtualMachine(
     private var script: LiveMakerLsb,
     private val maxInstructionsPerStep: Int = 10_000,
     initialScriptIdentifier: String? = null,
-    val objectStore: LiveMakerObjectStore = LiveMakerObjectStore()
+    val objectStore: LiveMakerObjectStore = LiveMakerObjectStore(),
+    private val systemEnvironment: LiveMakerSystemEnvironment = LiveMakerSystemEnvironment(),
+    private val textHistoryHost: LiveMakerTextHistoryHostAdapter = LiveMakerTextHistoryHostAdapter()
 ) {
     private data class CallFrame(
         val script: LiveMakerLsb,
@@ -380,9 +386,35 @@ class LiveMakerVirtualMachine(
         return true
     }
 
-    /** Accept a host-supplied game variable value. */
+    /** Accept a host-supplied game or LiveNovel system variable value. */
     fun setVariable(name: String, value: Any?) {
-        variables[name] = value
+        assignVariable(name, value)
+    }
+
+    /** Update device values that are normally provided by the Android player host. */
+    fun updateScreenSize(widthPx: Int, heightPx: Int) {
+        systemEnvironment.screenWidthPx = widthPx.coerceAtLeast(0)
+        systemEnvironment.screenHeightPx = heightPx.coerceAtLeast(0)
+    }
+
+    fun updatePointerState(
+        x: Int,
+        y: Int,
+        leftClick: Boolean = false,
+        rightClick: Boolean = false,
+        leftPush: Boolean = false,
+        rightPush: Boolean = false
+    ) = systemEnvironment.updatePointer(x, y, leftClick, rightClick, leftPush, rightPush)
+
+    fun updateKeyState(
+        keyCode: Int,
+        clicked: Boolean,
+        pressed: Boolean,
+        repeated: Boolean = false
+    ) = systemEnvironment.updateKeyState(keyCode, clicked, pressed, repeated)
+
+    fun setFileExistsResolver(resolver: (String) -> Boolean) {
+        systemEnvironment.fileExistsResolver = resolver
     }
 
     /** Evaluates an expression in the current caller state for a host-side Call adapter. */
@@ -474,7 +506,9 @@ class LiveMakerVirtualMachine(
         fun resolve(parameter: LiveMakerParameter): Any? =
             when (val value = parameter.value) {
                 is LiveMakerParameterValue.Variable ->
-                    if (local.containsKey(value.name)) local[value.name] else variables[value.name]
+                    if (local.containsKey(value.name)) local[value.name]
+                    else if (value.name.startsWith("@")) readSystemVariable(value.name)
+                    else variables[value.name]
                 is LiveMakerParameterValue.Integer -> value.value
                 is LiveMakerParameterValue.Flag -> value.value != 0
                 is LiveMakerParameterValue.StringValue -> value.value
@@ -496,7 +530,7 @@ class LiveMakerVirtualMachine(
             if (operation.typeId == OP_TO && operation.name.isNotEmpty() &&
                 !operation.name.startsWith("____")
             ) {
-                variables[operation.name] = result
+                assignVariable(operation.name, result)
             }
         }
         return expression.operations.lastOrNull()?.let { local[it.name] }
@@ -553,7 +587,8 @@ class LiveMakerVirtualMachine(
             10 -> evaluateArrayIndex(values)
             11 -> evaluatePureFunction(
                 operation.functionId ?: throw VmEvaluationException("Function operator has no function id."),
-                values
+                values,
+                operation.operands
             )
             12 -> {
                 val (a, b) = pair()
@@ -598,11 +633,12 @@ class LiveMakerVirtualMachine(
         }
     }
 
-    /**
-     * Pure, deterministic LiveMaker functions only. Functions with filesystem, process,
-     * UI, input, database, network, or device side effects are intentionally left to a host.
-     */
-    private fun evaluatePureFunction(functionId: Int, args: List<Any?>): Any? {
+    /** Built-ins implemented against VM state or safe, explicitly bounded host adapters. */
+    private fun evaluatePureFunction(
+        functionId: Int,
+        args: List<Any?>,
+        sourceOperands: List<LiveMakerParameter>
+    ): Any? {
         fun arg(index: Int): Any? {
             if (index !in args.indices) {
                 throw VmEvaluationException("Function $functionId is missing argument $index.")
@@ -624,6 +660,17 @@ class LiveMakerVirtualMachine(
                 )
             }
         }
+
+        fun assignVariableArgument(index: Int, value: Any?) {
+            val variable = sourceOperands.getOrNull(index)?.value as? LiveMakerParameterValue.Variable
+                ?: throw VmEvaluationException(
+                    "Function $functionId expects argument $index to be a variable reference."
+                )
+            assignVariable(variable.name, value)
+        }
+
+        fun dateTimeArgument(index: Int): LocalDateTime =
+            dateTimeFromLiveMakerValue(numberArg(index))
 
         return when (functionId) {
             2 -> {
@@ -772,9 +819,294 @@ class LiveMakerVirtualMachine(
                 stringArg(0).firstOrNull()?.code
                     ?: throw VmEvaluationException("Ord received an empty string.")
             }
+            // LiveNovel date/time helpers use Delphi TDateTime serial values.
+            51 -> {
+                requireCount(3)
+                val date = LocalDate.of(
+                    numberArg(0).toInt(),
+                    numberArg(1).toInt(),
+                    numberArg(2).toInt()
+                )
+                ChronoUnit.DAYS.between(LIVEMAKER_DATE_EPOCH, date).toDouble()
+            }
+            52 -> {
+                requireCount(3)
+                val time = LocalTime.of(
+                    numberArg(0).toInt(),
+                    numberArg(1).toInt(),
+                    numberArg(2).toInt()
+                )
+                time.toNanoOfDay().toDouble() / NANOS_PER_DAY.toDouble()
+            }
+            53 -> {
+                requireCount(4)
+                val date = dateTimeArgument(0).toLocalDate()
+                assignVariableArgument(1, date.year)
+                assignVariableArgument(2, date.monthValue)
+                assignVariableArgument(3, date.dayOfMonth)
+                null
+            }
+            54 -> {
+                requireCount(4)
+                val time = dateTimeArgument(0).toLocalTime()
+                assignVariableArgument(1, time.hour)
+                assignVariableArgument(2, time.minute)
+                assignVariableArgument(3, time.second)
+                null
+            }
+            55 -> { requireCount(1); dateTimeArgument(0).year }
+            56 -> { requireCount(1); dateTimeArgument(0).monthValue }
+            57 -> { requireCount(1); dateTimeArgument(0).dayOfMonth }
+            58 -> { requireCount(1); dateTimeArgument(0).hour }
+            59 -> { requireCount(1); dateTimeArgument(0).minute }
+            60 -> { requireCount(1); dateTimeArgument(0).second }
+            61 -> {
+                requireCount(1)
+                dateTimeArgument(0).dayOfWeek.value % 7 + 1
+            }
+            62 -> {
+                requireCount(1)
+                dateTimeArgument(0).dayOfWeek.getDisplayName(
+                    java.time.format.TextStyle.FULL,
+                    java.util.Locale.ENGLISH
+                )
+            }
+            63 -> {
+                requireCount(1)
+                listOf("月", "火", "水", "木", "金", "土", "日")[
+                    dateTimeArgument(0).dayOfWeek.value - 1
+                ]
+            }
+            // Coordinate transforms are identity operations in the single-window player.
+            33, 34, 35, 36 -> { requireCount(2); numberArg(1) }
+            27 -> { requireCount(1); "" }
+            47 -> { requireCount(2); -1 }
+            65 -> {
+                requireCount(5)
+                if (numberArg(0).toInt() != 0) {
+                    false
+                } else {
+                    assignVariableArgument(1, systemEnvironment.screenWidthPx)
+                    assignVariableArgument(2, systemEnvironment.screenHeightPx)
+                    assignVariableArgument(3, 32)
+                    assignVariableArgument(4, 60)
+                    true
+                }
+            }
+            19 -> { requireCount(1); objectStore.contains(stringArg(0)) }
+            69 -> {
+                requireCount(1)
+                val name = stringArg(0)
+                objectStore.contains(name) &&
+                    objectStore.getProperty(name, LiveMakerObjectStore.PR_PARENT).toString().isBlank()
+            }
+            71 -> { requireCount(1); systemEnvironment.fileExists(stringArg(0)) }
+            154 -> {
+                requireCount(1)
+                val name = stringArg(0)
+                objectStore.contains(name) &&
+                    objectStore.getProperty(name, LiveMakerObjectStore.PR_PARENT).toString().isNotBlank()
+            }
+            // Cross-platform path helpers operate on LiveMaker's slash-separated paths.
+            75 -> {
+                requireCount(1)
+                val path = stringArg(0)
+                val slash = max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+                if (slash < 0) "" else path.substring(0, slash + 1)
+            }
+            76 -> {
+                requireCount(1)
+                val path = stringArg(0)
+                path.substring(max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
+            }
+            77 -> {
+                requireCount(1)
+                val path = stringArg(0)
+                val nameStart = max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1
+                val dot = path.lastIndexOf('.')
+                if (dot < nameStart) "" else path.substring(dot)
+            }
+            78 -> {
+                requireCount(2)
+                val bytes = stringArg(0).toByteArray(CP932)
+                val index = numberArg(1).toInt() - 1
+                index in bytes.indices && bytes[index].toInt() == '\\'.code
+            }
+            79 -> {
+                requireCount(1)
+                val path = stringArg(0)
+                if (path.endsWith('\\')) path else path + '\\'
+            }
+            80 -> {
+                requireCount(2)
+                val path = stringArg(0)
+                val extension = stringArg(1)
+                val slash = max(path.lastIndexOf('/'), path.lastIndexOf('\\'))
+                val dot = path.lastIndexOf('.')
+                val stem = if (dot > slash) path.substring(0, dot) else path
+                if (extension.isEmpty()) stem
+                else stem + if (extension.startsWith('.')) extension else ".$extension"
+            }
+            81 -> {
+                requireCount(3)
+                val delimiters = stringArg(0).toByteArray(CP932)
+                val bytes = stringArg(1).toByteArray(CP932)
+                val index = numberArg(2).toInt() - 1
+                index in bytes.indices && delimiters.contains(bytes[index])
+            }
+            84 -> { requireCount(1); assignVariable("@Temp", arg(0)); null }
+            85 -> { requireCount(1); toFullWidth(stringArg(0)) }
+            86 -> { requireCount(1); java.text.Normalizer.normalize(stringArg(0), java.text.Normalizer.Form.NFKC) }
+            // UI actions that are not available in this player use safe cancel/no-op values.
+            72 -> {
+                requireCount(2)
+                val content = systemEnvironment.readTextFile(stringArg(1))
+                if (content == null) {
+                    assignVariableArgument(0, emptyList<String>())
+                    false
+                } else {
+                    assignVariableArgument(0, content)
+                    true
+                }
+            }
+            135 -> { requireCount(1); false }
+            137 -> { requireCount(0, 1); false }
+            140 -> { requireCount(2); false }
+            141 -> { requireCount(3); null }
+            142 -> { requireCount(0); textHistoryHost.snapshot().entries.size }
+            143 -> { requireCount(0); textHistoryHost.maxEntries }
+            144 -> {
+                requireCount(1)
+                val requested = numberArg(0).toInt().coerceIn(0, MAX_HISTORY_ENTRIES)
+                textHistoryHost.setMaxEntries(requested)
+                null
+            }
+            145 -> { requireCount(2); -1 }
+            146 -> { requireCount(2); false }
+            147 -> { requireCount(3); null }
+            148, 149, 150 -> {
+                // Android file/directory pickers are intentionally treated as cancelled.
+                requireCount(1, 2)
+                assignVariableArgument(0, "")
+                false
+            }
+            151 -> { requireCount(1, 3); false }
+            155, 156, 157 -> null
+            158 -> { requireCount(2); false }
+            159 -> { requireCount(0); 0 }
+            160 -> {
+                requireCount(3)
+                assignVariableArgument(1, "")
+                assignVariableArgument(2, false)
+                false
+            }
+            166 -> { requireCount(1); false }
+            167 -> { requireCount(2); false }
+            168 -> { requireCount(1); false }
+            24 -> { requireCount(2); false }
+            25 -> { requireCount(3); null }
+            130 -> {
+                requireCount(1)
+                val name = (sourceOperands.getOrNull(0)?.value as? LiveMakerParameterValue.Variable)?.name
+                    ?: stringArg(0)
+                variableTypes[name] ?: 0
+            }
+            131 -> { requireCount(2); false }
+            132 -> { requireCount(3); null }
+            133 -> { requireCount(1, 2); null }
+            134 -> { requireCount(1); emptyList<String>() }
+            136 -> { requireCount(1); false }
+            161 -> {
+                requireCount(2, 3)
+                val componentType = numberArg(0).toInt()
+                val name = stringArg(1)
+                val parent = args.getOrNull(2)?.toString().orEmpty()
+                if (name.isBlank() || objectStore.contains(name)) {
+                    false
+                } else {
+                    objectStore.create(
+                        name,
+                        componentType,
+                        mapOf(LiveMakerObjectStore.PR_PARENT to parent)
+                    )
+                    true
+                }
+            }
+            162 -> {
+                requireCount(1)
+                objectStore.remove(stringArg(0))
+            }
+            163 -> { requireCount(2); "" }
+            169 -> {
+                requireCount(3)
+                objectStore.getProperty(stringArg(1), numberArg(2).toInt())
+            }
+            170 -> {
+                requireCount(4)
+                objectStore.setProperty(stringArg(1), numberArg(2).toInt(), arg(3))
+                null
+            }
             else -> throw VmEvaluationException(
                 "LiveMaker function $functionId requires a host adapter or is not implemented."
             )
+        }
+    }
+
+    private fun toFullWidth(value: String): String {
+        val result = StringBuilder()
+        value.codePoints().forEach { codePoint ->
+            when {
+                codePoint == 0x20 -> result.append('　')
+                codePoint in 0x21..0x7E -> result.appendCodePoint(codePoint + 0xFEE0)
+                codePoint in 0xFF61..0xFF9F -> result.append(
+                    java.text.Normalizer.normalize(
+                        String(Character.toChars(codePoint)),
+                        java.text.Normalizer.Form.NFKC
+                    )
+                )
+                else -> result.appendCodePoint(codePoint)
+            }
+        }
+        return java.text.Normalizer.normalize(result.toString(), java.text.Normalizer.Form.NFC)
+    }
+
+    private fun dateTimeFromLiveMakerValue(value: Double): LocalDateTime {
+        if (!value.isFinite() || kotlin.math.abs(value) > 3_000_000.0) {
+            throw VmEvaluationException("Invalid LiveMaker date/time value.")
+        }
+        val millis = (value * MILLIS_PER_DAY).toLong()
+        return LIVEMAKER_DATE_EPOCH.atStartOfDay().plusMillis(millis)
+    }
+
+    private fun readSystemVariable(name: String): Any? {
+        if (name.equals("@HistoryCount", ignoreCase = true)) {
+            return textHistoryHost.snapshot().entries.size
+        }
+        if (name.equals("@HistoryMaxCount", ignoreCase = true)) {
+            return textHistoryHost.maxEntries
+        }
+        return systemEnvironment.read(
+            name = name,
+            historyCount = textHistoryHost.snapshot().entries.size,
+            historyMaxCount = textHistoryHost.maxEntries,
+            stackCount = callStack.size
+        )
+    }
+
+    private fun systemVariableValue(name: String): Any? = readSystemVariable(name)
+
+    private fun assignVariable(name: String, value: Any?) {
+        if (!name.startsWith("@")) {
+            variables[name] = value
+            return
+        }
+        if (name.equals("@HistoryMaxCount", ignoreCase = true)) {
+            val maxEntries = (number(value) ?: 0.0).toInt().coerceIn(0, MAX_HISTORY_ENTRIES)
+            textHistoryHost.setMaxEntries(maxEntries)
+            return
+        }
+        if (!systemEnvironment.write(name, value)) {
+            throw VmEvaluationException("LiveNovel system variable $name is read-only or unsupported.")
         }
     }
 
@@ -852,6 +1184,11 @@ class LiveMakerVirtualMachine(
 
     companion object {
         private const val OP_TO = 1
+        private const val MAX_HISTORY_ENTRIES = 100_000
+        private const val MILLIS_PER_DAY = 86_400_000.0
+        private const val NANOS_PER_DAY = 86_400_000_000_000L
+        private const val NANOS_PER_MILLISECOND = 1_000_000L
+        private val LIVEMAKER_DATE_EPOCH = LocalDate.of(1899, 12, 30)
         private const val VARIABLE_TYPE_INT = 1
         private const val VARIABLE_TYPE_FLOAT = 2
         private const val VARIABLE_TYPE_FLAG = 3

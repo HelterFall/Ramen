@@ -27,8 +27,14 @@ data class LiveMakerTextHistorySnapshot(
  * the decoded text block when that flag evaluates to TRUE.
  */
 class LiveMakerTextHistoryHostAdapter(
-    private val maxEntries: Int = DEFAULT_MAX_ENTRIES
+    maxEntries: Int = DEFAULT_MAX_ENTRIES
 ) {
+    @Volatile
+    private var maxEntriesValue: Int = maxEntries
+
+    val maxEntries: Int
+        get() = maxEntriesValue
+
     private val entries = ArrayDeque<LiveMakerTextHistoryEntry>()
     private val formats = linkedMapOf<String, LiveMakerTextHistoryFormat>()
 
@@ -36,7 +42,7 @@ class LiveMakerTextHistoryHostAdapter(
     private var currentFormat: LiveMakerTextHistoryFormat? = null
 
     init {
-        require(maxEntries > 0) { "maxEntries must be positive." }
+        require(maxEntries >= 0) { "maxEntries must not be negative." }
     }
 
     /** Applies the serialized history commands described by pylivemaker. */
@@ -74,13 +80,25 @@ class LiveMakerTextHistoryHostAdapter(
                 formatName = currentFormat?.name
             )
         )
-        while (entries.size > maxEntries) entries.removeFirst()
+        trimToLimit()
         return true
+    }
+
+    /** Changes the retained page count immediately, dropping the oldest overflow. */
+    @Synchronized
+    fun setMaxEntries(maxEntries: Int) {
+        require(maxEntries >= 0) { "maxEntries must not be negative." }
+        maxEntriesValue = maxEntries
+        trimToLimit()
     }
 
     @Synchronized
     fun clear() {
         entries.clear()
+    }
+
+    private fun trimToLimit() {
+        while (entries.size > maxEntriesValue) entries.removeFirst()
     }
 
     @Synchronized
