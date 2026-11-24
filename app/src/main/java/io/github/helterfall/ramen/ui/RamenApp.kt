@@ -7,6 +7,8 @@ import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -32,6 +35,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -45,6 +49,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -69,8 +75,13 @@ private val RamenText = Color(0xFFF4F1EA)
 private val RamenMuted = Color(0xFFA8ADB7)
 
 @Composable
-fun RamenApp() {
+fun RamenApp(
+    crashReport: String? = null,
+    onCrashReportDismiss: () -> Unit = {}
+) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    var isCrashReportVisible by remember(crashReport) { mutableStateOf(crashReport != null) }
     val repository = remember { LibraryRepository(context.applicationContext) }
     val games = remember {
         mutableStateListOf<GameRecord>().apply {
@@ -330,6 +341,47 @@ fun RamenApp() {
                 item { ComingNextSection() }
                 item { BuildFooter() }
             }
+        }
+
+        if (isCrashReportVisible && crashReport != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    isCrashReportVisible = false
+                    onCrashReportDismiss()
+                },
+                title = { Text("Предыдущее завершение Ramen") },
+                text = {
+                    Column(
+                        modifier = Modifier.heightIn(max = 440.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Приложение аварийно завершилось. Сохранённый системный отчёт:")
+                        Text(
+                            text = crashReport,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(crashReport))
+                    }) {
+                        Text("Скопировать лог")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        isCrashReportVisible = false
+                        onCrashReportDismiss()
+                    }) {
+                        Text("Закрыть")
+                    }
+                }
+            )
         }
     }
 }
