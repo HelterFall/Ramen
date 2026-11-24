@@ -127,13 +127,8 @@ class LiveMakerVirtualMachineTest {
         withSource(bytes) { source ->
             val store = LiveMakerObjectStore()
             store.create(messageBox, componentTypeId = 10)
-            val parsed = try {
-                LiveMakerLsbParser().parse(source)
-            } catch (error: java.io.IOException) {
-                throw AssertionError("Could not parse BoxNew/ImgNew scene fixture: ${error.message}", error)
-            }
             val vm = LiveMakerVirtualMachine(
-                parsed,
+                LiveMakerLsbParser().parse(source),
                 objectStore = store
             )
 
@@ -208,8 +203,13 @@ class LiveMakerVirtualMachineTest {
 
         withSource(bytes) { source ->
             val store = LiveMakerObjectStore()
+            val parsed = try {
+                LiveMakerLsbParser().parse(source)
+            } catch (error: java.io.IOException) {
+                throw AssertionError("Could not parse BoxNew/ImgNew scene fixture: ${error.message}", error)
+            }
             val vm = LiveMakerVirtualMachine(
-                LiveMakerLsbParser().parse(source),
+                parsed,
                 objectStore = store
             )
 
