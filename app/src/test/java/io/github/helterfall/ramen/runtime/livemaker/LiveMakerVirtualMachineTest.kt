@@ -326,6 +326,111 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun dimToReadsOutOfRangeSafelyAndExpandsArraysWhenWriting() {
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.variableNew("numbers", 0, dataType = 1),
+                LiveMakerLsbFixture.variableNew("strings", 0, dataType = 4),
+                LiveMakerLsbFixture.variableNew("uninitializedStrings", 0, dataType = 4),
+                LiveMakerLsbFixture.textInsert("pause".toByteArray()),
+                LiveMakerLsbFixture.calc(
+                    LiveMakerLsbFixture.operation(
+                        type = 10,
+                        name = "____numberDefault",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramVar("numbers"),
+                            LiveMakerLsbFixture.paramInt(5)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "numberDefault",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____numberDefault"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 10,
+                        name = "____stringDefault",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramVar("strings"),
+                            LiveMakerLsbFixture.paramInt(5)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "stringDefault",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____stringDefault"))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 10,
+                        name = "____uninitializedDefault",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramVar("uninitializedStrings"),
+                            LiveMakerLsbFixture.paramInt(0)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "uninitializedDefault",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____uninitializedDefault"))
+                    )
+                ),
+                LiveMakerLsbFixture.calc(
+                    // DimTo followed by To is an indexed assignment. Extending beyond
+                    // the current end fills the intermediate cells with the array's type default.
+                    LiveMakerLsbFixture.operation(
+                        type = 10,
+                        name = "numbers",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramVar("numbers"),
+                            LiveMakerLsbFixture.paramInt(4)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "numbers",
+                        operands = listOf(LiveMakerLsbFixture.paramInt(42))
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 10,
+                        name = "uninitializedStrings",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramVar("uninitializedStrings"),
+                            LiveMakerLsbFixture.paramInt(2)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "uninitializedStrings",
+                        operands = listOf(LiveMakerLsbFixture.paramString("tail"))
+                    )
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.TextBlock)
+
+            vm.setVariable("numbers", listOf(7L))
+            vm.setVariable("strings", listOf("existing"))
+            vm.setVariable("uninitializedStrings", null)
+            vm.resume()
+
+            val event = vm.runUntilEvent()
+            assertTrue("DimTo should not stop on an out-of-range or uninitialized read: $event",
+                event is LiveMakerVmEvent.Completed)
+
+            val values = vm.variablesSnapshot()
+            assertEquals(0L, values["numberDefault"])
+            assertEquals("", values["stringDefault"])
+            assertEquals("", values["uninitializedDefault"])
+            assertEquals(listOf(7L, 0L, 0L, 0L, 42L), values["numbers"])
+            assertEquals(listOf("", "", "tail"), values["uninitializedStrings"])
+        }
+    }
+
+    @Test
     fun matchesLiveNovelBuiltInStringAndArrayFunctionSignatures() {
         val bytes = LiveMakerLsbFixture.build(
             commands = listOf(

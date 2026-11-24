@@ -83,6 +83,11 @@ class LiveMakerVirtualMachine(
         val scriptIdentifier: String?
     )
 
+    private data class IndexedArrayTarget(
+        val variableName: String,
+        val indices: List<Int>
+    )
+
     private val variables = linkedMapOf<String, Any?>()
     /** VarNew's serialized ParamType is used by LiveMaker to select Plus vs ComboStr semantics. */
     private val variableTypes = linkedMapOf<String, Int>()
@@ -505,6 +510,7 @@ class LiveMakerVirtualMachine(
         resultTypeHint: Int? = null
     ): Any? {
         val local = HashMap<String, Any?>()
+        val indexedArrayTargets = linkedMapOf<String, IndexedArrayTarget>()
 
         fun resolve(parameter: LiveMakerParameter): Any? =
             when (val value = parameter.value) {
@@ -528,12 +534,59 @@ class LiveMakerVirtualMachine(
                     .firstOrNull { it.typeId == OP_TO && variableTypes.containsKey(it.name) }
                     ?.let { variableTypes[it.name] }
                 ?: resultTypeHint
-            val result = evaluateOperation(operation, operands, destinationType)
+
+            val arrayVariableName = if (operation.typeId == OP_DIM_TO) {
+                (operation.operands.firstOrNull()?.value as? LiveMakerParameterValue.Variable)?.name
+            } else {
+                null
+            }
+            val arrayElementType = arrayVariableName?.let { variableTypes[it] } ?: destinationType
+
+            // In an indexed assignment, DimTo names the target expression and a following
+            // To stores the value back into that array variable. Keep the l-value separately
+            // from the read value so ordinary DimTo reads remain side-effect free.
+            if (arrayVariableName != null && !arrayVariableName.startsWith("@")) {
+                val writeOperation = expression.operations.drop(operationIndex + 1)
+                    .firstOrNull { next ->
+                        next.typeId == OP_TO &&
+                            (next.name == arrayVariableName || next.name == operation.name)
+                    }
+                if (writeOperation != null) {
+                    val indices = operands.drop(1).mapIndexed { index, value ->
+                        (number(value) ?: throw VmEvaluationException(
+                            "DimTo index $index is not numeric."
+                        )).toInt()
+                    }
+                    if (indices.isNotEmpty()) {
+                        indexedArrayTargets[writeOperation.name] =
+                            IndexedArrayTarget(arrayVariableName, indices)
+                    }
+                }
+            }
+
+            val evaluationTypeHint = if (operation.typeId == OP_DIM_TO) {
+                arrayElementType
+            } else {
+                destinationType
+            }
+            val result = evaluateOperation(operation, operands, evaluationTypeHint)
             local[operation.name] = result
-            if (operation.typeId == OP_TO && operation.name.isNotEmpty() &&
-                !operation.name.startsWith("____")
-            ) {
-                assignVariable(operation.name, result)
+
+            if (operation.typeId == OP_TO && operation.name.isNotEmpty()) {
+                val indexedTarget = indexedArrayTargets.remove(operation.name)
+                if (indexedTarget != null) {
+                    val updatedArray = writeArrayIndex(
+                        indexedTarget.variableName,
+                        indexedTarget.indices,
+                        result
+                    )
+                    assignVariable(indexedTarget.variableName, updatedArray)
+                    if (operation.name == indexedTarget.variableName) {
+                        local[operation.name] = updatedArray
+                    }
+                } else if (!operation.name.startsWith("____")) {
+                    assignVariable(operation.name, result)
+                }
             }
         }
         return expression.operations.lastOrNull()?.let { local[it.name] }
@@ -587,7 +640,7 @@ class LiveMakerVirtualMachine(
                 (number(a) ?: throw VmEvaluationException("XOR operand is not numeric.")).toLong() xor
                     (number(b) ?: throw VmEvaluationException("XOR operand is not numeric.")).toLong()
             }
-            10 -> evaluateArrayIndex(values)
+            10 -> evaluateArrayIndex(values, resultTypeHint)
             11 -> evaluatePureFunction(
                 operation.functionId ?: throw VmEvaluationException("Function operator has no function id."),
                 values,
@@ -617,24 +670,94 @@ class LiveMakerVirtualMachine(
     }
 
 
-    private fun evaluateArrayIndex(values: List<Any?>): Any? {
+    private fun evaluateArrayIndex(
+        values: List<Any?>,
+        resultTypeHint: Int?
+    ): Any? {
         if (values.size < 2) {
             throw VmEvaluationException("DimTo expects a base value and at least one index.")
         }
+
+        val defaultValue = arrayElementDefault(resultTypeHint, values.first())
         return values.drop(1).fold(values.first()) { current, indexValue ->
-            val index = number(indexValue)?.toInt()
-                ?: throw VmEvaluationException("DimTo index is not numeric.")
+            val index = (number(indexValue)
+                ?: throw VmEvaluationException("DimTo index is not numeric.")).toInt()
             when (current) {
-                is List<*> -> current.getOrNull(index)
-                    ?: throw VmEvaluationException("DimTo list index is out of range.")
-                is Array<*> -> current.getOrNull(index)
-                    ?: throw VmEvaluationException("DimTo array index is out of range.")
-                is String -> current.getOrNull(index)?.toString()
-                    ?: throw VmEvaluationException("DimTo string index is out of range.")
-                else -> throw VmEvaluationException("DimTo base value is not indexable.")
+                is List<*> -> current.getOrNull(index) ?: defaultValue
+                is Array<*> -> current.getOrNull(index) ?: defaultValue
+                is String -> current.getOrNull(index)?.toString().orEmpty()
+                // A missing or not-yet-initialized dynamic array reads as its element
+                // default instead of stopping the script.
+                else -> defaultValue
             }
         }
     }
+
+    private fun writeArrayIndex(
+        variableName: String,
+        indices: List<Int>,
+        value: Any?
+    ): List<Any?> {
+        if (indices.isEmpty()) {
+            throw VmEvaluationException("DimTo assignment expects at least one index.")
+        }
+
+        val elementType = variableTypes[variableName]
+
+        fun update(currentValue: Any?, dimension: Int): List<Any?> {
+            val index = indices[dimension]
+            if (index < 0 || index >= MAX_DYNAMIC_ARRAY_LENGTH) {
+                throw VmEvaluationException(
+                    "DimTo write index $index is outside the supported dynamic array range."
+                )
+            }
+
+            val updated = when (currentValue) {
+                is List<*> -> currentValue.toMutableList()
+                is Array<*> -> currentValue.toMutableList()
+                // A null/scalar initial value is treated as an uninitialized dynamic array.
+                else -> mutableListOf()
+            }
+            while (updated.size <= index) {
+                if (updated.size >= MAX_DYNAMIC_ARRAY_LENGTH) {
+                    throw VmEvaluationException("DimTo write exceeds the dynamic array size limit.")
+                }
+                updated += arrayElementDefault(elementType, currentValue)
+            }
+
+            if (dimension == indices.lastIndex) {
+                updated[index] = value
+            } else {
+                updated[index] = update(updated[index], dimension + 1)
+            }
+            return updated
+        }
+
+        return update(variables[variableName], 0)
+    }
+
+    private fun arrayElementDefault(typeHint: Int?, currentValue: Any?): Any? =
+        when (typeHint) {
+            VARIABLE_TYPE_INT -> 0L
+            VARIABLE_TYPE_FLOAT -> 0.0
+            VARIABLE_TYPE_FLAG -> false
+            VARIABLE_TYPE_STRING -> ""
+            else -> {
+                val example = when (currentValue) {
+                    is List<*> -> currentValue.firstOrNull { it != null }
+                    is Array<*> -> currentValue.firstOrNull { it != null }
+                    else -> null
+                }
+                when (example) {
+                    is String -> ""
+                    is Boolean -> false
+                    is Float, is Double -> 0.0
+                    is Number -> 0L
+                    is List<*>, is Array<*> -> emptyList<Any?>()
+                    else -> 0L
+                }
+            }
+        }
 
     /** Built-ins implemented against VM state or safe, explicitly bounded host adapters. */
     private fun evaluatePureFunction(
@@ -1500,6 +1623,8 @@ class LiveMakerVirtualMachine(
 
     companion object {
         private const val OP_TO = 1
+        private const val OP_DIM_TO = 10
+        private const val MAX_DYNAMIC_ARRAY_LENGTH = 100_000
         private const val MAX_HISTORY_ENTRIES = 100_000
         private const val MILLIS_PER_DAY = 86_400_000.0
         private const val MILLIS_PER_DAY_LONG = 86_400_000L
