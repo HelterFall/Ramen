@@ -59,6 +59,38 @@ class LiveMakerTpWordDecoderTest {
     }
 
     @Test
+    fun decodesGraphicAudioAndWaitSystemEventArguments() {
+        val bytes = TpWordFixture.build(
+            glyphs = listOf(
+                TpWordFixture.systemEvent(
+                    "CREATECG",
+                    arguments = listOf("NAME=background", "SOURCE=room.gal", "X=12", "Y=24")
+                ),
+                TpWordFixture.systemEvent(
+                    "PLAYSND",
+                    arguments = listOf("SOURCE=ambient.ogg")
+                ),
+                TpWordFixture.systemEvent("WAIT", arguments = listOf("TIME=250")),
+                TpWordFixture.systemEvent("CHANGECG", arguments = listOf("NAME=background", "SOURCE=night.gal")),
+                TpWordFixture.systemEvent("DELETECG", arguments = listOf("NAME=background"))
+            )
+        )
+
+        val decoded = LiveMakerTpWordDecoder().decode(bytes)
+
+        assertEquals(
+            listOf("CREATECG", "PLAYSND", "WAIT", "CHANGECG", "DELETECG"),
+            decoded.events.map { it.name }
+        )
+        assertEquals(listOf("NAME=background", "SOURCE=room.gal", "X=12", "Y=24"),
+            decoded.events[0].arguments)
+        assertEquals(listOf("SOURCE=ambient.ogg"), decoded.events[1].arguments)
+        assertEquals(listOf("TIME=250"), decoded.events[2].arguments)
+        assertEquals(listOf("NAME=background", "SOURCE=night.gal"), decoded.events[3].arguments)
+        assertEquals(listOf("NAME=background"), decoded.events[4].arguments)
+    }
+
+    @Test
     fun extractsInlineImageReferences() {
         val decoded = LiveMakerTpWordDecoder().decode(
             TpWordFixture.build(glyphs = listOf(TpWordFixture.image("ui/heart.png")))
@@ -124,11 +156,15 @@ class LiveMakerTpWordDecoderTest {
                 output.write(type)
             }.toByteArray()
 
-        fun systemEvent(name: String, version: Int = 105): ByteArray =
+        fun systemEvent(
+            name: String,
+            version: Int = 105,
+            arguments: List<String> = emptyList()
+        ): ByteArray =
             ByteArrayOutputStream().also { output ->
                 output.write(6)
                 commonCondition(output, version)
-                writeString(output, "\u0001" + name)
+                writeString(output, (listOf("\u0001" + name) + arguments).joinToString("\r\n"))
             }.toByteArray()
 
         fun variable(name: String, version: Int = 105): ByteArray =

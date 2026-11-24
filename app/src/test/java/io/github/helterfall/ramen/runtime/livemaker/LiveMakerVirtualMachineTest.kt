@@ -36,6 +36,108 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun evaluatesGetPropAndSetPropAgainstMessageBoxPropertyDefaults() {
+        val messageBox = "メッセージボックス"
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.calc(
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 3,
+                        name = "____setLeft",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString(messageBox),
+                            LiveMakerLsbFixture.paramInt(LiveMakerObjectStore.PR_LEFT),
+                            LiveMakerLsbFixture.paramInt(640)
+                        )
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 2,
+                        name = "____left",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString(messageBox),
+                            LiveMakerLsbFixture.paramInt(LiveMakerObjectStore.PR_LEFT)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "left",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____left"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 2,
+                        name = "____rowCount",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString(messageBox),
+                            LiveMakerLsbFixture.paramInt(LiveMakerObjectStore.PR_ROWCOUNT)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "rowCount",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____rowCount"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 2,
+                        name = "____ignoreMouse",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString(messageBox),
+                            LiveMakerLsbFixture.paramInt(LiveMakerObjectStore.PR_IGNOREMOUSE)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "ignoreMouse",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____ignoreMouse"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 2,
+                        name = "____reverse",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString(messageBox),
+                            LiveMakerLsbFixture.paramInt(LiveMakerObjectStore.PR_REVERSE)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "reverse",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____reverse"))
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 2,
+                        name = "____visible",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString(messageBox),
+                            LiveMakerLsbFixture.paramInt(LiveMakerObjectStore.PR_VISIBLE)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(
+                        type = 1,
+                        name = "visible",
+                        operands = listOf(LiveMakerLsbFixture.paramVar("____visible"))
+                    )
+                )
+            )
+        )
+
+        withSource(bytes) { source ->
+            val store = LiveMakerObjectStore()
+            store.create(messageBox, componentTypeId = 10)
+            val vm = LiveMakerVirtualMachine(
+                LiveMakerLsbParser().parse(source),
+                objectStore = store
+            )
+
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            assertEquals(640L, vm.variablesSnapshot()["left"])
+            assertEquals(0, vm.variablesSnapshot()["rowCount"])
+            assertEquals(false, vm.variablesSnapshot()["ignoreMouse"])
+            assertEquals(false, vm.variablesSnapshot()["reverse"])
+            assertEquals(true, vm.variablesSnapshot()["visible"])
+            assertEquals(640, store.getProperty(messageBox, LiveMakerObjectStore.PR_LEFT))
+        }
+    }
+
+    @Test
     fun loadsCalledScriptAndReturnsToCaller() {
         val callerBytes = LiveMakerLsbFixture.build(
             commands = listOf(

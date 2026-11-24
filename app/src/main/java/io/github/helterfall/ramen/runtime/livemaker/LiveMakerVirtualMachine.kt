@@ -67,7 +67,8 @@ sealed interface LiveMakerVmEvent {
 class LiveMakerVirtualMachine(
     private var script: LiveMakerLsb,
     private val maxInstructionsPerStep: Int = 10_000,
-    initialScriptIdentifier: String? = null
+    initialScriptIdentifier: String? = null,
+    val objectStore: LiveMakerObjectStore = LiveMakerObjectStore()
 ) {
     private data class CallFrame(
         val script: LiveMakerLsb,
@@ -587,6 +588,15 @@ class LiveMakerVirtualMachine(
         }
 
         return when (functionId) {
+            2 -> {
+                requireCount(2)
+                objectStore.getProperty(stringArg(0), numberArg(1).toInt())
+            }
+            3 -> {
+                requireCount(3)
+                objectStore.setProperty(stringArg(0), numberArg(1).toInt(), arg(2))
+                null
+            }
             0 -> {
                 requireCount(1, 2)
                 val value = numberArg(0).toLong().toString()

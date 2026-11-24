@@ -192,12 +192,14 @@ class LiveMakerGameSession(
     initialScript: LiveMakerLsb,
     initialPageReference: String,
     private val pageRepository: LiveMakerScriptRepository,
-    maxInstructionsPerStep: Int = 10_000
+    maxInstructionsPerStep: Int = 10_000,
+    val objectStore: LiveMakerObjectStore = LiveMakerObjectStore()
 ) : Closeable {
     private val vm = LiveMakerVirtualMachine(
         script = initialScript,
         maxInstructionsPerStep = maxInstructionsPerStep,
-        initialScriptIdentifier = initialPageReference
+        initialScriptIdentifier = initialPageReference,
+        objectStore = objectStore
     )
     private var pendingTransfer: LiveMakerVmEvent.ScriptTransfer? = null
 
@@ -215,6 +217,20 @@ class LiveMakerGameSession(
     fun currentCommandIndex(): Int = vm.currentCommandIndex()
 
     fun setVariable(name: String, value: Any?) = vm.setVariable(name, value)
+
+    fun createObject(
+        name: String,
+        componentTypeId: Int? = null,
+        initialProperties: Map<Int, Any?> = emptyMap()
+    ) = objectStore.create(name, componentTypeId, initialProperties)
+
+    fun getObjectProperty(name: String, propertyId: Int): Any? =
+        objectStore.getProperty(name, propertyId)
+
+    fun setObjectProperty(name: String, propertyId: Int, value: Any?) =
+        objectStore.setProperty(name, propertyId, value)
+
+    fun deleteObject(name: String): Boolean = objectStore.remove(name)
 
     fun evaluateExpression(
         expression: io.github.helterfall.ramen.inspection.LiveMakerExpression

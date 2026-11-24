@@ -18,10 +18,17 @@ data class LiveMakerTextSegment(
     val clearBefore: Boolean = false
 )
 
+data class LiveMakerTpWordEvent(
+    val name: String,
+    /** Raw event arguments, in their serialized CRLF order. */
+    val arguments: List<String>
+)
+
 data class LiveMakerDecodedTpWord(
     val version: Int,
     val segments: List<LiveMakerTextSegment>,
-    val inlineImages: List<String>
+    val inlineImages: List<String>,
+    val events: List<LiveMakerTpWordEvent> = emptyList()
 ) {
     val plainText: String
         get() = segments.joinToString("") { it.text }
@@ -74,6 +81,7 @@ class LiveMakerTpWordDecoder(
         val glyphCount = cursor.readCount("TpWord glyph count", maxGlyphs)
         val segments = mutableListOf<LiveMakerTextSegment>()
         val inlineImages = mutableListOf<String>()
+        val events = mutableListOf<LiveMakerTpWordEvent>()
         val current = StringBuilder()
         var clearNextSegment = false
 
@@ -131,8 +139,12 @@ class LiveMakerTpWordDecoder(
                     cursor.readOptionalCondition(version)
                     val event = cursor.readString("TpWord event")
                     if (event.startsWith(SYSTEM_EVENT_PREFIX)) {
-                        val name = event.substring(1).substringBefore("\r\n").trim()
-                        when (name.uppercase()) {
+                        val fields = event.split("\r\n")
+                        val name = fields.first().removePrefix(SYSTEM_EVENT_PREFIX.toString())
+                            .trim().uppercase()
+                        val arguments = fields.drop(1).map { it.trim() }
+                        events += LiveMakerTpWordEvent(name, arguments)
+                        when (name) {
                             "PAUSE", "PS" -> flush(LiveMakerTextControl.PAUSE)
                             "PG", "PAGE" -> flush(LiveMakerTextControl.PAGE_BREAK)
                             "CLR", "CLEAR" -> flush(LiveMakerTextControl.CLEAR)
@@ -191,7 +203,7 @@ class LiveMakerTpWordDecoder(
                 "TpWord has " + cursor.remaining + " trailing bytes after its declared glyphs."
             )
         }
-        return LiveMakerDecodedTpWord(version, segments, inlineImages)
+        return LiveMakerDecodedTpWord(version, segments, inlineImages, events)
     }
 
     private fun readDecorators(cursor: Cursor, version: Int) {
