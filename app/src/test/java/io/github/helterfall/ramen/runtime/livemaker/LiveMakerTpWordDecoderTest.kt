@@ -119,7 +119,7 @@ class LiveMakerTpWordDecoderTest {
         assertEquals("font-name", decoded.decorators.single().unk8)
         assertEquals("ruby", decoded.decorators.single().ruby)
         assertEquals(3L, decoded.decorators.single().count)
-        assertEquals(listOf(LiveMakerTpWordCondition(9L, "history")), decoded.conditions)
+        assertEquals(listOf(LiveMakerTpWordCondition(7L, "history")), decoded.conditions)
         assertEquals(listOf(LiveMakerTpWordLink(2L, "CLICK", "reserved")), decoded.links)
         assertEquals("A\nenabled", decoded.plainText)
         assertEquals(1, decoded.characterCount)
@@ -156,7 +156,7 @@ class LiveMakerTpWordDecoderTest {
             version = 101,
             glyphs = listOf(
                 TpWordFixture.legacyVariable("player"),
-                TpWordFixture.char('!')
+                TpWordFixture.char('!', version = 101)
             )
         )
 
@@ -229,7 +229,7 @@ class LiveMakerTpWordDecoderTest {
 
                 if (version >= 104) {
                     writeU32(output, 1) // conditions
-                    writeU32(output, 9)
+                    writeU32(output, 7)
                     writeString(output, "history")
                 }
                 if (version >= 105) {
