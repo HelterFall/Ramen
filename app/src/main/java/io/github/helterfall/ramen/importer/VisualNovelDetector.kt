@@ -50,14 +50,29 @@ class VisualNovelDetector {
         if (liveMakerArchive != null) {
             val (file, archive) = liveMakerArchive
             val relativePath = file.relativeTo(gameDirectory).invariantSeparatorsPath
+            val hasCompiledScript = scannedFiles.any { it.extension.equals("lsb", ignoreCase = true) } ||
+                archive.entries.any { it.name.endsWith(".lsb", ignoreCase = true) }
             return GameDetection(
                 engineId = "livemaker-vf102",
-                engineLabel = "LiveMaker VF v102 (парсер доступен)",
-                compatibilityStatus = "PARSER_AVAILABLE",
+                engineLabel = if (hasCompiledScript) {
+                    "LiveMaker VF v102 (предпросмотр ресурсов)"
+                } else {
+                    "LiveMaker VF v102 (парсер доступен)"
+                },
+                compatibilityStatus = if (hasCompiledScript) {
+                    "MEDIA_PREVIEW_AVAILABLE"
+                } else {
+                    "PARSER_AVAILABLE"
+                },
                 evidence = "Validated LiveMaker VF v102 archive in $relativePath at " +
                     "0x${archive.archiveOffset.toString(16)}; " +
                     "${archive.entries.size} directory entries parsed. " +
-                    "The LiveMaker playback runtime is not connected yet."
+                    if (hasCompiledScript) {
+                        "A compiled .lsb page was found; bounded session/media preview is available. " +
+                            "TextIns payloads remain opaque."
+                    } else {
+                        "No compiled .lsb page was found; only archive inspection is available."
+                    }
             )
         }
 

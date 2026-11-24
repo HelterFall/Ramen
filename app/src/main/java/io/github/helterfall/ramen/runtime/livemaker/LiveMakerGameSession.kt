@@ -19,6 +19,9 @@ interface LiveMakerScriptRepository : Closeable {
     @Throws(IOException::class)
     fun loadPage(pageReference: String): LiveMakerLsb
 
+    /** Lists safe relative .lsb page paths without loading their contents. */
+    fun pageReferences(): List<String> = emptyList()
+
     override fun close() = Unit
 }
 
@@ -45,6 +48,14 @@ class DirectoryLiveMakerScriptRepository(
         val file = findCaseInsensitive(relativePath)
         return FileRandomAccessSource(file).use(scriptParser::parse)
     }
+
+    override fun pageReferences(): List<String> = root.walkTopDown()
+        .maxDepth(12)
+        .filter { it.isFile && it.extension.equals("lsb", ignoreCase = true) }
+        .take(10_000)
+        .map { it.relativeTo(root).invariantSeparatorsPath }
+        .sorted()
+        .toList()
 
     private fun findCaseInsensitive(relativePath: String): File {
         var current = root
@@ -115,6 +126,12 @@ class VfArchiveLiveMakerScriptRepository(
         return ByteArrayRandomAccessSource(output.toByteArray()).use(scriptParser::parse)
     }
 
+    override fun pageReferences(): List<String> = archive.entries
+        .mapNotNull { entry -> runCatching { archiveParser.safeRelativePath(entry) }.getOrNull() }
+        .filter { it.endsWith(".lsb", ignoreCase = true) }
+        .distinct()
+        .sorted()
+
     companion object {
         private const val DEFAULT_MAX_SCRIPT_BYTES = 32L * 1024L * 1024L
     }
@@ -135,6 +152,9 @@ class CompositeLiveMakerScriptRepository(
         }
         throw lastMissing ?: LiveMakerPageNotFoundException(pageReference)
     }
+
+    override fun pageReferences(): List<String> =
+        repositories.flatMap { it.pageReferences() }.distinct().sorted()
 
     override fun close() {
         repositories.forEach { runCatching { it.close() } }
