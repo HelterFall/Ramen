@@ -259,6 +259,10 @@ class LiveMakerGameSession(
 
     fun deleteObject(name: String): Boolean = objectStore.remove(name)
 
+    /** Dispatch a click/selection callback stored on a named scene component. */
+    fun triggerObjectEvent(name: String, propertyId: Int): Boolean =
+        vm.triggerObjectEvent(name, propertyId)
+
     fun evaluateExpression(
         expression: io.github.helterfall.ramen.inspection.LiveMakerExpression
     ): Any? = vm.evaluateExpression(expression)
