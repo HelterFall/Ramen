@@ -90,8 +90,6 @@ class LiveMakerVirtualMachine(
     private val databaseTables = linkedMapOf<String, Boolean>()
     private var activeDatabaseTable: String? = null
     private val menuItemStates = linkedMapOf<Pair<String, String>, MutableMap<String, Any?>>()
-    private val databaseTables = linkedMapOf<String, Boolean>()
-    private var activeDatabaseTable: String? = null
     private var programCounter = 0
     private var scriptIdentifier: String? = initialScriptIdentifier
     private var completed = false
