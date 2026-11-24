@@ -70,6 +70,13 @@ class LiveMakerTpWordEventsTest {
     }
 
     @Test
+    fun decodesCp932DecimalByteEscapesInResourcePaths() {
+        assertEquals("パス", decodeLiveMakerEventEscapes("#131#112#131#088"))
+        assertEquals("graphics/背景.gal", decodeLiveMakerEventEscapes("graphics/背景.gal"))
+        assertEquals("room.gal", decodeLiveMakerEventEscapes("room.gal"))
+    }
+
+    @Test
     fun recognizesConventionalAndJapaneseBackgroundLayers() {
         assertTrue(isLiveMakerBackgroundLayer("000", "graphics/bg.gal"))
         assertTrue(isLiveMakerBackgroundLayer("BG", "graphics/bg.gal"))
