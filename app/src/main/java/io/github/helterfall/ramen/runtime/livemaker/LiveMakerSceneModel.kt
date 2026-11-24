@@ -46,6 +46,7 @@ internal data class LiveMakerSceneComponent(
 
         private val RENDERED_COMPONENT_TYPES = setOf(
             COMPONENT_BOX_NEW,
+            COMPONENT_IMG_NEW,
             COMPONENT_MES_NEW,
             COMPONENT_CINEMA,
             COMPONENT_CAPTION,
@@ -128,6 +129,24 @@ internal object LiveMakerSceneCommandAdapter {
         8, 9, 10, 11, 12, 23, 24, 25, 30, 36, 37, 42, 43, 44,
         48, 49, 50, 51, 52, 53, 54, 56
     )
+
+    /** Scene commands executed directly by the VM, without a host callback. */
+    val vmHandledSceneCommandIds: Set<Int> = setOf(
+        17, 18, 26, 38, 39, 40, 46, 57, 59, 60
+    )
+
+    /** Scene commands completed by the Android presenter after registering their properties. */
+    val androidHandledSceneCommandIds: Set<Int> = setOf(
+        8, 9, 10, 11, 13, 19, 23, 24, 25, 28, 30, 43, 50, 51, 52, 54, 56
+    )
+
+    /** Full set explicitly requested for automatic execution in the Android player. */
+    val requestedSceneCommandIds: Set<Int> =
+        vmHandledSceneCommandIds + androidHandledSceneCommandIds
+
+    fun hasExecutionRoute(commandTypeId: Int): Boolean =
+        commandTypeId in vmHandledSceneCommandIds ||
+            commandTypeId in androidHandledSceneCommandIds
 
     fun readProperties(
         command: io.github.helterfall.ramen.inspection.LiveMakerCommand,
