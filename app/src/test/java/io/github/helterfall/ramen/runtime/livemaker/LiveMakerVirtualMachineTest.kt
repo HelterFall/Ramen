@@ -422,6 +422,7 @@ class LiveMakerVirtualMachineTest {
                 event is LiveMakerVmEvent.Completed)
 
             val values = vm.variablesSnapshot()
+            println("DIMTO_DEBUG numbers=${values["numbers"]}; strings=${values["strings"]}; uninitializedStrings=${values["uninitializedStrings"]}")
             assertEquals(0L, values["numberDefault"])
             assertEquals("", values["stringDefault"])
             assertEquals("", values["uninitializedDefault"])
