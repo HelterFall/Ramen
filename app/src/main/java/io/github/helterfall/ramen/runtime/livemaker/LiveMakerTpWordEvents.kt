@@ -73,7 +73,7 @@ internal fun decodeLiveMakerEventEscapes(value: String): String {
             .forEach(bytes::write)
         index += 1
     }
-    return bytes.toByteArray().toString(CP932)
+    return String(bytes.toByteArray(), CP932)
 }
 
 private val CP932: Charset = Charset.forName("windows-31j")
