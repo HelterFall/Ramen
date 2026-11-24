@@ -18,29 +18,96 @@ data class LiveMakerTextSegment(
     val clearBefore: Boolean = false
 )
 
+data class LiveMakerTpWordDecorator(
+    val count: Long,
+    val unk2: Long,
+    val unk3: Long,
+    val unk4: Long,
+    val unk5: Int,
+    val unk6: Int,
+    val unk7: Long,
+    val unk8: String,
+    val ruby: String,
+    val unk10: Long?,
+    val unk11: Long?
+)
+
+data class LiveMakerTpWordCondition(
+    val count: Long,
+    val target: String
+)
+
+data class LiveMakerTpWordLink(
+    val count: Long,
+    val event: String,
+    val unk3: String
+)
+
+/**
+ * Parsed data for one entry in pylivemaker's _twd_structs table.
+ * Fields irrelevant to the current Android renderer remain available to callers.
+ */
+data class LiveMakerTpWordGlyph(
+    val typeId: Int,
+    val conditionIndex: Int? = null,
+    val linkName: String? = null,
+    val linkIndex: Int? = null,
+    val textSpeed: Long? = null,
+    val character: String? = null,
+    val decoratorIndex: Int? = null,
+    val alignment: Int? = null,
+    val padLeft: Int? = null,
+    val padRight: Int? = null,
+    val noHeight: Int? = null,
+    val breakType: Int? = null,
+    val eventValue: String? = null,
+    val variableReserved: Long? = null,
+    val variableName: String? = null,
+    val legacyVariableExpression: String? = null,
+    val imageSource: String? = null,
+    val hoverImageSource: String? = null,
+    val marginLeft: Int? = null,
+    val marginRight: Int? = null,
+    val marginTop: Int? = null,
+    val marginBottom: Int? = null,
+    val downImageSource: String? = null
+)
+
 data class LiveMakerTpWordEvent(
     val name: String,
-    /** Raw event arguments, in their serialized CRLF order. */
-    val arguments: List<String>
+    /** Raw event arguments in their serialized CRLF order. */
+    val arguments: List<String>,
+    val isSystem: Boolean = true,
+    val rawValue: String = "",
+    val glyphIndex: Int = -1
 )
 
 data class LiveMakerDecodedTpWord(
     val version: Int,
     val segments: List<LiveMakerTextSegment>,
     val inlineImages: List<String>,
-    val events: List<LiveMakerTpWordEvent> = emptyList()
+    val events: List<LiveMakerTpWordEvent> = emptyList(),
+    val decorators: List<LiveMakerTpWordDecorator> = emptyList(),
+    val conditions: List<LiveMakerTpWordCondition> = emptyList(),
+    val links: List<LiveMakerTpWordLink> = emptyList(),
+    val body: List<LiveMakerTpWordGlyph> = emptyList()
 ) {
     val plainText: String
         get() = segments.joinToString("") { it.text }
 
     val requiresTap: Boolean
         get() = segments.any { it.waitForTap }
+
+    val characterCount: Int
+        get() = body.count { it.typeId == 0x01 }
 }
 
 /**
- * Bounded decoder for the compiled TpWord glyph stream embedded in LiveMaker TextIns.
- * Based on pylivemaker's TWdGlyph / TpWord structures. The TpWord version is independent
- * of the outer LSB command version.
+ * Bounded parser for the compiled TpWord stream embedded in LiveMaker TextIns.
+ *
+ * The binary layout follows pylivemaker's TpWord._struct(), TDecorate,
+ * TWdCondition, TWdLink and all TWd structures in _twd_structs. TpWord's
+ * three-digit version is independent of the containing LSB version.
  */
 class LiveMakerTpWordDecoder(
     private val maxInputBytes: Int = DEFAULT_MAX_INPUT_BYTES,
@@ -63,25 +130,23 @@ class LiveMakerTpWordDecoder(
         if (bytes.size < HEADER_BYTES || bytes.size > maxInputBytes) {
             throw IOException("TpWord size is outside the supported range.")
         }
-        val cursor = Cursor(bytes, maxStringBytes)
+
+        val cursor = Cursor(bytes, maxStringBytes, maxTableEntries)
         if (cursor.readAscii(6) != SIGNATURE) {
             throw IOException("TpWord signature is invalid.")
         }
-        val versionText = cursor.readAscii(3)
-        val version = versionText.toIntOrNull()
+        val version = cursor.readAscii(3).toIntOrNull()
             ?: throw IOException("TpWord version marker is invalid.")
-        if (version !in MIN_VERSION..MAX_VERSION) {
-            throw IOException("Unsupported TpWord version " + version + ".")
-        }
 
-        readDecorators(cursor, version)
-        if (version >= 104) readConditions(cursor)
-        if (version >= 105) readLinks(cursor)
-
+        val decorators = readDecorators(cursor, version)
+        val conditions = if (version >= 104) readConditions(cursor) else emptyList()
+        val links = if (version >= 105) readLinks(cursor) else emptyList()
         val glyphCount = cursor.readCount("TpWord glyph count", maxGlyphs)
+
         val segments = mutableListOf<LiveMakerTextSegment>()
         val inlineImages = mutableListOf<String>()
         val events = mutableListOf<LiveMakerTpWordEvent>()
+        val body = ArrayList<LiveMakerTpWordGlyph>(glyphCount)
         val current = StringBuilder()
         var clearNextSegment = false
 
@@ -96,98 +161,168 @@ class LiveMakerTpWordDecoder(
                 )
             }
             current.setLength(0)
-            clearNextSegment = when (control) {
-                LiveMakerTextControl.PAGE_BREAK,
-                LiveMakerTextControl.CLEAR -> true
-                else -> false
-            }
+            clearNextSegment = control == LiveMakerTextControl.PAGE_BREAK ||
+                control == LiveMakerTextControl.CLEAR
         }
 
-        repeat(glyphCount) {
+        repeat(glyphCount) { glyphIndex ->
             val type = cursor.readU8("TpWord glyph type")
-            when (type) {
+            val glyph = when (type) {
                 GLYPH_CHAR -> {
-                    cursor.readOptionalCondition(version)
-                    // readOptionalLink() also consumes the glyph's text_speed field.
-                    cursor.readOptionalLink(version)
-                    val charValue = cursor.readU16("text character")
-                    cursor.readInt32("text decorator")
-                    current.append(decodeCp932Glyph(charValue))
+                    val condition = cursor.readOptionalCondition(version)
+                    val realPrefix = cursor.readRealPrefix(version)
+                    val character = decodeCp932Glyph(cursor.readU16("text character"))
+                    val decorator = cursor.readInt32("text decorator")
+                    current.append(character)
+                    LiveMakerTpWordGlyph(
+                        typeId = type,
+                        conditionIndex = condition,
+                        linkName = realPrefix.linkName,
+                        linkIndex = realPrefix.linkIndex,
+                        textSpeed = realPrefix.textSpeed,
+                        character = character,
+                        decoratorIndex = decorator
+                    )
                 }
+
                 GLYPH_DIV -> {
-                    cursor.readOptionalCondition(version)
-                    cursor.readU8("div alignment")
-                    if (version >= 105) {
-                        cursor.readInt32("div left padding")
-                        cursor.readInt32("div right padding")
-                        cursor.readU8("div no-height flag")
-                    }
+                    val condition = cursor.readOptionalCondition(version)
+                    val alignment = cursor.readU8("div alignment")
+                    val padLeft = if (version >= 105) cursor.readInt32("div left padding") else null
+                    val padRight = if (version >= 105) cursor.readInt32("div right padding") else null
+                    val noHeight = if (version >= 105) cursor.readU8("div no-height flag") else null
+                    LiveMakerTpWordGlyph(
+                        typeId = type,
+                        conditionIndex = condition,
+                        alignment = alignment,
+                        padLeft = padLeft,
+                        padRight = padRight,
+                        noHeight = noHeight
+                    )
                 }
+
                 GLYPH_RETURN -> {
-                    cursor.readOptionalCondition(version)
-                    when (cursor.readU8("text break type")) {
+                    val condition = cursor.readOptionalCondition(version)
+                    val breakType = cursor.readU8("text break type")
+                    when (breakType) {
                         BREAK_LINE -> current.append('\n')
                         BREAK_PAGE -> flush(LiveMakerTextControl.PAGE_BREAK)
                         BREAK_PAUSE -> flush(LiveMakerTextControl.PAUSE)
                         BREAK_CLEAR -> flush(LiveMakerTextControl.CLEAR)
                         else -> throw IOException("TpWord contains an unknown return control.")
                     }
+                    LiveMakerTpWordGlyph(
+                        typeId = type,
+                        conditionIndex = condition,
+                        breakType = breakType
+                    )
                 }
-                GLYPH_INDENT,
-                GLYPH_UNDENT -> cursor.readOptionalCondition(version)
+
+                GLYPH_INDENT, GLYPH_UNDENT -> LiveMakerTpWordGlyph(
+                    typeId = type,
+                    conditionIndex = cursor.readOptionalCondition(version)
+                )
+
                 GLYPH_EVENT -> {
-                    cursor.readOptionalCondition(version)
-                    val event = cursor.readString("TpWord event")
-                    if (event.startsWith(SYSTEM_EVENT_PREFIX)) {
-                        val fields = event.split("\r\n")
-                        val name = fields.first().removePrefix(SYSTEM_EVENT_PREFIX.toString())
-                            .trim().uppercase()
-                        val arguments = fields.drop(1).map { it.trim() }
-                        events += LiveMakerTpWordEvent(name, arguments)
-                        when (name) {
-                            "PAUSE", "PS" -> flush(LiveMakerTextControl.PAUSE)
-                            "PG", "PAGE" -> flush(LiveMakerTextControl.PAGE_BREAK)
-                            "CLR", "CLEAR" -> flush(LiveMakerTextControl.CLEAR)
-                            else -> Unit
-                        }
-                    }
+                    val condition = cursor.readOptionalCondition(version)
+                    val eventValue = cursor.readString("TpWord event")
+                    parseEvent(eventValue, glyphIndex)?.let(events::add)
+                    LiveMakerTpWordGlyph(
+                        typeId = type,
+                        conditionIndex = condition,
+                        eventValue = eventValue
+                    )
                 }
-                GLYPH_VAR,
-                GLYPH_HIST_CHAR -> {
-                    cursor.readOptionalCondition(version)
+
+                GLYPH_VAR, GLYPH_HIST_CHAR -> {
+                    val condition = cursor.readOptionalCondition(version)
                     val decorator = cursor.readInt32("variable decorator")
-                    if (version > 100) cursor.readU32("variable reserved field")
-                    if (version in 101..104) cursor.readString("legacy variable link")
-                    if (version >= 105) cursor.readInt32("variable link index")
+                    val reserved = if (version > 100) {
+                        cursor.readU32("variable reserved field")
+                    } else {
+                        null
+                    }
+                    val legacyLinkName = if (version in 101..104) {
+                        cursor.readString("legacy variable link")
+                    } else {
+                        null
+                    }
+                    val linkIndex = if (version >= 105) {
+                        cursor.readInt32("variable link index")
+                    } else {
+                        null
+                    }
+                    val legacyExpression = if (version < 102) {
+                        cursor.readLegacyLiveParserExpression()
+                    } else {
+                        null
+                    }
                     val variableName = if (version >= 102) {
                         cursor.readString("variable name")
                     } else {
-                        throw IOException("TpWord variable-name encoding before version 102 is not supported.")
+                        null
                     }
+
                     if (type == GLYPH_VAR) {
-                        val value = variableResolver(variableName)
-                        if (value != null) current.append(value.toString())
-                        else current.append('[').append(variableName).append(']')
+                        val name = variableName ?: legacyExpression.orEmpty()
+                        val value = variableResolver(name)
+                        current.append(value?.toString() ?: "[" + name + "]")
                     }
-                    if (decorator < -1) {
-                        throw IOException("TpWord variable decorator index is invalid.")
-                    }
+                    LiveMakerTpWordGlyph(
+                        typeId = type,
+                        conditionIndex = condition,
+                        decoratorIndex = decorator,
+                        linkName = legacyLinkName,
+                        linkIndex = linkIndex,
+                        variableReserved = reserved,
+                        variableName = variableName,
+                        legacyVariableExpression = legacyExpression
+                    )
                 }
+
                 GLYPH_IMAGE -> {
-                    cursor.readOptionalCondition(version)
-                    // readOptionalLink() also consumes the image glyph's text_speed field.
-                    cursor.readOptionalLink(version)
+                    val condition = cursor.readOptionalCondition(version)
+                    val realPrefix = cursor.readRealPrefix(version)
                     val source = cursor.readString("inline image source")
                     inlineImages += source
-                    cursor.readU8("inline image alignment")
-                    if (version >= 103) cursor.readString("inline image hover source")
-                    if (version >= 105) {
-                        repeat(4) { cursor.readInt32("inline image margin") }
-                        cursor.readString("inline image click source")
+                    val alignment = cursor.readU8("inline image alignment")
+                    val hoverSource = if (version >= 103) {
+                        cursor.readString("inline image hover source")
+                    } else {
+                        null
                     }
+                    val margins: List<Int?> = if (version >= 105) {
+                        List(4) { cursor.readInt32("inline image margin") as Int? }
+                    } else {
+                        listOf(null, null, null, null)
+                    }
+                    val downSource = if (version >= 105) {
+                        cursor.readString("inline image click source")
+                    } else {
+                        null
+                    }
+                    LiveMakerTpWordGlyph(
+                        typeId = type,
+                        conditionIndex = condition,
+                        linkName = realPrefix.linkName,
+                        linkIndex = realPrefix.linkIndex,
+                        textSpeed = realPrefix.textSpeed,
+                        alignment = alignment,
+                        imageSource = source,
+                        hoverImageSource = hoverSource,
+                        marginLeft = margins[0],
+                        marginRight = margins[1],
+                        marginTop = margins[2],
+                        marginBottom = margins[3],
+                        downImageSource = downSource
+                    )
                 }
-                else -> Unit // Unknown type IDs consume one byte in pylivemaker's fallback.
+
+                // pylivemaker's Select() falls back to Byte for unknown TWdType IDs:
+                // the already-consumed type byte is the complete unknown record.
+                else -> LiveMakerTpWordGlyph(typeId = type)
             }
+            body += glyph
         }
 
         if (current.isNotEmpty() || segments.isEmpty() ||
@@ -198,50 +333,109 @@ class LiveMakerTpWordDecoder(
                 clearBefore = clearNextSegment
             )
         }
+
         if (cursor.remaining != 0) {
             throw IOException(
-                "TpWord has " + cursor.remaining + " trailing bytes after its declared glyphs."
+                "TpWord has " + cursor.remaining +
+                    " trailing bytes after its declared glyphs."
             )
         }
-        return LiveMakerDecodedTpWord(version, segments, inlineImages, events)
+
+        return LiveMakerDecodedTpWord(
+            version = version,
+            segments = segments,
+            inlineImages = inlineImages,
+            events = events,
+            decorators = decorators,
+            conditions = conditions,
+            links = links,
+            body = body
+        )
     }
 
-    private fun readDecorators(cursor: Cursor, version: Int) {
+    private fun parseEvent(value: String, glyphIndex: Int): LiveMakerTpWordEvent? {
+        val fields = value.split("\r\n")
+        val rawName = fields.firstOrNull().orEmpty()
+        val isSystem = rawName.startsWith(SYSTEM_EVENT_PREFIX)
+        val name = if (isSystem) rawName.drop(1) else rawName
+        if (name.isBlank()) return null
+        return LiveMakerTpWordEvent(
+            name = name.trim().uppercase(),
+            arguments = fields.drop(1).map(String::trim),
+            isSystem = isSystem,
+            rawValue = value,
+            glyphIndex = glyphIndex
+        )
+    }
+
+    private fun readDecorators(
+        cursor: Cursor,
+        version: Int
+    ): List<LiveMakerTpWordDecorator> {
         val count = cursor.readCount("TpWord decorator count", maxTableEntries)
-        repeat(count) {
-            cursor.readU32("decorator count")
-            repeat(3) { cursor.readU32("decorator reserved field") }
-            cursor.readU8("decorator reserved byte")
-            cursor.readU8("decorator reserved byte")
-            if (version < 100) cursor.readU8("decorator legacy field")
-            else cursor.readU32("decorator versioned field")
-            cursor.readString("decorator font name")
-            cursor.readString("decorator ruby text")
-            if (version >= 100) {
-                cursor.readU32("decorator reserved field")
-                cursor.readU32("decorator reserved field")
+        return List(count) {
+            val glyphCount = cursor.readU32("decorator glyph count")
+            val unk2 = cursor.readU32("decorator reserved field")
+            val unk3 = cursor.readU32("decorator reserved field")
+            val unk4 = cursor.readU32("decorator reserved field")
+            val unk5 = cursor.readU8("decorator reserved byte")
+            val unk6 = cursor.readU8("decorator reserved byte")
+            val unk7 = if (version < 100) {
+                cursor.readU8("decorator legacy field").toLong()
+            } else {
+                cursor.readU32("decorator versioned field")
             }
+            val unk8 = cursor.readString("decorator font name")
+            val ruby = cursor.readString("decorator ruby text")
+            val unk10 = if (version >= 100) {
+                cursor.readU32("decorator reserved field")
+            } else {
+                null
+            }
+            val unk11 = if (version >= 100) {
+                cursor.readU32("decorator reserved field")
+            } else {
+                null
+            }
+            LiveMakerTpWordDecorator(
+                count = glyphCount,
+                unk2 = unk2,
+                unk3 = unk3,
+                unk4 = unk4,
+                unk5 = unk5,
+                unk6 = unk6,
+                unk7 = unk7,
+                unk8 = unk8,
+                ruby = ruby,
+                unk10 = unk10,
+                unk11 = unk11
+            )
         }
     }
 
-    private fun readConditions(cursor: Cursor) {
+    private fun readConditions(cursor: Cursor): List<LiveMakerTpWordCondition> {
         val count = cursor.readCount("TpWord condition count", maxTableEntries)
-        repeat(count) {
-            cursor.readU32("condition glyph count")
-            cursor.readString("condition target")
+        return List(count) {
+            LiveMakerTpWordCondition(
+                count = cursor.readU32("condition glyph count"),
+                target = cursor.readString("condition target")
+            )
         }
     }
 
-    private fun readLinks(cursor: Cursor) {
+    private fun readLinks(cursor: Cursor): List<LiveMakerTpWordLink> {
         val count = cursor.readCount("TpWord link count", maxTableEntries)
-        repeat(count) {
-            cursor.readU32("link glyph count")
-            cursor.readString("link event")
-            cursor.readString("link reserved data")
+        return List(count) {
+            LiveMakerTpWordLink(
+                count = cursor.readU32("link glyph count"),
+                event = cursor.readString("link event"),
+                unk3 = cursor.readString("link reserved data")
+            )
         }
     }
 
     private fun decodeCp932Glyph(value: Int): String {
+        // TWdChar uses Int16ul, then pylivemaker decodes its two bytes as big-endian CP932.
         val bytes = byteArrayOf((value ushr 8).toByte(), value.toByte())
         val decoded = try {
             CP932.newDecoder()
@@ -255,9 +449,16 @@ class LiveMakerTpWordDecoder(
         return if (decoded.startsWith('\u0000')) decoded.drop(1) else decoded
     }
 
+    private data class RealPrefix(
+        val linkName: String?,
+        val linkIndex: Int?,
+        val textSpeed: Long
+    )
+
     private class Cursor(
         private val bytes: ByteArray,
-        private val maxStringBytes: Int
+        private val maxStringBytes: Int,
+        private val maxLegacyOperations: Int
     ) {
         private var offset = 0
         val remaining: Int get() = bytes.size - offset
@@ -289,26 +490,29 @@ class LiveMakerTpWordDecoder(
         }
 
         fun readAscii(length: Int): String {
-            ensure(length, "TpWord signature/version")
-            val value = String(bytes, offset, length, Charsets.US_ASCII)
+            val data = readBytes(length, "TpWord signature/version")
+            return String(data, Charsets.US_ASCII)
+        }
+
+        fun readBytes(length: Int, label: String): ByteArray {
+            ensure(length, label)
+            val result = bytes.copyOfRange(offset, offset + length)
             offset += length
-            return value
+            return result
         }
 
         fun readString(label: String): String {
             val length = readCount(label + " length", maxStringBytes)
-            ensure(length, label)
-            val value = try {
+            val data = readBytes(length, label)
+            return try {
                 CP932.newDecoder()
                     .onMalformedInput(CodingErrorAction.REPORT)
                     .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .decode(ByteBuffer.wrap(bytes, offset, length))
+                    .decode(ByteBuffer.wrap(data))
                     .toString()
             } catch (error: CharacterCodingException) {
                 throw IOException(label + " is not valid CP932.", error)
             }
-            offset += length
-            return value
         }
 
         fun readCount(label: String, maximum: Int): Int {
@@ -319,18 +523,91 @@ class LiveMakerTpWordDecoder(
             return value.toInt()
         }
 
-        fun readOptionalCondition(version: Int) {
-            if (version >= 104) {
-                val index = readInt32("glyph condition index")
-                if (index < -1) throw IOException("Glyph condition index is invalid.")
+        fun readOptionalCondition(version: Int): Int? =
+            if (version >= 104) readInt32("glyph condition index") else null
+
+        fun readRealPrefix(version: Int): RealPrefix {
+            val linkName = if (version < 105) readString("legacy glyph link") else null
+            val linkIndex = if (version >= 105) readInt32("glyph link index") else null
+            val textSpeed = readU32("glyph text speed")
+            return RealPrefix(linkName, linkIndex, textSpeed)
+        }
+
+        /**
+         * Pre-v102 TWdOpeVar stores a LiveParser rather than a direct variable name:
+         * PrefixedArray(Int32ul, OpeData._struct()).
+         */
+        fun readLegacyLiveParserExpression(): String {
+            val count = readCount("legacy variable expression entry count", maxLegacyOperations)
+            if (count == 0) return ""
+
+            val expressions = linkedMapOf<String, String>()
+            var lastType = OP_NONE
+            var lastName = ""
+            var lastValue = ""
+
+            repeat(count) {
+                val type = readU8("legacy expression operator")
+                if (type !in OP_NONE..OP_NEQUAL) {
+                    throw IOException("TpWord legacy variable expression has an unknown operator.")
+                }
+                val name = readString("legacy expression result name")
+                val operandCount = readCount("legacy expression operand count", maxLegacyOperations)
+                val functionId = if (type == OP_FUNC) {
+                    readU8("legacy expression function id")
+                } else {
+                    null
+                }
+                val operands = ArrayList<String>(operandCount)
+                repeat(operandCount) {
+                    val parameterType = readU8("legacy expression parameter type")
+                    operands += when (parameterType) {
+                        PARAM_VAR -> {
+                            val variable = readString("legacy expression variable")
+                            if (variable.startsWith("____")) expressions[variable] ?: variable
+                            else variable
+                        }
+                        PARAM_INT -> readInt32("legacy expression integer").toString()
+                        PARAM_FLOAT -> {
+                            readBytes(10, "legacy expression float")
+                            "<float80>"
+                        }
+                        PARAM_FLAG -> (readU8("legacy expression flag") != 0).toString()
+                        PARAM_STRING -> quoteExpressionString(readString("legacy expression string"))
+                        else -> readString("legacy expression variable parameter")
+                    }
+                }
+
+                val value = when (type) {
+                    OP_NONE, OP_TO -> operands.lastOrNull().orEmpty()
+                    OP_FUNC -> "func" + functionId + "(" + operands.joinToString(", ") + ")"
+                    OP_DIM_TO -> {
+                        val base = operands.firstOrNull().orEmpty()
+                        operands.drop(1).fold(base) { result, index -> result + "[" + index + "]" }
+                    }
+                    else -> {
+                        val symbol = OPERATOR_SYMBOLS[type]
+                        if (symbol == null) operands.lastOrNull().orEmpty()
+                        else operands.joinToString(" " + symbol + " ")
+                    }
+                }
+
+                expressions[name] = value
+                lastType = type
+                lastName = name
+                lastValue = value
+            }
+
+            return when {
+                lastType == OP_TO && lastName == LEGACY_ARG_NAME -> lastValue
+                lastType == OP_TO && lastName.isNotBlank() -> lastName + " = " + lastValue
+                else -> lastValue
             }
         }
 
-        fun readOptionalLink(version: Int) {
-            if (version < 105) readString("legacy glyph link")
-            else readInt32("glyph link index")
-            readU32("glyph text speed")
-        }
+        private fun quoteExpressionString(value: String): String =
+            "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"")
+                .replace("\r", "\\r").replace("\n", "\\n") + "\""
 
         private fun ensure(length: Int, label: String) {
             if (length < 0 || length > remaining) {
@@ -346,8 +623,6 @@ class LiveMakerTpWordDecoder(
         private const val DEFAULT_MAX_STRING_BYTES = 1024 * 1024
         private const val HEADER_BYTES = 13
         private const val SIGNATURE = "TpWord"
-        private const val MIN_VERSION = 90
-        private const val MAX_VERSION = 999
         private const val SYSTEM_EVENT_PREFIX = '\u0001'
         private const val GLYPH_CHAR = 0x01
         private const val GLYPH_DIV = 0x02
@@ -362,6 +637,23 @@ class LiveMakerTpWordDecoder(
         private const val BREAK_PAGE = 1
         private const val BREAK_PAUSE = 2
         private const val BREAK_CLEAR = 3
+        private const val OP_NONE = 0
+        private const val OP_TO = 1
+        private const val OP_FUNC = 11
+        private const val OP_DIM_TO = 10
+        private const val OP_NEQUAL = 20
+        private const val PARAM_VAR = 0
+        private const val PARAM_INT = 1
+        private const val PARAM_FLOAT = 2
+        private const val PARAM_FLAG = 3
+        private const val PARAM_STRING = 4
+        private const val LEGACY_ARG_NAME = "____arg"
+        private val OPERATOR_SYMBOLS = mapOf(
+            2 to "+", 3 to "-", 4 to "*", 5 to "/", 6 to "%",
+            7 to "|", 8 to "&", 9 to "^", 12 to "==", 13 to ">",
+            14 to "<", 15 to ">=", 16 to "<=", 17 to "<<",
+            18 to ">>", 19 to "++", 20 to "!="
+        )
         private val CP932: Charset = Charset.forName("windows-31j")
     }
 }
