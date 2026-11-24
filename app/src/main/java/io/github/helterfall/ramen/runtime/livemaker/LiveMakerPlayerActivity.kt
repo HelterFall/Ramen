@@ -538,7 +538,6 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             // Sound creates a named media object; MediaPlay starts it.
             42 -> {
                 if (repository == null) return false
-                val values = componentValues()
                 val source = values[3]?.toString()?.takeIf { it.isNotBlank() } ?: return false
                 val asset = repository.findAsset(source)
                     ?: throw IOException(
