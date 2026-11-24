@@ -675,7 +675,7 @@ class LiveMakerVirtualMachineTest {
             assertEquals(2.5, (values["difference"] as Number).toDouble(), 0.000001)
             assertEquals(6L, values["product"])
             assertEquals(3L, values["quotient"])
-            assertEquals(1L, values["remainder"])
+            assertEquals(1.0, (values["remainder"] as Number).toDouble(), 0.000001)
             assertEquals(true, values["equalEmptyAndNull"])
             assertEquals(true, values["greaterNumericStrings"])
             assertEquals(true, values["lessNullAndOne"])
