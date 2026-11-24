@@ -423,6 +423,13 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             val presentation = presentEvent(event, session)
             val engineEvent = (event as? LiveMakerSessionEvent.EngineEvent)?.event
 
+            // The VM yields Running after its bounded instruction slice. That is not
+            // a user-visible screen and must not leave the player frozen on the last CG.
+            if (engineEvent == LiveMakerVmEvent.Running) {
+                session.resume()
+                return@repeat
+            }
+
             if (engineEvent is LiveMakerVmEvent.Delay) {
                 if (engineEvent.milliseconds > 0L) {
                     Thread.sleep(engineEvent.milliseconds.coerceAtMost(MAX_TPWORD_WAIT_MS))
@@ -1368,85 +1375,118 @@ private fun LiveMakerPlayerScreen(
                     onClick = onContinue
                 )
         ) {
-            val backgrounds = state.sceneImages.filter { it.isBackground }
             val canvasWidth = state.sceneCanvasWidthPx.coerceAtLeast(1f)
             val canvasHeight = state.sceneCanvasHeightPx.coerceAtLeast(1f)
-
-            backgrounds.forEach { image ->
-                Image(
-                    bitmap = image.bitmap.asImageBitmap(),
-                    contentDescription = image.resourcePath,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .graphicsLayer(alpha = if (image.visible) image.alpha else 0f),
-                    contentScale = ContentScale.FillBounds
-                )
+            val stageAspectRatio = (canvasWidth / canvasHeight).coerceIn(0.1f, 10f)
+            val viewportAspectRatio = maxWidth.value / maxHeight.value.coerceAtLeast(1f)
+            // Fit the authored LiveMaker stage into the device viewport. Never stretch
+            // a 4:3/16:9 title screen to the phone's ultrawide aspect ratio.
+            val stageWidth = if (viewportAspectRatio > stageAspectRatio) {
+                maxHeight * stageAspectRatio
+            } else {
+                maxWidth
+            }
+            val stageHeight = if (viewportAspectRatio > stageAspectRatio) {
+                maxHeight
+            } else {
+                maxWidth / stageAspectRatio
             }
 
-            state.sceneImages
-                .filterNot { it.isBackground }
-                .forEach { image ->
-Image(
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .width(stageWidth)
+                    .height(stageHeight)
+            ) {
+                state.sceneImages.filter { it.isBackground }.forEach { image ->
+                    Image(
                         bitmap = image.bitmap.asImageBitmap(),
                         contentDescription = image.resourcePath,
                         modifier = Modifier
-                            .offset(
-                                x = maxWidth * (image.left / canvasWidth),
-                                y = maxHeight * (image.top / canvasHeight)
-                            )
-                            .width(maxWidth * (image.width / canvasWidth).coerceIn(0.01f, 2f))
-                            .height(maxHeight * (image.height / canvasHeight).coerceIn(0.01f, 2f))
+                            .fillMaxSize()
                             .graphicsLayer(alpha = if (image.visible) image.alpha else 0f),
-                        contentScale = ContentScale.Fit
+                        contentScale = ContentScale.FillBounds
                     )
                 }
 
-            state.sceneComponents
-                .filter { component ->
-                    component.isRenderable && component.visible &&
-                        (!component.isImage || state.sceneImages.none { it.objectName == component.objectName })
-                }
-                .forEach { component ->
-                    val componentModifier = Modifier
-                        .offset(
-                            x = maxWidth * (component.left / canvasWidth),
-                            y = maxHeight * (component.top / canvasHeight)
-                        )
-                        .width(maxWidth * (component.width / canvasWidth).coerceIn(0.01f, 2f))
-                        .height(maxHeight * (component.height / canvasHeight).coerceIn(0.01f, 2f))
-                        .graphicsLayer(alpha = component.alpha)
-                        .background(Color(component.color), RoundedCornerShape(2.dp))
-                        .then(
-                            if (component.borderWidth > 0f) {
-                                Modifier.border(
-                                    component.borderWidth.dp,
-                                    Color(component.borderColor),
-                                    RoundedCornerShape(2.dp)
-                                )
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .then(
-                            if (component.clickable) {
-                                Modifier.clickable { onSceneComponentClick(component.objectName) }
-                            } else {
-                                Modifier
-                            }
-                        )
-                        .padding(3.dp)
-                    Box(modifier = componentModifier) {
-                        if (component.text.isNotBlank()) {
-                            Text(
-                                text = component.text.ifBlank {
-                                    if (component.isImage) component.source.orEmpty() else ""
-                                },
-                                color = Color.White,
-                                style = MaterialTheme.typography.bodySmall
+                state.sceneImages
+                    .filterNot { it.isBackground }
+                    .forEach { image ->
+                        val clickTarget = state.sceneComponents.firstOrNull {
+                            it.objectName == image.objectName && it.clickable && it.visible
+                        }
+                        val imageModifier = Modifier
+                            .offset(
+                                x = stageWidth * (image.left / canvasWidth),
+                                y = stageHeight * (image.top / canvasHeight)
                             )
+                            .width(stageWidth * (image.width / canvasWidth).coerceIn(0.01f, 2f))
+                            .height(stageHeight * (image.height / canvasHeight).coerceIn(0.01f, 2f))
+                            .graphicsLayer(alpha = if (image.visible) image.alpha else 0f)
+                            .then(
+                                if (clickTarget != null) {
+                                    Modifier.clickable {
+                                        onSceneComponentClick(image.objectName)
+                                    }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                        Image(
+                            bitmap = image.bitmap.asImageBitmap(),
+                            contentDescription = image.resourcePath,
+                            modifier = imageModifier,
+                            contentScale = ContentScale.Fit
+                        )
+                    }
+
+                state.sceneComponents
+                    .filter { component ->
+                        component.isRenderable && component.visible &&
+                            (!component.isImage || state.sceneImages.none {
+                                it.objectName == component.objectName
+                            })
+                    }
+                    .forEach { component ->
+                        val componentModifier = Modifier
+                            .offset(
+                                x = stageWidth * (component.left / canvasWidth),
+                                y = stageHeight * (component.top / canvasHeight)
+                            )
+                            .width(stageWidth * (component.width / canvasWidth).coerceIn(0.01f, 2f))
+                            .height(stageHeight * (component.height / canvasHeight).coerceIn(0.01f, 2f))
+                            .graphicsLayer(alpha = component.alpha)
+                            .background(Color(component.color), RoundedCornerShape(2.dp))
+                            .then(
+                                if (component.borderWidth > 0f) {
+                                    Modifier.border(
+                                        component.borderWidth.dp,
+                                        Color(component.borderColor),
+                                        RoundedCornerShape(2.dp)
+                                    )
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .then(
+                                if (component.clickable) {
+                                    Modifier.clickable { onSceneComponentClick(component.objectName) }
+                                } else {
+                                    Modifier
+                                }
+                            )
+                            .padding(3.dp)
+                        Box(modifier = componentModifier) {
+                            if (component.text.isNotBlank()) {
+                                Text(
+                                    text = component.text,
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                         }
                     }
-                }
+            }
         }
 
         val toolsMenuExpanded = remember { mutableStateOf(false) }
@@ -1488,10 +1528,11 @@ Image(
                 it.startsWith("Страница ") ||
                 it.contains("ожидает host adapter")
         }
+        // The tap target remains the whole viewport during an empty WAIT, but
+        // an empty script control is not dialogue and must not create a fake panel.
         val showMessagePanel = !state.isCompleted && (
             state.isLoading ||
-                (state.dialogueText.isNotEmpty() && state.messageWindowVisible) ||
-                (state.canContinue && state.dialogueText.isBlank())
+                (state.dialogueText.isNotEmpty() && state.messageWindowVisible)
             )
         if (showMessagePanel) {
             Surface(
@@ -1534,12 +1575,6 @@ Image(
                             Text(
                                 text = state.dialogueText,
                                 color = Color(0xFFF4F1EA),
-                                style = MaterialTheme.typography.bodyLarge
-                            )
-                        } else if (state.canContinue) {
-                            Text(
-                                text = "…",
-                                color = Color(0xFFD6D2CA),
                                 style = MaterialTheme.typography.bodyLarge
                             )
                         }
