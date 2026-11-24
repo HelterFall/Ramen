@@ -348,7 +348,7 @@ class LiveMakerTpWordDecoderTest {
             name: String,
             version: Int = 105,
             arguments: List<String> = emptyList()
-        ): ByteArray = event("\\u0001" + name, arguments, version)
+        ): ByteArray = event("\u0001" + name, arguments, version)
 
         fun event(
             name: String,
