@@ -447,6 +447,61 @@ class LiveMakerVirtualMachineTest {
         }
     }
 
+
+    @Test
+    fun formatHistRegistersFormatAndClrHistClearsEntriesWithoutStoppingTheScenario() {
+        val formatName = LiveMakerLsbFixture.expression(
+            LiveMakerLsbFixture.operation(
+                type = 0,
+                name = "____format",
+                operands = listOf(LiveMakerLsbFixture.paramString("novel-history"))
+            )
+        )
+        val target = LiveMakerLsbFixture.expression(
+            LiveMakerLsbFixture.operation(
+                type = 0,
+                name = "____target",
+                operands = listOf(LiveMakerLsbFixture.paramString("message-window"))
+            )
+        )
+        val bytes = LiveMakerLsbFixture.build(
+            version = 111,
+            commands = listOf(
+                LiveMakerLsbFixture.command(58, formatName + target),
+                LiveMakerLsbFixture.command(22, ByteArray(0)),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            val historyHost = LiveMakerTextHistoryHostAdapter()
+
+            val formatEvent = vm.runUntilEvent() as LiveMakerVmEvent.HostCommandRequired
+            assertEquals(58, formatEvent.command.typeId)
+            assertTrue(historyHost.handle(formatEvent.command, vm::evaluateExpression))
+            assertEquals("novel-history", historyHost.snapshot().activeFormat?.name)
+            assertEquals("message-window", historyHost.snapshot().activeFormat?.target)
+
+            historyHost.addText("This entry is cleared", includeInHistory = true)
+            historyHost.addText("This entry is not recorded", includeInHistory = false)
+            assertEquals(1, historyHost.snapshot().entries.size)
+
+            vm.resume()
+            val clearEvent = vm.runUntilEvent() as LiveMakerVmEvent.HostCommandRequired
+            assertEquals(22, clearEvent.command.typeId)
+            assertTrue(historyHost.handle(clearEvent.command, vm::evaluateExpression))
+            assertTrue(historyHost.snapshot().entries.isEmpty())
+            // ClrHist clears entries but leaves the registered FormatHist definition active.
+            assertEquals("novel-history", historyHost.snapshot().activeFormat?.name)
+
+            historyHost.addText("The next line", includeInHistory = true)
+            vm.resume()
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            assertEquals(listOf("The next line"), historyHost.snapshot().entries.map { it.text })
+        }
+    }
+
     private fun ByteArray.withIndent(indent: Long): ByteArray {
         val copy = copyOf()
         val offset = 1

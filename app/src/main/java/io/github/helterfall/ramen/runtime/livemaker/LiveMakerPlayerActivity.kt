@@ -12,6 +12,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -24,10 +25,13 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
@@ -55,6 +59,11 @@ private data class LiveMakerPlayerUiState(
     val dialogueText: String = "",
     val waitingForTap: Boolean = false,
     val sceneImages: List<LiveMakerSceneBitmap> = emptyList(),
+    val historyEntries: List<LiveMakerTextHistoryEntry> = emptyList(),
+    val historyFormatName: String? = null,
+    val historyVisible: Boolean = false,
+    val resourcesVisible: Boolean = false,
+    val isCompleted: Boolean = false,
     val assets: List<LiveMakerMediaAsset> = emptyList(),
     val mediaDiagnostics: LiveMakerMediaIndexDiagnostics? = null,
     val imageBitmap: Bitmap? = null,
@@ -101,6 +110,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     private var mediaRepository: LiveMakerMediaAssetRepository? = null
     private var audioPlayer: SystemNnnAudioPlayer? = null
     private var textPlayback: LiveMakerTextPlayback? = null
+    private val historyHost = LiveMakerTextHistoryHostAdapter()
+    private var historyRequested = false
     private val sceneObjects = linkedMapOf<String, LiveMakerSceneBitmap>()
     private val soundObjects = linkedMapOf<String, LiveMakerMediaAsset>()
 
@@ -111,7 +122,11 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 LiveMakerPlayerScreen(
                     state = uiState.value,
                     onContinue = ::continueSession,
-                    onAssetSelected = ::selectAsset
+                    onAssetSelected = ::selectAsset,
+                    onHistoryClick = ::showHistory,
+                    onHistoryDismiss = ::dismissHistory,
+                    onResourcesClick = ::showResources,
+                    onResourcesDismiss = ::dismissResources
                 )
             }
         }
@@ -141,6 +156,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
 
                 currentEvent = firstEvent
                 val presentation = presentEvent(firstEvent, bootstrap.session)
+                val historySnapshot = historyHost.snapshot()
                 mainHandler.post {
                     if (isFinishing || isDestroyed) {
                         bootstrap.session.close()
@@ -155,6 +171,10 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             canContinue = presentation.canContinue,
                             dialogueText = presentation.dialogueText,
                             waitingForTap = presentation.waitingForTap,
+                            historyEntries = historySnapshot.entries,
+                            historyFormatName = historySnapshot.activeFormat?.name,
+                            historyVisible = historyRequested,
+                            isCompleted = isCompleted(firstEvent),
                             assets = assets.listAssets(),
                             mediaDiagnostics = assets.diagnostics
                         )
@@ -228,6 +248,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             canContinue = presentation.canContinue,
                             dialogueText = presentation.dialogueText,
                             waitingForTap = presentation.waitingForTap,
+                            isCompleted = isCompleted(next),
                             errorMessage = null
                         )
                     }
@@ -237,6 +258,43 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             }
         }
     }
+
+    private fun showHistory() {
+        val snapshot = historyHost.snapshot()
+        uiState.value = uiState.value.copy(
+            historyEntries = snapshot.entries,
+            historyFormatName = snapshot.activeFormat?.name,
+            historyVisible = true
+        )
+    }
+
+    private fun dismissHistory() {
+        uiState.value = uiState.value.copy(historyVisible = false)
+    }
+
+    private fun showResources() {
+        uiState.value = uiState.value.copy(resourcesVisible = true)
+    }
+
+    private fun dismissResources() {
+        uiState.value = uiState.value.copy(resourcesVisible = false)
+    }
+
+    private fun publishHistory() {
+        val snapshot = historyHost.snapshot()
+        mainHandler.post {
+            if (!isFinishing && !isDestroyed) {
+                uiState.value = uiState.value.copy(
+                    historyEntries = snapshot.entries,
+                    historyFormatName = snapshot.activeFormat?.name
+                )
+            }
+        }
+    }
+
+    private fun isCompleted(event: LiveMakerSessionEvent): Boolean =
+        event is LiveMakerSessionEvent.EngineEvent &&
+            event.event == LiveMakerVmEvent.Completed
 
     private fun selectAsset(asset: LiveMakerMediaAsset) {
         worker.execute {
@@ -323,6 +381,25 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         session: LiveMakerGameSession
     ): Boolean {
         val repository = mediaRepository
+
+        if (historyHost.handle(command, session::evaluateExpression)) {
+            publishHistory()
+            return true
+        }
+        if (command.typeId == 29) {
+            historyRequested = true
+            mainHandler.post {
+                if (!isFinishing && !isDestroyed) {
+                    val snapshot = historyHost.snapshot()
+                    uiState.value = uiState.value.copy(
+                        historyEntries = snapshot.entries,
+                        historyFormatName = snapshot.activeFormat?.name,
+                        historyVisible = true
+                    )
+                }
+            }
+            return true
+        }
 
         fun componentValues(): Map<Int, Any?> {
             val result = linkedMapOf<Int, Any?>()
@@ -474,8 +551,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             // Component creation commands not yet rendered still get a VM property object.
             8, 10, 11, 12, 23, 24, 25, 30, 36, 37, 43, 44,
             48, 49, 50, 51, 52, 53, 54, 56 -> return true
-            // ClrHist / DoEvent / ClrRead do not require a visible scene change here.
-            22, 46, 47 -> return true
+            // DoEvent / ClrRead are handled by the surrounding runtime loop.
+            46, 47 -> return true
             else -> return false
         }
     }
@@ -511,6 +588,18 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                         session.variablesSnapshot()[name]
                     }
                     decoded.events.forEach { handleTpWordEvent(it, session) }
+                    val includeInHistory = when (
+                        val historyFlag = session.evaluateExpression(engineEvent.historyExpression)
+                    ) {
+                        null -> false
+                        is Boolean -> historyFlag
+                        is Number -> historyFlag.toDouble() != 0.0
+                        is String -> historyFlag.isNotEmpty()
+                        else -> false
+                    }
+                    if (historyHost.addText(decoded.plainText, includeInHistory)) {
+                        publishHistory()
+                    }
                     val segments = decoded.segments.toMutableList()
                     if (segments.isEmpty()) {
                         segments += LiveMakerTextSegment("", waitForTap = engineEvent.shouldWait)
@@ -801,224 +890,373 @@ class LiveMakerPlayerActivity : ComponentActivity() {
 private fun LiveMakerPlayerScreen(
     state: LiveMakerPlayerUiState,
     onContinue: () -> Unit,
-    onAssetSelected: (LiveMakerMediaAsset) -> Unit
+    onAssetSelected: (LiveMakerMediaAsset) -> Unit,
+    onHistoryClick: () -> Unit,
+    onHistoryDismiss: () -> Unit,
+    onResourcesClick: () -> Unit,
+    onResourcesDismiss: () -> Unit
 ) {
-    Column(
+    Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF101216))
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null,
-                enabled = state.waitingForTap,
-                onClick = onContinue
-            )
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .background(Color.Black)
     ) {
-        Text(
-            text = "LiveMaker Player",
-            color = Color(0xFFF4F1EA),
-            style = MaterialTheme.typography.headlineSmall
-        )
-        if (state.isLoading) {
-            Text("Загрузка стартового LSB и ресурсов…", color = Color(0xFFA8ADB7))
-        } else {
-            state.pageReference?.let { reference ->
-                Text("Стартовая страница: " + reference, color = Color(0xFFF2B766))
-            }
-            state.scriptVersion?.let { version ->
-                Text(
-                    "LSB v" + version + " · команд: " + (state.commandCount ?: 0),
-                    color = Color(0xFFA8ADB7)
+        BoxWithConstraints(
+            modifier = Modifier
+                .fillMaxSize()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    enabled = state.canContinue && !state.historyVisible && !state.resourcesVisible,
+                    onClick = onContinue
+                )
+        ) {
+            val background = state.sceneImages.firstOrNull { it.isBackground }
+            val canvasWidth = (
+                background?.bitmap?.width?.toFloat()
+                    ?: state.sceneImages.maxOfOrNull { it.left + it.width }
+                    ?: 1f
+                ).coerceAtLeast(1f)
+            val canvasHeight = (
+                background?.bitmap?.height?.toFloat()
+                    ?: state.sceneImages.maxOfOrNull { it.top + it.height }
+                    ?: 1f
+                ).coerceAtLeast(1f)
+
+            background?.let { image ->
+                DisposableEffect(image.bitmap) {
+                    onDispose {
+                        if (!image.bitmap.isRecycled) image.bitmap.recycle()
+                    }
+                }
+                Image(
+                    bitmap = image.bitmap.asImageBitmap(),
+                    contentDescription = image.resourcePath,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds
                 )
             }
 
-            if (state.sceneImages.isNotEmpty()) {
-                BoxWithConstraints(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(320.dp)
-                ) {
-                    val background = state.sceneImages.firstOrNull { it.isBackground }
-                    val canvasWidth = (
-                        background?.bitmap?.width?.toFloat()
-                            ?: state.sceneImages.maxOf { it.left + it.width }
-                        ).coerceAtLeast(1f)
-                    val canvasHeight = (
-                        background?.bitmap?.height?.toFloat()
-                            ?: state.sceneImages.maxOf { it.top + it.height }
-                        ).coerceAtLeast(1f)
-
-                    background?.let { image ->
-                        DisposableEffect(image.bitmap) {
-                            onDispose {
-                                if (!image.bitmap.isRecycled) image.bitmap.recycle()
-                            }
-                        }
-                        Image(
-                            bitmap = image.bitmap.asImageBitmap(),
-                            contentDescription = image.resourcePath,
-                            modifier = Modifier.fillMaxSize(),
-                            contentScale = ContentScale.FillBounds
-                        )
-                    }
-
-                    state.sceneImages.filterNot { it.isBackground }.forEach { image ->
-                        DisposableEffect(image.bitmap) {
-                            onDispose {
-                                if (!image.bitmap.isRecycled) image.bitmap.recycle()
-                            }
-                        }
-                        Image(
-                            bitmap = image.bitmap.asImageBitmap(),
-                            contentDescription = image.resourcePath,
-                            modifier = Modifier
-                                .offset(
-                                    x = maxWidth * (image.left / canvasWidth),
-                                    y = maxHeight * (image.top / canvasHeight)
-                                )
-                                .width(maxWidth * (image.width / canvasWidth).coerceIn(0.01f, 2f))
-                                .height(maxHeight * (image.height / canvasHeight).coerceIn(0.01f, 2f))
-                                .graphicsLayer(alpha = image.alpha),
-                            contentScale = ContentScale.Fit
-                        )
-                    }
-                }
-            } else {
-                state.imageBitmap?.let { bitmap ->
-                    DisposableEffect(bitmap) {
+            state.sceneImages
+                .filterNot { it.isBackground }
+                .forEach { image ->
+                    DisposableEffect(image.bitmap) {
                         onDispose {
-                            if (!bitmap.isRecycled) bitmap.recycle()
+                            if (!image.bitmap.isRecycled) image.bitmap.recycle()
                         }
                     }
                     Image(
-                        bitmap = bitmap.asImageBitmap(),
-                        contentDescription = state.selectedAssetName,
+                        bitmap = image.bitmap.asImageBitmap(),
+                        contentDescription = image.resourcePath,
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 300.dp),
+                            .offset(
+                                x = maxWidth * (image.left / canvasWidth),
+                                y = maxHeight * (image.top / canvasHeight)
+                            )
+                            .width(maxWidth * (image.width / canvasWidth).coerceIn(0.01f, 2f))
+                            .height(maxHeight * (image.height / canvasHeight).coerceIn(0.01f, 2f))
+                            .graphicsLayer(alpha = image.alpha),
                         contentScale = ContentScale.Fit
                     )
-                    state.selectedAssetName?.let {
-                        Text(it, color = Color(0xFFA8ADB7), style = MaterialTheme.typography.bodySmall)
-                    }
                 }
-            }
+        }
 
-            Surface(color = Color(0xFF1A1E25), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            state.pageReference?.let { reference ->
+                Text(
+                    text = reference,
+                    color = Color(0xFFDDD8CE),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 8.dp)
+                )
+            }
+            Button(onClick = onHistoryClick) {
+                Text("История · ${state.historyEntries.size}")
+            }
+            Button(
+                onClick = onResourcesClick,
+                modifier = Modifier.padding(start = 8.dp)
+            ) {
+                Text("Ресурсы · ${state.assets.size}")
+            }
+        }
+
+        if (!state.isCompleted) {
+            Surface(
+                color = Color(0xE6101216),
+                contentColor = Color.White,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 18.dp)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        enabled = state.canContinue &&
+                            !state.historyVisible && !state.resourcesVisible,
+                        onClick = onContinue
+                    )
+            ) {
                 Column(
-                    modifier = Modifier.padding(14.dp),
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(state.eventDescription, color = Color(0xFFF4F1EA))
                     if (state.dialogueText.isNotEmpty()) {
                         Text(
                             text = state.dialogueText,
                             color = Color(0xFFF4F1EA),
                             style = MaterialTheme.typography.bodyLarge
                         )
-                    }
-                    if (state.waitingForTap) {
+                    } else if (state.isLoading) {
                         Text(
-                            "Коснись экрана, чтобы продолжить",
+                            text = "Загрузка игры…",
+                            color = Color(0xFFF4F1EA),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+                    } else if (state.eventDescription.isNotBlank()) {
+                        Text(
+                            text = state.eventDescription,
+                            color = Color(0xFFD6D2CA),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Text(
+                            text = when {
+                                state.canContinue -> "КОСНИТЕСЬ ДЛЯ ПРОДОЛЖЕНИЯ"
+                                else -> " "
+                            },
                             color = Color(0xFFF2B766),
+                            style = MaterialTheme.typography.labelSmall
+                        )
+                    }
+
+                    state.errorMessage?.let { message ->
+                        Text(
+                            text = message,
+                            color = Color(0xFFFF9D9D),
                             style = MaterialTheme.typography.bodySmall
                         )
                     }
-                    if (state.canContinue) {
-                        Button(onClick = onContinue, modifier = Modifier.fillMaxWidth()) {
-                            Text("Продолжить")
+                    state.audioStatus?.let { status ->
+                        Text(
+                            text = status,
+                            color = Color(0xFFA8ADB7),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            }
+        } else {
+            Surface(
+                color = Color(0xE6101216),
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier.align(Alignment.Center)
+            ) {
+                Text(
+                    text = "Конец сценария",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge,
+                    modifier = Modifier.padding(horizontal = 28.dp, vertical = 20.dp)
+                )
+            }
+        }
+
+        if (state.isLoading && state.dialogueText.isEmpty()) {
+            Surface(
+                color = Color(0xCC101216),
+                shape = RoundedCornerShape(12.dp),
+                modifier = Modifier.align(Alignment.Center)
+            ) {
+                Text(
+                    text = "Запуск LiveMaker…",
+                    color = Color.White,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)
+                )
+            }
+        }
+    }
+
+    if (state.historyVisible) {
+        Dialog(
+            onDismissRequest = onHistoryDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                color = Color(0xFF171B22),
+                contentColor = Color.White,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier
+                    .fillMaxWidth(0.94f)
+                    .heightIn(max = 620.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("История", style = MaterialTheme.typography.titleLarge)
+                            state.historyFormatName?.let { format ->
+                                Text(
+                                    text = "Формат: $format",
+                                    color = Color(0xFFA8ADB7),
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
+                        }
+                        Button(onClick = onHistoryDismiss) { Text("Закрыть") }
+                    }
+                    if (state.historyEntries.isEmpty()) {
+                        Text(
+                            "История пока пуста.",
+                            color = Color(0xFFA8ADB7),
+                            modifier = Modifier.padding(vertical = 18.dp)
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 520.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(state.historyEntries.asReversed().withIndex().toList()) { indexed ->
+                                val entry = indexed.value
+                                Surface(
+                                    color = Color(0xFF222832),
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        entry.formatName?.let { format ->
+                                            Text(
+                                                format,
+                                                color = Color(0xFFF2B766),
+                                                style = MaterialTheme.typography.labelSmall
+                                            )
+                                        }
+                                        Text(entry.text, style = MaterialTheme.typography.bodyMedium)
+                                    }
+                                }
+                            }
                         }
                     }
                 }
             }
+        }
+    }
 
-            state.audioStatus?.let {
-                Text(it, color = Color(0xFFA8ADB7), style = MaterialTheme.typography.bodySmall)
-            }
-            state.errorMessage?.let {
-                Text(it, color = Color(0xFFFF9D9D), style = MaterialTheme.typography.bodySmall)
-            }
-
-            Text(
-                text = "Медиафайлы (" + state.assets.size + ")",
-                color = Color(0xFFF2B766),
-                style = MaterialTheme.typography.titleMedium
-            )
-            state.mediaDiagnostics?.let { diagnostics ->
-                val extensionSummary = diagnostics.indexedByExtension.entries
-                    .sortedBy { it.key }
-                    .joinToString { it.key.uppercase() + ": " + it.value }
-                    .ifBlank { "нет" }
-                Text(
-                    "Проверено файлов: " + diagnostics.filesScanned +
-                        " · VF/EXE: " + diagnostics.archivesParsed + "/" +
-                        diagnostics.archiveCandidates +
-                        " · записей: " + diagnostics.archiveEntriesVisited,
-                    color = Color(0xFFA8ADB7),
-                    style = MaterialTheme.typography.bodySmall
-                )
-                Text(
-                    "Из архива: " + diagnostics.archiveAssetCount +
-                        " · отдельно: " + diagnostics.looseAssetCount +
-                        " · по форматам: " + extensionSummary,
-                    color = Color(0xFFA8ADB7),
-                    style = MaterialTheme.typography.bodySmall
-                )
-                if (diagnostics.archiveParseFailures > 0 ||
-                    diagnostics.rejectedArchivePaths > 0 ||
-                    diagnostics.scanLimitReached
+    if (state.resourcesVisible) {
+        Dialog(
+            onDismissRequest = onResourcesDismiss,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                color = Color(0xFF171B22),
+                contentColor = Color.White,
+                shape = RoundedCornerShape(18.dp),
+                modifier = Modifier
+                    .fillMaxWidth(0.96f)
+                    .heightIn(max = 700.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        "Диагностика: ошибок разбора архивов " +
-                            diagnostics.archiveParseFailures +
-                            " · отклонённых путей " + diagnostics.rejectedArchivePaths +
-                            if (diagnostics.scanLimitReached) " · достигнут лимит сканирования" else "",
-                        color = Color(0xFFFFC27A),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-            }
-            if (state.assets.isEmpty()) {
-                val diagnostics = state.mediaDiagnostics
-                val message = when {
-                    diagnostics == null -> "Индекс ресурсов ещё не построен."
-                    diagnostics.archivesParsed > 0 ->
-                        "VF-архив прочитан (" + diagnostics.archiveEntriesVisited +
-                            " записей), но GAL/PNG/OGG/WAV не попали в индекс."
-                    diagnostics.archiveCandidates > 0 ->
-                        "Найдено VF/EXE-кандидатов: " + diagnostics.archiveCandidates +
-                            ", успешно разобрано: " + diagnostics.archivesParsed +
-                            ". Проверьте диагностику ошибок выше."
-                    else ->
-                        "В приватной папке игры не найдено VF/EXE и отдельных GAL/PNG/OGG/WAV."
-                }
-                Text(message, color = Color(0xFFA8ADB7))
-            } else {
-                LazyColumn(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    items(state.assets, key = { it.id }) { asset ->
-                        Row(
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            "Ресурсы · ${state.assets.size}",
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        Button(onClick = onResourcesDismiss) { Text("Закрыть") }
+                    }
+                    state.mediaDiagnostics?.let { diagnostics ->
+                        val summary = diagnostics.indexedByExtension.entries
+                            .sortedBy { it.key }
+                            .joinToString { it.key.uppercase() + ": " + it.value }
+                            .ifBlank { "нет" }
+                        Text(
+                            text = "Проверено: ${diagnostics.filesScanned} · архивы: " +
+                                "${diagnostics.archivesParsed}/${diagnostics.archiveCandidates} · $summary",
+                            color = Color(0xFFA8ADB7),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    state.imageBitmap?.let { bitmap ->
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = state.selectedAssetName,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(Color(0xFF1A1E25))
-                                .padding(horizontal = 10.dp, vertical = 8.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                .heightIn(max = 170.dp),
+                            contentScale = ContentScale.Fit
+                        )
+                        state.selectedAssetName?.let { name ->
+                            Text(name, color = Color(0xFFA8ADB7), style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    if (state.assets.isEmpty()) {
+                        Text("Ресурсы не найдены.", color = Color(0xFFA8ADB7))
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(asset.path, color = Color(0xFFF4F1EA))
-                                Text(
-                                    asset.storageDescription,
-                                    color = Color(0xFFA8ADB7),
-                                    style = MaterialTheme.typography.bodySmall
-                                )
-                            }
-                            Button(onClick = { onAssetSelected(asset) }) {
-                                Text(if (asset.extension == "gal" || asset.extension == "png") "Открыть" else "Играть")
+                            items(state.assets, key = { it.id }) { asset ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color(0xFF222832), RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(asset.path, style = MaterialTheme.typography.bodySmall)
+                                        Text(
+                                            asset.storageDescription,
+                                            color = Color(0xFFA8ADB7),
+                                            style = MaterialTheme.typography.labelSmall
+                                        )
+                                    }
+                                    Button(onClick = { onAssetSelected(asset) }) {
+                                        Text(
+                                            if (asset.extension == "gal" || asset.extension == "png") {
+                                                "Открыть"
+                                            } else {
+                                                "Играть"
+                                            }
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -1027,6 +1265,7 @@ private fun LiveMakerPlayerScreen(
         }
     }
 }
+
 
 private class LiveMakerImageByteArraySource(
     private val bytes: ByteArray
