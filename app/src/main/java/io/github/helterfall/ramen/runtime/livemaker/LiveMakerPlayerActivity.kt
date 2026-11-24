@@ -10,6 +10,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -63,6 +64,8 @@ private data class LiveMakerPlayerUiState(
     val dialogueText: String = "",
     val waitingForTap: Boolean = false,
     val sceneImages: List<LiveMakerSceneBitmap> = emptyList(),
+    val sceneComponents: List<LiveMakerSceneComponent> = emptyList(),
+    val sceneFlipped: Boolean = false,
     val historyEntries: List<LiveMakerTextHistoryEntry> = emptyList(),
     val historyFormatName: String? = null,
     val historyVisible: Boolean = false,
@@ -86,7 +89,8 @@ private data class LiveMakerSceneBitmap(
     val height: Float,
     val alpha: Float,
     val priority: Float,
-    val isBackground: Boolean
+    val isBackground: Boolean,
+    val visible: Boolean = true
 )
 
 private data class LiveMakerTextPlayback(
@@ -131,7 +135,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     onHistoryClick = ::showHistory,
                     onHistoryDismiss = ::dismissHistory,
                     onResourcesClick = ::showResources,
-                    onResourcesDismiss = ::dismissResources
+                    onResourcesDismiss = ::dismissResources,
+                    onSceneComponentClick = ::onSceneComponentClick
                 )
             }
         }
@@ -187,6 +192,10 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             canContinue = presentation.canContinue,
                             dialogueText = presentation.dialogueText,
                             waitingForTap = presentation.waitingForTap,
+                            sceneImages = sceneObjects.values.sortedBy { it.priority },
+                            sceneComponents = bootstrap.session.objectStore.snapshotAll()
+                                .map(LiveMakerSceneComponent::from)
+                                .filter { it.isRenderable },
                             historyEntries = historySnapshot.entries,
                             historyFormatName = historySnapshot.activeFormat?.name,
                             historyVisible = historyRequested,
@@ -264,10 +273,60 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             canContinue = presentation.canContinue,
                             dialogueText = presentation.dialogueText,
                             waitingForTap = presentation.waitingForTap,
+                            sceneImages = sceneObjects.values.sortedBy { it.priority },
+                            sceneComponents = session.objectStore.snapshotAll()
+                                .map(LiveMakerSceneComponent::from)
+                                .filter { it.isRenderable },
                             isCompleted = isCompleted(next),
                             errorMessage = null
                         )
                     }
+                }
+            } catch (error: Exception) {
+                publishError(error)
+            }
+        }
+    }
+
+    private fun onSceneComponentClick(objectName: String) {
+        worker.execute {
+            val session = liveSession ?: return@execute
+            try {
+                session.setObjectProperty(objectName, LiveMakerObjectStore.PR_SELECTED, true)
+                val handled = session.triggerObjectEvent(
+                    objectName,
+                    LiveMakerObjectStore.PR_ONLBTNDOWN
+                ) || session.triggerObjectEvent(
+                    objectName,
+                    LiveMakerObjectStore.PR_ONSELECT
+                ) || session.triggerObjectEvent(
+                    objectName,
+                    LiveMakerObjectStore.PR_ONLBTNUP
+                )
+                if (handled) {
+                    val next = nextEvent(session)
+                    currentEvent = next
+                    val presentation = presentEvent(next, session)
+                    val images = sceneObjects.values.sortedBy { it.priority }
+                    val components = session.objectStore.snapshotAll()
+                        .map(LiveMakerSceneComponent::from)
+                        .filter { it.isRenderable }
+                    mainHandler.post {
+                        if (!isFinishing && !isDestroyed) {
+                            uiState.value = uiState.value.copy(
+                                eventDescription = presentation.description,
+                                canContinue = presentation.canContinue,
+                                dialogueText = presentation.dialogueText,
+                                waitingForTap = presentation.waitingForTap,
+                                sceneImages = images,
+                                sceneComponents = components,
+                                isCompleted = isCompleted(next),
+                                errorMessage = null
+                            )
+                        }
+                    }
+                } else {
+                    publishSceneState(session)
                 }
             } catch (error: Exception) {
                 publishError(error)
@@ -375,6 +434,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     private fun nextEvent(session: LiveMakerGameSession): LiveMakerSessionEvent {
         repeat(MAX_AUTOMATIC_HOST_COMMANDS) {
             val event = session.runUntilEvent()
+            publishSceneState(session)
             if (event is LiveMakerSessionEvent.PageEntered) return@repeat
 
             val hostCommand = (event as? LiveMakerSessionEvent.EngineEvent)
@@ -417,21 +477,11 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             return true
         }
 
-        fun componentValues(): Map<Int, Any?> {
-            val result = linkedMapOf<Int, Any?>()
-            command.componentPropertyIds.forEachIndexed { index, propertyId ->
-                val expression = command.expressions.getOrNull(index) ?: return@forEachIndexed
-                result[propertyId] = session.evaluateExpression(expression)
-            }
-            return result
-        }
-
-        val values = componentValues()
-        if (command.typeId in COMPONENT_CREATION_COMMANDS) {
-            values[LiveMakerObjectStore.PR_NAME]?.toString()?.takeIf { it.isNotBlank() }?.let { name ->
-                session.createObject(name, command.typeId, values)
-            }
-        }
+        val values = LiveMakerSceneCommandAdapter.registerComponent(
+            command,
+            session.objectStore,
+            session::evaluateExpression
+        )
 
         fun number(value: Any?, fallback: Float): Float = when (value) {
             is Number -> value.toFloat()
@@ -454,13 +504,6 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 }
 
                 val objectName = values[1]?.toString()?.takeIf { it.isNotBlank() } ?: source
-                if (number(values[48], 1f) == 0f) {
-                    sceneObjects.remove(objectName)
-                    session.deleteObject(objectName)
-                    publishSceneImages()
-                    return true
-                }
-
                 val bitmap = decodeImage(repository.readAsset(asset), asset.extension)
                 val width = number(values[6], bitmap.width.toFloat()).coerceAtLeast(1f)
                 val height = number(values[7], bitmap.height.toFloat()).coerceAtLeast(1f)
@@ -484,10 +527,11 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     height = height,
                     alpha = alpha,
                     priority = number(values[13], sceneObjects.size.toFloat()),
-                    isBackground = isBackground
+                    isBackground = isBackground,
+                    visible = number(values[48], 1f) != 0f
                 )
                 sceneObjects.put(objectName, image)
-                publishSceneImages()
+                publishSceneState(session)
                 return true
             }
 
@@ -549,7 +593,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     sceneObjects.remove(target)
                     soundObjects.remove(target)
                     session.deleteObject(target)
-                    publishSceneImages()
+                    publishSceneState(session)
                 } else {
                     mainHandler.post {
                         if (!isFinishing && !isDestroyed) {
@@ -564,24 +608,79 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 mainHandler.post { audioPlayer?.stop() }
                 return true
             }
-            // Component creation commands not yet rendered still get a VM property object.
+            // Non-bitmap scene components render from their shared object-store properties.
             8, 10, 11, 12, 23, 24, 25, 30, 36, 37, 43, 44,
-            48, 49, 50, 51, 52, 53, 54, 56 -> return true
-            // DoEvent / ClrRead are handled by the surrounding runtime loop.
-            46, 47 -> return true
+            48, 49, 50, 51, 52, 53, 54, 56 -> {
+                publishSceneState(session)
+                return true
+            }
+            // Flip is a scene-wide presentation effect and must never pause VM execution.
+            13 -> {
+                val explicitState = command.expressions.lastOrNull()?.let(session::evaluateExpression)
+                val flip = when (explicitState) {
+                    is Boolean -> explicitState
+                    is Number -> explicitState.toInt() != 0
+                    else -> !uiState.value.sceneFlipped
+                }
+                mainHandler.post {
+                    if (!isFinishing && !isDestroyed) {
+                        uiState.value = uiState.value.copy(sceneFlipped = flip)
+                    }
+                }
+                publishSceneState(session)
+                return true
+            }
+            // DoEvent/ClrRead are consumed by the VM/runtime loop.
+            46, 47 -> {
+                publishSceneState(session)
+                return true
+            }
             else -> return false
         }
     }
 
-    private fun publishSceneImages() {
-        val snapshot = sceneObjects.values.sortedBy { it.priority }
+    /**
+     * Re-projects mutable LiveMakerObjectStore values onto the Android scene canvas.
+     * VM-level SetProp/GetProp and PropMotion changes therefore update geometry,
+     * alpha, z-order, and visibility without asking the host to re-run the command.
+     */
+    private fun publishSceneState(session: LiveMakerGameSession) {
+        val snapshots = session.objectStore.snapshotAll()
+        val byName = snapshots.associateBy { it.name }
+        sceneObjects.entries.toList().forEach { (name, image) ->
+            val properties = byName[name]?.properties ?: return@forEach
+            fun number(propertyId: Int, fallback: Float): Float =
+                (properties[propertyId] as? Number)?.toFloat() ?: fallback
+            fun visible(propertyId: Int, fallback: Boolean): Boolean =
+                when (val value = properties[propertyId]) {
+                    is Boolean -> value
+                    is Number -> value.toInt() != 0
+                    is String -> value.isNotBlank() && value != "0"
+                    else -> fallback
+                }
+            val alphaValue = number(LiveMakerObjectStore.PR_ALPHA, 255f)
+            sceneObjects[name] = image.copy(
+                left = number(LiveMakerObjectStore.PR_LEFT, image.left),
+                top = number(LiveMakerObjectStore.PR_TOP, image.top),
+                width = number(LiveMakerObjectStore.PR_WIDTH, image.width).coerceAtLeast(1f),
+                height = number(LiveMakerObjectStore.PR_HEIGHT, image.height).coerceAtLeast(1f),
+                alpha = (if (alphaValue > 1f) alphaValue / 255f else alphaValue).coerceIn(0f, 1f),
+                priority = number(LiveMakerObjectStore.PR_PRIORITY, image.priority),
+                visible = visible(LiveMakerObjectStore.PR_VISIBLE, image.visible)
+            )
+        }
+
+        val imageSnapshot = sceneObjects.values.sortedBy { it.priority }
+        val componentSnapshot = snapshots
+            .map(LiveMakerSceneComponent::from)
+            .filter { it.isRenderable }
+            .sortedBy { it.priority }
         mainHandler.post {
             if (!isFinishing && !isDestroyed) {
-                uiState.value = uiState.value.copy(sceneImages = snapshot)
-            } else {
-                snapshot.forEach { image ->
-                    if (!image.bitmap.isRecycled) image.bitmap.recycle()
-                }
+                uiState.value = uiState.value.copy(
+                    sceneImages = imageSnapshot,
+                    sceneComponents = componentSnapshot
+                )
             }
         }
     }
@@ -746,7 +845,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                         LiveMakerObjectStore.PR_VISIBLE to true
                     )
                 )
-                publishSceneImages()
+                publishSceneState(session)
             }
             "DELETECG" -> {
                 val targets = event.arguments.flatMap { raw ->
@@ -757,7 +856,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     sceneObjects.remove(target)
                     session.deleteObject(target)
                 }
-                publishSceneImages()
+                publishSceneState(session)
             }
             "PLAYSND" -> {
                 val repository = mediaRepository ?: return
@@ -912,10 +1011,6 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         private const val MAX_AUTOMATIC_HOST_COMMANDS = 512
         private const val MAX_IMAGE_PIXELS = 16_000_000L
         private const val MAX_TPWORD_WAIT_MS = 60_000L
-        private val COMPONENT_CREATION_COMMANDS = setOf(
-            8, 9, 10, 11, 12, 23, 24, 25, 30, 36, 37, 42, 43, 44,
-            48, 49, 50, 51, 52, 53, 54, 56
-        )
     }
 }
 
@@ -927,7 +1022,8 @@ private fun LiveMakerPlayerScreen(
     onHistoryClick: () -> Unit,
     onHistoryDismiss: () -> Unit,
     onResourcesClick: () -> Unit,
-    onResourcesDismiss: () -> Unit
+    onResourcesDismiss: () -> Unit,
+    onSceneComponentClick: (String) -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -937,6 +1033,7 @@ private fun LiveMakerPlayerScreen(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
+                .graphicsLayer(scaleX = if (state.sceneFlipped) -1f else 1f)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
@@ -947,12 +1044,14 @@ private fun LiveMakerPlayerScreen(
             val background = state.sceneImages.firstOrNull { it.isBackground }
             val canvasWidth = (
                 background?.bitmap?.width?.toFloat()
-                    ?: state.sceneImages.maxOfOrNull { it.left + it.width }
+                    ?: (state.sceneImages.maxOfOrNull { it.left + it.width }
+                        ?: state.sceneComponents.maxOfOrNull { it.left + it.width })
                     ?: 1f
                 ).coerceAtLeast(1f)
             val canvasHeight = (
                 background?.bitmap?.height?.toFloat()
-                    ?: state.sceneImages.maxOfOrNull { it.top + it.height }
+                    ?: (state.sceneImages.maxOfOrNull { it.top + it.height }
+                        ?: state.sceneComponents.maxOfOrNull { it.top + it.height })
                     ?: 1f
                 ).coerceAtLeast(1f)
 
@@ -965,7 +1064,9 @@ private fun LiveMakerPlayerScreen(
                 Image(
                     bitmap = image.bitmap.asImageBitmap(),
                     contentDescription = image.resourcePath,
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer(alpha = if (image.visible) image.alpha else 0f),
                     contentScale = ContentScale.FillBounds
                 )
             }
@@ -988,9 +1089,51 @@ private fun LiveMakerPlayerScreen(
                             )
                             .width(maxWidth * (image.width / canvasWidth).coerceIn(0.01f, 2f))
                             .height(maxHeight * (image.height / canvasHeight).coerceIn(0.01f, 2f))
-                            .graphicsLayer(alpha = image.alpha),
+                            .graphicsLayer(alpha = if (image.visible) image.alpha else 0f),
                         contentScale = ContentScale.Fit
                     )
+                }
+
+            state.sceneComponents
+                .filter { it.isRenderable && !it.isImage && it.visible }
+                .forEach { component ->
+                    val componentModifier = Modifier
+                        .offset(
+                            x = maxWidth * (component.left / canvasWidth),
+                            y = maxHeight * (component.top / canvasHeight)
+                        )
+                        .width(maxWidth * (component.width / canvasWidth).coerceIn(0.01f, 2f))
+                        .height(maxHeight * (component.height / canvasHeight).coerceIn(0.01f, 2f))
+                        .graphicsLayer(alpha = component.alpha)
+                        .background(Color(component.color), RoundedCornerShape(2.dp))
+                        .then(
+                            if (component.borderWidth > 0f) {
+                                Modifier.border(
+                                    component.borderWidth.dp,
+                                    Color(component.borderColor),
+                                    RoundedCornerShape(2.dp)
+                                )
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .then(
+                            if (component.clickable) {
+                                Modifier.clickable { onSceneComponentClick(component.objectName) }
+                            } else {
+                                Modifier
+                            }
+                        )
+                        .padding(3.dp)
+                    Box(modifier = componentModifier) {
+                        if (component.text.isNotBlank()) {
+                            Text(
+                                text = component.text,
+                                color = Color.White,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
                 }
         }
 

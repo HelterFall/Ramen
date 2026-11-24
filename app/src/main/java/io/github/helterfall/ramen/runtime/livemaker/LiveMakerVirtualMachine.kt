@@ -243,7 +243,7 @@ class LiveMakerVirtualMachine(
                             objectStore.setProperty(target, LiveMakerObjectStore.PR_VISIBLE, false)
                         } else {
                             objectStore.snapshotAll()
-                                .filter { it.componentTypeId in MENU_COMPONENT_TYPES }
+                                .filter { snapshot -> snapshot.componentTypeId?.let { it in MENU_COMPONENT_TYPES } == true }
                                 .forEach {
                                     objectStore.setProperty(it.name, LiveMakerObjectStore.PR_VISIBLE, false)
                                 }

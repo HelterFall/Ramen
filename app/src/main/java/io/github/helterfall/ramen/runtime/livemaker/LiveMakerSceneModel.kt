@@ -27,7 +27,7 @@ internal data class LiveMakerSceneComponent(
         get() = componentTypeId == COMPONENT_IMG_NEW
 
     val isRenderable: Boolean
-        get() = componentTypeId in RENDERED_COMPONENT_TYPES
+        get() = componentTypeId?.let { it in RENDERED_COMPONENT_TYPES } == true
 
     companion object {
         const val COMPONENT_BOX_NEW = 8
@@ -47,6 +47,7 @@ internal data class LiveMakerSceneComponent(
         private val RENDERED_COMPONENT_TYPES = setOf(
             COMPONENT_BOX_NEW,
             COMPONENT_MES_NEW,
+            COMPONENT_CINEMA,
             COMPONENT_CAPTION,
             COMPONENT_MENU,
             COMPONENT_BUTTON,
@@ -110,7 +111,7 @@ internal data class LiveMakerSceneComponent(
                 text = properties[LiveMakerObjectStore.PR_TEXT]?.toString().orEmpty(),
                 visible = flag(LiveMakerObjectStore.PR_VISIBLE, true),
                 selected = flag(LiveMakerObjectStore.PR_SELECTED, false),
-                clickable = snapshot.componentTypeId in INTERACTIVE_COMPONENT_TYPES || hasHandler,
+                clickable = snapshot.componentTypeId?.let { it in INTERACTIVE_COMPONENT_TYPES } == true || hasHandler,
                 source = properties[LiveMakerObjectStore.PR_SOURCE]?.toString()
                     ?.takeIf { it.isNotBlank() }
             )
