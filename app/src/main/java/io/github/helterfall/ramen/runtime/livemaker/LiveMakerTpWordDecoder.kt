@@ -15,7 +15,9 @@ enum class LiveMakerTextControl {
 data class LiveMakerTextSegment(
     val text: String,
     val waitForTap: Boolean = false,
-    val clearBefore: Boolean = false
+    val clearBefore: Boolean = false,
+    /** Text events executed immediately before this segment is presented. */
+    val eventsBefore: List<LiveMakerTpWordEvent> = emptyList()
 )
 
 data class LiveMakerTpWordDecorator(
@@ -148,18 +150,23 @@ class LiveMakerTpWordDecoder(
         val events = mutableListOf<LiveMakerTpWordEvent>()
         val body = ArrayList<LiveMakerTpWordGlyph>(glyphCount)
         val current = StringBuilder()
+        val pendingEvents = mutableListOf<LiveMakerTpWordEvent>()
         var clearNextSegment = false
 
         fun flush(control: LiveMakerTextControl? = null) {
             val mustWait = control == LiveMakerTextControl.PAUSE ||
                 control == LiveMakerTextControl.PAGE_BREAK
-            if (current.isNotEmpty() || mustWait || control == LiveMakerTextControl.CLEAR) {
+            if (current.isNotEmpty() || mustWait ||
+                control == LiveMakerTextControl.CLEAR || pendingEvents.isNotEmpty()
+            ) {
                 segments += LiveMakerTextSegment(
                     text = current.toString(),
                     waitForTap = mustWait,
-                    clearBefore = clearNextSegment
+                    clearBefore = clearNextSegment,
+                    eventsBefore = pendingEvents.toList()
                 )
             }
+            pendingEvents.clear()
             current.setLength(0)
             clearNextSegment = control == LiveMakerTextControl.PAGE_BREAK ||
                 control == LiveMakerTextControl.CLEAR
@@ -226,7 +233,20 @@ class LiveMakerTpWordDecoder(
                 GLYPH_EVENT -> {
                     val condition = cursor.readOptionalCondition(version)
                     val eventValue = cursor.readString("TpWord event")
-                    parseEvent(eventValue, glyphIndex)?.let(events::add)
+                    val parsedEvent = parseEvent(eventValue, glyphIndex)
+                    if (parsedEvent != null) {
+                        // Split at event boundaries so host effects and WAIT remain ordered
+                        // with dialogue characters and page/pause controls.
+                        if (current.isNotEmpty()) flush()
+                        events += parsedEvent
+                        pendingEvents += parsedEvent
+                        when (parsedEvent.name) {
+                            "PAUSE", "PS" -> flush(LiveMakerTextControl.PAUSE)
+                            "PG", "PAGE" -> flush(LiveMakerTextControl.PAGE_BREAK)
+                            "CLR", "CLEAR" -> flush(LiveMakerTextControl.CLEAR)
+                            else -> Unit
+                        }
+                    }
                     LiveMakerTpWordGlyph(
                         typeId = type,
                         conditionIndex = condition,
@@ -325,13 +345,10 @@ class LiveMakerTpWordDecoder(
             body += glyph
         }
 
-        if (current.isNotEmpty() || segments.isEmpty() ||
+        if (current.isNotEmpty() || segments.isEmpty() || pendingEvents.isNotEmpty() ||
             (clearNextSegment && segments.lastOrNull()?.waitForTap != true)
         ) {
-            segments += LiveMakerTextSegment(
-                text = current.toString(),
-                clearBefore = clearNextSegment
-            )
+            flush()
         }
 
         if (cursor.remaining != 0) {
