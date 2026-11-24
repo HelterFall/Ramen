@@ -171,6 +171,46 @@ class LiveMakerTpWordDecoderTest {
     }
 
     @Test
+    fun zeroDurationWaitBecomesAnInteractivePause() {
+        val decoded = LiveMakerTpWordDecoder().decode(
+            TpWordFixture.build(
+                glyphs = listOf(
+                    TpWordFixture.char('A'),
+                    TpWordFixture.systemEvent(
+                        "WAIT",
+                        arguments = listOf("0", "CLICK", "SKIP")
+                    ),
+                    TpWordFixture.char('B')
+                )
+            )
+        )
+
+        assertEquals("AB", decoded.plainText)
+        assertEquals(2, decoded.segments.size)
+        assertEquals("A", decoded.segments[0].text)
+        assertEquals("WAIT", decoded.segments[1].eventsBefore.single().name)
+        assertTrue(decoded.segments[1].waitForTap)
+        assertEquals("B", decoded.segments[2 - 1].text)
+    }
+
+    @Test
+    fun eventOnlyTpWordDoesNotInventDialogueTextOrTap() {
+        val decoded = LiveMakerTpWordDecoder().decode(
+            TpWordFixture.build(
+                glyphs = listOf(
+                    TpWordFixture.systemEvent("CREATECG", arguments = listOf("000", "bg.gal")),
+                    TpWordFixture.systemEvent("MESEND")
+                )
+            )
+        )
+
+        assertEquals("", decoded.plainText)
+        assertEquals(1, decoded.segments.size)
+        assertEquals(listOf("CREATECG", "MESEND"), decoded.segments.single().eventsBefore.map { it.name })
+        assertFalse(decoded.requiresTap)
+    }
+
+    @Test
     fun keepsSceneEventsAndWaitAtTheirOriginalTextOffsets() {
         val decoded = LiveMakerTpWordDecoder().decode(
             TpWordFixture.build(
