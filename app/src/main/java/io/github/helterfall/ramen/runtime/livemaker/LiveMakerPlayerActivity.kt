@@ -65,7 +65,6 @@ private data class LiveMakerPlayerUiState(
     val waitingForTap: Boolean = false,
     val sceneImages: List<LiveMakerSceneBitmap> = emptyList(),
     val sceneComponents: List<LiveMakerSceneComponent> = emptyList(),
-    val sceneFlipped: Boolean = false,
     val historyEntries: List<LiveMakerTextHistoryEntry> = emptyList(),
     val historyFormatName: String? = null,
     val historyVisible: Boolean = false,
@@ -659,22 +658,6 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 publishSceneState(session)
                 return true
             }
-            // Flip is a scene-wide presentation effect and must never pause VM execution.
-            13 -> {
-                val explicitState = command.expressions.lastOrNull()?.let(session::evaluateExpression)
-                val flip = when (explicitState) {
-                    is Boolean -> explicitState
-                    is Number -> explicitState.toInt() != 0
-                    else -> !uiState.value.sceneFlipped
-                }
-                mainHandler.post {
-                    if (!isFinishing && !isDestroyed) {
-                        uiState.value = uiState.value.copy(sceneFlipped = flip)
-                    }
-                }
-                publishSceneState(session)
-                return true
-            }
             // DoEvent/ClrRead are consumed by the VM/runtime loop.
             46, 47 -> {
                 publishSceneState(session)
@@ -1078,7 +1061,6 @@ private fun LiveMakerPlayerScreen(
         BoxWithConstraints(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer(scaleX = if (state.sceneFlipped) -1f else 1f)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,

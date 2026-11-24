@@ -218,6 +218,13 @@ class LiveMakerVirtualMachine(
                         variableTypes.remove(variableName)
                         programCounter += 1
                     }
+                    13 -> {
+                        // Flip carries a Wipe transition and an array of target objects.
+                        // Until wipe animations are available, evaluate its arguments and
+                        // complete it without applying an incorrect whole-canvas mirror.
+                        command.expressions.forEach { evaluate(it) }
+                        programCounter += 1
+                    }
                     17 -> {
                         val objectName = evaluateRequired(command, 0)?.toString().orEmpty()
                         val propertyId = number(evaluateRequired(command, 1))?.toInt()

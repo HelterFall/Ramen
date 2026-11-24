@@ -283,6 +283,21 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun flipCommandDoesNotRequireAnAndroidHostAdapter() {
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.flipCommand(),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+        }
+    }
+
+    @Test
     fun everyRequestedSceneCommandHasAnExplicitExecutionRoute() {
         val expected = setOf(
             8, 9, 10, 19, 43, 50, 51, 52, 56,

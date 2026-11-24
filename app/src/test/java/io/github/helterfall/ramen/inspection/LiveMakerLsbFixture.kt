@@ -256,6 +256,15 @@ internal object LiveMakerLsbFixture {
             expression(operation(0, "____value", listOf(valueExpression)))
     )
 
+    /** Flip layout for LSB v103: 4 args, empty Targets, Delete, 2 Param args, Source. */
+    fun flipCommand(): ByteArray = command(13, ByteArrayOutputStream().also { output ->
+        repeat(4) { output.write(expression()) }
+        writeU32(output, 0L) // Targets expression array
+        output.write(expression()) // Delete
+        repeat(2) { output.write(expression()) } // Param array entries
+        output.write(expression()) // Source (LSB version > 100)
+    }.toByteArray())
+
     fun pcReset(page: String, labelIndex: Int, allClear: Boolean = false): ByteArray =
         command(40, ByteArrayOutputStream().also { output ->
             writeString(output, page)
