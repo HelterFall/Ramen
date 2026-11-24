@@ -2,6 +2,10 @@ package io.github.helterfall.ramen.runtime.livemaker
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -25,6 +29,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -38,7 +44,6 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -75,7 +80,8 @@ private data class LiveMakerPlayerUiState(
     val imageBitmap: Bitmap? = null,
     val selectedAssetName: String? = null,
     val audioStatus: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val errorLog: String? = null
 )
 
 private data class LiveMakerSceneBitmap(
@@ -135,7 +141,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     onHistoryDismiss = ::dismissHistory,
                     onResourcesClick = ::showResources,
                     onResourcesDismiss = ::dismissResources,
-                    onSceneComponentClick = ::onSceneComponentClick
+                    onSceneComponentClick = ::onSceneComponentClick,
+                    onCopyErrorLog = ::copyErrorLog
                 )
             }
         }
@@ -220,7 +227,9 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             waitingForTap = false,
                             assets = indexedAssets,
                             mediaDiagnostics = mediaDiagnostics,
-                            errorMessage = error.message ?: "Не удалось открыть LiveMaker-плеер."
+                            errorMessage = error.message ?: error.javaClass.simpleName,
+                            errorLog = runCatching { error.stackTraceToString() }
+                                .getOrDefault(error.toString()).take(MAX_ERROR_LOG_CHARS)
                         )
                     }
                 }
@@ -379,12 +388,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                         val bitmap = decodeImage(repository.readAsset(asset), asset.extension)
                         mainHandler.post {
                             if (isFinishing || isDestroyed) {
-                                bitmap.recycle()
+                                // Drop the reference; Compose may still be finishing a draw.
                             } else {
-                                val previous = uiState.value.imageBitmap
-                                if (previous != null && previous !== bitmap && !previous.isRecycled) {
-                                    previous.recycle()
-                                }
                                 uiState.value = uiState.value.copy(
                                     imageBitmap = bitmap,
                                     selectedAssetName = asset.path,
@@ -988,7 +993,10 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         return gameDirectory
     }
 
-    private fun publishError(error: Exception) {
+    private fun publishError(error: Throwable) {
+        val stackTrace = runCatching { error.stackTraceToString() }
+            .getOrElse { error.javaClass.name + ": " + (error.message ?: "unknown error") }
+            .take(MAX_ERROR_LOG_CHARS)
         mainHandler.post {
             if (!isFinishing && !isDestroyed) {
                 uiState.value = uiState.value.copy(
@@ -996,10 +1004,18 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     eventDescription = "Виртуальная машина остановлена из-за ошибки.",
                     canContinue = false,
                     waitingForTap = false,
-                    errorMessage = error.message ?: "Ошибка LiveMaker-плеера."
+                    errorMessage = error.message ?: error.javaClass.simpleName,
+                    errorLog = stackTrace
                 )
             }
         }
+    }
+
+    private fun copyErrorLog() {
+        val log = uiState.value.errorLog ?: return
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("Ramen LiveMaker crash log", log))
+        Toast.makeText(this, "Лог скопирован", Toast.LENGTH_SHORT).show()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -1024,13 +1040,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         liveSession?.close()
         mediaRepository?.close()
         audioPlayer?.close()
-        uiState.value.imageBitmap?.let { bitmap ->
-            if (!bitmap.isRecycled) bitmap.recycle()
-        }
-        sceneObjects.values.forEach { image ->
-            if (!image.bitmap.isRecycled) image.bitmap.recycle()
-        }
-        sceneObjects.clear()
+        // Compose may retain Bitmap references through painters and recorded display lists.
+        // Never recycle scene/preview bitmaps manually; dropping references lets Android reclaim them.
         super.onDestroy()
     }
 
@@ -1039,6 +1050,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         private const val MAX_AUTOMATIC_HOST_COMMANDS = 512
         private const val MAX_IMAGE_PIXELS = 16_000_000L
         private const val MAX_TPWORD_WAIT_MS = 60_000L
+        private const val MAX_ERROR_LOG_CHARS = 128_000
     }
 }
 
@@ -1051,7 +1063,8 @@ private fun LiveMakerPlayerScreen(
     onHistoryDismiss: () -> Unit,
     onResourcesClick: () -> Unit,
     onResourcesDismiss: () -> Unit,
-    onSceneComponentClick: (String) -> Unit
+    onSceneComponentClick: (String) -> Unit,
+    onCopyErrorLog: () -> Unit
 ) {
     Box(
         modifier = Modifier
@@ -1083,12 +1096,7 @@ private fun LiveMakerPlayerScreen(
                 ).coerceAtLeast(1f)
 
             background?.let { image ->
-                DisposableEffect(image.bitmap) {
-                    onDispose {
-                        if (!image.bitmap.isRecycled) image.bitmap.recycle()
-                    }
-                }
-                Image(
+Image(
                     bitmap = image.bitmap.asImageBitmap(),
                     contentDescription = image.resourcePath,
                     modifier = Modifier
@@ -1101,12 +1109,7 @@ private fun LiveMakerPlayerScreen(
             state.sceneImages
                 .filterNot { it.isBackground }
                 .forEach { image ->
-                    DisposableEffect(image.bitmap) {
-                        onDispose {
-                            if (!image.bitmap.isRecycled) image.bitmap.recycle()
-                        }
-                    }
-                    Image(
+Image(
                         bitmap = image.bitmap.asImageBitmap(),
                         contentDescription = image.resourcePath,
                         modifier = Modifier
@@ -1283,6 +1286,40 @@ private fun LiveMakerPlayerScreen(
                 )
             }
         }
+        state.errorLog?.let { log ->
+            Surface(
+                color = Color(0xF0181B22),
+                contentColor = Color.White,
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .fillMaxWidth(0.94f)
+                    .padding(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Text(
+                        text = "Ошибка запуска LiveMaker",
+                        color = Color(0xFFFFB4AB),
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = log,
+                        color = Color(0xFFE6E1D9),
+                        style = MaterialTheme.typography.labelSmall,
+                        modifier = Modifier
+                            .heightIn(max = 360.dp)
+                            .verticalScroll(rememberScrollState())
+                    )
+                    Button(onClick = onCopyErrorLog, modifier = Modifier.fillMaxWidth()) {
+                        Text("Скопировать лог")
+                    }
+                }
+            }
+        }
+
         state.audioStatus?.let { status ->
             Surface(
                 color = Color(0xB8101216),
