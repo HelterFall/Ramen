@@ -119,6 +119,29 @@ class LiveMakerStartupAndMediaRepositoryTest {
     }
 
     @Test
+    fun imageComponentWithFirstCommandHandlerRemainsClickable() {
+        val store = LiveMakerObjectStore()
+        store.create(
+            "title-start-button",
+            LiveMakerSceneComponent.COMPONENT_IMG_NEW,
+            mapOf(
+                LiveMakerObjectStore.PR_LEFT to 100,
+                LiveMakerObjectStore.PR_TOP to 80,
+                LiveMakerObjectStore.PR_WIDTH to 240,
+                LiveMakerObjectStore.PR_HEIGHT to 64,
+                LiveMakerObjectStore.PR_ONLBTNDOWN to 0
+            )
+        )
+
+        val component = LiveMakerSceneComponent.from(
+            requireNotNull(store.snapshot("title-start-button"))
+        )
+
+        assertTrue(component.isImage)
+        assertTrue(component.clickable)
+    }
+
+    @Test
     fun indexesLooseAndVfMediaAndStagesAudioWithOriginalBytes() {
         val root = Files.createTempDirectory("ramen-livemaker-media").toFile()
         try {
