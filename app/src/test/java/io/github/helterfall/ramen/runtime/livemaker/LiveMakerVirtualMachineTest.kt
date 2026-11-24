@@ -203,14 +203,8 @@ class LiveMakerVirtualMachineTest {
 
         withSource(bytes) { source ->
             val store = LiveMakerObjectStore()
-            val parsed = try {
-                LiveMakerLsbParser().parse(source)
-            } catch (error: java.io.IOException) {
-                System.err.println("SCENE_FIXTURE_PARSE_ERROR: ${error.stackTraceToString()}")
-                throw AssertionError("Could not parse BoxNew/ImgNew scene fixture: ${error.message}", error)
-            }
             val vm = LiveMakerVirtualMachine(
-                parsed,
+                LiveMakerLsbParser().parse(source),
                 objectStore = store
             )
 

@@ -230,7 +230,10 @@ internal object LiveMakerLsbFixture {
 
     fun componentCommand(type: Int, properties: Map<Int, ByteArray>): ByteArray =
         command(type, ByteArrayOutputStream().also { output ->
-            properties.toSortedMap().values.forEach(output::write)
+            properties.toSortedMap().values.forEach { parameter ->
+                // ComponentCommand arguments are LiveParser expressions, not raw Param values.
+                output.write(expression(operation(0, "____arg", listOf(parameter))))
+            }
         }.toByteArray())
 
     fun getPropCommand(
