@@ -427,7 +427,7 @@ class LiveMakerVirtualMachineTest {
             assertEquals("", values["uninitializedDefault"])
             assertEquals(
                 "Numeric array after DimTo write: ${values["numbers"]}",
-                listOf(7L, 0L, 0L, 0L, 42L),
+                listOf(7L, 0L, 0L, 0L, 42),
                 values["numbers"]
             )
             assertEquals(listOf("", "", "tail"), values["uninitializedStrings"])
