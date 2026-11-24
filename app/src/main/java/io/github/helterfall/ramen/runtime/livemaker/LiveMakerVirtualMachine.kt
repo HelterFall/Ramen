@@ -87,6 +87,9 @@ class LiveMakerVirtualMachine(
     /** VarNew's serialized ParamType is used by LiveMaker to select Plus vs ComboStr semantics. */
     private val variableTypes = linkedMapOf<String, Int>()
     private val callStack = ArrayDeque<CallFrame>()
+    private val databaseTables = linkedMapOf<String, Boolean>()
+    private var activeDatabaseTable: String? = null
+    private val menuItemStates = linkedMapOf<Pair<String, String>, MutableMap<String, Any?>>()
     private var programCounter = 0
     private var scriptIdentifier: String? = initialScriptIdentifier
     private var completed = false
@@ -672,7 +675,54 @@ class LiveMakerVirtualMachine(
         fun dateTimeArgument(index: Int): LocalDateTime =
             dateTimeFromLiveMakerValue(numberArg(index))
 
-        return when (functionId) {
+        fun variableName(index: Int): String =
+            (sourceOperands.getOrNull(index)?.value as? LiveMakerParameterValue.Variable)?.name
+                ?: throw VmEvaluationException("Function $functionId expects argument $index to be a variable reference.")
+
+        fun arrayArg(index: Int): List<Any?> = when (val value = arg(index)) {
+            is List<*> -> value.toList()
+            is Array<*> -> value.toList()
+            else -> throw VmEvaluationException("Function $functionId expects argument $index to be an array.")
+        }
+
+        fun nestedArray(dimensions: List<Int>): List<Any?> {
+            if (dimensions.isEmpty()) return emptyList()
+            val size = dimensions.first()
+            if (size !in 0..4_096) {
+                throw VmEvaluationException("SetArray dimension is outside the supported range.")
+            }
+            if (dimensions.size == 1) return List(size) { 0L }
+            return List(size) { nestedArray(dimensions.drop(1)) }
+        }
+
+        fun cp932Slice(value: String, startOneBased: Int, count: Int? = null): String {
+            val bytes = value.toByteArray(CP932)
+            val start = (startOneBased - 1).coerceIn(0, bytes.size)
+            val end = count?.let {
+                (start.toLong() + it.coerceAtLeast(0)).coerceAtMost(bytes.size.toLong()).toInt()
+            } ?: bytes.size
+            return String(bytes.copyOfRange(start, end.coerceAtLeast(start)), CP932)
+        }
+
+        fun codePointSlice(value: String, startOneBased: Int, count: Int? = null): String {
+            val points = value.codePoints().toArray()
+            val start = (startOneBased - 1).coerceIn(0, points.size)
+            val end = count?.let {
+                (start.toLong() + it.coerceAtLeast(0)).coerceAtMost(points.size.toLong()).toInt()
+            } ?: points.size
+            return String(points, start, end.coerceAtLeast(start) - start)
+        }
+
+        fun menuItemKey(): Pair<String, String> = stringArg(0) to stringArg(1)
+
+        fun menuItemValue(property: String, default: Any?): Any? =
+            menuItemStates[menuItemKey()]?.get(property) ?: default
+
+        fun setMenuItemValue(property: String, value: Any?) {
+            menuItemStates.getOrPut(menuItemKey()) { linkedMapOf() }[property] = value
+        }
+
+        return when (functionId) {        return when (functionId) {
             2 -> {
                 requireCount(2)
                 objectStore.getProperty(stringArg(0), numberArg(1).toInt())
@@ -706,19 +756,64 @@ class LiveMakerVirtualMachine(
                     is Array<*> -> value.asList()
                     else -> throw VmEvaluationException("GetArraySize expects an array.")
                 }
-                if (values.any { it is Collection<*> || it is Array<*> }) {
-                    throw VmEvaluationException("GetArraySize for multi-dimensional arrays is not implemented.")
-                }
                 if (args.size == 2 && numberArg(1).toInt() != 0) {
-                    throw VmEvaluationException("GetArraySize currently supports only dimension 0.")
+                    (values.firstOrNull() as? List<*>)?.size ?: 0
+                } else {
+                    values.size
                 }
-                values.size
             }
             5 -> {
                 requireCount(1)
                 val value = arg(0) as? String
                     ?: throw VmEvaluationException("Length expects a string.")
                 value.toByteArray(CP932).size
+            }
+            6 -> { requireCount(1); stringArg(0).codePointCount(0, stringArg(0).length) }
+            7 -> {
+                requireCount(3)
+                cp932Slice(stringArg(0), numberArg(1).toInt(), numberArg(2).toInt())
+            }
+            8 -> {
+                requireCount(3)
+                codePointSlice(stringArg(0), numberArg(1).toInt(), numberArg(2).toInt())
+            }
+            9 -> {
+                requireCount(3)
+                val bytes = stringArg(0).toByteArray(CP932)
+                val start = (numberArg(1).toInt() - 1).coerceIn(0, bytes.size)
+                val count = numberArg(2).toInt().coerceAtLeast(0)
+                val end = (start.toLong() + count).coerceAtMost(bytes.size.toLong()).toInt()
+                val result = bytes.copyOfRange(0, start) + bytes.copyOfRange(end, bytes.size)
+                assignVariableArgument(0, String(result, CP932))
+                null
+            }
+            10 -> {
+                requireCount(3)
+                val points = stringArg(0).codePoints().toArray()
+                val start = (numberArg(1).toInt() - 1).coerceIn(0, points.size)
+                val end = (start.toLong() + numberArg(2).toInt().coerceAtLeast(0))
+                    .coerceAtMost(points.size.toLong()).toInt()
+                val result = points.copyOfRange(0, start) + points.copyOfRange(end, points.size)
+                assignVariableArgument(0, String(result, 0, result.size))
+                null
+            }
+            11 -> {
+                requireCount(3)
+                val target = stringArg(1).toByteArray(CP932)
+                val insert = stringArg(0).toByteArray(CP932)
+                val index = (numberArg(2).toInt() - 1).coerceIn(0, target.size)
+                val result = target.copyOfRange(0, index) + insert + target.copyOfRange(index, target.size)
+                assignVariableArgument(1, String(result, CP932))
+                null
+            }
+            12 -> {
+                requireCount(3)
+                val target = stringArg(1).codePoints().toArray()
+                val insert = stringArg(0).codePoints().toArray()
+                val index = (numberArg(2).toInt() - 1).coerceIn(0, target.size)
+                val result = target.copyOfRange(0, index) + insert + target.copyOfRange(index, target.size)
+                assignVariableArgument(1, String(result, 0, result.size))
+                null
             }
             13 -> {
                 requireCount(2)
@@ -733,9 +828,19 @@ class LiveMakerVirtualMachine(
                 val index = stringArg(1).indexOf(stringArg(0))
                 if (index < 0) 0 else index + 1
             }
+            16 -> {
+                requireCount(2)
+                val haystack = stringArg(1)
+                val index = haystack.indexOf(stringArg(0))
+                if (index < 0) 0 else haystack.codePointCount(0, index) + 1
+            }
             17 -> {
                 requireCount(1)
                 stringArg(0).trim()
+            }
+            18 -> {
+                requireCount(1)
+                stringArg(0).trim { it.isWhitespace() || it.isISOControl() || it == '\u3000' }
             }
             20 -> {
                 requireCount(1)
@@ -744,6 +849,30 @@ class LiveMakerVirtualMachine(
                     is Number -> value.toLong().inv()
                     else -> throw VmEvaluationException("Not expects a Boolean or integer.")
                 }
+            }
+            21 -> {
+                requireCount(2, 5)
+                val dimensions = args.drop(1).map { number(it)?.toInt() ?: 0 }
+                dimensions.fold(1L) { total, size ->
+                    if (size !in 0..4_096) {
+                        throw VmEvaluationException("SetArray dimension is outside the supported range.")
+                    }
+                    (total * size).also {
+                        if (it > 1_000_000L) throw VmEvaluationException("SetArray exceeds the array size limit.")
+                    }
+                }
+                assignVariableArgument(0, nestedArray(dimensions))
+                null
+            }
+            22 -> {
+                requireCount(2)
+                assignVariableArgument(0, List(arrayArg(0).size) { arg(1) })
+                null
+            }
+            23 -> {
+                requireCount(2)
+                assignVariableArgument(0, arg(1))
+                null
             }
             37 -> {
                 requireCount(1)
@@ -770,6 +899,55 @@ class LiveMakerVirtualMachine(
             50 -> {
                 requireCount(1)
                 variables.containsKey(stringArg(0))
+            }
+            26 -> {
+                requireCount(1)
+                val range = numberArg(0).toInt()
+                if (range <= 0) 0 else kotlin.random.Random.nextInt(range)
+            }
+            28 -> {
+                requireCount(1, 3)
+                val separator = args.getOrNull(1)?.toString() ?: "\n"
+                arrayArg(0).joinToString(separator) { it?.toString().orEmpty() }
+            }
+            29 -> {
+                requireCount(2, 25)
+                val text = stringArg(0).replace("\r\n", "\n").replace('\r', '\n')
+                val separators = args.getOrNull(2)?.toString()?.takeIf { it.isNotEmpty() } ?: "\n"
+                val parts = if (separators == "\n") {
+                    text.split('\n')
+                } else {
+                    text.split(*separators.map { it.toString() }.toTypedArray())
+                }
+                assignVariableArgument(1, parts)
+                null
+            }
+            30 -> {
+                requireCount(2, 4)
+                val items = arrayArg(0)
+                val search = stringArg(1)
+                val caseSensitive = args.getOrNull(2)?.let(::truthy) ?: true
+                val partial = args.getOrNull(3)?.let(::truthy) ?: false
+                items.indexOfFirst { item ->
+                    val candidate = item?.toString().orEmpty()
+                    val left = if (caseSensitive) candidate else candidate.lowercase()
+                    val right = if (caseSensitive) search else search.lowercase()
+                    if (partial) left.contains(right) else left == right
+                }
+            }
+            32 -> {
+                requireCount(1, 4)
+                val requestedType = args.getOrNull(1)?.let { number(it)?.toInt() }
+                val parent = args.getOrNull(2)?.toString()?.takeIf { it.isNotBlank() && it != "ALL" }
+                val recursive = args.getOrNull(3)?.let(::truthy) ?: false
+                val names = objectStore.snapshotAll().filter { component ->
+                    val componentParent = component.properties[LiveMakerObjectStore.PR_PARENT]?.toString().orEmpty()
+                    (requestedType == null || requestedType == 0 || component.componentTypeId == requestedType) &&
+                        (parent == null || componentParent == parent ||
+                            (recursive && componentParent.isNotBlank()))
+                }.map { it.name }
+                assignVariableArgument(0, names)
+                names.size
             }
             73 -> { requireCount(1); stringArg(0).lowercase() }
             74 -> { requireCount(1); stringArg(0).uppercase() }
@@ -803,8 +981,10 @@ class LiveMakerVirtualMachine(
             128 -> { requireCount(2); min(numberArg(0), numberArg(1)) }
             129 -> { requireCount(2); max(numberArg(0), numberArg(1)) }
             138 -> {
-                requireCount(2)
-                stringArg(0).toLongOrNull() ?: numberArg(1).toLong()
+                requireCount(2, 3)
+                val text = stringArg(0).trim()
+                val parsed = if (text.startsWith("$")) text.drop(1).toLongOrNull(16) else text.toLongOrNull()
+                parsed ?: numberArg(1).toLong()
             }
             139 -> {
                 requireCount(2)
@@ -920,7 +1100,7 @@ class LiveMakerVirtualMachine(
                 path.substring(max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1)
             }
             77 -> {
-                requireCount(1)
+                requireCount(1, 2)
                 val path = stringArg(0)
                 val nameStart = max(path.lastIndexOf('/'), path.lastIndexOf('\\')) + 1
                 val dot = path.lastIndexOf('.')
@@ -948,13 +1128,19 @@ class LiveMakerVirtualMachine(
                 else stem + if (extension.startsWith('.')) extension else ".$extension"
             }
             81 -> {
-                requireCount(3)
+                requireCount(3, 4)
                 val delimiters = stringArg(0).toByteArray(CP932)
                 val bytes = stringArg(1).toByteArray(CP932)
                 val index = numberArg(2).toInt() - 1
                 index in bytes.indices && delimiters.contains(bytes[index])
             }
             84 -> { requireCount(1); assignVariable("@Temp", arg(0)); null }
+            133 -> {
+                requireCount(2)
+                val delimiter = stringArg(0)
+                val value = stringArg(1)
+                if (value.isEmpty()) "" else value + delimiter
+            }
             85 -> { requireCount(1); toFullWidth(stringArg(0)) }
             86 -> { requireCount(1); java.text.Normalizer.normalize(stringArg(0), java.text.Normalizer.Form.NFKC) }
             // UI actions that are not available in this player use safe cancel/no-op values.
@@ -970,9 +1156,13 @@ class LiveMakerVirtualMachine(
                 }
             }
             135 -> { requireCount(1); false }
-            137 -> { requireCount(0, 1); false }
-            140 -> { requireCount(2); false }
-            141 -> { requireCount(3); null }
+            137 -> { requireCount(1, 3); false }
+            140 -> { requireCount(2); menuItemValue("visible", true)?.let(::truthy) ?: true }
+            141 -> {
+                requireCount(3)
+                setMenuItemValue("visible", truthy(arg(2)))
+                null
+            }
             // The game scripts in this title pass the target message-window name to
             // history getters/setters. This player currently owns one active history stream,
             // so the target is accepted but resolves to that stream.
@@ -1005,9 +1195,13 @@ class LiveMakerVirtualMachine(
                 textHistoryHost.setMaxEntries(requested)
                 null
             }
-            145 -> { requireCount(2); -1 }
-            146 -> { requireCount(2); false }
-            147 -> { requireCount(3); null }
+            145 -> { requireCount(2); (menuItemValue("group", -1) as? Number)?.toInt() ?: -1 }
+            146 -> { requireCount(2); menuItemValue("selected", false)?.let(::truthy) ?: false }
+            147 -> {
+                requireCount(3)
+                setMenuItemValue("selected", truthy(arg(2)))
+                null
+            }
             148, 149, 150 -> {
                 // Android file/directory pickers are intentionally treated as cancelled.
                 requireCount(1, 2)
@@ -1024,19 +1218,63 @@ class LiveMakerVirtualMachine(
                 assignVariableArgument(2, false)
                 false
             }
+            66 -> {
+                requireCount(2)
+                val combined = arrayArg(0) + arrayArg(1)
+                assignVariableArgument(0, combined)
+                combined.size
+            }
+            68 -> {
+                requireCount(3)
+                val values = arrayArg(0).toMutableList()
+                val start = numberArg(1).toInt().coerceIn(0, values.size)
+                val count = numberArg(2).toInt().coerceAtLeast(0)
+                val end = (start.toLong() + count).coerceAtMost(values.size.toLong()).toInt()
+                repeat(end - start) { values.removeAt(start) }
+                assignVariableArgument(0, values)
+                values.size
+            }
+            70 -> {
+                requireCount(2)
+                assignVariableArgument(0, arrayArg(1))
+                null
+            }
+            165 -> {
+                requireCount(1, 2)
+                val values = arrayArg(0)
+                val filtered = if (args.size == 1) {
+                    values.filterNot { it == null || it == 0L || it == 0 || it == "" || it == false }
+                } else {
+                    values.filterNot { value ->
+                        if (value is Number && args[1] is Number) {
+                            value.toDouble() == number(args[1])
+                        } else value == args[1]
+                    }
+                }
+                assignVariableArgument(0, filtered)
+                filtered.size
+            }
             166 -> { requireCount(1); false }
             167 -> { requireCount(2); false }
             168 -> { requireCount(1); false }
-            24 -> { requireCount(2); false }
-            25 -> { requireCount(3); null }
+            24 -> { requireCount(2); menuItemValue("checked", false)?.let(::truthy) ?: false }
+            25 -> {
+                requireCount(3)
+                setMenuItemValue("checked", truthy(arg(2)))
+                null
+            }
             130 -> {
                 requireCount(1)
                 val name = (sourceOperands.getOrNull(0)?.value as? LiveMakerParameterValue.Variable)?.name
                     ?: stringArg(0)
                 variableTypes[name] ?: 0
             }
-            131 -> { requireCount(2); false }
-            132 -> { requireCount(3); null }
+            131 -> { requireCount(2); menuItemValue("enabled", true)?.let(::truthy) ?: true }
+            132 -> {
+                requireCount(3)
+                setMenuItemValue("enabled", truthy(arg(2)))
+                null
+            }
             133 -> { requireCount(1, 2); null }
             134 -> { requireCount(1); emptyList<String>() }
             136 -> { requireCount(1); false }
@@ -1060,7 +1298,15 @@ class LiveMakerVirtualMachine(
                 requireCount(1)
                 objectStore.remove(stringArg(0))
             }
-            163 -> { requireCount(2); "" }
+            163 -> {
+                requireCount(2)
+                when (val value = arg(0)) {
+                    is List<*> -> value.getOrNull(numberArg(1).toInt())
+                    is Array<*> -> value.getOrNull(numberArg(1).toInt())
+                    is String -> value.getOrNull(numberArg(1).toInt())?.toString()
+                    else -> ""
+                } ?: ""
+            }
             169 -> {
                 requireCount(3)
                 objectStore.getProperty(stringArg(1), numberArg(2).toInt())

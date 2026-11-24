@@ -585,6 +585,92 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun evaluatesTheStringAndArrayFunctionsUsedByTheImportedGame() {
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.calc(
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 29,
+                        name = "____lines",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString("あい\\nうえお"),
+                            LiveMakerLsbFixture.paramVar("lines")
+                        )
+                    ),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 28,
+                        name = "____joined",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramVar("lines"),
+                            LiveMakerLsbFixture.paramString("+")
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(1, "joined", listOf(LiveMakerLsbFixture.paramVar("____joined"))),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 6,
+                        name = "____length",
+                        operands = listOf(LiveMakerLsbFixture.paramString("あいう"))
+                    ),
+                    LiveMakerLsbFixture.operation(1, "jLength", listOf(LiveMakerLsbFixture.paramVar("____length"))),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 30,
+                        name = "____index",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramVar("lines"),
+                            LiveMakerLsbFixture.paramString("うえお")
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(1, "indexOfLine", listOf(LiveMakerLsbFixture.paramVar("____index"))),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 66,
+                        name = "____count",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramVar("lines"),
+                            LiveMakerLsbFixture.paramVar("moreLines")
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(1, "arrayCount", listOf(LiveMakerLsbFixture.paramVar("____count"))),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 68,
+                        name = "____remaining",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramVar("lines"),
+                            LiveMakerLsbFixture.paramInt(1),
+                            LiveMakerLsbFixture.paramInt(1)
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(1, "remaining", listOf(LiveMakerLsbFixture.paramVar("____remaining"))),
+                    LiveMakerLsbFixture.functionOperation(
+                        functionId = 133,
+                        name = "____delimited",
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString("/"),
+                            LiveMakerLsbFixture.paramString("folder")
+                        )
+                    ),
+                    LiveMakerLsbFixture.operation(1, "delimited", listOf(LiveMakerLsbFixture.paramVar("____delimited")))
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            vm.setVariable("moreLines", listOf("last"))
+            val event = vm.runUntilEvent()
+            assertTrue("Used string/array functions should complete: $event", event is LiveMakerVmEvent.Completed)
+            val values = vm.variablesSnapshot()
+            assertEquals("あい+うえお", values["joined"])
+            assertEquals(3, values["jLength"])
+            assertEquals(1, values["indexOfLine"])
+            assertEquals(3, values["arrayCount"])
+            assertEquals(2, values["remaining"])
+            assertEquals("folder/", values["delimited"])
+            assertEquals(listOf("うえお", "last"), values["lines"])
+        }
+    }
+
+    @Test
     fun resolvesLiveNovelDateTimeInputAndScreenSystemVariables() {
         val clock = Clock.fixed(
             Instant.parse("2024-06-15T12:34:56Z"),
