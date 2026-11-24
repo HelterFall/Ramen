@@ -191,6 +191,7 @@ class LiveMakerMediaAssetRepository(
     private val root = gameDirectory.canonicalFile
     private val sources = linkedMapOf<String, AssetSource>()
     private val assets = mutableListOf<LiveMakerMediaAsset>()
+    private val archivedResourcePaths = linkedSetOf<String>()
     val diagnostics: LiveMakerMediaIndexDiagnostics
 
     init {
@@ -262,6 +263,7 @@ class LiveMakerMediaAssetRepository(
                     }
                     continue
                 }
+                archivedResourcePaths += relative
                 val extension = relative.substringAfterLast('.', "").lowercase()
                 if (extension !in MEDIA_EXTENSIONS) continue
                 val id = "archive:" + archiveFile.absolutePath + "!/" + relative
@@ -291,6 +293,18 @@ class LiveMakerMediaAssetRepository(
     }
 
     fun listAssets(): List<LiveMakerMediaAsset> = assets.toList()
+
+    /** Returns true for a safe relative path present in any indexed VF archive entry. */
+    fun containsResource(resourceName: String): Boolean {
+        val normalized = resourceName.trim().replace('\\', '/').trimStart('/')
+        if (normalized.isEmpty() ||
+            normalized.split('/').any { it.isBlank() || it == "." || it == ".." }
+        ) {
+            return false
+        }
+        return archivedResourcePaths.any { it.equals(normalized, ignoreCase = true) } ||
+            archivedResourcePaths.any { it.endsWith("/$normalized", ignoreCase = true) }
+    }
 
     /**
      * Resolves an engine resource name against indexed loose/VF assets.
