@@ -91,7 +91,8 @@ internal data class LiveMakerSceneComponent(
             val hasHandler = handlers.any { propertyId ->
                 properties[propertyId]?.let { value ->
                     when (value) {
-                        is Number -> value.toInt() != 0
+                        // Numeric handlers store a zero-based command index; index 0 is valid.
+                        is Number -> value.toInt() >= 0
                         is Boolean -> value
                         else -> value.toString().isNotBlank()
                     }
