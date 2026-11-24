@@ -1040,7 +1040,10 @@ class LiveMakerPlayerActivity : ComponentActivity() {
 
             "MESOFF", "MESEND" -> {
                 messageWindowVisible = false
-                if (event.name.equals("MESEND", ignoreCase = true)) currentSpeakerName = null
+                if (event.name.equals("MESEND", ignoreCase = true)) {
+                    currentSpeakerName = null
+                    textPlayback?.currentText = ""
+                }
                 mainHandler.post {
                     if (!isFinishing && !isDestroyed) {
                         uiState.value = uiState.value.copy(
@@ -1289,6 +1292,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         private const val MAX_AUTOMATIC_HOST_COMMANDS = 512
         private const val MAX_IMAGE_PIXELS = 16_000_000L
         private const val MAX_TPWORD_WAIT_MS = 60_000L
+        private const val MAX_TPWORD_PLAYBACK_WAIT_MS = 10 * 60 * 1000L
         private const val MAX_ERROR_LOG_CHARS = 128_000
     }
 }
@@ -1447,6 +1451,7 @@ Image(
 
         val diagnosticMessage = state.errorMessage ?: state.eventDescription.takeIf {
             it.startsWith("Неподдерживаемое выражение") ||
+                it.startsWith("Страница ") ||
                 it.contains("ожидает host adapter")
         }
         val showMessagePanel = !state.isCompleted && (
@@ -1482,7 +1487,9 @@ Image(
                             style = MaterialTheme.typography.bodyLarge
                         )
                     } else {
-                        state.speakerName?.takeIf { it.isNotBlank() }?.let { speaker ->
+                        state.speakerName?.takeIf {
+                            state.messageWindowVisible && it.isNotBlank()
+                        }?.let { speaker ->
                             Text(
                                 text = speaker,
                                 color = Color(0xFFF2B766),
