@@ -20,6 +20,7 @@ class LiveMakerObjectStore {
     )
 
     private val objects = linkedMapOf<String, StoredObject>()
+    private val cabinets = linkedMapOf<String, List<Snapshot>>()
 
     @Synchronized
     fun create(
@@ -59,6 +60,49 @@ class LiveMakerObjectStore {
         }
         stored.properties[propertyId] = value
         stored.properties[PR_NAME] = name
+    }
+
+    /**
+     * Save the selected screen objects into an in-memory LiveMaker cabinet.
+     *
+     * When [inverse] is true, every object except [targetNames] is selected, matching
+     * SaveCabinet's Act flag. The runtime has no filesystem save UI yet, so cabinet
+     * snapshots remain scoped to this running game session.
+     */
+    @Synchronized
+    fun saveCabinet(
+        cabinetName: String = DEFAULT_CABINET,
+        targetNames: Set<String> = emptySet(),
+        inverse: Boolean = false
+    ) {
+        val selected = objects.values.filter { stored ->
+            if (inverse) stored.name !in targetNames else stored.name in targetNames
+        }
+        cabinets[cabinetName] = selected.map { stored ->
+            Snapshot(stored.name, stored.componentTypeId, propertiesWithDefaults(stored))
+        }
+    }
+
+    /** Restore objects previously captured by [saveCabinet]. */
+    @Synchronized
+    fun loadCabinet(
+        cabinetName: String = DEFAULT_CABINET,
+        targetNames: Set<String> = emptySet(),
+        inverse: Boolean = false
+    ) {
+        val saved = cabinets[cabinetName] ?: return
+        saved.filter { snapshot ->
+            if (targetNames.isEmpty()) true
+            else if (inverse) snapshot.name !in targetNames else snapshot.name in targetNames
+        }.forEach { snapshot ->
+            val stored = objects.getOrPut(snapshot.name) {
+                StoredObject(snapshot.name, snapshot.componentTypeId, linkedMapOf())
+            }
+            stored.componentTypeId = snapshot.componentTypeId
+            stored.properties.clear()
+            stored.properties.putAll(snapshot.properties)
+            stored.properties[PR_NAME] = snapshot.name
+        }
     }
 
     @Synchronized
@@ -120,6 +164,16 @@ class LiveMakerObjectStore {
         const val PR_IGNOREMOUSE = 81
         const val PR_ZOOMY = 133
         const val PR_REVERSE = 138
+        const val PR_COLOR = 9
+        const val PR_BORDERWIDTH = 10
+        const val PR_BORDERCOLOR = 11
+        const val PR_ONLBTNDOWN = 37
+        const val PR_ONLBTNUP = 38
+        const val PR_ONSELECT = 73
+        const val PR_TEXT = 51
+        const val PR_SELECTED = 88
+
+        private const val DEFAULT_CABINET = "__live_maker_scene"
 
         private val DEFAULT_PROPERTIES: Map<Int, Any?> = mapOf(
             PR_PARENT to "",
@@ -130,7 +184,12 @@ class LiveMakerObjectStore {
             PR_HEIGHT to 0,
             PR_ZOOMX to 100,
             PR_ZOOMY to 100,
+            PR_COLOR to 0x44000000,
+            PR_BORDERWIDTH to 0,
+            PR_BORDERCOLOR to 0xFFFFFFFF.toInt(),
             PR_ALPHA to 255,
+            PR_TEXT to "",
+            PR_SELECTED to false,
             PR_PRIORITY to 0,
             PR_VISIBLE to true,
             PR_ROWCOUNT to 0,
