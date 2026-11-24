@@ -919,14 +919,20 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 // Scene commands and @SCRWIDTH/@SCRHEIGHT must share one virtual canvas.
                 // If a background is already present, its native dimensions define that canvas.
                 val existingBackground = sceneObjects.values.firstOrNull { it.isBackground }
-                val stageWidth = existingBackground?.bitmap?.width?.toFloat()
-                    ?: if (isBackground) bitmap.width.toFloat()
-                    else runtimeEnvironment?.screenWidthPx?.toFloat()
+                val stageWidth = if (isBackground) {
+                    bitmap.width.toFloat()
+                } else {
+                    existingBackground?.bitmap?.width?.toFloat()
+                        ?: runtimeEnvironment?.screenWidthPx?.toFloat()
                         ?: resources.displayMetrics.widthPixels.toFloat()
-                val stageHeight = existingBackground?.bitmap?.height?.toFloat()
-                    ?: if (isBackground) bitmap.height.toFloat()
-                    else runtimeEnvironment?.screenHeightPx?.toFloat()
+                }
+                val stageHeight = if (isBackground) {
+                    bitmap.height.toFloat()
+                } else {
+                    existingBackground?.bitmap?.height?.toFloat()
+                        ?: runtimeEnvironment?.screenHeightPx?.toFloat()
                         ?: resources.displayMetrics.heightPixels.toFloat()
+                }
                 if (isBackground) {
                     runtimeEnvironment?.screenWidthPx = bitmap.width
                     runtimeEnvironment?.screenHeightPx = bitmap.height
