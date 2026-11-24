@@ -1075,7 +1075,11 @@ class LiveMakerVirtualMachine(
             throw VmEvaluationException("Invalid LiveMaker date/time value.")
         }
         val millis = (value * MILLIS_PER_DAY).toLong()
-        return LIVEMAKER_DATE_EPOCH.atStartOfDay().plusMillis(millis)
+        val wholeDays = Math.floorDiv(millis, MILLIS_PER_DAY_LONG)
+        val dayRemainderMillis = Math.floorMod(millis, MILLIS_PER_DAY_LONG)
+        return LIVEMAKER_DATE_EPOCH.atStartOfDay()
+            .plusDays(wholeDays)
+            .plusNanos(dayRemainderMillis * NANOS_PER_MILLISECOND)
     }
 
     private fun readSystemVariable(name: String): Any? {
@@ -1186,6 +1190,7 @@ class LiveMakerVirtualMachine(
         private const val OP_TO = 1
         private const val MAX_HISTORY_ENTRIES = 100_000
         private const val MILLIS_PER_DAY = 86_400_000.0
+        private const val MILLIS_PER_DAY_LONG = 86_400_000L
         private const val NANOS_PER_DAY = 86_400_000_000_000L
         private const val NANOS_PER_MILLISECOND = 1_000_000L
         private val LIVEMAKER_DATE_EPOCH = LocalDate.of(1899, 12, 30)
