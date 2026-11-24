@@ -71,6 +71,9 @@ private data class LiveMakerPlayerUiState(
     val dialogueText: String = "",
     val speakerName: String? = null,
     val messageWindowVisible: Boolean = true,
+    /** Virtual LiveMaker stage size used by all scene layers and system variables. */
+    val sceneCanvasWidthPx: Float = 1f,
+    val sceneCanvasHeightPx: Float = 1f,
     val waitingForTap: Boolean = false,
     val sceneImages: List<LiveMakerSceneBitmap> = emptyList(),
     val sceneComponents: List<LiveMakerSceneComponent> = emptyList(),
@@ -123,6 +126,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private var liveSession: LiveMakerGameSession? = null
+    private var runtimeEnvironment: LiveMakerSystemEnvironment? = null
     private var currentEvent: LiveMakerSessionEvent? = null
     private var mediaRepository: LiveMakerMediaAssetRepository? = null
     private var audioPlayer: SystemNnnAudioPlayer? = null
@@ -144,6 +148,10 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         applyImmersiveGameMode()
+        uiState.value = uiState.value.copy(
+            sceneCanvasWidthPx = resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f),
+            sceneCanvasHeightPx = resources.displayMetrics.heightPixels.toFloat().coerceAtLeast(1f)
+        )
         setContent {
             MaterialTheme {
                 LiveMakerPlayerScreen(
@@ -181,6 +189,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     isDebug = (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0
                 )
                 systemEnvironment.pcTickCountResolver = { android.os.SystemClock.elapsedRealtime() }
+                runtimeEnvironment = systemEnvironment
                 val bootstrap = LiveMakerStartupScriptResolver(gameDirectory).openSession(
                     systemEnvironment = systemEnvironment,
                     textHistoryHost = historyHost
@@ -211,6 +220,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             dialogueText = presentation.dialogueText,
                             speakerName = currentSpeakerName,
                             messageWindowVisible = messageWindowVisible,
+                            sceneCanvasWidthPx = systemEnvironment.screenWidthPx.toFloat().coerceAtLeast(1f),
+                            sceneCanvasHeightPx = systemEnvironment.screenHeightPx.toFloat().coerceAtLeast(1f),
                             waitingForTap = presentation.waitingForTap,
                             sceneImages = sceneObjects.values.sortedBy { it.priority },
                             sceneComponents = bootstrap.session.objectStore.snapshotAll()
@@ -620,6 +631,10 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     else -> true
                 }
                 val isBackground = isLiveMakerBackgroundLayer(objectName, asset.path)
+                if (isBackground) {
+                    runtimeEnvironment?.screenWidthPx = bitmap.width
+                    runtimeEnvironment?.screenHeightPx = bitmap.height
+                }
 
                 val image = LiveMakerSceneBitmap(
                     objectName = objectName,
@@ -756,7 +771,11 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             if (!isFinishing && !isDestroyed) {
                 uiState.value = uiState.value.copy(
                     sceneImages = imageSnapshot,
-                    sceneComponents = componentSnapshot
+                    sceneComponents = componentSnapshot,
+                    sceneCanvasWidthPx = runtimeEnvironment?.screenWidthPx
+                        ?.toFloat()?.coerceAtLeast(1f) ?: uiState.value.sceneCanvasWidthPx,
+                    sceneCanvasHeightPx = runtimeEnvironment?.screenHeightPx
+                        ?.toFloat()?.coerceAtLeast(1f) ?: uiState.value.sceneCanvasHeightPx
                 )
             }
         }
@@ -894,9 +913,23 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     resourcePath = source
                 }
 
-                val stageWidth = resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
-                val stageHeight = resources.displayMetrics.heightPixels.toFloat().coerceAtLeast(1f)
                 val isCreate = event.name.equals("CREATECG", ignoreCase = true)
+                val isBackground = isLiveMakerBackgroundLayer(objectName, resourcePath)
+                // Scene commands and @SCRWIDTH/@SCRHEIGHT must share one virtual canvas.
+                // If a background is already present, its native dimensions define that canvas.
+                val existingBackground = sceneObjects.values.firstOrNull { it.isBackground }
+                val stageWidth = existingBackground?.bitmap?.width?.toFloat()
+                    ?: if (isBackground) bitmap.width.toFloat()
+                    else runtimeEnvironment?.screenWidthPx?.toFloat()
+                        ?: resources.displayMetrics.widthPixels.toFloat()
+                val stageHeight = existingBackground?.bitmap?.height?.toFloat()
+                    ?: if (isBackground) bitmap.height.toFloat()
+                    else runtimeEnvironment?.screenHeightPx?.toFloat()
+                        ?: resources.displayMetrics.heightPixels.toFloat()
+                if (isBackground) {
+                    runtimeEnvironment?.screenWidthPx = bitmap.width
+                    runtimeEnvironment?.screenHeightPx = bitmap.height
+                }
                 val xToken = if (isCreate) args.get(4, "X", "LEFT") else null
                 val yToken = if (isCreate) args.get(5, "Y", "TOP") else null
                 val left = when {
@@ -932,7 +965,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     height = bitmap.height.toFloat().coerceAtLeast(1f),
                     alpha = alpha,
                     priority = priority,
-                    isBackground = isLiveMakerBackgroundLayer(objectName, resourcePath),
+                    isBackground = isBackground,
                     visible = previous?.visible ?: true
                 )
 
@@ -1324,22 +1357,12 @@ private fun LiveMakerPlayerScreen(
                     onClick = onContinue
                 )
         ) {
-            val background = state.sceneImages.firstOrNull { it.isBackground }
-            val canvasWidth = (
-                background?.bitmap?.width?.toFloat()
-                    ?: (state.sceneImages.maxOfOrNull { it.left + it.width }
-                        ?: state.sceneComponents.maxOfOrNull { it.left + it.width })
-                    ?: 1f
-                ).coerceAtLeast(1f)
-            val canvasHeight = (
-                background?.bitmap?.height?.toFloat()
-                    ?: (state.sceneImages.maxOfOrNull { it.top + it.height }
-                        ?: state.sceneComponents.maxOfOrNull { it.top + it.height })
-                    ?: 1f
-                ).coerceAtLeast(1f)
+            val backgrounds = state.sceneImages.filter { it.isBackground }
+            val canvasWidth = state.sceneCanvasWidthPx.coerceAtLeast(1f)
+            val canvasHeight = state.sceneCanvasHeightPx.coerceAtLeast(1f)
 
-            background?.let { image ->
-Image(
+            backgrounds.forEach { image ->
+                Image(
                     bitmap = image.bitmap.asImageBitmap(),
                     contentDescription = image.resourcePath,
                     modifier = Modifier
