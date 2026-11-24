@@ -593,7 +593,7 @@ class LiveMakerVirtualMachineTest {
                         functionId = 29,
                         name = "____lines",
                         operands = listOf(
-                            LiveMakerLsbFixture.paramString("あい\\nうえお"),
+                            LiveMakerLsbFixture.paramString("あい\nうえお"),
                             LiveMakerLsbFixture.paramVar("lines")
                         )
                     ),

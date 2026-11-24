@@ -90,6 +90,8 @@ class LiveMakerVirtualMachine(
     private val databaseTables = linkedMapOf<String, Boolean>()
     private var activeDatabaseTable: String? = null
     private val menuItemStates = linkedMapOf<Pair<String, String>, MutableMap<String, Any?>>()
+    private val databaseTables = linkedMapOf<String, Boolean>()
+    private var activeDatabaseTable: String? = null
     private var programCounter = 0
     private var scriptIdentifier: String? = initialScriptIdentifier
     private var completed = false
@@ -976,6 +978,7 @@ class LiveMakerVirtualMachine(
                     if (index < 0) source else source.replaceRange(index, index + search.length, replacement)
                 }
             }
+            125 -> { requireCount(2); null }
             126 -> { requireCount(2); min(numberArg(0), numberArg(1)) }
             127 -> { requireCount(2); max(numberArg(0), numberArg(1)) }
             128 -> { requireCount(2); min(numberArg(0), numberArg(1)) }
@@ -1144,6 +1147,40 @@ class LiveMakerVirtualMachine(
             85 -> { requireCount(1); toFullWidth(stringArg(0)) }
             86 -> { requireCount(1); java.text.Normalizer.normalize(stringArg(0), java.text.Normalizer.Form.NFKC) }
             // UI actions that are not available in this player use safe cancel/no-op values.
+            87 -> {
+                requireCount(2)
+                val name = stringArg(0)
+                if (name.isBlank() || databaseTables.containsKey(name)) {
+                    false
+                } else {
+                    databaseTables[name] = truthy(arg(1))
+                    activeDatabaseTable = name
+                    true
+                }
+            }
+            107 -> {
+                requireCount(1)
+                val content = systemEnvironment.readTextFile(stringArg(0))
+                if (content == null) {
+                    false
+                } else {
+                    val name = stringArg(0).substringAfterLast('/').substringAfterLast('\\')
+                    if (name.isBlank()) {
+                        false
+                    } else {
+                        databaseTables.putIfAbsent(name, false)
+                        activeDatabaseTable = name
+                        true
+                    }
+                }
+            }
+            117 -> {
+                requireCount(1)
+                val name = stringArg(0).ifBlank { activeDatabaseTable.orEmpty() }
+                val removed = databaseTables.remove(name) != null
+                if (activeDatabaseTable == name) activeDatabaseTable = null
+                removed
+            }
             72 -> {
                 requireCount(2)
                 val content = systemEnvironment.readTextFile(stringArg(1))
@@ -1211,12 +1248,20 @@ class LiveMakerVirtualMachine(
             151 -> { requireCount(1, 3); false }
             155, 156, 157 -> null
             158 -> { requireCount(2); false }
-            159 -> { requireCount(0); 0 }
+            159 -> { requireCount(0); databaseTables.size }
             160 -> {
                 requireCount(3)
-                assignVariableArgument(1, "")
-                assignVariableArgument(2, false)
-                false
+                val index = numberArg(0).toInt()
+                val table = databaseTables.entries.elementAtOrNull(index)
+                if (table == null) {
+                    assignVariableArgument(1, "")
+                    assignVariableArgument(2, false)
+                    false
+                } else {
+                    assignVariableArgument(1, table.key)
+                    assignVariableArgument(2, table.value)
+                    true
+                }
             }
             66 -> {
                 requireCount(2)
