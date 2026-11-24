@@ -422,15 +422,14 @@ class LiveMakerVirtualMachineTest {
                 event is LiveMakerVmEvent.Completed)
 
             val values = vm.variablesSnapshot()
-            println("DIMTO_DEBUG numbers=${values["numbers"]}; strings=${values["strings"]}; uninitializedStrings=${values["uninitializedStrings"]}")
             assertEquals(0L, values["numberDefault"])
             assertEquals("", values["stringDefault"])
             assertEquals("", values["uninitializedDefault"])
-            assertEquals(
-                "Numeric array after DimTo write: ${values["numbers"]}",
-                listOf(7L, 0L, 0L, 0L, 42),
-                values["numbers"]
-            )
+            val numericArray = (values["numbers"] as? List<*>)?.map { item ->
+                (item as? Number)?.toLong()
+                    ?: throw AssertionError("DimTo numeric array contains non-numeric item: $item")
+            }
+            assertEquals(listOf(7L, 0L, 0L, 0L, 42L), numericArray)
             assertEquals(listOf("", "", "tail"), values["uninitializedStrings"])
         }
     }

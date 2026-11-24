@@ -47,8 +47,3 @@ dependencies {
     testImplementation(libs.junit)
 }
 
-tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
-    testLogging {
-        showStandardStreams = true
-    }
-}
