@@ -52,10 +52,12 @@ class LiveMakerTpWordDecoderTest {
         }
 
         assertEquals("HiRamen!", decoded.plainText)
-        assertEquals(2, decoded.segments.size)
+        assertEquals(3, decoded.segments.size)
         assertEquals("HiRamen", decoded.segments[0].text)
-        assertTrue(decoded.segments[0].waitForTap)
-        assertEquals("!", decoded.segments[1].text)
+        assertFalse(decoded.segments[0].waitForTap)
+        assertEquals("PAUSE", decoded.segments[1].eventsBefore.single().name)
+        assertTrue(decoded.segments[1].waitForTap)
+        assertEquals("!", decoded.segments[2].text)
     }
 
     @Test
@@ -166,6 +168,49 @@ class LiveMakerTpWordDecoderTest {
 
         assertEquals("Hero!", decoded.plainText)
         assertEquals("player", decoded.body.first().legacyVariableExpression)
+    }
+
+    @Test
+    fun keepsSceneEventsAndWaitAtTheirOriginalTextOffsets() {
+        val decoded = LiveMakerTpWordDecoder().decode(
+            TpWordFixture.build(
+                glyphs = listOf(
+                    TpWordFixture.char('A'),
+                    TpWordFixture.systemEvent("CREATECG", arguments = listOf("NAME=bg")),
+                    TpWordFixture.char('B'),
+                    TpWordFixture.systemEvent("WAIT", arguments = listOf("TIME=20")),
+                    TpWordFixture.char('C')
+                )
+            )
+        )
+
+        assertEquals("ABC", decoded.plainText)
+        assertEquals(3, decoded.segments.size)
+        assertEquals("A", decoded.segments[0].text)
+        assertEquals("CREATECG", decoded.segments[1].eventsBefore.single().name)
+        assertEquals("B", decoded.segments[1].text)
+        assertEquals("WAIT", decoded.segments[2].eventsBefore.single().name)
+        assertEquals("C", decoded.segments[2].text)
+    }
+
+    @Test
+    fun clearBreakClearsOnlyTheFollowingTextSegment() {
+        val decoded = LiveMakerTpWordDecoder().decode(
+            TpWordFixture.build(
+                glyphs = listOf(
+                    TpWordFixture.char('A'),
+                    TpWordFixture.returnGlyph(3),
+                    TpWordFixture.char('B')
+                )
+            )
+        )
+
+        assertEquals("AB", decoded.plainText)
+        assertEquals(2, decoded.segments.size)
+        assertEquals("A", decoded.segments[0].text)
+        assertFalse(decoded.segments[0].clearBefore)
+        assertEquals("B", decoded.segments[1].text)
+        assertTrue(decoded.segments[1].clearBefore)
     }
 
     @Test
