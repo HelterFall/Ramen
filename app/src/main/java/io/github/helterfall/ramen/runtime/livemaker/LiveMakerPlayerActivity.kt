@@ -56,6 +56,7 @@ private data class LiveMakerPlayerUiState(
     val waitingForTap: Boolean = false,
     val sceneImages: List<LiveMakerSceneBitmap> = emptyList(),
     val assets: List<LiveMakerMediaAsset> = emptyList(),
+    val mediaDiagnostics: LiveMakerMediaIndexDiagnostics? = null,
     val imageBitmap: Bitmap? = null,
     val selectedAssetName: String? = null,
     val audioStatus: String? = null,
@@ -154,7 +155,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             canContinue = presentation.canContinue,
                             dialogueText = presentation.dialogueText,
                             waitingForTap = presentation.waitingForTap,
-                            assets = assets.listAssets()
+                            assets = assets.listAssets(),
+                            mediaDiagnostics = assets.diagnostics
                         )
                     }
                 }
@@ -165,6 +167,9 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     if (!isFinishing && !isDestroyed) {
                         uiState.value = uiState.value.copy(
                             isLoading = false,
+                            eventDescription = "Запуск остановлен до первого события VM.",
+                            canContinue = false,
+                            waitingForTap = false,
                             errorMessage = error.message ?: "Не удалось открыть LiveMaker-плеер."
                         )
                     }
@@ -605,6 +610,10 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         mainHandler.post {
             if (!isFinishing && !isDestroyed) {
                 uiState.value = uiState.value.copy(
+                    isLoading = false,
+                    eventDescription = "Виртуальная машина остановлена из-за ошибки.",
+                    canContinue = false,
+                    waitingForTap = false,
                     errorMessage = error.message ?: "Ошибка LiveMaker-плеера."
                 )
             }
@@ -782,8 +791,55 @@ private fun LiveMakerPlayerScreen(
                 color = Color(0xFFF2B766),
                 style = MaterialTheme.typography.titleMedium
             )
+            state.mediaDiagnostics?.let { diagnostics ->
+                val extensionSummary = diagnostics.indexedByExtension.entries
+                    .sortedBy { it.key }
+                    .joinToString { it.key.uppercase() + ": " + it.value }
+                    .ifBlank { "нет" }
+                Text(
+                    "Проверено файлов: " + diagnostics.filesScanned +
+                        " · VF/EXE: " + diagnostics.archivesParsed + "/" +
+                        diagnostics.archiveCandidates +
+                        " · записей: " + diagnostics.archiveEntriesVisited,
+                    color = Color(0xFFA8ADB7),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                Text(
+                    "Из архива: " + diagnostics.archiveAssetCount +
+                        " · отдельно: " + diagnostics.looseAssetCount +
+                        " · по форматам: " + extensionSummary,
+                    color = Color(0xFFA8ADB7),
+                    style = MaterialTheme.typography.bodySmall
+                )
+                if (diagnostics.archiveParseFailures > 0 ||
+                    diagnostics.rejectedArchivePaths > 0 ||
+                    diagnostics.scanLimitReached
+                ) {
+                    Text(
+                        "Диагностика: ошибок разбора архивов " +
+                            diagnostics.archiveParseFailures +
+                            " · отклонённых путей " + diagnostics.rejectedArchivePaths +
+                            if (diagnostics.scanLimitReached) " · достигнут лимит сканирования" else "",
+                        color = Color(0xFFFFC27A),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
             if (state.assets.isEmpty()) {
-                Text("GAL/PNG и OGG/WAV ресурсы не найдены.", color = Color(0xFFA8ADB7))
+                val diagnostics = state.mediaDiagnostics
+                val message = when {
+                    diagnostics == null -> "Индекс ресурсов ещё не построен."
+                    diagnostics.archivesParsed > 0 ->
+                        "VF-архив прочитан (" + diagnostics.archiveEntriesVisited +
+                            " записей), но GAL/PNG/OGG/WAV не попали в индекс."
+                    diagnostics.archiveCandidates > 0 ->
+                        "Найдено VF/EXE-кандидатов: " + diagnostics.archiveCandidates +
+                            ", успешно разобрано: " + diagnostics.archivesParsed +
+                            ". Проверьте диагностику ошибок выше."
+                    else ->
+                        "В приватной папке игры не найдено VF/EXE и отдельных GAL/PNG/OGG/WAV."
+                }
+                Text(message, color = Color(0xFFA8ADB7))
             } else {
                 LazyColumn(
                     modifier = Modifier.weight(1f),

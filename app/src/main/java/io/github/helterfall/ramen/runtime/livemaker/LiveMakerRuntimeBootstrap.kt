@@ -103,6 +103,25 @@ data class LiveMakerMediaAsset internal constructor(
 )
 
 /**
+ * Visible scan counters make archive-indexing failures diagnosable on-device without
+ * extracting or opening the media payloads.
+ */
+data class LiveMakerMediaIndexDiagnostics(
+    val filesScanned: Int,
+    val scanLimitReached: Boolean,
+    val archiveCandidates: Int,
+    val archivesParsed: Int,
+    val archiveEntriesVisited: Int,
+    val rejectedArchivePaths: Int,
+    val archiveParseFailures: Int,
+    val looseAssetCount: Int,
+    val archiveAssetCount: Int,
+    val indexedAssetCount: Int,
+    val indexedByExtension: Map<String, Int>,
+    val firstProblem: String?
+)
+
+/**
  * Indexes GAL/PNG and OGG/WAV without extracting an archive wholesale.
  * All reads, including archive decompression, are bounded by maxAssetBytes.
  */
@@ -120,6 +139,7 @@ class LiveMakerMediaAssetRepository(
     private val root = gameDirectory.canonicalFile
     private val sources = linkedMapOf<String, AssetSource>()
     private val assets = mutableListOf<LiveMakerMediaAsset>()
+    val diagnostics: LiveMakerMediaIndexDiagnostics
 
     init {
         require(maxAssetBytes > 0L)
@@ -132,6 +152,21 @@ class LiveMakerMediaAssetRepository(
             .toList()
             .sortedBy { it.relativeTo(root).invariantSeparatorsPath }
 
+        var archiveCandidates = 0
+        var archivesParsed = 0
+        var archiveEntriesVisited = 0
+        var rejectedArchivePaths = 0
+        var archiveParseFailures = 0
+        var looseAssetCount = 0
+        var archiveAssetCount = 0
+        var firstProblem: String? = null
+        val indexedByExtension = linkedMapOf<String, Int>()
+
+        fun recordIndexedAsset(extension: String, archive: Boolean) {
+            indexedByExtension[extension] = (indexedByExtension[extension] ?: 0) + 1
+            if (archive) archiveAssetCount += 1 else looseAssetCount += 1
+        }
+
         for (file in files) {
             val extension = file.extension.lowercase()
             if (extension !in MEDIA_EXTENSIONS) continue
@@ -141,31 +176,66 @@ class LiveMakerMediaAssetRepository(
             }
             val relative = canonical.relativeTo(root).invariantSeparatorsPath
             val id = "file:" + canonical.absolutePath
+            val previousSize = assets.size
             addAsset(
                 LiveMakerMediaAsset(id, relative, extension, "Файл"),
                 AssetSource(canonical)
             )
+            if (assets.size != previousSize) recordIndexedAsset(extension, archive = false)
         }
 
         for (archiveFile in files) {
             if (archiveFile.extension.lowercase() !in ARCHIVE_EXTENSIONS) continue
+            archiveCandidates += 1
             val parsed = try {
                 FileRandomAccessSource(archiveFile).use(archiveParser::parse)
-            } catch (_: Exception) {
+            } catch (error: Exception) {
+                archiveParseFailures += 1
+                if (firstProblem == null) {
+                    firstProblem = archiveFile.name + ": " +
+                        (error.message ?: error.javaClass.simpleName)
+                }
                 continue
             }
+            archivesParsed += 1
             for (entry in parsed.entries) {
-                val relative = runCatching { archiveParser.safeRelativePath(entry) }.getOrNull()
-                    ?: continue
+                archiveEntriesVisited += 1
+                val relative = try {
+                    archiveParser.safeRelativePath(entry)
+                } catch (error: IOException) {
+                    rejectedArchivePaths += 1
+                    if (firstProblem == null) {
+                        firstProblem = entry.name + ": " +
+                            (error.message ?: "unsafe archive path")
+                    }
+                    continue
+                }
                 val extension = relative.substringAfterLast('.', "").lowercase()
                 if (extension !in MEDIA_EXTENSIONS) continue
                 val id = "archive:" + archiveFile.absolutePath + "!/" + relative
+                val previousSize = assets.size
                 addAsset(
                     LiveMakerMediaAsset(id, relative, extension, archiveFile.name + " · VF"),
                     AssetSource(archiveFile.canonicalFile, parsed, entry)
                 )
+                if (assets.size != previousSize) recordIndexedAsset(extension, archive = true)
             }
         }
+
+        diagnostics = LiveMakerMediaIndexDiagnostics(
+            filesScanned = files.size,
+            scanLimitReached = files.size >= MAX_DISCOVERED_FILES,
+            archiveCandidates = archiveCandidates,
+            archivesParsed = archivesParsed,
+            archiveEntriesVisited = archiveEntriesVisited,
+            rejectedArchivePaths = rejectedArchivePaths,
+            archiveParseFailures = archiveParseFailures,
+            looseAssetCount = looseAssetCount,
+            archiveAssetCount = archiveAssetCount,
+            indexedAssetCount = assets.size,
+            indexedByExtension = indexedByExtension.toMap(),
+            firstProblem = firstProblem
+        )
     }
 
     fun listAssets(): List<LiveMakerMediaAsset> = assets.toList()

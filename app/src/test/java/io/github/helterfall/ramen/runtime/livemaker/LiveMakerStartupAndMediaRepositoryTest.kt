@@ -110,6 +110,55 @@ class LiveMakerStartupAndMediaRepositoryTest {
     }
 
     @Test
+    fun indexesJapaneseMediaPathsFromEmbeddedExeAndReportsArchiveDiagnostics() {
+        val root = Files.createTempDirectory("ramen-livemaker-exe-media").toFile()
+        try {
+            val galBytes = byteArrayOf(0x47, 0x41, 0x4C, 0x01)
+            val oggBytes = byteArrayOf(0x4F, 0x67, 0x67, 0x53)
+            val wavBytes = byteArrayOf(0x52, 0x49, 0x46, 0x46)
+            File(root, "Game.exe").writeBytes(
+                LiveMakerArchiveFixture.executable(
+                    listOf(
+                        LiveMakerFixtureFile("グラフィック\\背景\\リビング.gal", galBytes),
+                        LiveMakerFixtureFile("SE\\ガラス壊れ.wav", wavBytes),
+                        LiveMakerFixtureFile("ボイス\\intro.ogg", oggBytes),
+                        LiveMakerFixtureFile("グラフィック\\選択肢.lpm", byteArrayOf(1, 2, 3))
+                    ),
+                    archiveOffset = 64
+                )
+            )
+
+            LiveMakerMediaAssetRepository(root).use { repository ->
+                val diagnostics = repository.diagnostics
+                assertEquals(1, diagnostics.filesScanned)
+                assertEquals(1, diagnostics.archiveCandidates)
+                assertEquals(1, diagnostics.archivesParsed)
+                assertEquals(4, diagnostics.archiveEntriesVisited)
+                assertEquals(0, diagnostics.rejectedArchivePaths)
+                assertEquals(0, diagnostics.archiveParseFailures)
+                assertEquals(3, diagnostics.archiveAssetCount)
+                assertEquals(0, diagnostics.looseAssetCount)
+                assertEquals(3, diagnostics.indexedAssetCount)
+                assertEquals(1, diagnostics.indexedByExtension["gal"])
+                assertEquals(1, diagnostics.indexedByExtension["ogg"])
+                assertEquals(1, diagnostics.indexedByExtension["wav"])
+
+                val gal = repository.findAsset("グラフィック/背景/リビング.gal")
+                val ogg = repository.findAsset("intro.ogg")
+                val wav = repository.findAsset("SE/ガラス壊れ.wav")
+                assertTrue(gal != null)
+                assertTrue(ogg != null)
+                assertTrue(wav != null)
+                assertTrue(repository.readAsset(gal!!).contentEquals(galBytes))
+                assertTrue(repository.readAsset(ogg!!).contentEquals(oggBytes))
+                assertTrue(repository.readAsset(wav!!).contentEquals(wavBytes))
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun excludesOversizedLooseMediaFilesFromIndex() {
         val root = Files.createTempDirectory("ramen-livemaker-media-limit").toFile()
         try {
