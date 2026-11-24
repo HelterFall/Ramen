@@ -10,8 +10,10 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneId
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import io.github.helterfall.ramen.inspection.LiveMakerCommand
 
 class LiveMakerVirtualMachineTest {
     @Test
@@ -137,6 +139,113 @@ class LiveMakerVirtualMachineTest {
             assertEquals(false, vm.variablesSnapshot()["reverse"])
             assertEquals(true, vm.variablesSnapshot()["visible"])
             assertEquals(640, store.getProperty(messageBox, LiveMakerObjectStore.PR_LEFT))
+        }
+    }
+
+    @Test
+    fun executesTopLevelGetPropSetPropAndRegistersBoxAndImageForSceneRendering() {
+        val boxName = "scene-box"
+        val imageName = "scene-image"
+        val componentProperties = mapOf(
+            8 to setOf(1, 4, 5, 6, 7, 9, 10, 11, 37, 48),
+            9 to setOf(1, 3, 4, 5, 6, 7, 12, 13, 48)
+        )
+        val bytes = LiveMakerLsbFixture.build(
+            componentProperties = componentProperties,
+            commands = listOf(
+                LiveMakerLsbFixture.componentCommand(
+                    8,
+                    mapOf(
+                        1 to LiveMakerLsbFixture.paramString(boxName),
+                        4 to LiveMakerLsbFixture.paramInt(20),
+                        5 to LiveMakerLsbFixture.paramInt(30),
+                        6 to LiveMakerLsbFixture.paramInt(200),
+                        7 to LiveMakerLsbFixture.paramInt(100),
+                        9 to LiveMakerLsbFixture.paramInt(0xFF336699.toInt()),
+                        10 to LiveMakerLsbFixture.paramInt(2),
+                        11 to LiveMakerLsbFixture.paramInt(0xFFFFFFFF.toInt()),
+                        37 to LiveMakerLsbFixture.paramString("OpenBox"),
+                        48 to LiveMakerLsbFixture.paramFlag(true)
+                    )
+                ),
+                LiveMakerLsbFixture.componentCommand(
+                    9,
+                    mapOf(
+                        1 to LiveMakerLsbFixture.paramString(imageName),
+                        3 to LiveMakerLsbFixture.paramString("background.gal"),
+                        4 to LiveMakerLsbFixture.paramInt(0),
+                        5 to LiveMakerLsbFixture.paramInt(0),
+                        6 to LiveMakerLsbFixture.paramInt(800),
+                        7 to LiveMakerLsbFixture.paramInt(600),
+                        12 to LiveMakerLsbFixture.paramInt(255),
+                        13 to LiveMakerLsbFixture.paramInt(0),
+                        48 to LiveMakerLsbFixture.paramFlag(true)
+                    )
+                ),
+                LiveMakerLsbFixture.setPropCommand(
+                    LiveMakerLsbFixture.paramString(boxName),
+                    LiveMakerLsbFixture.paramInt(LiveMakerObjectStore.PR_LEFT),
+                    LiveMakerLsbFixture.paramInt(72)
+                ),
+                LiveMakerLsbFixture.getPropCommand(
+                    LiveMakerLsbFixture.paramString(boxName),
+                    LiveMakerLsbFixture.paramInt(LiveMakerObjectStore.PR_LEFT),
+                    "boxLeft"
+                ),
+                LiveMakerLsbFixture.setPropCommand(
+                    LiveMakerLsbFixture.paramString(imageName),
+                    LiveMakerLsbFixture.paramInt(LiveMakerObjectStore.PR_VISIBLE),
+                    LiveMakerLsbFixture.paramFlag(false)
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(bytes) { source ->
+            val store = LiveMakerObjectStore()
+            val vm = LiveMakerVirtualMachine(
+                LiveMakerLsbParser().parse(source),
+                objectStore = store
+            )
+
+            val boxEvent = vm.runUntilEvent() as LiveMakerVmEvent.HostCommandRequired
+            assertEquals(8, boxEvent.command.typeId)
+            LiveMakerSceneCommandAdapter.registerComponent(
+                boxEvent.command,
+                store,
+                vm::evaluateExpression
+            )
+            vm.resume()
+
+            val imageEvent = vm.runUntilEvent() as LiveMakerVmEvent.HostCommandRequired
+            assertEquals(9, imageEvent.command.typeId)
+            LiveMakerSceneCommandAdapter.registerComponent(
+                imageEvent.command,
+                store,
+                vm::evaluateExpression
+            )
+            vm.resume()
+
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            assertEquals(72, vm.variablesSnapshot()["boxLeft"])
+            assertEquals(72, store.getProperty(boxName, LiveMakerObjectStore.PR_LEFT))
+
+            val boxScene = LiveMakerSceneComponent.from(store.snapshot(boxName)!!)
+            assertEquals(8, boxScene.componentTypeId)
+            assertEquals(72f, boxScene.left)
+            assertEquals(200f, boxScene.width)
+            assertEquals(100f, boxScene.height)
+            assertEquals(0xFF336699.toInt(), boxScene.color)
+            assertTrue(boxScene.clickable)
+            assertTrue(boxScene.visible)
+            assertTrue(boxScene.isRenderable)
+
+            val imageScene = LiveMakerSceneComponent.from(store.snapshot(imageName)!!)
+            assertEquals(9, imageScene.componentTypeId)
+            assertEquals("background.gal", imageScene.source)
+            assertEquals(800f, imageScene.width)
+            assertFalse(imageScene.visible)
+            assertTrue(imageScene.isImage)
         }
     }
 

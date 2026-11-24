@@ -7,14 +7,30 @@ internal object LiveMakerLsbFixture {
     fun build(
         version: Int = 103,
         commands: List<ByteArray>,
-        unknownCommandType: Int? = null
+        unknownCommandType: Int? = null,
+        componentProperties: Map<Int, Set<Int>> = emptyMap()
     ): ByteArray {
         val output = ByteArrayOutputStream()
+        val parameterMapBytes = if (componentProperties.isEmpty()) {
+            1
+        } else {
+            maxOf(1, ((componentProperties.values.flatten().maxOrNull() ?: 1) + 7) / 8)
+        }
         writeU32(output, version.toLong())
         output.write(0) // flags
         writeU32(output, 64) // command type map entries
-        writeU32(output, 1) // packed parameter-map bytes per command type
-        repeat(64) { output.write(0) }
+        writeU32(output, parameterMapBytes.toLong())
+        repeat(64) { typeId ->
+            val packed = ByteArray(parameterMapBytes)
+            componentProperties[typeId].orEmpty().forEach { propertyId ->
+                require(propertyId > 0 && propertyId <= parameterMapBytes * 8)
+                val bitIndex = propertyId - 1
+                packed[bitIndex / 8] = (
+                    packed[bitIndex / 8].toInt() or (1 shl (bitIndex % 8))
+                ).toByte()
+            }
+            output.write(packed)
+        }
         writeU32(output, (commands.size + if (unknownCommandType != null) 1 else 0).toLong())
         commands.forEach(output::write)
         if (unknownCommandType != null) {
@@ -209,6 +225,31 @@ internal object LiveMakerLsbFixture {
 
     fun calc(vararg operations: ByteArray): ByteArray =
         command(14, expression(*operations))
+
+    fun componentCommand(type: Int, properties: Map<Int, ByteArray>): ByteArray =
+        command(type, ByteArrayOutputStream().also { output ->
+            properties.toSortedMap().values.forEach(output::write)
+        }.toByteArray())
+
+    fun getPropCommand(
+        objectExpression: ByteArray,
+        propertyExpression: ByteArray,
+        resultVariable: String
+    ): ByteArray = command(17, ByteArrayOutputStream().also { output ->
+        output.write(expression(operation(0, "____object", listOf(objectExpression))))
+        output.write(expression(operation(0, "____property", listOf(propertyExpression))))
+        writeString(output, resultVariable)
+    }.toByteArray())
+
+    fun setPropCommand(
+        objectExpression: ByteArray,
+        propertyExpression: ByteArray,
+        valueExpression: ByteArray
+    ): ByteArray = command(18,
+        expression(operation(0, "____object", listOf(objectExpression))) +
+            expression(operation(0, "____property", listOf(propertyExpression))) +
+            expression(operation(0, "____value", listOf(valueExpression)))
+    )
 
     fun paramString(value: String): ByteArray =
         ByteArrayOutputStream().also { output ->
