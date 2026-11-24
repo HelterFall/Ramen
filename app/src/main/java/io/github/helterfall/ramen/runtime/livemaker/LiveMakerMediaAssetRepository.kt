@@ -244,7 +244,7 @@ class LiveMakerMediaAssetRepository(
 
     /** Returns true for a safe file path present in any indexed VF archive entry. */
     fun containsResource(resourceName: String): Boolean {
-        val normalized = resourceName.trim().replace('\\\\', '/').trimStart('/')
+        val normalized = resourceName.trim().replace('\\', '/').trimStart('/')
         if (normalized.isEmpty() || normalized.split('/').any { it == "." || it == ".." || it.isBlank() }) {
             return false
         }

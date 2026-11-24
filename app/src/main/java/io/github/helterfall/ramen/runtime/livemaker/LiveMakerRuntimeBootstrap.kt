@@ -89,7 +89,7 @@ class LiveMakerStartupScriptResolver(
                         candidate.isFile && candidate.length() <= MAX_TEXT_FILE_BYTES
                     ) {
                         val decoded = String(candidate.readBytes(), Charset.forName("windows-31j"))
-                        decoded.replace("\\r\\n", "\\n").replace('\\r', '\\n').split('\\n')
+                        decoded.replace("\r\n", "\n").replace('\r', '\n').split('\n')
                     } else {
                         null
                     }
