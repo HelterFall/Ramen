@@ -619,12 +619,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     is String -> flag.isNotBlank() && flag != "0"
                     else -> true
                 }
-                val lowerName = objectName.lowercase()
-                val lowerPath = asset.path.lowercase()
-                val isBackground = lowerName.contains("bg") ||
-                    lowerName.contains("back") ||
-                    lowerPath.contains("background") ||
-                    lowerPath.substringAfterLast('/').startsWith("bg")
+                val isBackground = isLiveMakerBackgroundLayer(objectName, asset.path)
 
                 val image = LiveMakerSceneBitmap(
                     objectName = objectName,
