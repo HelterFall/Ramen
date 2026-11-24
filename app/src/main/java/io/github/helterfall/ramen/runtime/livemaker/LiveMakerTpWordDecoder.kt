@@ -312,7 +312,7 @@ class LiveMakerTpWordDecoder(
                         null
                     }
                     val margins: List<Int?> = if (version >= 105) {
-                        List(4) { cursor.readInt32("inline image margin") as Int? }
+                        List<Int?>(4) { cursor.readInt32("inline image margin") }
                     } else {
                         listOf(null, null, null, null)
                     }
