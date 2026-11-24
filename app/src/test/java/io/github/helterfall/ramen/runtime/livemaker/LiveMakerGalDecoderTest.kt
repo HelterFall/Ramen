@@ -169,6 +169,57 @@ class LiveMakerGalDecoderTest {
     }
 
     @Test
+    fun decodesExactGameGalX200HeaderWithoutXmlDeclarationAndZlibLayer() {
+        // This matches the observed in-game GaleX200 header: no XML declaration,
+        // CompType=0 (ZLIB), and AlphaOn=0 (no alpha-size field follows the layer).
+        val xml = """
+            <Frames Version="200" Width="100" Height="75" Bpp="24" Count="1"
+                SyncPal="1" Randomized="0" CompType="0" CompLevel="70" BGColor="0"
+                BlockWidth="0" BlockHeight="0" NotFillBG="0">
+              <Frame Name="" TransColor="-1" Delay="100" Disposal="0">
+                <Layers Count="1" Width="100" Height="75" Bpp="24">
+                  <Layer Left="0" Top="0" Visible="1" TransColor="-1" Alpha="255"
+                      AlphaOn="0" Name="Layer" Lock="0" />
+                </Layers>
+              </Frame>
+            </Frames>
+        """.trimIndent().toByteArray(Charsets.US_ASCII)
+        val compressedXml = zlib(xml)
+
+        // 24-bit BGR rows are aligned to a 4-byte boundary: 100 * 3 = 300 bytes.
+        val stride = ((100 * 24 + 31) / 32) * 4
+        val colorPlane = ByteArray(stride * 75)
+        colorPlane[0] = 30
+        colorPlane[1] = 20
+        colorPlane[2] = 10
+        colorPlane[3] = 60
+        colorPlane[4] = 50
+        colorPlane[5] = 40
+        val compressedLayer = zlib(colorPlane)
+
+        val galX = ByteArrayOutputStream().also { output ->
+            output.write("GaleX200".toByteArray(Charsets.US_ASCII))
+            writeInt(output, compressedXml.size) // XML length at file offset 8.
+            output.write(compressedXml)
+            writeInt(output, compressedLayer.size)
+            output.write(compressedLayer)
+            // AlphaOn=0: there is deliberately no alpha length or alpha payload here.
+        }.toByteArray()
+
+        val image = LiveMakerGalDecoder().decode(ByteArraySource(galX))
+
+        assertEquals(200, image.version)
+        assertEquals(1, image.frameCount)
+        assertEquals(100, image.width)
+        assertEquals(75, image.height)
+        assertEquals(1, image.layerCount)
+        assertArrayEquals(
+            intArrayOf(0xFF0A141E.toInt(), 0xFF28323C.toInt()),
+            image.copyArgbPixels().copyOfRange(0, 2)
+        )
+    }
+
+    @Test
     fun rejectsTruncatedAndRandomizedImages() {
         val short = byteArrayOf('G'.code.toByte(), 'a'.code.toByte(), 'l'.code.toByte(), 'e'.code.toByte(), '1'.code.toByte())
         assertThrows(IOException::class.java) {

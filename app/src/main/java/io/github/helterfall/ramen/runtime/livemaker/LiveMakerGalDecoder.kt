@@ -695,36 +695,75 @@ class LiveMakerGalDecoder(
 
     private fun parseSecureXml(xml: ByteArray): Element {
         try {
-            // GAL/X metadata uses CP932/Shift-JIS bytes. Parse the decoded characters rather
-            // than letting the XML parser assume UTF-8 when no encoding declaration is present.
+            // GAL/X metadata is a ZLIB payload containing XML bytes. Most game headers are
+            // ASCII; use CP932 for non-ASCII text, including Japanese names.
             val xmlText = String(xml, GALX_XML_CHARSET).removePrefix("\uFEFF")
-
-            // LiveMaker can emit duplicate attributes on <Frame> elements. pylivemaker uses
-            // recover=True and GARbro removes those attributes before parsing; Frame metadata
-            // is not needed by this first-frame decoder, so normalize those opening tags too.
-            val normalizedXml = GALX_FRAME_OPEN_TAG.replace(xmlText, "<Frame>")
-
-            val factory = DocumentBuilderFactory.newInstance()
-            factory.isNamespaceAware = false
-            factory.isXIncludeAware = false
-            factory.setExpandEntityReferences(false)
-            factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true)
-            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
-            factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
-            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            val input = InputSource(StringReader(normalizedXml))
-            val document = factory.newDocumentBuilder().parse(input)
-            val root = document.documentElement
-                ?: throw IOException("GAL/X XML does not have a root element.")
-            if (root.tagName != "Frames") {
-                throw IOException("GAL/X XML root element is not Frames.")
+            if (xmlText.contains("<!DOCTYPE", ignoreCase = true) ||
+                xmlText.contains("<!ENTITY", ignoreCase = true)
+            ) {
+                throw IOException("GAL/X XML declarations and external entities are not supported.")
             }
-            return root
+
+            // Parse the original text first. Some Android XML providers do not implement all
+            // Xerces feature URIs; configure those defensively instead of failing valid XML
+            // before parsing begins.
+            return try {
+                parseGalXXmlDocument(xmlText)
+            } catch (firstFailure: Exception) {
+                // Some LiveMaker builds write duplicate attributes on <Frame>. pylivemaker's
+                // recovery parser and GARbro's reader tolerate this nonessential metadata.
+                // Retry only after a normal parse fails, leaving well-formed headers untouched.
+                val normalizedXml = GALX_FRAME_OPEN_TAG.replace(xmlText, "<Frame>")
+                if (normalizedXml == xmlText) throw firstFailure
+                try {
+                    parseGalXXmlDocument(normalizedXml)
+                } catch (recoveryFailure: Exception) {
+                    recoveryFailure.addSuppressed(firstFailure)
+                    throw recoveryFailure
+                }
+            }
         } catch (failure: IOException) {
             throw failure
         } catch (failure: Exception) {
-            throw IOException("Could not parse the bounded GAL/X XML header.", failure)
+            throw IOException(
+                "Could not parse the bounded GAL/X XML header: " +
+                    (failure.message ?: failure.javaClass.simpleName),
+                failure
+            )
         }
+    }
+
+    private fun parseGalXXmlDocument(xmlText: String): Element {
+        val factory = DocumentBuilderFactory.newInstance()
+        factory.isNamespaceAware = false
+        // Android's built-in XML provider may reject Xerces-specific feature names. The input
+        // is explicitly checked for DTD/entity declarations above, and the builder also gets
+        // an empty external-entity resolver, so unsupported optional flags remain safe.
+        runCatching { factory.isXIncludeAware = false }
+        runCatching { factory.setExpandEntityReferences(false) }
+        runCatching { factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true) }
+        runCatching {
+            factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
+        }
+        runCatching {
+            factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
+        }
+        runCatching {
+            factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
+        }
+        runCatching {
+            factory.setFeature("http://apache.org/xml/features/nonvalidating/load-external-dtd", false)
+        }
+
+        val builder = factory.newDocumentBuilder()
+        builder.setEntityResolver { _, _ -> InputSource(StringReader("")) }
+        val document = builder.parse(InputSource(StringReader(xmlText)))
+        val root = document.documentElement
+            ?: throw IOException("GAL/X XML does not have a root element.")
+        if (root.tagName != "Frames") {
+            throw IOException("GAL/X XML root element is not Frames.")
+        }
+        return root
     }
     private fun readAttributeInt(
         element: Element,
@@ -975,7 +1014,7 @@ class LiveMakerGalDecoder(
         private const val DEFAULT_MAX_DECODED_LAYER_BYTES = 64L * 1024L * 1024L
         private const val DEFAULT_MAX_XML_BYTES = 4 * 1024 * 1024
         private val GALX_XML_CHARSET: Charset = Charset.forName("windows-31j")
-        private val GALX_FRAME_OPEN_TAG = Regex("<Frame\\b[^>]*>")
+        private val GALX_FRAME_OPEN_TAG = Regex("<Frame(?=\\\\s)[^>]*>")
         private const val MAX_NAME_BYTES = 1024 * 1024
         private const val MAX_LAYERS = 32
         private const val MAX_FRAMES = 100_000
