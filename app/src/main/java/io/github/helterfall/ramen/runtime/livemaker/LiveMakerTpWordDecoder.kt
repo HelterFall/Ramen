@@ -244,6 +244,13 @@ class LiveMakerTpWordDecoder(
                             "PAUSE", "PS" -> flush(LiveMakerTextControl.PAUSE)
                             "PG", "PAGE" -> flush(LiveMakerTextControl.PAGE_BREAK)
                             "CLR", "CLEAR" -> flush(LiveMakerTextControl.CLEAR)
+                            // LiveNovel WAIT with duration 0 is an unbounded click wait.
+                            // Keep it as a playback pause instead of sleeping forever.
+                            "WAIT" -> {
+                                val milliseconds = parsedEvent.arguments.firstOrNull()
+                                    ?.toLongOrNull() ?: 0L
+                                if (milliseconds <= 0L) flush(LiveMakerTextControl.PAUSE)
+                            }
                             else -> Unit
                         }
                     }
