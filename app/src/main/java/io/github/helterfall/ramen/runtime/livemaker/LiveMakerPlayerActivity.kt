@@ -322,7 +322,13 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                                 LiveMakerObjectStore.PR_ONLBTNDOWN,
                                 LiveMakerObjectStore.PR_ONSELECT,
                                 LiveMakerObjectStore.PR_ONLBTNUP
-                            ).any { p[it] != null && p[it].toString().isNotBlank() && p[it].toString() != "0" }
+                            ).any { propertyId ->
+                                when (val handler = p[propertyId]) {
+                                    is Number -> handler.toInt() >= 0
+                                    is Boolean -> handler
+                                    else -> !handler?.toString().isNullOrBlank()
+                                }
+                            }
                             visible && hasHandler &&
                                 width > 0f && height > 0f &&
                                 x >= left && y >= top && x <= left + width && y <= top + height
