@@ -55,6 +55,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnAudioPlayer
+import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnAudioPlaybackState
+import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnAudioPlaybackStatus
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
@@ -67,6 +69,8 @@ private data class LiveMakerPlayerUiState(
     val eventDescription: String = "Подготовка LiveMaker-сессии…",
     val canContinue: Boolean = false,
     val dialogueText: String = "",
+    val speakerName: String? = null,
+    val messageWindowVisible: Boolean = true,
     val waitingForTap: Boolean = false,
     val sceneImages: List<LiveMakerSceneBitmap> = emptyList(),
     val sceneComponents: List<LiveMakerSceneComponent> = emptyList(),
@@ -127,6 +131,12 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     private var historyRequested = false
     private val sceneObjects = linkedMapOf<String, LiveMakerSceneBitmap>()
     private val soundObjects = linkedMapOf<String, LiveMakerMediaAsset>()
+    private val audioStatusMonitor = Object()
+    @Volatile private var lastAudioStatus: SystemNnnAudioPlaybackStatus? = null
+    @Volatile private var currentAudioChannel: String? = null
+    @Volatile private var currentAudioResourceName: String? = null
+    @Volatile private var messageWindowVisible = true
+    @Volatile private var currentSpeakerName: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
