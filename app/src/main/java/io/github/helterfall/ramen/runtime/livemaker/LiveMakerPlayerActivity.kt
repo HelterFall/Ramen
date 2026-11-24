@@ -14,6 +14,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -48,9 +49,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
@@ -60,6 +63,7 @@ import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnAudioPlaybackStatus
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 private data class LiveMakerPlayerUiState(
     val isLoading: Boolean = true,
@@ -157,6 +161,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 LiveMakerPlayerScreen(
                     state = uiState.value,
                     onContinue = ::continueSession,
+                    onCanvasTap = ::onCanvasTap,
                     onAssetSelected = ::selectAsset,
                     onHistoryClick = ::showHistory,
                     onHistoryDismiss = ::dismissHistory,
@@ -273,59 +278,140 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         worker.execute {
             val session = liveSession ?: return@execute
             try {
-                val playback = textPlayback
-                if (playback != null && playback.waitingForTap) {
-                    playback.waitingForTap = false
-                    val nextSegment = advanceTextPlayback(playback, session)
-                    if (nextSegment != null) {
-                        mainHandler.post {
-                            if (!isFinishing && !isDestroyed) {
-                                uiState.value = uiState.value.copy(
-                                    dialogueText = playback.currentText,
-                                    speakerName = currentSpeakerName,
-                                    messageWindowVisible = messageWindowVisible,
-                                    waitingForTap = playback.waitingForTap,
-                                    canContinue = playback.waitingForTap,
-                                    errorMessage = null
-                                )
-                            }
-                        }
-                        return@execute
-                    }
-                    textPlayback = null
-                    session.resume()
-                } else {
-                    when (val event = currentEvent) {
-                        is LiveMakerSessionEvent.EngineEvent -> when (event.event) {
-                            is LiveMakerVmEvent.TextBlock,
-                            is LiveMakerVmEvent.Delay -> session.resume()
-                            else -> return@execute
-                        }
-                        else -> return@execute
-                    }
-                }
+                advanceSession(session)
+            } catch (error: Exception) {
+                publishError(error)
+            }
+        }
+    }
 
-                val (next, presentation) = nextPresentation(session)
+    /** Handles a user tap on the virtual stage, including LiveMaker's global mouse state. */
+    private fun onCanvasTap(x: Float, y: Float) {
+        if (waitingForTpWordPlayback && tpWordPlaybackCanSkip) {
+            skipTpWordPlaybackRequested = true
+            synchronized(audioStatusMonitor) { audioStatusMonitor.notifyAll() }
+            return
+        }
+        worker.execute {
+            val session = liveSession ?: return@execute
+            val pointerX = x.roundToInt().coerceAtLeast(0)
+            val pointerY = y.roundToInt().coerceAtLeast(0)
+            session.updatePointerState(pointerX, pointerY, leftClick = true, leftPush = true)
+            try {
+                if (uiState.value.canContinue) {
+                    advanceSession(session)
+                } else {
+                    // Bitmap components (ImgNew) are rendered separately from their model
+                    // objects. Hit-test the shared object store so invisible hotspots and
+                    // image-backed buttons still receive their configured event handlers.
+                    val target = session.objectStore.snapshotAll()
+                        .asSequence()
+                        .filter { snapshot ->
+                            val p = snapshot.properties
+                            val visible = when (val value = p[LiveMakerObjectStore.PR_VISIBLE]) {
+                                is Boolean -> value
+                                is Number -> value.toInt() != 0
+                                is String -> value.isNotBlank() && value != "0"
+                                else -> true
+                            }
+                            val left = (p[LiveMakerObjectStore.PR_LEFT] as? Number)?.toFloat() ?: 0f
+                            val top = (p[LiveMakerObjectStore.PR_TOP] as? Number)?.toFloat() ?: 0f
+                            val width = (p[LiveMakerObjectStore.PR_WIDTH] as? Number)?.toFloat() ?: 0f
+                            val height = (p[LiveMakerObjectStore.PR_HEIGHT] as? Number)?.toFloat() ?: 0f
+                            val hasHandler = listOf(
+                                LiveMakerObjectStore.PR_ONLBTNDOWN,
+                                LiveMakerObjectStore.PR_ONSELECT,
+                                LiveMakerObjectStore.PR_ONLBTNUP
+                            ).any { p[it] != null && p[it].toString().isNotBlank() && p[it].toString() != "0" }
+                            visible && hasHandler &&
+                                width > 0f && height > 0f &&
+                                x >= left && y >= top && x <= left + width && y <= top + height
+                        }
+                        .maxByOrNull { snapshot ->
+                            (snapshot.properties[LiveMakerObjectStore.PR_PRIORITY] as? Number)
+                                ?.toFloat() ?: 0f
+                        }
+
+                    if (target != null) {
+                        session.setObjectProperty(target.name, LiveMakerObjectStore.PR_SELECTED, true)
+                        session.triggerObjectEvent(target.name, LiveMakerObjectStore.PR_ONLBTNDOWN) ||
+                            session.triggerObjectEvent(target.name, LiveMakerObjectStore.PR_ONSELECT) ||
+                            session.triggerObjectEvent(target.name, LiveMakerObjectStore.PR_ONLBTNUP)
+                    }
+
+                    // LiveNovel scripts also poll @MOUSEX/@MOUSEY/@LCLICK and may
+                    // continue through DoEvent without a component callback.
+                    val (next, presentation) = nextPresentation(session)
+                    publishPresentation(session, next, presentation)
+                }
+            } catch (error: Exception) {
+                publishError(error)
+            } finally {
+                session.updatePointerState(pointerX, pointerY, leftClick = false, leftPush = false)
+            }
+        }
+    }
+
+    private fun advanceSession(session: LiveMakerGameSession) {
+        val playback = textPlayback
+        if (playback != null && playback.waitingForTap) {
+            playback.waitingForTap = false
+            advanceTextPlayback(playback, session)
+            if (playback.waitingForTap) {
                 mainHandler.post {
                     if (!isFinishing && !isDestroyed) {
                         uiState.value = uiState.value.copy(
-                            eventDescription = presentation.description,
-                            canContinue = presentation.canContinue,
-                            dialogueText = presentation.dialogueText,
+                            dialogueText = playback.currentText,
                             speakerName = currentSpeakerName,
                             messageWindowVisible = messageWindowVisible,
-                            waitingForTap = presentation.waitingForTap,
-                            sceneImages = sceneObjects.values.sortedBy { it.priority },
-                            sceneComponents = session.objectStore.snapshotAll()
-                                .map(LiveMakerSceneComponent::from)
-                                .filter { it.isRenderable },
-                            isCompleted = isCompleted(next),
+                            waitingForTap = true,
+                            canContinue = true,
                             errorMessage = null
                         )
                     }
                 }
-            } catch (error: Exception) {
-                publishError(error)
+                return
+            }
+            textPlayback = null
+            session.resume()
+        } else {
+            when (val event = currentEvent) {
+                is LiveMakerSessionEvent.EngineEvent -> when (event.event) {
+                    is LiveMakerVmEvent.TextBlock,
+                    is LiveMakerVmEvent.Delay -> session.resume()
+                    else -> return
+                }
+                else -> return
+            }
+        }
+
+        val (next, presentation) = nextPresentation(session)
+        publishPresentation(session, next, presentation)
+    }
+
+    private fun publishPresentation(
+        session: LiveMakerGameSession,
+        next: LiveMakerSessionEvent,
+        presentation: LiveMakerEventPresentation
+    ) {
+        val images = sceneObjects.values.sortedBy { it.priority }
+        val components = session.objectStore.snapshotAll()
+            .map(LiveMakerSceneComponent::from)
+            .filter { it.isRenderable }
+        mainHandler.post {
+            if (!isFinishing && !isDestroyed) {
+                uiState.value = uiState.value.copy(
+                    eventDescription = presentation.description,
+                    canContinue = presentation.canContinue,
+                    dialogueText = presentation.dialogueText,
+                    speakerName = currentSpeakerName,
+                    messageWindowVisible = messageWindowVisible,
+                    waitingForTap = presentation.waitingForTap,
+                    sceneImages = images,
+                    sceneComponents = components,
+                    isCompleted = isCompleted(next),
+                    errorMessage = null
+                )
             }
         }
     }
@@ -1352,6 +1438,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
 private fun LiveMakerPlayerScreen(
     state: LiveMakerPlayerUiState,
     onContinue: () -> Unit,
+    onCanvasTap: (Float, Float) -> Unit,
     onAssetSelected: (LiveMakerMediaAsset) -> Unit,
     onHistoryClick: () -> Unit,
     onHistoryDismiss: () -> Unit,
@@ -1366,14 +1453,7 @@ private fun LiveMakerPlayerScreen(
             .background(Color.Black)
     ) {
         BoxWithConstraints(
-            modifier = Modifier
-                .fillMaxSize()
-                .clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null,
-                    enabled = state.canContinue && !state.historyVisible && !state.resourcesVisible,
-                    onClick = onContinue
-                )
+            modifier = Modifier.fillMaxSize()
         ) {
             val canvasWidth = state.sceneCanvasWidthPx.coerceAtLeast(1f)
             val canvasHeight = state.sceneCanvasHeightPx.coerceAtLeast(1f)
@@ -1392,11 +1472,30 @@ private fun LiveMakerPlayerScreen(
                 maxWidth / stageAspectRatio
             }
 
+            val density = LocalDensity.current
+            val stageWidthPx = with(density) { stageWidth.toPx() }.coerceAtLeast(1f)
+            val stageHeightPx = with(density) { stageHeight.toPx() }.coerceAtLeast(1f)
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
                     .width(stageWidth)
                     .height(stageHeight)
+                    .pointerInput(
+                        state.canContinue,
+                        state.historyVisible,
+                        state.resourcesVisible,
+                        stageWidthPx,
+                        stageHeightPx
+                    ) {
+                        detectTapGestures { offset ->
+                            if (!state.historyVisible && !state.resourcesVisible) {
+                                onCanvasTap(
+                                    (offset.x / stageWidthPx * canvasWidth).coerceIn(0f, canvasWidth),
+                                    (offset.y / stageHeightPx * canvasHeight).coerceIn(0f, canvasHeight)
+                                )
+                            }
+                        }
+                    }
             ) {
                 state.sceneImages.filter { it.isBackground }.forEach { image ->
                     Image(
@@ -1526,7 +1625,9 @@ private fun LiveMakerPlayerScreen(
         val diagnosticMessage = state.errorMessage ?: state.eventDescription.takeIf {
             it.startsWith("Неподдерживаемое выражение") ||
                 it.startsWith("Страница ") ||
-                it.contains("ожидает host adapter")
+                it.contains("ожидает host adapter") ||
+                it.contains("ожидает обработку хоста") ||
+                it.startsWith("VM ожидает переход")
         }
         // The tap target remains the whole viewport during an empty WAIT, but
         // an empty script control is not dialogue and must not create a fake panel.
