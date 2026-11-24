@@ -186,11 +186,11 @@ class LiveMakerTpWordDecoderTest {
         )
 
         assertEquals("AB", decoded.plainText)
-        assertEquals(2, decoded.segments.size)
+        assertEquals(3, decoded.segments.size)
         assertEquals("A", decoded.segments[0].text)
         assertEquals("WAIT", decoded.segments[1].eventsBefore.single().name)
         assertTrue(decoded.segments[1].waitForTap)
-        assertEquals("B", decoded.segments[2 - 1].text)
+        assertEquals("B", decoded.segments[2].text)
     }
 
     @Test
