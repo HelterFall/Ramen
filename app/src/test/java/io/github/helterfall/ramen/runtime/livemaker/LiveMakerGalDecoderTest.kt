@@ -129,6 +129,46 @@ class LiveMakerGalDecoderTest {
     }
 
     @Test
+    fun decodesGalX200Cp932HeaderAndToleratesDuplicateFrameAttributes() {
+        // GAL/X200: 8-byte signature, LE compressed XML length at offset 8,
+        // ZLIB XML bytes beginning at offset 12, then length-prefixed layer data.
+        val cp932 = java.nio.charset.Charset.forName("windows-31j")
+        val xml = """
+            <Frames Title="背景" Width="2" Height="1" Bpp="24" Version="200" Count="1"
+                Randomized="0" CompType="1" BGColor="0" BlockWidth="0" BlockHeight="0">
+                <Frame Name="背景" Name="重複">
+                    <Layers Count="1" Width="2" Height="1" Bpp="24">
+                        <Layer Name="背景画像" Left="0" Top="0" Visible="1"
+                            Alpha="255" AlphaOn="1" TransColor="-1"/>
+                    </Layers>
+                </Frame>
+            </Frames>
+        """.trimIndent().toByteArray(cp932)
+        val compressedXml = zlib(xml)
+        val colorPlane = byteArrayOf(30, 20, 10, 60, 50, 40, 0, 0)
+        val alphaPlane = byteArrayOf(255.toByte(), 128.toByte(), 0, 0)
+        val galX = ByteArrayOutputStream().also { output ->
+            output.write("GaleX200".toByteArray(Charsets.US_ASCII))
+            writeInt(output, compressedXml.size)
+            output.write(compressedXml)
+            writeInt(output, colorPlane.size)
+            output.write(colorPlane)
+            writeInt(output, alphaPlane.size)
+            output.write(alphaPlane)
+        }.toByteArray()
+
+        val image = LiveMakerGalDecoder().decode(ByteArraySource(galX))
+
+        assertEquals(200, image.version)
+        assertEquals(2, image.width)
+        assertEquals(1, image.height)
+        assertArrayEquals(
+            intArrayOf(0xFF0A141E.toInt(), 0x8028323C.toInt()),
+            image.copyArgbPixels()
+        )
+    }
+
+    @Test
     fun rejectsTruncatedAndRandomizedImages() {
         val short = byteArrayOf('G'.code.toByte(), 'a'.code.toByte(), 'l'.code.toByte(), 'e'.code.toByte(), '1'.code.toByte())
         assertThrows(IOException::class.java) {

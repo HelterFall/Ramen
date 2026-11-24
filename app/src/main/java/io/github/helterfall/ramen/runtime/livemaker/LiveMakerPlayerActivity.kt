@@ -161,6 +161,10 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     }
                 }
             } catch (error: Exception) {
+                // Media indexing is eager and may succeed before the first TpWord image fails
+                // to decode. Keep its inventory and diagnostics visible on the error screen.
+                val indexedAssets = preparedAssets?.listAssets().orEmpty()
+                val mediaDiagnostics = preparedAssets?.diagnostics
                 preparedSession?.close()
                 preparedAssets?.close()
                 mainHandler.post {
@@ -170,6 +174,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             eventDescription = "Запуск остановлен до первого события VM.",
                             canContinue = false,
                             waitingForTap = false,
+                            assets = indexedAssets,
+                            mediaDiagnostics = mediaDiagnostics,
                             errorMessage = error.message ?: "Не удалось открыть LiveMaker-плеер."
                         )
                     }

@@ -129,6 +129,10 @@ class LiveMakerStartupAndMediaRepositoryTest {
             )
 
             LiveMakerMediaAssetRepository(root).use { repository ->
+                // TpWord may resolve a GAL during the first VM event, before the activity
+                // renders the media inventory or requests listAssets().
+                val gal = repository.findAsset("グラフィック/背景/リビング.gal")
+                assertTrue(gal != null)
                 val diagnostics = repository.diagnostics
                 assertEquals(1, diagnostics.filesScanned)
                 assertEquals(1, diagnostics.archiveCandidates)
@@ -143,7 +147,6 @@ class LiveMakerStartupAndMediaRepositoryTest {
                 assertEquals(1, diagnostics.indexedByExtension["ogg"])
                 assertEquals(1, diagnostics.indexedByExtension["wav"])
 
-                val gal = repository.findAsset("グラフィック/背景/リビング.gal")
                 val ogg = repository.findAsset("intro.ogg")
                 val wav = repository.findAsset("SE/ガラス壊れ.wav")
                 assertTrue(gal != null)

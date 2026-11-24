@@ -3,14 +3,16 @@ package io.github.helterfall.ramen.runtime.livemaker
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
-import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.StringReader
+import java.nio.charset.Charset
 import java.io.IOException
 import java.util.zip.DataFormatException
 import java.util.zip.Inflater
 import javax.xml.XMLConstants
 import javax.xml.parsers.DocumentBuilderFactory
 import org.w3c.dom.Element
+import org.xml.sax.InputSource
 
 /**
  * Decoded first frame of a LiveMaker GAL/GAL-X image.
@@ -693,6 +695,15 @@ class LiveMakerGalDecoder(
 
     private fun parseSecureXml(xml: ByteArray): Element {
         try {
+            // GAL/X metadata uses CP932/Shift-JIS bytes. Parse the decoded characters rather
+            // than letting the XML parser assume UTF-8 when no encoding declaration is present.
+            val xmlText = String(xml, GALX_XML_CHARSET).removePrefix("\uFEFF")
+
+            // LiveMaker can emit duplicate attributes on <Frame> elements. pylivemaker uses
+            // recover=True and GARbro removes those attributes before parsing; Frame metadata
+            // is not needed by this first-frame decoder, so normalize those opening tags too.
+            val normalizedXml = GALX_FRAME_OPEN_TAG.replace(xmlText, "<Frame>")
+
             val factory = DocumentBuilderFactory.newInstance()
             factory.isNamespaceAware = false
             factory.isXIncludeAware = false
@@ -701,7 +712,8 @@ class LiveMakerGalDecoder(
             factory.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)
             factory.setFeature("http://xml.org/sax/features/external-general-entities", false)
             factory.setFeature("http://xml.org/sax/features/external-parameter-entities", false)
-            val document = factory.newDocumentBuilder().parse(ByteArrayInputStream(xml))
+            val input = InputSource(StringReader(normalizedXml))
+            val document = factory.newDocumentBuilder().parse(input)
             val root = document.documentElement
                 ?: throw IOException("GAL/X XML does not have a root element.")
             if (root.tagName != "Frames") {
@@ -714,7 +726,6 @@ class LiveMakerGalDecoder(
             throw IOException("Could not parse the bounded GAL/X XML header.", failure)
         }
     }
-
     private fun readAttributeInt(
         element: Element,
         name: String,
@@ -963,6 +974,8 @@ class LiveMakerGalDecoder(
         private const val DEFAULT_MAX_ENCODED_LAYER_BYTES = 64 * 1024 * 1024
         private const val DEFAULT_MAX_DECODED_LAYER_BYTES = 64L * 1024L * 1024L
         private const val DEFAULT_MAX_XML_BYTES = 4 * 1024 * 1024
+        private val GALX_XML_CHARSET: Charset = Charset.forName("windows-31j")
+        private val GALX_FRAME_OPEN_TAG = Regex("<Frame\\b[^>]*>")
         private const val MAX_NAME_BYTES = 1024 * 1024
         private const val MAX_LAYERS = 32
         private const val MAX_FRAMES = 100_000
