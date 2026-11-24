@@ -865,90 +865,116 @@ class LiveMakerPlayerActivity : ComponentActivity() {
      * CRLF-separated and may be positional or NAME=value fields.
      */
     private fun handleTpWordEvent(event: LiveMakerTpWordEvent, session: LiveMakerGameSession) {
-        val positionalArguments = event.arguments.filterNot { it.contains('=') }
+        val args = LiveMakerTpWordArguments(event.arguments)
 
-        fun clean(value: String?): String? =
-            value?.trim()?.trim('"', '\'')?.takeIf { it.isNotEmpty() }
-
-        fun argument(names: List<String>, position: Int): String? {
-            val named = event.arguments.firstOrNull { raw ->
-                raw.contains('=') && names.any { key ->
-                    raw.substringBefore('=').trim().equals(key, ignoreCase = true)
-                }
-            }?.substringAfter('=', missingDelimiterValue = "")
-            return clean(named) ?: clean(positionalArguments.getOrNull(position))
+        // NAMELABEL is intentionally a non-system TpWord event. It sets the speaker
+        // label for following dialogue until the next system NAMELABEL clears it.
+        if (event.name.equals("NAMELABEL", ignoreCase = true)) {
+            currentSpeakerName = if (event.isSystem) null else args.get(0, "NAME", "LABEL")
+            return
         }
 
         when (event.name.uppercase()) {
             "CREATECG", "CHANGECG" -> {
                 val repository = mediaRepository ?: return
-                val sourceArgument = argument(
-                    listOf("SOURCE", "SRC", "FILE", "CG", "IMAGE", "PATH"),
-                    1
-                )
-                val objectName = argument(
-                    listOf("NAME", "OBJECT", "TARGET", "ID"),
-                    0
-                ) ?: sourceArgument
-                    ?.substringAfterLast('/')
-                    ?.substringBeforeLast('.')
-                    ?.takeIf { it.isNotBlank() }
-                    ?: throw IOException(event.name + " is missing its object name.")
-                val source = sourceArgument ?: objectName
-                val asset = repository.findAsset(source)
-                    ?: throw IOException(
-                        "TpWord CG resource '" + source + "' was not found or is ambiguous."
-                    )
-                if (asset.extension !in setOf("gal", "png")) {
-                    throw IOException("TpWord CG resource '" + source + "' is not a GAL or PNG image.")
+                val objectName = args.get(0, "NAME", "OBJECT", "TARGET", "ID")
+                    ?: throw IOException(event.name + " is missing its layer name.")
+                var source = args.get(1, "SOURCE", "SRC", "FILE", "CG", "IMAGE", "PATH")
+                    ?: throw IOException(event.name + " is missing its image source.")
+
+                if (source.startsWith("?")) {
+                    val variableName = source.drop(1)
+                    source = session.variablesSnapshot()[variableName]?.toString()
+                        ?: throw IOException("TpWord CG variable '" + variableName + "' has no value.")
                 }
 
-                val bitmap = decodeImage(repository.readAsset(asset), asset.extension)
-                val alphaValue = argument(listOf("ALPHA", "OPACITY"), 6)?.toFloatOrNull() ?: 255f
+                val previous = sceneObjects[objectName]
+                val bitmap: Bitmap
+                val resourcePath: String
+                val asset = repository.findAsset(source)
+                if (asset != null && asset.extension in setOf("gal", "png")) {
+                    bitmap = decodeImage(repository.readAsset(asset), asset.extension)
+                    resourcePath = asset.path
+                } else {
+                    // LiveNovel also permits a solid-color CG source such as "$202020".
+                    val colorBitmap = decodeLiveMakerSolidColor(source)
+                    if (colorBitmap == null) {
+                        throw IOException(
+                            "TpWord CG resource '" + source + "' was not found or is ambiguous."
+                        )
+                    }
+                    bitmap = colorBitmap
+                    resourcePath = source
+                }
+
+                val stageWidth = resources.displayMetrics.widthPixels.toFloat().coerceAtLeast(1f)
+                val stageHeight = resources.displayMetrics.heightPixels.toFloat().coerceAtLeast(1f)
+                val isCreate = event.name.equals("CREATECG", ignoreCase = true)
+                val xToken = if (isCreate) args.get(4, "X", "LEFT") else null
+                val yToken = if (isCreate) args.get(5, "Y", "TOP") else null
+                val left = when {
+                    xToken != null -> parseLiveMakerStageCoordinate(
+                        xToken, stageWidth, bitmap.width.toFloat(), horizontal = true
+                    )
+                    previous != null -> previous.left
+                    else -> 0f
+                }
+                val top = when {
+                    yToken != null -> parseLiveMakerStageCoordinate(
+                        yToken, stageHeight, bitmap.height.toFloat(), horizontal = false
+                    )
+                    previous != null -> previous.top
+                    else -> 0f
+                }
+                // In LiveNovel CREATECG, args 2/3 are mode/parent and args 4/5 are
+                // coordinates. They are not width/height. CGs use their native size.
+                val alpha = previous?.alpha ?: 1f
+                val priority = if (isCreate) {
+                    args.get(6, "Z", "PRIORITY")?.toFloatOrNull()
+                        ?: previous?.priority ?: sceneObjects.size.toFloat()
+                } else {
+                    previous?.priority ?: sceneObjects.size.toFloat()
+                }
                 val image = LiveMakerSceneBitmap(
                     objectName = objectName,
-                    resourcePath = asset.path,
+                    resourcePath = resourcePath,
                     bitmap = bitmap,
-                    left = argument(listOf("X", "LEFT"), 2)?.toFloatOrNull() ?: 0f,
-                    top = argument(listOf("Y", "TOP"), 3)?.toFloatOrNull() ?: 0f,
-                    width = (argument(listOf("WIDTH", "W"), 4)?.toFloatOrNull()
-                        ?: bitmap.width.toFloat()).coerceAtLeast(1f),
-                    height = (argument(listOf("HEIGHT", "H"), 5)?.toFloatOrNull()
-                        ?: bitmap.height.toFloat()).coerceAtLeast(1f),
-                    alpha = (if (alphaValue > 1f) alphaValue / 255f else alphaValue).coerceIn(0f, 1f),
-                    priority = argument(listOf("PRIORITY", "Z"), 7)?.toFloatOrNull()
-                        ?: sceneObjects.size.toFloat(),
-                    isBackground = objectName.contains("bg", true) ||
-                        objectName.contains("back", true) ||
-                        asset.path.contains("background", true)
+                    left = left,
+                    top = top,
+                    width = bitmap.width.toFloat().coerceAtLeast(1f),
+                    height = bitmap.height.toFloat().coerceAtLeast(1f),
+                    alpha = alpha,
+                    priority = priority,
+                    isBackground = isLiveMakerBackgroundLayer(objectName, resourcePath),
+                    visible = previous?.visible ?: true
                 )
-                // Replacing the map entry releases the previous bitmap reference; never
-                // recycle it here because Compose may still have a recorded draw using it.
+
+                // Compose can still hold the old Bitmap in a recorded draw; just replace
+                // the reference and let Android reclaim it, never call Bitmap.recycle().
                 sceneObjects[objectName] = image
+                val alphaValue = (image.alpha * 255f).coerceIn(0f, 255f)
                 session.createObject(
                     objectName,
                     null,
                     mapOf(
                         LiveMakerObjectStore.PR_NAME to objectName,
-                        LiveMakerObjectStore.PR_SOURCE to asset.path,
+                        LiveMakerObjectStore.PR_SOURCE to resourcePath,
                         LiveMakerObjectStore.PR_LEFT to image.left,
                         LiveMakerObjectStore.PR_TOP to image.top,
                         LiveMakerObjectStore.PR_WIDTH to image.width,
                         LiveMakerObjectStore.PR_HEIGHT to image.height,
                         LiveMakerObjectStore.PR_ALPHA to alphaValue,
                         LiveMakerObjectStore.PR_PRIORITY to image.priority,
-                        LiveMakerObjectStore.PR_VISIBLE to true
+                        LiveMakerObjectStore.PR_VISIBLE to image.visible
                     )
                 )
                 publishSceneState(session)
             }
 
             "DELETECG" -> {
-                val targets = event.arguments.flatMap { raw ->
-                    raw.substringAfter('=', raw).trim().trim('"', '\'')
-                        .split(',').map { it.trim() }.filter { it.isNotEmpty() }
-                }
-                targets.forEach { target ->
+                // DELETECG's first parameter is a comma-delimited layer list; following
+                // parameters are wipe/duration values and must not be treated as names.
+                args.csv(0).forEach { target ->
                     sceneObjects.remove(target)
                     session.deleteObject(target)
                 }
@@ -957,54 +983,182 @@ class LiveMakerPlayerActivity : ComponentActivity() {
 
             "PLAYSND" -> {
                 val repository = mediaRepository ?: return
-                val source = argument(
-                    listOf("SOURCE", "SRC", "FILE", "NAME", "SOUND", "AUDIO", "PATH"),
-                    0
-                ) ?: throw IOException("PLAYSND is missing its sound resource.")
-                val asset = soundObjects[source] ?: repository.findAsset(source)
+                val source = args.get(0, "SOURCE", "SRC", "FILE", "NAME", "SOUND", "AUDIO", "PATH")
+                    ?: throw IOException("PLAYSND is missing its audio source.")
+                val channel = args.get(1, "CHANNEL", "BUS") ?: "SE"
+                val resolvedSource = if (source.startsWith("?")) {
+                    session.variablesSnapshot()[source.drop(1)]?.toString()
+                        ?: throw IOException("TpWord audio variable '" + source.drop(1) + "' has no value.")
+                } else source
+                val asset = soundObjects[resolvedSource] ?: repository.findAsset(resolvedSource)
                     ?: throw IOException(
-                        "TpWord sound resource '" + source + "' was not found or is ambiguous."
+                        "TpWord sound resource '" + resolvedSource + "' was not found or is ambiguous."
                     )
                 if (asset.extension !in setOf("ogg", "wav")) {
-                    throw IOException("TpWord sound resource '" + source + "' is not OGG or WAV.")
+                    throw IOException("TpWord sound resource '" + resolvedSource + "' is not OGG or WAV.")
                 }
-                val staged = repository.stageAudio(asset, File(cacheDir, "livemaker-audio"))
+                startTpWordAudio(repository.stageAudio(asset, File(cacheDir, "livemaker-audio")), asset, channel)
+            }
+
+            "REPLAYSND" -> {
+                val repository = mediaRepository ?: return
+                val channel = args.get(0, "CHANNEL", "BUS") ?: "SE"
+                val source = args.get(1, "SOURCE", "SRC", "FILE", "NAME")
+                    ?: currentAudioResourceName
+                    ?: return
+                val asset = soundObjects[source] ?: repository.findAsset(source)
+                    ?: throw IOException("TpWord sound resource '" + source + "' was not found or is ambiguous.")
+                startTpWordAudio(repository.stageAudio(asset, File(cacheDir, "livemaker-audio")), asset, channel)
+            }
+
+            "STOPSND" -> {
+                val channel = args.get(0, "CHANNEL", "BUS") ?: currentAudioChannel
+                if (channel == null || channel.equals(currentAudioChannel, ignoreCase = true)) {
+                    synchronized(audioStatusMonitor) {
+                        lastAudioStatus = SystemNnnAudioPlaybackStatus(
+                            SystemNnnAudioPlaybackState.STOPPED,
+                            currentAudioResourceName.orEmpty()
+                        )
+                        audioStatusMonitor.notifyAll()
+                    }
+                    mainHandler.post { audioPlayer?.stop() }
+                }
+            }
+
+            "WAITPLAY" -> {
+                val target = args.get(0, "TARGET", "CHANNEL", "NAME") ?: return
+                awaitTpWordPlayback(target)
+            }
+
+            "WAIT" -> {
+                val milliseconds = args.get(0, "TIME", "MS", "DURATION", "MILLISECONDS")
+                    ?.toLongOrNull() ?: 0L
+                if (milliseconds > 0L) {
+                    Thread.sleep(milliseconds.coerceAtMost(MAX_TPWORD_WAIT_MS))
+                }
+                // TIME=0 is an unbounded user-click pause and is represented as a
+                // waitForTap segment by LiveMakerTpWordDecoder.
+            }
+
+            "MESON" -> {
+                messageWindowVisible = true
                 mainHandler.post {
-                    if (isFinishing || isDestroyed) {
-                        staged.delete()
-                    } else {
-                        val player = audioPlayer ?: SystemNnnAudioPlayer { status ->
-                            mainHandler.post {
-                                if (!isFinishing && !isDestroyed) {
-                                    uiState.value = uiState.value.copy(
-                                        audioStatus = status.state.name.lowercase() + ": " + status.resourceName
-                                    )
-                                }
-                            }
-                        }.also { audioPlayer = it }
-                        runCatching { player.play(staged, asset.path) }
-                            .onFailure { error ->
-                                staged.delete()
-                                uiState.value = uiState.value.copy(
-                                    errorMessage = error.message ?: "Could not play TpWord audio."
-                                )
-                            }
+                    if (!isFinishing && !isDestroyed) {
+                        uiState.value = uiState.value.copy(messageWindowVisible = true)
                     }
                 }
             }
 
-            "WAIT" -> {
-                val milliseconds = (
-                    argument(listOf("TIME", "MS", "DURATION", "MILLISECONDS"), 0) ?: "0"
-                ).toLongOrNull()
-                    ?: throw IOException("TpWord WAIT duration is not an integer.")
-                if (milliseconds > 0L) {
-                    Thread.sleep(milliseconds.coerceAtMost(MAX_TPWORD_WAIT_MS))
+            "MESOFF", "MESEND" -> {
+                messageWindowVisible = false
+                if (event.name.equals("MESEND", ignoreCase = true)) currentSpeakerName = null
+                mainHandler.post {
+                    if (!isFinishing && !isDestroyed) {
+                        uiState.value = uiState.value.copy(
+                            messageWindowVisible = false,
+                            speakerName = currentSpeakerName,
+                            dialogueText = if (event.name.equals("MESEND", ignoreCase = true)) "" else uiState.value.dialogueText
+                        )
+                    }
                 }
             }
 
-            // PAUSE, PG and CLR are converted to text segments by the decoder.
+            "PAUSE", "PS", "PG", "PAGE", "CLR", "CLEAR",
+            "MENUENABLED", "MENUDISABLED" -> Unit
+
             else -> Unit
+        }
+    }
+
+    private fun decodeLiveMakerSolidColor(source: String): Bitmap? {
+        val hex = source.trim().removePrefix("$").removePrefix("#")
+        if (hex.length != 6 || hex.any { it.digitToIntOrNull(16) == null }) return null
+        val color = runCatching { android.graphics.Color.parseColor("#" + hex) }.getOrNull()
+            ?: return null
+        return Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888).apply { eraseColor(color) }
+    }
+
+    private fun startTpWordAudio(staged: File, asset: LiveMakerMediaAsset, channel: String) {
+        currentAudioChannel = channel
+        currentAudioResourceName = asset.path
+        synchronized(audioStatusMonitor) {
+            lastAudioStatus = SystemNnnAudioPlaybackStatus(
+                SystemNnnAudioPlaybackState.PREPARING,
+                asset.path
+            )
+        }
+        mainHandler.post {
+            if (isFinishing || isDestroyed) {
+                staged.delete()
+                synchronized(audioStatusMonitor) {
+                    lastAudioStatus = SystemNnnAudioPlaybackStatus(
+                        SystemNnnAudioPlaybackState.STOPPED,
+                        asset.path
+                    )
+                    audioStatusMonitor.notifyAll()
+                }
+                return@post
+            }
+            val player = audioPlayer ?: SystemNnnAudioPlayer { status ->
+                synchronized(audioStatusMonitor) {
+                    lastAudioStatus = status
+                    audioStatusMonitor.notifyAll()
+                }
+                mainHandler.post {
+                    if (!isFinishing && !isDestroyed) {
+                        uiState.value = uiState.value.copy(
+                            audioStatus = status.state.name.lowercase() + ": " + status.resourceName
+                        )
+                    }
+                }
+            }.also { audioPlayer = it }
+            runCatching { player.play(staged, asset.path) }
+                .onFailure { error ->
+                    staged.delete()
+                    synchronized(audioStatusMonitor) {
+                        lastAudioStatus = SystemNnnAudioPlaybackStatus(
+                            SystemNnnAudioPlaybackState.ERROR,
+                            asset.path,
+                            error.message
+                        )
+                        audioStatusMonitor.notifyAll()
+                    }
+                    uiState.value = uiState.value.copy(
+                        errorMessage = error.message ?: "Could not play TpWord audio."
+                    )
+                }
+        }
+    }
+
+    private fun awaitTpWordPlayback(target: String) {
+        val expectedChannel = currentAudioChannel
+        val expectedResource = currentAudioResourceName
+        if (expectedResource.isNullOrBlank()) return
+        val targetMatches = target.equals(expectedChannel, ignoreCase = true) ||
+            target.equals(expectedResource, ignoreCase = true) ||
+            target.equals(expectedResource.substringAfterLast('/'), ignoreCase = true)
+        if (!targetMatches) return
+
+        val startedAt = android.os.SystemClock.elapsedRealtime()
+        val timeout = MAX_TPWORD_PLAYBACK_WAIT_MS
+        synchronized(audioStatusMonitor) {
+            while (true) {
+                val status = lastAudioStatus
+                if (status == null || !status.resourceName.equals(expectedResource, ignoreCase = true)) {
+                    return
+                }
+                if (status.state == SystemNnnAudioPlaybackState.COMPLETED ||
+                    status.state == SystemNnnAudioPlaybackState.STOPPED ||
+                    status.state == SystemNnnAudioPlaybackState.ERROR
+                ) {
+                    return
+                }
+                val remaining = timeout - (android.os.SystemClock.elapsedRealtime() - startedAt)
+                if (remaining <= 0L) {
+                    return
+                }
+                audioStatusMonitor.wait(minOf(remaining, 250L))
+            }
         }
     }
 
