@@ -91,6 +91,8 @@ class LiveMakerStartupAndMediaRepositoryTest {
                 assertEquals(2, assets.size)
                 val png = assets.single { it.extension == "png" }
                 val ogg = assets.single { it.extension == "ogg" }
+                assertEquals(png.id, repository.findAsset("images/cover.png")?.id)
+                assertEquals(ogg.id, repository.findAsset("intro.ogg")?.id)
                 assertTrue(repository.readAsset(png).contentEquals(pngBytes))
                 assertTrue(repository.readAsset(ogg).contentEquals(oggBytes))
 

@@ -170,6 +170,40 @@ class LiveMakerMediaAssetRepository(
 
     fun listAssets(): List<LiveMakerMediaAsset> = assets.toList()
 
+    /**
+     * Resolves an engine resource name against indexed loose/VF assets.
+     * Ambiguous basename-only matches are rejected instead of picking arbitrarily.
+     */
+    fun findAsset(resourceName: String): LiveMakerMediaAsset? {
+        val normalized = resourceName.trim().replace('\\', '/').trimStart('/')
+        if (normalized.isEmpty()) return null
+        val exact = assets.filter { it.path.equals(normalized, ignoreCase = true) }
+        if (exact.size == 1) return exact.single()
+        if (exact.size > 1) return null
+
+        val suffix = assets.filter {
+            it.path.endsWith("/" + normalized, ignoreCase = true)
+        }
+        if (suffix.size == 1) return suffix.single()
+        if (suffix.size > 1) return null
+
+        val requestedName = normalized.substringAfterLast('/')
+        val byName = assets.filter {
+            it.path.substringAfterLast('/').equals(requestedName, ignoreCase = true)
+        }
+        if (byName.size == 1) return byName.single()
+        if (byName.size > 1) return null
+
+        val requestedStem = requestedName.substringBeforeLast('.', requestedName)
+        val byStem = assets.filter {
+            it.path.substringAfterLast('/').substringBeforeLast('.') .equals(
+                requestedStem,
+                ignoreCase = true
+            )
+        }
+        return byStem.singleOrNull()
+    }
+
     @Throws(IOException::class)
     fun readAsset(asset: LiveMakerMediaAsset): ByteArray {
         val source = sources[asset.id]

@@ -53,7 +53,7 @@ import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
-import io.github.helterfall.ramen.runtime.livemaker.LiveMakerPreviewActivity
+import io.github.helterfall.ramen.runtime.livemaker.LiveMakerPlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
@@ -298,8 +298,8 @@ fun RamenApp() {
                             onLaunch = {
                                 when (game.engineId) {
                                     "livemaker-vf102" -> {
-                                        val intent = Intent(context, LiveMakerPreviewActivity::class.java)
-                                            .putExtra(LiveMakerPreviewActivity.EXTRA_GAME_ID, game.id)
+                                        val intent = Intent(context, LiveMakerPlayerActivity::class.java)
+                                            .putExtra(LiveMakerPlayerActivity.EXTRA_GAME_ID, game.id)
                                         context.startActivity(intent)
                                     }
                                     "system-nnn-spt" -> {
@@ -656,8 +656,8 @@ private fun GameCard(
             )
             Text(
                 text = when (game.compatibilityStatus) {
-                    "MEDIA_PREVIEW_AVAILABLE" ->
-                        "Доступен ограниченный LiveMaker-предпросмотр: стартовый LSB, GAL/PNG и OGG/WAV. Текст TextIns не отображается."
+                    "PLAYABLE" ->
+                        "Активен LiveMaker LSB/VM-раннер: стартовые страницы, TextIns/TpWord, сцены ImgNew и аудио Sound/MediaPlay. Неподдержанные команды останавливают VM с диагностикой."
                     "PARSER_AVAILABLE" ->
                         if (game.engineId == "system-nnn-spt") {
                             "Доступен запуск System-NNN с декодированием указателей текста и ресурсов."
@@ -690,7 +690,7 @@ private fun GameCard(
             }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
                 (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE") ||
-                (game.engineId == "livemaker-vf102" && game.compatibilityStatus == "MEDIA_PREVIEW_AVAILABLE")
+                (game.engineId == "livemaker-vf102" && game.compatibilityStatus == "PLAYABLE")
             ) {
                 Button(
                     onClick = onLaunch,
@@ -702,7 +702,7 @@ private fun GameCard(
                     )
                 ) {
                     Text(
-                        if (game.engineId == "livemaker-vf102") "Открыть предпросмотр" else "Запустить",
+                        "Запустить",
                         fontWeight = FontWeight.Bold
                     )
                 }

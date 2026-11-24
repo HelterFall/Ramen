@@ -12,7 +12,7 @@
             android:exported="false" />
 
         <activity
-            android:name=".runtime.livemaker.LiveMakerPreviewActivity"
+            android:name=".runtime.livemaker.LiveMakerPlayerActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
 

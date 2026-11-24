@@ -2,7 +2,11 @@ package io.github.helterfall.ramen.importer
 
 import io.github.helterfall.ramen.inspection.FileRandomAccessSource
 import io.github.helterfall.ramen.inspection.LiveMakerArchiveParser
+import io.github.helterfall.ramen.inspection.LiveMakerLsbParser
+import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.File
 
 data class GameDetection(
@@ -50,28 +54,51 @@ class VisualNovelDetector {
         if (liveMakerArchive != null) {
             val (file, archive) = liveMakerArchive
             val relativePath = file.relativeTo(gameDirectory).invariantSeparatorsPath
-            val hasCompiledScript = scannedFiles.any { it.extension.equals("lsb", ignoreCase = true) } ||
-                archive.entries.any { it.name.endsWith(".lsb", ignoreCase = true) }
+            val archiveParser = LiveMakerArchiveParser()
+            val hasLooseCompiledScript = scannedFiles.any { candidate ->
+                candidate.extension.equals("lsb", ignoreCase = true) &&
+                    candidate.length() in 1L..MAX_LSB_BYTES &&
+                    runCatching {
+                        FileRandomAccessSource(candidate).use { source ->
+                            LiveMakerLsbParser().parse(source).isComplete
+                        }
+                    }.getOrDefault(false)
+            }
+            val hasArchivedCompiledScript = archive.entries.asSequence()
+                .filter { it.name.endsWith(".lsb", ignoreCase = true) }
+                .any { entry ->
+                    runCatching {
+                        val output = ByteArrayOutputStream()
+                        FileRandomAccessSource(file).use { source ->
+                            archiveParser.copyEntryTo(
+                                source = source,
+                                archive = archive,
+                                entry = entry,
+                                output = output,
+                                maxOutputBytes = MAX_LSB_BYTES
+                            )
+                        }
+                        DetectorByteArraySource(output.toByteArray()).use { source ->
+                            LiveMakerLsbParser().parse(source).isComplete
+                        }
+                    }.getOrDefault(false)
+                }
+            val hasCompiledScript = hasLooseCompiledScript || hasArchivedCompiledScript
             return GameDetection(
                 engineId = "livemaker-vf102",
                 engineLabel = if (hasCompiledScript) {
-                    "LiveMaker VF v102 (предпросмотр ресурсов)"
+                    "LiveMaker VF v102 (активный рантайм)"
                 } else {
-                    "LiveMaker VF v102 (парсер доступен)"
+                    "LiveMaker VF v102 (парсер архива)"
                 },
-                compatibilityStatus = if (hasCompiledScript) {
-                    "MEDIA_PREVIEW_AVAILABLE"
-                } else {
-                    "PARSER_AVAILABLE"
-                },
+                compatibilityStatus = if (hasCompiledScript) "PLAYABLE" else "PARSER_AVAILABLE",
                 evidence = "Validated LiveMaker VF v102 archive in $relativePath at " +
                     "0x${archive.archiveOffset.toString(16)}; " +
                     "${archive.entries.size} directory entries parsed. " +
                     if (hasCompiledScript) {
-                        "A compiled .lsb page was found; bounded session/media preview is available. " +
-                            "TextIns payloads remain opaque."
+                        "A compiled .lsb page passed the LSB parser; the Ramen LiveMaker runner is enabled."
                     } else {
-                        "No compiled .lsb page was found; only archive inspection is available."
+                        "No valid compiled .lsb page was found; archive inspection only."
                     }
             )
         }
@@ -177,6 +204,33 @@ class VisualNovelDetector {
         private const val MAX_SCAN_DEPTH = 4
         private const val MAX_SCANNED_FILES = 10_000
         private const val MIN_LIVEMAKER_CONTAINER_SIZE = 10L
+        private const val MAX_LSB_BYTES = 32L * 1024L * 1024L
         private val LIVEMAKER_CONTAINER_EXTENSIONS = setOf("exe", "dat", "vf", "ext")
     }
+}
+
+
+private class DetectorByteArraySource(
+    private val bytes: ByteArray
+) : ReadOnlyRandomAccessSource {
+    override val sizeBytes: Long
+        get() = bytes.size.toLong()
+
+    override fun readAt(
+        position: Long,
+        target: ByteArray,
+        targetOffset: Int,
+        length: Int
+    ): Int {
+        require(position >= 0L)
+        require(targetOffset >= 0 && targetOffset <= target.size)
+        require(length >= 0 && length <= target.size - targetOffset)
+        if (length == 0) return 0
+        if (position >= bytes.size.toLong()) return -1
+        val count = minOf(length, bytes.size - position.toInt())
+        System.arraycopy(bytes, position.toInt(), target, targetOffset, count)
+        return count
+    }
+
+    override fun close() = Unit
 }
