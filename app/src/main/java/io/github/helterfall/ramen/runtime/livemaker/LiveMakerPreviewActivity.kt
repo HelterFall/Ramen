@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -260,12 +259,14 @@ class LiveMakerPreviewActivity : ComponentActivity() {
                     "Виртуальная машина выполняется." to false
                 LiveMakerVmEvent.Completed ->
                     "Достигнут конец стартового сценария." to false
+                is LiveMakerVmEvent.ScriptTransfer ->
+                    "VM ожидает переход на страницу " + engineEvent.page + "." to false
             }
         }
 
     private fun decodeImage(bytes: ByteArray, extension: String): Bitmap {
         if (extension == "gal") {
-            return ByteArrayRandomAccessSource(bytes).use { source ->
+            return LiveMakerImageByteArraySource(bytes).use { source ->
                 LiveMakerGalDecoder(maxDecodedPixels = MAX_IMAGE_PIXELS)
                     .decode(source)
                     .toBitmap()
@@ -444,7 +445,7 @@ private fun LiveMakerPreviewScreen(
     }
 }
 
-private class ByteArrayRandomAccessSource(
+private class LiveMakerImageByteArraySource(
     private val bytes: ByteArray
 ) : ReadOnlyRandomAccessSource {
     override val sizeBytes: Long
