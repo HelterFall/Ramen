@@ -100,8 +100,8 @@ class LiveMakerTpWordDecoder(
             when (type) {
                 GLYPH_CHAR -> {
                     cursor.readOptionalCondition(version)
+                    // readOptionalLink() also consumes the glyph's text_speed field.
                     cursor.readOptionalLink(version)
-                    cursor.readU32("text speed")
                     val charValue = cursor.readU16("text character")
                     cursor.readInt32("text decorator")
                     current.append(decodeCp932Glyph(charValue))
@@ -163,8 +163,8 @@ class LiveMakerTpWordDecoder(
                 }
                 GLYPH_IMAGE -> {
                     cursor.readOptionalCondition(version)
+                    // readOptionalLink() also consumes the image glyph's text_speed field.
                     cursor.readOptionalLink(version)
-                    cursor.readU32("image text speed")
                     val source = cursor.readString("inline image source")
                     inlineImages += source
                     cursor.readU8("inline image alignment")
