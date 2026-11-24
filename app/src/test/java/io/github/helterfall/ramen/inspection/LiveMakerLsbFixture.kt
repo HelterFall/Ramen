@@ -256,6 +256,13 @@ internal object LiveMakerLsbFixture {
             expression(operation(0, "____value", listOf(valueExpression)))
     )
 
+    fun pcReset(page: String, labelIndex: Int, allClear: Boolean = false): ByteArray =
+        command(40, ByteArrayOutputStream().also { output ->
+            writeString(output, page)
+            writeU32(output, labelIndex.toLong())
+            output.write(if (allClear) 1 else 0)
+        }.toByteArray())
+
     fun paramString(value: String): ByteArray =
         ByteArrayOutputStream().also { output ->
             output.write(4) // ParamType.Str

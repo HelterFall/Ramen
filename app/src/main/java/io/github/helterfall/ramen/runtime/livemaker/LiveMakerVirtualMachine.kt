@@ -264,6 +264,7 @@ class LiveMakerVirtualMachine(
                             ?: return unsupported(command, "PCReset is missing its target label.")
                         if (command.byteValues.firstOrNull() != 0) callStack.clear()
                         programCounter += 1
+                        waitingForHost = true
                         return LiveMakerVmEvent.ScriptTransfer(
                             page = page,
                             labelIndex = label,

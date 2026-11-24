@@ -250,6 +250,50 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun pcResetTransfersToTargetPageAndAllowsHostToLoadIt() {
+        val sourceBytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.pcReset(
+                    page = "reset-target.lsb",
+                    labelIndex = 0,
+                    allClear = true
+                )
+            )
+        )
+        val targetBytes = LiveMakerLsbFixture.build(
+            commands = listOf(LiveMakerLsbFixture.exitWhenTrue())
+        )
+
+        withSource(sourceBytes) { source ->
+            withSource(targetBytes) { target ->
+                val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+                val transfer = vm.runUntilEvent() as LiveMakerVmEvent.ScriptTransfer
+
+                assertEquals("reset-target.lsb", transfer.page)
+                assertEquals(0L, transfer.labelIndex)
+                vm.loadTransferredScript(
+                    newScript = LiveMakerLsbParser().parse(target),
+                    entryCommandIndex = 0,
+                    isCall = false,
+                    scriptIdentifier = transfer.page
+                )
+                assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            }
+        }
+    }
+
+    @Test
+    fun everyRequestedSceneCommandHasAnExplicitExecutionRoute() {
+        val expected = setOf(
+            8, 9, 10, 19, 43, 50, 51, 52, 56,
+            25, 26, 30,
+            23, 24, 28, 54, 57, 13, 11, 46, 40, 59, 60, 38, 39, 17, 18
+        )
+        assertEquals(expected, LiveMakerSceneCommandAdapter.requestedSceneCommandIds)
+        assertTrue(expected.all(LiveMakerSceneCommandAdapter::hasExecutionRoute))
+    }
+
+    @Test
     fun loadsCalledScriptAndReturnsToCaller() {
         val callerBytes = LiveMakerLsbFixture.build(
             commands = listOf(
