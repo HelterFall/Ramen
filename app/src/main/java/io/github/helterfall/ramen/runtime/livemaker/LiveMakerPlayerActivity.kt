@@ -135,6 +135,9 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     @Volatile private var lastAudioStatus: SystemNnnAudioPlaybackStatus? = null
     @Volatile private var currentAudioChannel: String? = null
     @Volatile private var currentAudioResourceName: String? = null
+    @Volatile private var waitingForTpWordPlayback = false
+    @Volatile private var tpWordPlaybackCanSkip = false
+    @Volatile private var skipTpWordPlaybackRequested = false
     @Volatile private var messageWindowVisible = true
     @Volatile private var currentSpeakerName: String? = null
 
@@ -249,6 +252,13 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     }
 
     private fun continueSession() {
+        // WAITPLAY with the CLICK option is skippable. Set this on the caller thread:
+        // the single VM worker may currently be blocked waiting for MediaPlayer.
+        if (waitingForTpWordPlayback && tpWordPlaybackCanSkip) {
+            skipTpWordPlaybackRequested = true
+            synchronized(audioStatusMonitor) { audioStatusMonitor.notifyAll() }
+            return
+        }
         worker.execute {
             val session = liveSession ?: return@execute
             try {
@@ -1021,7 +1031,9 @@ class LiveMakerPlayerActivity : ComponentActivity() {
 
             "WAITPLAY" -> {
                 val target = args.get(0, "TARGET", "CHANNEL", "NAME") ?: return
-                awaitTpWordPlayback(target)
+                val clickSkippable = args.get(1, "SKIP", "MODE")
+                    ?.equals("CLICK", ignoreCase = true) == true
+                awaitTpWordPlayback(target, clickSkippable)
             }
 
             "WAIT" -> {
@@ -1124,7 +1136,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         }
     }
 
-    private fun awaitTpWordPlayback(target: String) {
+    private fun awaitTpWordPlayback(target: String, clickSkippable: Boolean) {
         val expectedChannel = currentAudioChannel
         val expectedResource = currentAudioResourceName
         if (expectedResource.isNullOrBlank()) return
@@ -1133,26 +1145,44 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             target.equals(expectedResource.substringAfterLast('/'), ignoreCase = true)
         if (!targetMatches) return
 
+        waitingForTpWordPlayback = true
+        tpWordPlaybackCanSkip = clickSkippable
+        skipTpWordPlaybackRequested = false
+        if (clickSkippable) {
+            mainHandler.post {
+                if (!isFinishing && !isDestroyed) {
+                    uiState.value = uiState.value.copy(
+                        canContinue = true,
+                        waitingForTap = true,
+                        dialogueText = ""
+                    )
+                }
+            }
+        }
+
         val startedAt = android.os.SystemClock.elapsedRealtime()
         val timeout = MAX_TPWORD_PLAYBACK_WAIT_MS
-        synchronized(audioStatusMonitor) {
-            while (true) {
-                val status = lastAudioStatus
-                if (status == null || !status.resourceName.equals(expectedResource, ignoreCase = true)) {
-                    return
+        try {
+            synchronized(audioStatusMonitor) {
+                while (!skipTpWordPlaybackRequested) {
+                    val status = lastAudioStatus
+                    if (status == null ||
+                        !status.resourceName.equals(expectedResource, ignoreCase = true) ||
+                        status.state == SystemNnnAudioPlaybackState.COMPLETED ||
+                        status.state == SystemNnnAudioPlaybackState.STOPPED ||
+                        status.state == SystemNnnAudioPlaybackState.ERROR
+                    ) {
+                        break
+                    }
+                    val remaining = timeout - (android.os.SystemClock.elapsedRealtime() - startedAt)
+                    if (remaining <= 0L) break
+                    audioStatusMonitor.wait(minOf(remaining, 250L))
                 }
-                if (status.state == SystemNnnAudioPlaybackState.COMPLETED ||
-                    status.state == SystemNnnAudioPlaybackState.STOPPED ||
-                    status.state == SystemNnnAudioPlaybackState.ERROR
-                ) {
-                    return
-                }
-                val remaining = timeout - (android.os.SystemClock.elapsedRealtime() - startedAt)
-                if (remaining <= 0L) {
-                    return
-                }
-                audioStatusMonitor.wait(minOf(remaining, 250L))
             }
+        } finally {
+            waitingForTpWordPlayback = false
+            tpWordPlaybackCanSkip = false
+            skipTpWordPlaybackRequested = false
         }
     }
 
