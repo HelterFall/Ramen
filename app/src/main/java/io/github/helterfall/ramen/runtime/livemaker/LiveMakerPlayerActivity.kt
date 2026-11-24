@@ -661,30 +661,11 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 val targetExpression = command.expressions.firstOrNull() ?: return false
                 val target = session.evaluateExpression(targetExpression)?.toString().orEmpty()
                 val asset = soundObjects[target] ?: repository.findAsset(target) ?: return false
-                val staged = repository.stageAudio(asset, File(cacheDir, "livemaker-audio"))
-                mainHandler.post {
-                    if (isFinishing || isDestroyed) {
-                        staged.delete()
-                    } else {
-                        val player = audioPlayer ?: SystemNnnAudioPlayer { status ->
-                            mainHandler.post {
-                                if (!isFinishing && !isDestroyed) {
-                                    uiState.value = uiState.value.copy(
-                                        audioStatus = status.state.name.lowercase() +
-                                            ": " + status.resourceName
-                                    )
-                                }
-                            }
-                        }.also { audioPlayer = it }
-                        runCatching { player.play(staged, asset.path) }
-                            .onFailure { error ->
-                                staged.delete()
-                                uiState.value = uiState.value.copy(
-                                    errorMessage = error.message ?: "Could not play LiveMaker audio."
-                                )
-                            }
-                    }
-                }
+                startTpWordAudio(
+                    repository.stageAudio(asset, File(cacheDir, "livemaker-audio")),
+                    asset,
+                    target
+                )
                 return true
             }
 
@@ -710,6 +691,13 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             }
 
             21 -> {
+                synchronized(audioStatusMonitor) {
+                    lastAudioStatus = SystemNnnAudioPlaybackStatus(
+                        SystemNnnAudioPlaybackState.STOPPED,
+                        currentAudioResourceName.orEmpty()
+                    )
+                    audioStatusMonitor.notifyAll()
+                }
                 mainHandler.post { audioPlayer?.stop() }
                 return true
             }
