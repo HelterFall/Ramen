@@ -128,7 +128,7 @@ class LiveMakerVirtualMachineTest {
             )
 
             assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
-            assertEquals(640L, vm.variablesSnapshot()["left"])
+            assertEquals(640, vm.variablesSnapshot()["left"])
             assertEquals(0, vm.variablesSnapshot()["rowCount"])
             assertEquals(false, vm.variablesSnapshot()["ignoreMouse"])
             assertEquals(false, vm.variablesSnapshot()["reverse"])
