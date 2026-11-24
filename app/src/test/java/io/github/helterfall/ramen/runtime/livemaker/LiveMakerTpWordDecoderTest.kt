@@ -118,8 +118,8 @@ class LiveMakerTpWordDecoderTest {
         assertEquals(1, decoded.decorators.size)
         assertEquals("font-name", decoded.decorators.single().unk8)
         assertEquals("ruby", decoded.decorators.single().ruby)
-        assertEquals(1L, decoded.decorators.single().count)
-        assertEquals(listOf(LiveMakerTpWordCondition(7L, "history")), decoded.conditions)
+        assertEquals(3L, decoded.decorators.single().count)
+        assertEquals(listOf(LiveMakerTpWordCondition(9L, "history")), decoded.conditions)
         assertEquals(listOf(LiveMakerTpWordLink(2L, "CLICK", "reserved")), decoded.links)
         assertEquals("A\nenabled", decoded.plainText)
         assertEquals(1, decoded.characterCount)
@@ -215,7 +215,7 @@ class LiveMakerTpWordDecoderTest {
             ByteArrayOutputStream().also { output ->
                 writeHeader(output, version)
                 writeU32(output, 1) // decorators
-                writeU32(output, 1) // glyph count
+                writeU32(output, 3) // glyph count using this decorator
                 writeU32(output, 2)
                 writeU32(output, 3)
                 writeU32(output, 4)
@@ -229,7 +229,7 @@ class LiveMakerTpWordDecoderTest {
 
                 if (version >= 104) {
                     writeU32(output, 1) // conditions
-                    writeU32(output, 7)
+                    writeU32(output, 9)
                     writeString(output, "history")
                 }
                 if (version >= 105) {
@@ -336,7 +336,6 @@ class LiveMakerTpWordDecoderTest {
                 writeInt32(output, 0) // condition
                 writeInt32(output, decorator)
                 writeU32(output, 0) // reserved
-                writeString(output, "") // legacy link is omitted for v105
                 writeInt32(output, -1) // link
                 writeString(output, name)
             }.toByteArray()
