@@ -38,10 +38,14 @@ internal object LiveMakerLsbFixture {
             output.write(body)
         }.toByteArray()
 
-    fun variableNew(name: String, initialValue: Int): ByteArray =
+    fun variableNew(
+        name: String,
+        initialValue: Int,
+        dataType: Int = 1
+    ): ByteArray =
         command(15, ByteArrayOutputStream().also { output ->
             writeString(output, name)
-            output.write(1) // ParamType.Int
+            output.write(dataType) // ParamType.Int by default
             output.write(expression(
                 operation(
                     type = 1,

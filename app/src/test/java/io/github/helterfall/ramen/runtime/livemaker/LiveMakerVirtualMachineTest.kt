@@ -502,6 +502,188 @@ class LiveMakerVirtualMachineTest {
         }
     }
 
+
+    @Test
+    fun coercesEmptyNullAndNumericStringOperandsInCommandNinety() {
+        val outputs = listOf(
+            "sum" to 1,
+            "difference" to 1,
+            "product" to 1,
+            "quotient" to 1,
+            "remainder" to 1,
+            "equalEmptyAndNull" to 1,
+            "greaterNumericStrings" to 1,
+            "lessNullAndOne" to 1,
+            "notEqualFallbackZero" to 1,
+            "caption" to 4
+        )
+        val setup = outputs.map { (name, type) ->
+            LiveMakerLsbFixture.variableNew(name, 0, type)
+        }
+        val fillers = List(90 - setup.size) {
+            LiveMakerLsbFixture.command(27, LiveMakerLsbFixture.emptyString())
+        }
+        val commandNinety = LiveMakerLsbFixture.calc(
+            // GetProp on a missing object's string property returns an empty string.
+            LiveMakerLsbFixture.functionOperation(
+                functionId = 2,
+                name = "____emptyProperty",
+                operands = listOf(
+                    LiveMakerLsbFixture.paramString("missing-object"),
+                    LiveMakerLsbFixture.paramInt(LiveMakerObjectStore.PR_SOURCE)
+                )
+            ),
+            LiveMakerLsbFixture.operation(
+                2, "____sum",
+                listOf(
+                    LiveMakerLsbFixture.paramVar("____emptyProperty"),
+                    LiveMakerLsbFixture.paramString("1")
+                )
+            ),
+            LiveMakerLsbFixture.operation(1, "sum", listOf(LiveMakerLsbFixture.paramVar("____sum"))),
+
+            LiveMakerLsbFixture.operation(
+                3, "____difference",
+                listOf(
+                    LiveMakerLsbFixture.paramVar("numericString"),
+                    LiveMakerLsbFixture.paramVar("notInitialized")
+                )
+            ),
+            LiveMakerLsbFixture.operation(
+                1, "difference",
+                listOf(LiveMakerLsbFixture.paramVar("____difference"))
+            ),
+
+            LiveMakerLsbFixture.operation(
+                4, "____product",
+                listOf(
+                    LiveMakerLsbFixture.paramString("2"),
+                    LiveMakerLsbFixture.paramString("3")
+                )
+            ),
+            LiveMakerLsbFixture.operation(
+                1, "product",
+                listOf(LiveMakerLsbFixture.paramVar("____product"))
+            ),
+
+            LiveMakerLsbFixture.operation(
+                5, "____quotient",
+                listOf(
+                    LiveMakerLsbFixture.paramString("6"),
+                    LiveMakerLsbFixture.paramString("2")
+                )
+            ),
+            LiveMakerLsbFixture.operation(
+                1, "quotient",
+                listOf(LiveMakerLsbFixture.paramVar("____quotient"))
+            ),
+
+            LiveMakerLsbFixture.operation(
+                6, "____remainder",
+                listOf(
+                    LiveMakerLsbFixture.paramString("5"),
+                    LiveMakerLsbFixture.paramString("2")
+                )
+            ),
+            LiveMakerLsbFixture.operation(
+                1, "remainder",
+                listOf(LiveMakerLsbFixture.paramVar("____remainder"))
+            ),
+
+            LiveMakerLsbFixture.operation(
+                12, "____equal",
+                listOf(
+                    LiveMakerLsbFixture.paramString(""),
+                    LiveMakerLsbFixture.paramVar("notInitialized")
+                )
+            ),
+            LiveMakerLsbFixture.operation(
+                1, "equalEmptyAndNull",
+                listOf(LiveMakerLsbFixture.paramVar("____equal"))
+            ),
+
+            LiveMakerLsbFixture.operation(
+                13, "____greater",
+                listOf(
+                    LiveMakerLsbFixture.paramVar("numericString"),
+                    LiveMakerLsbFixture.paramString("2")
+                )
+            ),
+            LiveMakerLsbFixture.operation(
+                1, "greaterNumericStrings",
+                listOf(LiveMakerLsbFixture.paramVar("____greater"))
+            ),
+
+            LiveMakerLsbFixture.operation(
+                14, "____less",
+                listOf(
+                    LiveMakerLsbFixture.paramVar("notInitialized"),
+                    LiveMakerLsbFixture.paramString("1")
+                )
+            ),
+            LiveMakerLsbFixture.operation(
+                1, "lessNullAndOne",
+                listOf(LiveMakerLsbFixture.paramVar("____less"))
+            ),
+
+            LiveMakerLsbFixture.operation(
+                20, "____notEqual",
+                listOf(
+                    LiveMakerLsbFixture.paramString("not-a-number"),
+                    LiveMakerLsbFixture.paramVar("notInitialized")
+                )
+            ),
+            LiveMakerLsbFixture.operation(
+                1, "notEqualFallbackZero",
+                listOf(LiveMakerLsbFixture.paramVar("____notEqual"))
+            ),
+
+            // Plus remains string concatenation when its destination is ParamType.Str.
+            LiveMakerLsbFixture.operation(
+                2, "____caption",
+                listOf(
+                    LiveMakerLsbFixture.paramString("Chapter "),
+                    LiveMakerLsbFixture.paramString("1")
+                )
+            ),
+            LiveMakerLsbFixture.operation(
+                1, "caption",
+                listOf(LiveMakerLsbFixture.paramVar("____caption"))
+            )
+        )
+
+        val scriptBytes = LiveMakerLsbFixture.build(
+            commands = setup + fillers + commandNinety
+        )
+        withSource(scriptBytes) { source ->
+            val script = LiveMakerLsbParser().parse(source)
+            assertTrue(script.isComplete)
+            assertEquals(91, script.commands.size)
+            assertEquals(90, script.commands.last().index)
+            assertEquals(14, script.commands.last().typeId)
+            assertEquals(1, script.commands.last().expressions.size)
+
+            val vm = LiveMakerVirtualMachine(script)
+            vm.setVariable("numericString", "2.5")
+
+            val event = vm.runUntilEvent()
+            assertTrue("Command 90 should run without a Numeric operand expected error: $event",
+                event is LiveMakerVmEvent.Completed
+            )
+            val values = vm.variablesSnapshot()
+            assertEquals(1L, values["sum"])
+            assertEquals(2.5, (values["difference"] as Number).toDouble(), 0.000001)
+            assertEquals(6L, values["product"])
+            assertEquals(3L, values["quotient"])
+            assertEquals(1L, values["remainder"])
+            assertEquals(true, values["equalEmptyAndNull"])
+            assertEquals(true, values["greaterNumericStrings"])
+            assertEquals(true, values["lessNullAndOne"])
+            assertEquals(false, values["notEqualFallbackZero"])
+            assertEquals("Chapter 1", values["caption"])
+        }
+    }
+
     private fun ByteArray.withIndent(indent: Long): ByteArray {
         val copy = copyOf()
         val offset = 1

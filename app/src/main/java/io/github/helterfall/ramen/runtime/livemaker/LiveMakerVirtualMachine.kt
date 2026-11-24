@@ -78,6 +78,8 @@ class LiveMakerVirtualMachine(
     )
 
     private val variables = linkedMapOf<String, Any?>()
+    /** VarNew's serialized ParamType is used by LiveMaker to select Plus vs ComboStr semantics. */
+    private val variableTypes = linkedMapOf<String, Int>()
     private val callStack = ArrayDeque<CallFrame>()
     private var programCounter = 0
     private var scriptIdentifier: String? = initialScriptIdentifier
@@ -189,14 +191,17 @@ class LiveMakerVirtualMachine(
                     15 -> {
                         val variableName = command.strings.firstOrNull()
                             ?: return unsupported(command, "VarNew is missing its variable name.")
-                        val initial = evaluateRequired(command, 0)
+                        val variableType = command.byteValues.firstOrNull()
+                        val initial = evaluateRequired(command, 0, variableType)
                         variables[variableName] = initial
+                        variableType?.let { variableTypes[variableName] = it }
                         programCounter += 1
                     }
                     16 -> {
                         val variableName = command.strings.firstOrNull()
                             ?: return unsupported(command, "VarDel is missing its variable name.")
                         variables.remove(variableName)
+                        variableTypes.remove(variableName)
                         programCounter += 1
                     }
                     20 -> {
@@ -450,13 +455,20 @@ class LiveMakerVirtualMachine(
         return target.toInt()
     }
 
-    private fun evaluateRequired(command: LiveMakerCommand, index: Int): Any? {
+    private fun evaluateRequired(
+        command: LiveMakerCommand,
+        index: Int,
+        resultTypeHint: Int? = null
+    ): Any? {
         val expression = command.expressions.getOrNull(index)
             ?: throw VmEvaluationException("Command is missing expression " + index + ".")
-        return evaluate(expression)
+        return evaluate(expression, resultTypeHint)
     }
 
-    private fun evaluate(expression: LiveMakerExpression): Any? {
+    private fun evaluate(
+        expression: LiveMakerExpression,
+        resultTypeHint: Int? = null
+    ): Any? {
         val local = HashMap<String, Any?>()
 
         fun resolve(parameter: LiveMakerParameter): Any? =
@@ -470,9 +482,16 @@ class LiveMakerVirtualMachine(
                     throw VmEvaluationException("80-bit floating-point operands are parsed but not evaluated yet.")
             }
 
-        for (operation in expression.operations) {
+        for ((operationIndex, operation) in expression.operations.withIndex()) {
             val operands = operation.operands.map(::resolve)
-            val result = evaluateOperation(operation, operands)
+            // Intermediate "____" results inherit the declared type of the next real
+            // destination variable, matching pylivemaker's LiveParser Plus behavior.
+            val destinationType = variableTypes[operation.name]
+                ?: expression.operations.drop(operationIndex + 1)
+                    .firstOrNull { it.typeId == OP_TO && variableTypes.containsKey(it.name) }
+                    ?.let { variableTypes[it.name] }
+                ?: resultTypeHint
+            val result = evaluateOperation(operation, operands, destinationType)
             local[operation.name] = result
             if (operation.typeId == OP_TO && operation.name.isNotEmpty() &&
                 !operation.name.startsWith("____")
@@ -483,7 +502,11 @@ class LiveMakerVirtualMachine(
         return expression.operations.lastOrNull()?.let { local[it.name] }
     }
 
-    private fun evaluateOperation(operation: LiveMakerOperation, values: List<Any?>): Any? {
+    private fun evaluateOperation(
+        operation: LiveMakerOperation,
+        values: List<Any?>,
+        resultTypeHint: Int? = null
+    ): Any? {
         fun pair(): Pair<Any?, Any?> {
             if (values.size != 2) {
                 throw VmEvaluationException("Operator " + operation.typeId + " expects two operands.")
@@ -496,10 +519,15 @@ class LiveMakerVirtualMachine(
             1 -> values.lastOrNull()
             2 -> {
                 val (a, b) = pair()
-                if (a is String || b is String) {
-                    (a?.toString() ?: "") + (b?.toString() ?: "")
-                } else {
+                val numericDestination =
+                    resultTypeHint != null && resultTypeHint in NUMERIC_VARIABLE_TYPES
+                val stringDestination = resultTypeHint == VARIABLE_TYPE_STRING
+                if (numericDestination ||
+                    (!stringDestination && values.all(::isNumericCoercible))
+                ) {
                     numericBinary(a, b) { x, y -> x + y }
+                } else {
+                    (a?.toString() ?: "") + (b?.toString() ?: "")
                 }
             }
             3 -> numericPair(pair()) { a, b -> a - b }
@@ -527,7 +555,10 @@ class LiveMakerVirtualMachine(
                 operation.functionId ?: throw VmEvaluationException("Function operator has no function id."),
                 values
             )
-            12 -> compare(pair()) { a, b -> a == b }
+            12 -> {
+                val (a, b) = pair()
+                compareNumbers(a, b) == 0
+            }
             13 -> compare(pair()) { a, b -> compareNumbers(a, b) > 0 }
             14 -> compare(pair()) { a, b -> compareNumbers(a, b) < 0 }
             15 -> compare(pair()) { a, b -> compareNumbers(a, b) >= 0 }
@@ -539,7 +570,10 @@ class LiveMakerVirtualMachine(
                 if (operation.typeId == 17) left shl right else left shr right
             }
             19 -> values.joinToString("") { it?.toString() ?: "" }
-            20 -> compare(pair()) { a, b -> a != b }
+            20 -> {
+                val (a, b) = pair()
+                compareNumbers(a, b) != 0
+            }
             else -> throw VmEvaluationException("Expression operator " + operation.typeId + " is not supported.")
         }
     }
@@ -569,8 +603,12 @@ class LiveMakerVirtualMachine(
      * UI, input, database, network, or device side effects are intentionally left to a host.
      */
     private fun evaluatePureFunction(functionId: Int, args: List<Any?>): Any? {
-        fun arg(index: Int): Any? =
-            args.getOrNull(index) ?: throw VmEvaluationException("Function $functionId is missing argument $index.")
+        fun arg(index: Int): Any? {
+            if (index !in args.indices) {
+                throw VmEvaluationException("Function $functionId is missing argument $index.")
+            }
+            return args[index]
+        }
 
         fun stringArg(index: Int): String =
             arg(index)?.toString() ?: ""
@@ -776,14 +814,33 @@ class LiveMakerVirtualMachine(
         null -> false
         is Boolean -> value
         is Number -> value.toDouble() != 0.0
-        is String -> value.isNotEmpty()
+        is String -> {
+            val normalized = value.trim()
+            normalized.toDoubleOrNull()?.let { it != 0.0 } ?: normalized.isNotEmpty()
+        }
         else -> false
     }
 
+    /**
+     * Delphi/LiveMaker Variant values are often returned as strings. In numeric
+     * expression contexts an empty, missing, or non-numeric string is equivalent
+     * to zero; numeric strings are parsed rather than rejected.
+     */
     private fun number(value: Any?): Double? = when (value) {
+        null -> 0.0
         is Number -> value.toDouble()
         is Boolean -> if (value) 1.0 else 0.0
+        is String -> value.trim().toDoubleOrNull() ?: 0.0
         else -> null
+    }
+
+    private fun isNumericCoercible(value: Any?): Boolean = when (value) {
+        null, is Number, is Boolean -> true
+        is String -> {
+            val normalized = value.trim()
+            normalized.isEmpty() || normalized.toDoubleOrNull() != null
+        }
+        else -> false
     }
 
     private fun unsupported(command: LiveMakerCommand, reason: String): LiveMakerVmEvent.UnsupportedExpression {
@@ -795,6 +852,15 @@ class LiveMakerVirtualMachine(
 
     companion object {
         private const val OP_TO = 1
+        private const val VARIABLE_TYPE_INT = 1
+        private const val VARIABLE_TYPE_FLOAT = 2
+        private const val VARIABLE_TYPE_FLAG = 3
+        private const val VARIABLE_TYPE_STRING = 4
+        private val NUMERIC_VARIABLE_TYPES = setOf(
+            VARIABLE_TYPE_INT,
+            VARIABLE_TYPE_FLOAT,
+            VARIABLE_TYPE_FLAG
+        )
         private val CP932: Charset = Charset.forName("windows-31j")
     }
 }
