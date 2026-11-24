@@ -973,11 +973,35 @@ class LiveMakerVirtualMachine(
             137 -> { requireCount(0, 1); false }
             140 -> { requireCount(2); false }
             141 -> { requireCount(3); null }
-            142 -> { requireCount(0); textHistoryHost.snapshot().entries.size }
-            143 -> { requireCount(0); textHistoryHost.maxEntries }
-            144 -> {
+            // The game scripts in this title pass the target message-window name to
+            // history getters/setters. This player currently owns one active history stream,
+            // so the target is accepted but resolves to that stream.
+            142 -> {
                 requireCount(1)
-                val requested = numberArg(0).toInt().coerceIn(0, MAX_HISTORY_ENTRIES)
+                textHistoryHost.snapshot().entries.size
+            }
+            143 -> {
+                requireCount(0, 1)
+                textHistoryHost.maxEntries
+            }
+            144 -> {
+                requireCount(1, 2)
+                // SetHistoryMaxCount is used as (target, count) by this game. Keep the
+                // one-argument form too for scripts which only supply the count.
+                val countIndex = if (args.size == 1) {
+                    0
+                } else {
+                    args.indices.lastOrNull { index ->
+                        when (val value = args[index]) {
+                            is Number, is Boolean -> true
+                            is String -> value.trim().toDoubleOrNull() != null
+                            else -> false
+                        }
+                    } ?: args.lastIndex
+                }
+                val requested = (number(args[countIndex]) ?: 0.0)
+                    .toInt()
+                    .coerceIn(0, MAX_HISTORY_ENTRIES)
                 textHistoryHost.setMaxEntries(requested)
                 null
             }

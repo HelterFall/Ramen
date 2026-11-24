@@ -514,7 +514,10 @@ class LiveMakerVirtualMachineTest {
                     LiveMakerLsbFixture.functionOperation(
                         functionId = 144,
                         name = "____setHistoryLimit",
-                        operands = listOf(LiveMakerLsbFixture.paramInt(2))
+                        operands = listOf(
+                            LiveMakerLsbFixture.paramString("message-window"),
+                            LiveMakerLsbFixture.paramInt(2)
+                        )
                     ),
                     LiveMakerLsbFixture.functionOperation(
                         functionId = 143,
@@ -539,7 +542,7 @@ class LiveMakerVirtualMachineTest {
                     LiveMakerLsbFixture.functionOperation(
                         functionId = 142,
                         name = "____historyCount",
-                        operands = emptyList()
+                        operands = listOf(LiveMakerLsbFixture.paramString("message-window"))
                     ),
                     LiveMakerLsbFixture.operation(
                         type = 1,

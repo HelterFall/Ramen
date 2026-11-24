@@ -5,6 +5,7 @@ import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
@@ -27,6 +28,9 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -117,6 +121,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        applyImmersiveGameMode()
         setContent {
             MaterialTheme {
                 LiveMakerPlayerScreen(
@@ -870,6 +875,23 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         }
     }
 
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) applyImmersiveGameMode()
+    }
+
+    @Suppress("DEPRECATION")
+    private fun applyImmersiveGameMode() {
+        window.decorView.systemUiVisibility = (
+            View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or
+                View.SYSTEM_UI_FLAG_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+            )
+    }
+
     override fun onDestroy() {
         worker.shutdownNow()
         liveSession?.close()
@@ -972,36 +994,47 @@ private fun LiveMakerPlayerScreen(
                 }
         }
 
-        Row(
+        val toolsMenuExpanded = remember { mutableStateOf(false) }
+        Box(
             modifier = Modifier
                 .align(Alignment.TopEnd)
-                .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 12.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
+                .padding(6.dp)
         ) {
-            state.pageReference?.let { reference ->
+            IconButton(onClick = { toolsMenuExpanded.value = true }) {
                 Text(
-                    text = reference,
-                    color = Color(0xFFDDD8CE),
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(end = 8.dp)
+                    text = "⋮",
+                    color = Color.White,
+                    style = MaterialTheme.typography.titleLarge
                 )
             }
-            Button(onClick = onHistoryClick) {
-                Text("История · ${state.historyEntries.size}")
-            }
-            Button(
-                onClick = onResourcesClick,
-                modifier = Modifier.padding(start = 8.dp)
+            DropdownMenu(
+                expanded = toolsMenuExpanded.value,
+                onDismissRequest = { toolsMenuExpanded.value = false }
             ) {
-                Text("Ресурсы · ${state.assets.size}")
+                DropdownMenuItem(
+                    text = { Text("История · ${state.historyEntries.size}") },
+                    onClick = {
+                        toolsMenuExpanded.value = false
+                        onHistoryClick()
+                    }
+                )
+                DropdownMenuItem(
+                    text = { Text("Ресурсы · ${state.assets.size}") },
+                    onClick = {
+                        toolsMenuExpanded.value = false
+                        onResourcesClick()
+                    }
+                )
             }
         }
 
-        if (!state.isCompleted) {
+        val diagnosticMessage = state.errorMessage ?: state.eventDescription.takeIf {
+            it.startsWith("Неподдерживаемое выражение") ||
+                it.contains("ожидает host adapter")
+        }
+        if (!state.isCompleted &&
+            (state.dialogueText.isNotEmpty() || state.isLoading || state.canContinue)
+        ) {
             Surface(
                 color = Color(0xE6101216),
                 contentColor = Color.White,
@@ -1042,37 +1075,58 @@ private fun LiveMakerPlayerScreen(
                         )
                     }
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.End
-                    ) {
-                        Text(
-                            text = when {
-                                state.canContinue -> "КОСНИТЕСЬ ДЛЯ ПРОДОЛЖЕНИЯ"
-                                else -> " "
-                            },
-                            color = Color(0xFFF2B766),
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
-
-                    state.errorMessage?.let { message ->
-                        Text(
-                            text = message,
-                            color = Color(0xFFFF9D9D),
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    state.audioStatus?.let { status ->
-                        Text(
-                            text = status,
-                            color = Color(0xFFA8ADB7),
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                    if (state.canContinue) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.End
+                        ) {
+                            Text(
+                                text = "КОСНИТЕСЬ ДЛЯ ПРОДОЛЖЕНИЯ",
+                                color = Color(0xFFF2B766),
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
                     }
                 }
             }
-        } else {
+        }
+        diagnosticMessage?.let { message ->
+            Surface(
+                color = Color(0xB8101216),
+                contentColor = Color(0xFFFFB4AB),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = message,
+                    color = Color(0xFFFFB4AB),
+                    style = MaterialTheme.typography.labelSmall,
+                    maxLines = 2,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
+        state.audioStatus?.let { status ->
+            Surface(
+                color = Color(0xB8101216),
+                contentColor = Color(0xFFA8ADB7),
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(8.dp)
+            ) {
+                Text(
+                    text = status,
+                    color = Color(0xFFA8ADB7),
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+                )
+            }
+        }
+
+        if (state.isCompleted) {
             Surface(
                 color = Color(0xE6101216),
                 shape = RoundedCornerShape(18.dp),
