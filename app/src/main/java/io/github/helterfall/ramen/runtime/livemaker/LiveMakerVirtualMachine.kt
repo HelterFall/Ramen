@@ -1318,7 +1318,6 @@ class LiveMakerVirtualMachine(
                 setMenuItemValue("enabled", truthy(arg(2)))
                 null
             }
-            133 -> { requireCount(1, 2); null }
             134 -> { requireCount(1); emptyList<String>() }
             136 -> { requireCount(1); false }
             161 -> {

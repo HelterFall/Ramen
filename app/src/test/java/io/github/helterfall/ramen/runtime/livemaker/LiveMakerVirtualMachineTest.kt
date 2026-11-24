@@ -666,7 +666,7 @@ class LiveMakerVirtualMachineTest {
             assertEquals(3, values["arrayCount"])
             assertEquals(2, values["remaining"])
             assertEquals("folder/", values["delimited"])
-            assertEquals(listOf("うえお", "last"), values["lines"])
+            assertEquals(listOf("あい", "last"), values["lines"])
         }
     }
 
