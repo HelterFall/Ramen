@@ -70,7 +70,7 @@ internal fun decodeLiveMakerEventEscapes(value: String): String {
         }
         value.substring(index, index + 1)
             .toByteArray(CP932)
-            .forEach(bytes::write)
+            .forEach { encodedByte -> bytes.write(encodedByte.toInt()) }
         index += 1
     }
     return String(bytes.toByteArray(), CP932)
