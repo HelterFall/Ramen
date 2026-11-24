@@ -189,10 +189,9 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 // Host-command dispatch needs the repositories before the first VM step.
                 liveSession = bootstrap.session
                 mediaRepository = assets
-                val firstEvent = nextEvent(bootstrap.session)
-
-                currentEvent = firstEvent
-                val presentation = presentEvent(firstEvent, bootstrap.session)
+                val first = nextPresentation(bootstrap.session)
+                val firstEvent = first.first
+                val presentation = first.second
                 val historySnapshot = historyHost.snapshot()
                 mainHandler.post {
                     if (isFinishing || isDestroyed) {
@@ -207,6 +206,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             eventDescription = presentation.description,
                             canContinue = presentation.canContinue,
                             dialogueText = presentation.dialogueText,
+                            speakerName = currentSpeakerName,
+                            messageWindowVisible = messageWindowVisible,
                             waitingForTap = presentation.waitingForTap,
                             sceneImages = sceneObjects.values.sortedBy { it.priority },
                             sceneComponents = bootstrap.session.objectStore.snapshotAll()
@@ -260,6 +261,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             if (!isFinishing && !isDestroyed) {
                                 uiState.value = uiState.value.copy(
                                     dialogueText = playback.currentText,
+                                    speakerName = currentSpeakerName,
+                                    messageWindowVisible = messageWindowVisible,
                                     waitingForTap = playback.waitingForTap,
                                     canContinue = playback.waitingForTap,
                                     errorMessage = null
@@ -281,15 +284,15 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     }
                 }
 
-                val next = nextEvent(session)
-                currentEvent = next
-                val presentation = presentEvent(next, session)
+                val (next, presentation) = nextPresentation(session)
                 mainHandler.post {
                     if (!isFinishing && !isDestroyed) {
                         uiState.value = uiState.value.copy(
                             eventDescription = presentation.description,
                             canContinue = presentation.canContinue,
                             dialogueText = presentation.dialogueText,
+                            speakerName = currentSpeakerName,
+                            messageWindowVisible = messageWindowVisible,
                             waitingForTap = presentation.waitingForTap,
                             sceneImages = sceneObjects.values.sortedBy { it.priority },
                             sceneComponents = session.objectStore.snapshotAll()
@@ -322,9 +325,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     LiveMakerObjectStore.PR_ONLBTNUP
                 )
                 if (handled) {
-                    val next = nextEvent(session)
-                    currentEvent = next
-                    val presentation = presentEvent(next, session)
+                    val (next, presentation) = nextPresentation(session)
                     val images = sceneObjects.values.sortedBy { it.priority }
                     val components = session.objectStore.snapshotAll()
                         .map(LiveMakerSceneComponent::from)
@@ -335,6 +336,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                                 eventDescription = presentation.description,
                                 canContinue = presentation.canContinue,
                                 dialogueText = presentation.dialogueText,
+                                speakerName = currentSpeakerName,
+                                messageWindowVisible = messageWindowVisible,
                                 waitingForTap = presentation.waitingForTap,
                                 sceneImages = images,
                                 sceneComponents = components,
@@ -383,6 +386,44 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    /**
+     * Consumes state-only TextIns blocks and VM delays internally. Only a real text
+     * run, an explicit TpWord pause/page break, or a user-actionable VM event is
+     * surfaced to Compose. Event-only TextIns blocks must not become fake dialogue.
+     */
+    private fun nextPresentation(
+        session: LiveMakerGameSession
+    ): Pair<LiveMakerSessionEvent, LiveMakerEventPresentation> {
+        repeat(MAX_AUTOMATIC_HOST_COMMANDS) {
+            val event = nextEvent(session)
+            currentEvent = event
+            val presentation = presentEvent(event, session)
+            val engineEvent = (event as? LiveMakerSessionEvent.EngineEvent)?.event
+
+            if (engineEvent is LiveMakerVmEvent.Delay) {
+                if (engineEvent.milliseconds > 0L) {
+                    Thread.sleep(engineEvent.milliseconds.coerceAtMost(MAX_TPWORD_WAIT_MS))
+                }
+                session.resume()
+                return@repeat
+            }
+
+            if (engineEvent is LiveMakerVmEvent.TextBlock &&
+                presentation.dialogueText.isBlank() &&
+                !presentation.waitingForTap
+            ) {
+                // CREATECG/MESON/audio/other controls have already been processed.
+                // Resume automatically instead of displaying the command list.
+                textPlayback = null
+                session.resume()
+                return@repeat
+            }
+
+            return event to presentation
+        }
+        throw IOException("LiveMaker exceeded the automatic presentation budget.")
     }
 
     private fun isCompleted(event: LiveMakerSessionEvent): Boolean =
