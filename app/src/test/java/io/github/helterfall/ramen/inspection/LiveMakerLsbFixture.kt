@@ -11,10 +11,12 @@ internal object LiveMakerLsbFixture {
         componentProperties: Map<Int, Set<Int>> = emptyMap()
     ): ByteArray {
         val output = ByteArrayOutputStream()
+        // Real LSB files store the complete component-property bitmap in each command row.
+        // The current PropertyType map spans 176 entries, i.e. 22 bytes per command type.
         val parameterMapBytes = if (componentProperties.isEmpty()) {
             1
         } else {
-            maxOf(1, ((componentProperties.values.flatten().maxOrNull() ?: 1) + 7) / 8)
+            22
         }
         writeU32(output, version.toLong())
         output.write(0) // flags
