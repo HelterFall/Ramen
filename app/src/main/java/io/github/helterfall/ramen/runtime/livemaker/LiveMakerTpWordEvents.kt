@@ -55,6 +55,7 @@ internal fun isLiveMakerBackgroundLayer(objectName: String, source: String): Boo
         name.contains("背景") ||
         path.contains("/background/", ignoreCase = true) ||
         path.contains("background", ignoreCase = true) ||
+        path.substringAfterLast('/').startsWith("bg", ignoreCase = true) ||
         path.contains("背景")
 }
 
