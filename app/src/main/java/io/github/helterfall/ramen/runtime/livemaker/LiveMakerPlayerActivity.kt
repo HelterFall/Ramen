@@ -800,40 +800,34 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     }
                     val segments = decoded.segments.toMutableList()
                     if (segments.isEmpty()) {
-                        segments += LiveMakerTextSegment("", waitForTap = engineEvent.shouldWait)
-                    } else {
+                        // A TextIns with only CREATECG/WAIT/MESEND commands is not a
+                        // dialogue page and must not become a fake tap-to-continue screen.
+                        segments += LiveMakerTextSegment(
+                            "",
+                            waitForTap = engineEvent.shouldWait && decoded.plainText.isNotEmpty()
+                        )
+                    } else if (decoded.plainText.isNotEmpty()) {
                         val last = segments.last()
-                        val mustWaitForText = engineEvent.shouldWait || decoded.plainText.isNotEmpty()
-                        if (mustWaitForText && !last.waitForTap) {
+                        if (!last.waitForTap) {
                             segments[segments.lastIndex] = last.copy(waitForTap = true)
                         }
                     }
                     textPlayback = LiveMakerTextPlayback(engineEvent, segments)
                     advanceTextPlayback(textPlayback!!, session)
-                    val description = when {
-                        decoded.plainText.isNotBlank() ->
-                            "Диалог · TpWord v" + decoded.version
-                        decoded.events.isNotEmpty() ->
-                            "События TpWord: " + decoded.events.joinToString { it.name }
-                        decoded.inlineImages.isNotEmpty() ->
-                            "Встроенные изображения: " + decoded.inlineImages.joinToString()
-                        else ->
-                            "Пустой TpWord · v" + decoded.version +
-                                " · glyphs=" + decoded.body.size +
-                                " · chars=" + decoded.characterCount
-                    }
                     LiveMakerEventPresentation(
-                        description = description,
+                        // Event names are internal bytecode, not player-facing content.
+                        description = if (decoded.plainText.isNotBlank()) {
+                            "Диалог · TpWord v" + decoded.version
+                        } else {
+                            ""
+                        },
                         canContinue = textPlayback?.waitingForTap == true,
                         dialogueText = textPlayback?.currentText.orEmpty(),
                         waitingForTap = textPlayback?.waitingForTap == true
                     )
                 }
                 is LiveMakerVmEvent.Delay ->
-                    LiveMakerEventPresentation(
-                        "Сценарий запросил паузу " + engineEvent.milliseconds + " мс.",
-                        true
-                    )
+                    LiveMakerEventPresentation("", false)
                 is LiveMakerVmEvent.HostCommandRequired ->
                     LiveMakerEventPresentation(
                         "Команда сцены " + engineEvent.command.typeName +
@@ -1442,9 +1436,12 @@ Image(
             it.startsWith("Неподдерживаемое выражение") ||
                 it.contains("ожидает host adapter")
         }
-        if (!state.isCompleted &&
-            (state.dialogueText.isNotEmpty() || state.isLoading || state.canContinue)
-        ) {
+        val showMessagePanel = !state.isCompleted && (
+            state.isLoading ||
+                (state.dialogueText.isNotEmpty() && state.messageWindowVisible) ||
+                (state.canContinue && state.dialogueText.isBlank())
+            )
+        if (showMessagePanel) {
             Surface(
                 color = Color(0xE6101216),
                 contentColor = Color.White,
@@ -1465,24 +1462,33 @@ Image(
                     modifier = Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    if (state.dialogueText.isNotEmpty()) {
-                        Text(
-                            text = state.dialogueText,
-                            color = Color(0xFFF4F1EA),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                    } else if (state.isLoading) {
+                    if (state.isLoading) {
                         Text(
                             text = "Загрузка игры…",
                             color = Color(0xFFF4F1EA),
                             style = MaterialTheme.typography.bodyLarge
                         )
-                    } else if (state.eventDescription.isNotBlank()) {
-                        Text(
-                            text = state.eventDescription,
-                            color = Color(0xFFD6D2CA),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
+                    } else {
+                        state.speakerName?.takeIf { it.isNotBlank() }?.let { speaker ->
+                            Text(
+                                text = speaker,
+                                color = Color(0xFFF2B766),
+                                style = MaterialTheme.typography.labelLarge
+                            )
+                        }
+                        if (state.dialogueText.isNotEmpty() && state.messageWindowVisible) {
+                            Text(
+                                text = state.dialogueText,
+                                color = Color(0xFFF4F1EA),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        } else if (state.canContinue) {
+                            Text(
+                                text = "…",
+                                color = Color(0xFFD6D2CA),
+                                style = MaterialTheme.typography.bodyLarge
+                            )
+                        }
                     }
 
                     if (state.canContinue) {
