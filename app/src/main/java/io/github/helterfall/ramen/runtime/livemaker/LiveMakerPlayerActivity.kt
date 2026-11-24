@@ -244,7 +244,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 val playback = textPlayback
                 if (playback != null && playback.waitingForTap) {
                     playback.waitingForTap = false
-                    val nextSegment = advanceTextPlayback(playback)
+                    val nextSegment = advanceTextPlayback(playback, session)
                     if (nextSegment != null) {
                         mainHandler.post {
                             if (!isFinishing && !isDestroyed) {
@@ -735,7 +735,6 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     val decoded = LiveMakerTpWordDecoder().decode(engineEvent.tpWordBytes) { name ->
                         session.variablesSnapshot()[name]
                     }
-                    decoded.events.forEach { handleTpWordEvent(it, session) }
                     val includeInHistory = when (
                         val historyFlag = session.evaluateExpression(engineEvent.historyExpression)
                     ) {
@@ -759,7 +758,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                         }
                     }
                     textPlayback = LiveMakerTextPlayback(engineEvent, segments)
-                    advanceTextPlayback(textPlayback!!)
+                    advanceTextPlayback(textPlayback!!, session)
                     val description = when {
                         decoded.plainText.isNotBlank() ->
                             "Диалог · TpWord v" + decoded.version
@@ -959,9 +958,15 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     }
 
     /** Advances through non-blocking TpWord controls until a user tap is required. */
-    private fun advanceTextPlayback(playback: LiveMakerTextPlayback): String? {
+    private fun advanceTextPlayback(
+        playback: LiveMakerTextPlayback,
+        session: LiveMakerGameSession
+    ): String? {
         while (playback.nextSegmentIndex < playback.segments.size) {
             val segment = playback.segments[playback.nextSegmentIndex++]
+            // Execute embedded system events at their position in the TpWord stream,
+            // rather than eagerly running later events before earlier dialogue.
+            segment.eventsBefore.forEach { handleTpWordEvent(it, session) }
             if (segment.clearBefore) playback.currentText = ""
             playback.currentText += segment.text
             if (segment.waitForTap) {
