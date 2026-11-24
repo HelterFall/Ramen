@@ -218,6 +218,105 @@ class LiveMakerVirtualMachine(
                         variableTypes.remove(variableName)
                         programCounter += 1
                     }
+                    17 -> {
+                        val objectName = evaluateRequired(command, 0)?.toString().orEmpty()
+                        val propertyId = number(evaluateRequired(command, 1))?.toInt()
+                            ?: return unsupported(command, "GetProp property ID is not numeric.")
+                        val resultVariable = command.strings.firstOrNull()
+                            ?.takeIf { it.isNotBlank() }
+                            ?: return unsupported(command, "GetProp is missing its destination variable.")
+                        assignVariable(resultVariable, objectStore.getProperty(objectName, propertyId))
+                        programCounter += 1
+                    }
+                    18 -> {
+                        val objectName = evaluateRequired(command, 0)?.toString().orEmpty()
+                        val propertyId = number(evaluateRequired(command, 1))?.toInt()
+                            ?: return unsupported(command, "SetProp property ID is not numeric.")
+                        val value = evaluateRequired(command, 2)
+                        objectStore.setProperty(objectName, propertyId, value)
+                        programCounter += 1
+                    }
+                    26 -> {
+                        val target = command.expressions.firstOrNull()?.let { evaluate(it) }
+                            ?.toString().orEmpty()
+                        if (target.isNotBlank() && objectStore.contains(target)) {
+                            objectStore.setProperty(target, LiveMakerObjectStore.PR_VISIBLE, false)
+                        } else {
+                            objectStore.snapshotAll()
+                                .filter { it.componentTypeId in MENU_COMPONENT_TYPES }
+                                .forEach {
+                                    objectStore.setProperty(it.name, LiveMakerObjectStore.PR_VISIBLE, false)
+                                }
+                        }
+                        programCounter += 1
+                    }
+                    38, 39 -> {
+                        // GameSave/GameLoad are platform save-screen operations. This
+                        // runtime has no external save UI yet; still evaluate their
+                        // conditions so scripts can continue without a blocking host prompt.
+                        command.expressions.forEach { evaluate(it) }
+                        programCounter += 1
+                    }
+                    40 -> {
+                        val page = command.strings.firstOrNull()
+                            ?: return unsupported(command, "PCReset is missing its target page.")
+                        val label = command.integers.firstOrNull()
+                            ?: return unsupported(command, "PCReset is missing its target label.")
+                        if (command.byteValues.firstOrNull() != 0) callStack.clear()
+                        programCounter += 1
+                        return LiveMakerVmEvent.ScriptTransfer(
+                            page = page,
+                            labelIndex = label,
+                            isCall = false,
+                            returnVariable = null,
+                            arguments = emptyList(),
+                            commandIndex = command.index
+                        )
+                    }
+                    46 -> {
+                        // DoEvent drains the current event queue. Android input events
+                        // are delivered directly to the VM, so there is nothing to block on.
+                        programCounter += 1
+                    }
+                    57 -> {
+                        // PropMotion animates a property over time in the desktop player.
+                        // Apply the final value immediately; the scene renderer observes
+                        // the shared object store after the next VM event.
+                        val objectName = command.expressions.getOrNull(1)
+                            ?.let { evaluate(it) }?.toString().orEmpty()
+                        val propertyId = command.expressions.getOrNull(2)
+                            ?.let { number(evaluate(it))?.toInt() }
+                            ?: return unsupported(command, "PropMotion property ID is not numeric.")
+                        val value = command.expressions.getOrNull(3)
+                            ?.let { evaluate(it) }
+                            ?: return unsupported(command, "PropMotion is missing its target value.")
+                        if (objectName.isNotBlank()) objectStore.setProperty(objectName, propertyId, value)
+                        // Evaluate remaining timing/type parameters to preserve script side effects.
+                        command.expressions.drop(4).forEach { evaluate(it) }
+                        programCounter += 1
+                    }
+                    59, 60 -> {
+                        val componentParameterCount = command.componentPropertyIds.size
+                        command.componentPropertyIds.forEachIndexed { index, propertyId ->
+                            command.expressions.getOrNull(index)?.let { expression ->
+                                // Preserve component parameters even though the cabinet operation
+                                // itself acts on object names, not a newly-created component.
+                                evaluate(expression)
+                            }
+                        }
+                        val inverse = command.expressions.getOrNull(componentParameterCount)
+                            ?.let { truthy(evaluate(it)) } ?: false
+                        val targetNames = command.expressions.drop(componentParameterCount + 1)
+                            .mapNotNull { expression ->
+                                evaluate(expression)?.toString()?.takeIf { it.isNotBlank() }
+                            }.toSet()
+                        if (command.typeId == 59) {
+                            objectStore.saveCabinet(targetNames = targetNames, inverse = inverse)
+                        } else {
+                            objectStore.loadCabinet(targetNames = targetNames, inverse = inverse)
+                        }
+                        programCounter += 1
+                    }
                     20 -> {
                         val rawText = command.binaryBlobs.firstOrNull()
                             ?: return unsupported(command, "TextIns is missing its TpWord block.")
@@ -397,6 +496,31 @@ class LiveMakerVirtualMachine(
     /** Accept a host-supplied game or LiveNovel system variable value. */
     fun setVariable(name: String, value: Any?) {
         assignVariable(name, value)
+    }
+
+    /**
+     * Dispatch a component interaction to its configured LiveMaker label handler.
+     *
+     * The handler property may contain a zero-based command index or a label name.
+     * A missing/unresolved handler is a safe no-op; the component remains clickable.
+     */
+    fun triggerObjectEvent(objectName: String, propertyId: Int): Boolean {
+        val snapshot = objectStore.snapshot(objectName) ?: return false
+        if (!snapshot.properties.containsKey(propertyId)) return false
+        val handler = snapshot.properties[propertyId] ?: return false
+        val targetIndex = when (handler) {
+            is Number -> handler.toInt().takeIf { it in script.commands.indices }
+            is String -> script.commands.indexOfFirst { command ->
+                command.typeId == 3 &&
+                    command.strings.firstOrNull()?.equals(handler, ignoreCase = true) == true
+            }.takeIf { it >= 0 }
+            else -> null
+        } ?: return false
+
+        programCounter = targetIndex
+        waitingForHost = false
+        completed = false
+        return true
     }
 
     /** Update device values that are normally provided by the Android player host. */
@@ -1624,6 +1748,7 @@ class LiveMakerVirtualMachine(
     companion object {
         private const val OP_TO = 1
         private const val OP_DIM_TO = 10
+        private val MENU_COMPONENT_TYPES = setOf(25, 30, 56)
         private const val MAX_DYNAMIC_ARRAY_LENGTH = 100_000
         private const val MAX_HISTORY_ENTRIES = 100_000
         private const val MILLIS_PER_DAY = 86_400_000.0
