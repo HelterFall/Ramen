@@ -65,6 +65,60 @@ class LiveMakerStartupAndMediaRepositoryTest {
     }
 
     @Test
+    fun startupSessionExecutesInitialSceneCommandAndProjectsCanvasModel() {
+        val root = Files.createTempDirectory("ramen-livemaker-startup-scene").toFile()
+        try {
+            val componentType = LiveMakerSceneComponent.COMPONENT_BOX_NEW
+            val componentCommand = LiveMakerLsbFixture.componentCommand(
+                type = componentType,
+                properties = mapOf(
+                    LiveMakerObjectStore.PR_NAME to LiveMakerLsbFixture.paramString("start-panel"),
+                    LiveMakerObjectStore.PR_LEFT to LiveMakerLsbFixture.paramInt(24),
+                    LiveMakerObjectStore.PR_TOP to LiveMakerLsbFixture.paramInt(32),
+                    LiveMakerObjectStore.PR_WIDTH to LiveMakerLsbFixture.paramInt(320),
+                    LiveMakerObjectStore.PR_HEIGHT to LiveMakerLsbFixture.paramInt(180),
+                    LiveMakerObjectStore.PR_VISIBLE to LiveMakerLsbFixture.paramFlag(true)
+                )
+            )
+            File(root, "ゲームメイン.lsb").writeBytes(
+                LiveMakerLsbFixture.build(
+                    commands = listOf(componentCommand, LiveMakerLsbFixture.exitWhenTrue()),
+                    componentProperties = mapOf(componentType to setOf(1, 4, 5, 6, 7, 48))
+                )
+            )
+
+            val startup = LiveMakerStartupScriptResolver(root).openSession()
+            startup.session.use { session ->
+                val first = session.runUntilEvent() as LiveMakerSessionEvent.EngineEvent
+                val hostCommand = first.event as LiveMakerVmEvent.HostCommandRequired
+                LiveMakerSceneCommandAdapter.registerComponent(
+                    hostCommand.command,
+                    session.objectStore,
+                    session::evaluateExpression
+                )
+                session.resume()
+
+                val completed = session.runUntilEvent() as LiveMakerSessionEvent.EngineEvent
+                assertTrue(completed.event is LiveMakerVmEvent.Completed)
+
+                val canvasModels = session.objectStore.snapshotAll()
+                    .map(LiveMakerSceneComponent::from)
+                    .filter { it.isRenderable }
+                val startPanel = canvasModels.single()
+
+                assertEquals("start-panel", startPanel.objectName)
+                assertEquals(24f, startPanel.left, 0.001f)
+                assertEquals(32f, startPanel.top, 0.001f)
+                assertEquals(320f, startPanel.width, 0.001f)
+                assertEquals(180f, startPanel.height, 0.001f)
+                assertTrue(startPanel.visible)
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun indexesLooseAndVfMediaAndStagesAudioWithOriginalBytes() {
         val root = Files.createTempDirectory("ramen-livemaker-media").toFile()
         try {
