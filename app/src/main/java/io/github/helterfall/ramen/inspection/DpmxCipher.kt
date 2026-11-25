@@ -218,7 +218,8 @@ class DpmxKeyResolver(
         var candidatePlaintext: ByteArray? = null
         for (al in 0..0xFF) {
             for (cl in 0..0xFF) {
-                val testedKey = DpmxCipherKey(al, cl)
+                // BMP candidates are evaluated with the format's required initial DL=0.
+                val testedKey = DpmxCipherKey(al, cl, initialDl = 0)
                 val plaintext = DpmxDecryptor.decryptBytes(encrypted, testedKey)
                 if (!isPlausible(entry, plaintext)) continue
 

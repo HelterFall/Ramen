@@ -146,7 +146,7 @@ internal object BmpFallbackDecoder {
         }
 
         if (width <= 0 || height <= 0 || planes != 1 ||
-            bitsPerPixel !in SUPPORTED_BITS_PER_PIXEL
+            !(bitsPerPixel in SUPPORTED_BITS_PER_PIXEL)
         ) {
             throw IOException("BMP dimensions, planes or bit depth are invalid.")
         }
@@ -348,13 +348,12 @@ internal object BmpFallbackDecoder {
         return ((value * 255L + maximum / 2L) / maximum).toInt()
     }
 
-    private fun readByteArrayBmpLimit(offset: Int, length: Int): Unit = Unit
-
     private const val BI_RGB = 0L
     private const val BI_RLE8 = 1L
     private const val BI_RLE4 = 2L
     private const val BI_BITFIELDS = 3L
     private const val BI_ALPHABITFIELDS = 6L
+    private val SUPPORTED_BITS_PER_PIXEL = setOf(1, 4, 8, 24, 32)
     private const val MAX_DIMENSION = 8192
     private const val MAX_PIXELS = 16L * 1024L * 1024L
 }
