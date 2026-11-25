@@ -818,6 +818,36 @@ class SystemNnnCommandDecoderImplTest {
         )
     }
 
+    @Test
+    fun gotoUsesAbsoluteDwordTargetAndRejectsPayloadOffsets() {
+        val targetOffset = RECORD_START + 16L
+        val validScript = testScript(
+            records = listOf(
+                record(4, CONTROL, CODE_CONTROL_GOTO, (targetOffset / DWORD_BYTES).toUInt()),
+                record(3, CONTROL, CODE_CONTROL_NOP),
+                record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
+            ),
+            textCount = 1
+        )
+
+        assertEquals(
+            SystemNnnDecodedCommand.Jump(targetOffset),
+            decoder().decodeNext(validScript, RECORD_START)
+        )
+
+        val invalidScript = testScript(
+            records = listOf(
+                record(4, CONTROL, CODE_CONTROL_GOTO, ((RECORD_START + 4L) / DWORD_BYTES).toUInt()),
+                record(3, CONTROL, CODE_CONTROL_NOP),
+                record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
+            ),
+            textCount = 1
+        )
+        assertThrows(IOException::class.java) {
+            decoder().decodeNext(invalidScript, RECORD_START)
+        }
+    }
+
     private fun localSubroutineScript(
         subTableIndex: UInt = 1u,
         returnPayload: List<UInt> = emptyList(),
@@ -1030,6 +1060,7 @@ class SystemNnnCommandDecoderImplTest {
         const val CODE_CONTROL_ENDIF = 0x55560013u
         const val CODE_CONTROL_CASE = 0x55560008u
         const val CODE_CONTROL_RETURN = 0x55560007u
+        const val CODE_CONTROL_GOTO = 0x55560020u
         const val CODE_CONTROL_SUB = 0x55560009u
         const val CODE_OPEN_BRACE = 0xA000007Bu
         const val CODE_CLOSE_BRACE = 0xA000007Du
