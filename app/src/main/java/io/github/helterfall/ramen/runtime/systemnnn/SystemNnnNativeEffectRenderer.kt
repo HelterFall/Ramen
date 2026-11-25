@@ -292,38 +292,56 @@ internal object SystemNnnNativeEffectRenderer {
         parameters: List<Int>
     ): IntArray {
         if (!validFrame(source, width, height)) return source.copyOf()
-        val endLeft = rgb(parameters, 1, 255)
-        val endRight = rgb(parameters, 4, endLeft.red)
-        val startLeft = rgb(parameters, 9, 0)
-        val startRight = rgb(parameters, 12, startLeft.red)
         val speedType = parameters.getOrNull(7) ?: 0
         val subFrame = parameters.getOrNull(8) ?: 0
-        val left = interpolateColor(
-            startLeft, endLeft,
-            SystemNnnVisualEffectMath.nativeSpeedValue(frame, duration, 0, 100, subFrame, speedType)
-        )
-        val right = interpolateColor(
-            startRight, endRight,
-            SystemNnnVisualEffectMath.nativeSpeedValue(frame, duration, 0, 100, subFrame, speedType)
-        )
-        val startY = (parameters.getOrNull(14) ?: 0).coerceIn(0, height)
-        val spanY = (parameters.getOrNull(15) ?: height).coerceAtLeast(1)
+
+        // effectGradation.cpp calculates two independently animated RGB
+        // endpoints: p9..11 -> p1..3 and p12..14 -> p4..6.
+        fun endpoint(startIndex: Int, endIndex: Int): SystemNnnVisualColor =
+            SystemNnnVisualColor(
+                SystemNnnVisualEffectMath.nativeSpeedValue(
+                    frame, duration.coerceAtLeast(1),
+                    parameters.getOrNull(startIndex) ?: 0,
+                    parameters.getOrNull(endIndex) ?: 0,
+                    subFrame, speedType
+                ),
+                SystemNnnVisualEffectMath.nativeSpeedValue(
+                    frame, duration.coerceAtLeast(1),
+                    parameters.getOrNull(startIndex + 1) ?: 0,
+                    parameters.getOrNull(endIndex + 1) ?: 0,
+                    subFrame, speedType
+                ),
+                SystemNnnVisualEffectMath.nativeSpeedValue(
+                    frame, duration.coerceAtLeast(1),
+                    parameters.getOrNull(startIndex + 2) ?: 0,
+                    parameters.getOrNull(endIndex + 2) ?: 0,
+                    subFrame, speedType
+                )
+            )
+
+        val left = endpoint(9, 1)
+        val right = endpoint(12, 4)
+        val startY = (parameters.getOrNull(15) ?: 0).coerceIn(0, height)
+        val spanY = (parameters.getOrNull(16) ?: height).coerceIn(0, height - startY)
         val result = source.copyOf()
-        for (y in startY until min(height, startY + spanY)) {
-            val vertical = if (spanY <= 1) 0f else (y - startY).toFloat() / (spanY - 1)
-            val rowLeft = mixColor(startLeft, left, vertical)
-            val rowRight = mixColor(startRight, right, vertical)
-            val rowBase = y * width
+        if (spanY <= 0) return result
+
+        // Native Print() performs one integer RGB interpolation for each row,
+        // using i/printSizeY (not i/(printSizeY-1)), then adds that color to
+        // every pixel in the row. There is no horizontal interpolation.
+        for (rowIndex in 0 until spanY) {
+            val red = left.red + ((right.red - left.red) * rowIndex) / spanY
+            val green = left.green + ((right.green - left.green) * rowIndex) / spanY
+            val blue = left.blue + ((right.blue - left.blue) * rowIndex) / spanY
+            val row = (startY + rowIndex) * width
             for (x in 0 until width) {
-                val horizontal = if (width <= 1) 0f else x.toFloat() / (width - 1)
-                val tint = mixColor(rowLeft, rowRight, horizontal)
-                val index = rowBase + x
+                val index = row + x
                 val pixel = source[index]
                 result[index] = argb(
                     pixel ushr 24,
-                    ((pixel ushr 16 and 0xFF) + tint.red).coerceIn(0, 255),
-                    ((pixel ushr 8 and 0xFF) + tint.green).coerceIn(0, 255),
-                    ((pixel and 0xFF) + tint.blue).coerceIn(0, 255)
+                    ((pixel ushr 16 and 0xFF) + red).coerceIn(0, 255),
+                    ((pixel ushr 8 and 0xFF) + green).coerceIn(0, 255),
+                    ((pixel and 0xFF) + blue).coerceIn(0, 255)
                 )
             }
         }
