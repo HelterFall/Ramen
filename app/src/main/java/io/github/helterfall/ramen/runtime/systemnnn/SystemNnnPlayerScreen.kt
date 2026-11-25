@@ -302,29 +302,59 @@ fun SystemNnnPlayerScreen(
             }
         }
 
-        if (state.overrapFromBitmap != null && state.overrapToBitmap != null &&
-            !state.overrapFromBitmap.isRecycled && !state.overrapToBitmap.isRecycled
+        val overrapFrameBitmap = remember(
+            state.overrapTransitionId,
+            state.overrapTransitionDurationFrames,
+            state.overrapFromBitmap,
+            state.overrapToBitmap,
+            overrapProgress
         ) {
-            Canvas(
-                Modifier.fillMaxSize().graphicsLayer {
-                    compositingStrategy = CompositingStrategy.Offscreen
-                }
+            val from = state.overrapFromBitmap
+            val to = state.overrapToBitmap
+            if (from == null || to == null || from.isRecycled || to.isRecycled ||
+                from.width != to.width || from.height != to.height
             ) {
-                drawRect(Color.Transparent, blendMode = BlendMode.Clear)
-                val targetSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
-                drawImage(
-                    image = state.overrapFromBitmap.asImageBitmap(),
-                    dstSize = targetSize,
-                    alpha = 1f - overrapProgress,
-                    blendMode = BlendMode.Plus
-                )
-                drawImage(
-                    image = state.overrapToBitmap.asImageBitmap(),
-                    dstSize = targetSize,
-                    alpha = overrapProgress,
-                    blendMode = BlendMode.Plus
-                )
+                null
+            } else {
+                runCatching {
+                    val fromPixels = IntArray(from.width * from.height)
+                    val toPixels = IntArray(to.width * to.height)
+                    from.getPixels(fromPixels, 0, from.width, 0, 0, from.width, from.height)
+                    to.getPixels(toPixels, 0, to.width, 0, 0, to.width, to.height)
+                    val duration = state.overrapTransitionDurationFrames.coerceAtLeast(1)
+                    val frame = (overrapProgress.coerceIn(0f, 1f) * duration).roundToInt()
+                    val (fromWeight, toWeight) =
+                        SystemNnnNativeEffectRenderer.overrapWeights(frame, duration)
+                    val mixed = SystemNnnNativeEffectRenderer.blendOverrap(
+                        fromPixels, toPixels, fromWeight, toWeight
+                    ) ?: return@runCatching null
+                    Bitmap.createBitmap(mixed, from.width, from.height, Bitmap.Config.ARGB_8888)
+                }.getOrNull()
             }
+        }
+        DisposableEffect(overrapFrameBitmap) {
+            onDispose {
+                if (overrapFrameBitmap != null && !overrapFrameBitmap.isRecycled) {
+                    overrapFrameBitmap.recycle()
+                }
+            }
+        }
+        DisposableEffect(state.overrapFromBitmap, state.overrapToBitmap) {
+            val from = state.overrapFromBitmap
+            val to = state.overrapToBitmap
+            onDispose {
+                if (from != null && !from.isRecycled) from.recycle()
+                if (to != null && to !== from && !to.isRecycled) to.recycle()
+            }
+        }
+        overrapFrameBitmap?.let { bitmap ->
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "System-NNN native screen transition",
+                modifier = Modifier.fillMaxSize(),
+                contentScale = ContentScale.FillBounds,
+                alignment = Alignment.TopStart
+            )
         }
 
         QuickMenu(
