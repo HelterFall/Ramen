@@ -399,6 +399,9 @@ class LiveMakerVirtualMachine(
                         if (propertyId == LiveMakerObjectStore.PR_ALPHA &&
                             objectName.isNotBlank() && duration > 0L
                         ) {
+                            // LSB's version-gated Paused flag maps to LiveNovel's MOTION
+                            // WAIT option: when true, the caller must wait for interpolation.
+                            waitingForHost = paused == true
                             return LiveMakerVmEvent.PropertyMotion(
                                 name = motionName,
                                 objectName = objectName,
