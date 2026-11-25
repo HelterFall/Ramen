@@ -131,6 +131,8 @@ class SystemNnnCommandDecoderImpl(
                 }
             }
 
+            CODE_OVERRAP -> decodeOverrap(script, record)
+
             CODE_SELECT -> decodeSelect(script, streamFor(script), record)
 
             else -> return skipUnsupported(record, "unknown or unsupported command code")
@@ -355,6 +357,19 @@ class SystemNnnCommandDecoderImpl(
         }
 
         return when (record.codeId) {
+            CODE_SYSTEMFUNCTION_PREPAREOVERRAP ->
+                SystemNnnDecodedCommand.NativeSystemFunction(record.endOffsetExclusive, record.codeId, emptyList())
+            CODE_SYSTEMFUNCTION_SETCG,
+            CODE_SYSTEMFUNCTION_STARTMESSAGE,
+            CODE_SYSTEMFUNCTION_STARTKOMA,
+            CODE_SYSTEMFUNCTION_SETDEMOFLAG,
+            CODE_SYSTEMFUNCTION_FILMTYPETIME,
+            CODE_SYSTEMFUNCTION_AUTOMESSAGE,
+            CODE_SYSTEMFUNCTION_CANNOTCLICK,
+            CODE_SYSTEMFUNCTION_CANNOTSKIP,
+            CODE_SYSTEMFUNCTION_OPTIONOFF -> decodeCountedNativeSystemFunction(script, record)
+            CODE_SYSTEMFUNCTION_FILMNAME,
+            CODE_SYSTEMFUNCTION_STORYNAME -> decodeStringNativeSystemFunction(script, record)
             CODE_SYSTEMFUNCTION_MUSIC -> decodeMusic(script, record)
             CODE_SYSTEMFUNCTION_VOICE -> decodeVoice(script, record)
             CODE_SYSTEMFUNCTION_SOUND -> decodeSound(script, record)
@@ -385,7 +400,7 @@ class SystemNnnCommandDecoderImpl(
         maximum: Int,
         label: String
     ): Int {
-        if (record.payloadWordCount < 2) {
+        if (record.payloadWordCount < minimum + 1) {
             throw IOException("A System-NNN $label record has no argument payload.")
         }
         val count = readPayloadWord(script, record, 0).toLong()
@@ -397,6 +412,34 @@ class SystemNnnCommandDecoderImpl(
         return count.toInt()
     }
 
+    private fun decodeOverrap(script: SystemNnnScript, record: SystemNnnCommandRecord): SystemNnnDecodedCommand.Draw {
+        val count = readDeclaredArgumentCount(script, record, 0, MAX_EFFECT_ARGUMENTS, "OVERRAP")
+        val arguments = List(count) { index -> readPayloadWord(script, record, index + 1).toInt() }
+        return SystemNnnDecodedCommand.Draw(record.endOffsetExclusive, 1, overrapParameters = arguments)
+    }
+
+    private fun decodeCountedNativeSystemFunction(
+        script: SystemNnnScript, record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.NativeSystemFunction {
+        val count = readDeclaredArgumentCount(script, record, 0, MAX_EFFECT_ARGUMENTS, "native system function")
+        val args = List(count) { index -> readPayloadWord(script, record, index + 1).toInt() }
+        if (record.codeId !in setOf(CODE_SYSTEMFUNCTION_SETCG, CODE_SYSTEMFUNCTION_STARTMESSAGE, CODE_SYSTEMFUNCTION_STARTKOMA) && count == 0) {
+            throw IOException("A System-NNN system function has no required parameter.")
+        }
+        return SystemNnnDecodedCommand.NativeSystemFunction(record.endOffsetExclusive, record.codeId, args)
+    }
+
+    private fun decodeStringNativeSystemFunction(
+        script: SystemNnnScript, record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.NativeSystemFunction {
+        val count = readDeclaredArgumentCount(script, record, 1, MAX_EFFECT_ARGUMENTS, "film/story name")
+        val args = List(count) { index -> readPayloadWord(script, record, index + 1).toInt() }
+        val poolIndex = args.first()
+        val text = script.secondaryTextPool.getOrNull(poolIndex)
+            ?.takeIf { poolIndex >= 0 && !it.hasDecodingErrors && it.text.none { ch -> ch.isISOControl() } }
+            ?.text ?: throw IOException("A System-NNN film/story name references a missing Pool 2 string.")
+        return SystemNnnDecodedCommand.NativeSystemFunction(record.endOffsetExclusive, record.codeId, args, text)
+    }
     private fun decodeMusic(
         script: SystemNnnScript,
         record: SystemNnnCommandRecord
@@ -1154,6 +1197,18 @@ class SystemNnnCommandDecoderImpl(
         const val USER_FUNCTION_ARGUMENT_COUNT_WORDS = 1
         const val USER_FUNCTION_ARGUMENT_COUNT_PAYLOAD = 0
         const val SYSTEM_FUNCTION_FAMILY = 0x3333
+        const val CODE_SYSTEMFUNCTION_PREPAREOVERRAP = 0x0011
+        const val CODE_SYSTEMFUNCTION_SETCG = 0x0018
+        const val CODE_SYSTEMFUNCTION_STARTMESSAGE = 0x001B
+        const val CODE_SYSTEMFUNCTION_STARTKOMA = 0x001C
+        const val CODE_SYSTEMFUNCTION_SETDEMOFLAG = 0x001E
+        const val CODE_SYSTEMFUNCTION_FILMNAME = 0x0050
+        const val CODE_SYSTEMFUNCTION_STORYNAME = 0x0051
+        const val CODE_SYSTEMFUNCTION_FILMTYPETIME = 0x0052
+        const val CODE_SYSTEMFUNCTION_AUTOMESSAGE = 0x0057
+        const val CODE_SYSTEMFUNCTION_CANNOTCLICK = 0x0058
+        const val CODE_SYSTEMFUNCTION_CANNOTSKIP = 0x0059
+        const val CODE_SYSTEMFUNCTION_OPTIONOFF = 0x005A
         const val CODE_SYSTEMFUNCTION_MUSIC = 0x0007
         const val CODE_SYSTEMFUNCTION_VOICE = 0x0008
         const val CODE_SYSTEMFUNCTION_SOUND = 0x0009
@@ -1184,6 +1239,7 @@ class SystemNnnCommandDecoderImpl(
         const val EXPRESSION_FAMILY = 0xA000
 
         const val CODE_PRINT = 0x0001
+        const val CODE_OVERRAP = 0x0005
         const val CODE_LPRINT = 0x0002
         const val CODE_APPEND = 0x0003
         const val CODE_DRAW = 0x0004
