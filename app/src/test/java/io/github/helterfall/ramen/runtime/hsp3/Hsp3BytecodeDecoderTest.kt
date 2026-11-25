@@ -70,6 +70,18 @@ class Hsp3BytecodeDecoderTest {
     }
 
     @Test
+    fun decodesAndExecutesNestedBuiltinStringFunction() {
+        withProgram(createMesWithStringFunction()) { program ->
+            val graphics = RecordingGraphics()
+            val snapshot = Hsp3VirtualMachine(graphics)
+                .runSlice(Hsp3BytecodeDecoder().decode(program))
+
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertTrue(graphics.calls.contains("mes:42"))
+        }
+    }
+
+    @Test
     fun preservesAnOmittedLeadingOptionalParameter() {
         withProgram(createGmodeWithOmittedFirstArgument()) { program ->
             val command = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.NativeCommand
@@ -110,6 +122,18 @@ class Hsp3BytecodeDecoderTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    private fun createMesWithStringFunction(): ByteArray {
+        val code = listOf(
+            0x2009, Hsp3CommandIds.MES,
+            0x000D, 0x0100, // TYPE_INTFUNC str()
+            0x0000, '('.code,
+            0x0004, 42,
+            0x0000, ')'.code,
+            0x200F, 0x10
+        )
+        return createAx(code)
     }
 
     private fun createGmodeWithOmittedFirstArgument(): ByteArray {
