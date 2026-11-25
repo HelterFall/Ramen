@@ -369,7 +369,7 @@ class SystemNnnCommandDecoderImplTest {
             val effectId = pair.first
             val parameters = pair.second
             record(6 + parameters.size, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SETEFFECT,
-                (parameters.size + 2).toUInt(), 0u, effectId.toUInt(), *parameters.map { it.toUInt() }.toTypedArray())
+                (parameters.size + 2).toUInt(), 0u, effectId.toUInt(), *parameters.map { it.toUInt() }.toUIntArray())
         }
         val script = testScript(records, 0)
         var offset = RECORD_START
