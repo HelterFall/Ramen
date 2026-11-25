@@ -90,7 +90,10 @@ data class SystemNnnPlayerUiState(
     val overrapFromBitmap: Bitmap? = null,
     val overrapToBitmap: Bitmap? = null,
     val overrapTransitionId: Long = 0L,
-    val overrapTransitionDurationFrames: Int = 0
+    val overrapTransitionType: Int = 0,
+    val overrapTransitionDurationFrames: Int = 0,
+    val overrapOptionButtonPrintFlag: Int = 1,
+    val overrapSceneButtonPrintFlag: Int = 1
 )
 
 /**
@@ -323,6 +326,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var savedGetScreenBufferBitmap: Bitmap? = null
     private var preparedOverrapBitmap: Bitmap? = null
     private var overrapPrepared: Boolean = false
+    private var pendingOverrapType: Int = 0
+    private var pendingOverrapLengthFrames: Int = DEFAULT_OVERRAP_LENGTH_FRAMES
     private var currentModuleName: String? = null
     private var currentFilmNumber: Int? = null
     private var projectModules: Map<String, SystemNnnPlayerModuleProgram> = emptyMap()
@@ -613,8 +618,29 @@ class SystemNnnPlayerViewModel : ViewModel() {
         advanceToVisibleEvent()
     }
 
+    /** Applies the optional native init/Overrap.xtx button flags to the current player. */
+    fun setOverrapConfig(config: SystemNnnOverrapConfig) {
+        uiState = uiState.copy(
+            overrapOptionButtonPrintFlag = config.optionButtonPrintFlag,
+            overrapSceneButtonPrintFlag = config.sceneButtonPrintFlag
+        )
+        diagnosticLog?.record(
+            "overrap_setup",
+            "configured=${config.isConfigured} optionButtonPrintFlag=${config.optionButtonPrintFlag} " +
+                "sceneButtonPrintFlag=${config.sceneButtonPrintFlag}"
+        )
+    }
+
     /** Requests a frame capture and pauses the interpreter until Compose returns it. */
-    private fun requestScreenCapture(purpose: SystemNnnScreenCapturePurpose) {
+    private fun requestScreenCapture(
+        purpose: SystemNnnScreenCapturePurpose,
+        overrapParameters: List<Int> = emptyList()
+    ) {
+        if (purpose == SystemNnnScreenCapturePurpose.OVERRAP_TARGET) {
+            pendingOverrapType = overrapParameters.getOrNull(0) ?: 0
+            pendingOverrapLengthFrames = (overrapParameters.getOrNull(1)
+                ?: DEFAULT_OVERRAP_LENGTH_FRAMES).coerceIn(1, 9_999)
+        }
         screenCaptureRequestCounter += 1L
         uiState = uiState.copy(
             isLoading = false,
@@ -690,7 +716,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         overrapFromBitmap = from,
                         overrapToBitmap = bitmap,
                         overrapTransitionId = current.overrapTransitionId + 1L,
-                        overrapTransitionDurationFrames = DEFAULT_OVERRAP_LENGTH_FRAMES,
+                        overrapTransitionType = pendingOverrapType,
+                        overrapTransitionDurationFrames = pendingOverrapLengthFrames,
                         pendingDrawFrameCount = null
                     )
                 }
@@ -1544,7 +1571,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
                                 "offset=0x${commandOffset.toString(16)} frames=$drawFrames"
                         )
-                        if (command.overrapParameters != null) overrapPrepared = false
                         updateDiagnosticSnapshot(command.nextCommandOffset, if (command.overrapParameters == null) "DrawFrame" else "OverrapBoundary")
                         uiState = uiState.copy(
                             drawEventId = drawEventId,
@@ -1563,7 +1589,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             }
                         )
                         if (command.overrapParameters != null && overrapPrepared) {
-                            requestScreenCapture(SystemNnnScreenCapturePurpose.OVERRAP_TARGET)
+                            requestScreenCapture(
+                                SystemNnnScreenCapturePurpose.OVERRAP_TARGET,
+                                command.overrapParameters
+                            )
                         }
                         return
                     }
