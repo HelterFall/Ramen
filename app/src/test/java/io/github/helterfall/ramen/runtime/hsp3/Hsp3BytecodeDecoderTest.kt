@@ -1,7 +1,6 @@
 package io.github.helterfall.ramen.runtime.hsp3
 
 import io.github.helterfall.ramen.parser.Hsp3BytecodeLoader
-import java.io.Closeable
 import java.io.File
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
@@ -70,6 +69,38 @@ class Hsp3BytecodeDecoderTest {
         }
     }
 
+    @Test
+    fun preservesAnOmittedLeadingOptionalParameter() {
+        withProgram(createGmodeWithOmittedFirstArgument()) { program ->
+            val command = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.NativeCommand
+            assertEquals(Hsp3CommandIds.GMODE, command.commandId)
+            assertEquals(2, command.arguments.size)
+            assertEquals(null, command.arguments[0])
+            assertEquals(
+                Hsp3RuntimeValue.IntegerValue(3),
+                command.arguments[1]!!.evaluate(
+                    variable = { Hsp3RuntimeValue.IntegerValue(0) },
+                    systemVariable = { Hsp3RuntimeValue.IntegerValue(0) }
+                )
+            )
+        }
+    }
+
+    @Test
+    fun assignmentCommandIsConvertedToTypedVmInstruction() {
+        withProgram(createAssignmentProgram()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+            val assignment = instructions.first() as Hsp3Instruction.Assign
+            assertEquals(4, assignment.variable)
+            assertEquals(Hsp3BytecodeDecoder.CALCCODE_EQ, assignment.operator)
+
+            val vm = Hsp3VirtualMachine(RecordingGraphics())
+            val snapshot = vm.runSlice(instructions)
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertEquals(9, snapshot.variables[4])
+        }
+    }
+
     private fun withProgram(bytes: ByteArray, block: (io.github.helterfall.ramen.parser.Hsp3Program) -> Unit) {
         val directory = Files.createTempDirectory("ramen-hsp3-decoder").toFile()
         try {
@@ -79,6 +110,25 @@ class Hsp3BytecodeDecoderTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    private fun createGmodeWithOmittedFirstArgument(): ByteArray {
+        val code = listOf(
+            0x2009, Hsp3CommandIds.GMODE,
+            0x4004, 3,     // EXFLG_2: first emitted token belongs to argument 2
+            0x200F, 0x10
+        )
+        return createAx(code)
+    }
+
+    private fun createAssignmentProgram(): ByteArray {
+        val code = listOf(
+            0x2001, 4,     // TYPE_VAR + EXFLG_1: assign variable #4
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0004, 9,
+            0x200F, 0x10
+        )
+        return createAx(code)
     }
 
     private fun createColorProgram(): ByteArray {
