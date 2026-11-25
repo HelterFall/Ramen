@@ -80,12 +80,14 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         program: Hsp3Program
     ): Hsp3Expression? {
         if (tokens.isEmpty()) return null
-        if (tokens.size == 1 && tokens[0].type == TYPE_MARK && tokens[0].value == OMITTED_ARGUMENT_MARK.toLong()) {
-            return null
-        }
+        if (tokens.size == 1 && tokens[0].type == TYPE_MARK &&
+            tokens[0].value == OMITTED_ARGUMENT_MARK.toLong()
+        ) return null
 
         val stack = ArrayDeque<Hsp3ExpressionNode>()
-        tokens.forEach { token ->
+        var cursor = 0
+        while (cursor < tokens.size) {
+            val token = tokens[cursor]
             when (token.type) {
                 TYPE_MARK -> {
                     val operator = token.value.toInt()
@@ -124,7 +126,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 TYPE_LABEL -> {
                     val target = program.labelCodeOffset(checkedIndex(
                         token.value,
-                        (program.objectTempSegment.sizeBytes / 4L),
+                        program.objectTempSegment.sizeBytes / 4L,
                         "label"
                     ))
                     stack.addLast(Hsp3ExpressionNode.Literal(
@@ -134,15 +136,65 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 TYPE_SYSVAR -> {
                     stack.addLast(Hsp3ExpressionNode.SystemVariable(token.value.toInt()))
                 }
+                TYPE_INTFUNC -> {
+                    val (arguments, nextCursor) = readFunctionArguments(
+                        tokens,
+                        cursor + 1,
+                        program
+                    )
+                    stack.addLast(Hsp3ExpressionNode.Function(token.value.toInt(), arguments))
+                    cursor = nextCursor - 1
+                }
                 else -> throw IOException(
                     "Unsupported HSP expression token type ${token.type} at CS+${token.codeOffset}."
                 )
             }
+            cursor += 1
         }
         if (stack.size != 1) {
             throw IOException("The HSP postfix expression leaves ${stack.size} values on its stack.")
         }
         return Hsp3Expression(stack.removeLast())
+    }
+
+    /**
+     * TYPE_INTFUNC is a prefix token followed by '(' argument expressions ')'.
+     * Its argument list uses the same EXFLG_2/default convention as command
+     * parameters, and nested calls are skipped by matching parenthesis markers.
+     */
+    private fun readFunctionArguments(
+        tokens: List<Hsp3Token>,
+        openIndex: Int,
+        program: Hsp3Program
+    ): Pair<List<Hsp3Expression?>, Int> {
+        val open = tokens.getOrNull(openIndex)
+            ?: throw IOException("An HSP built-in function is missing its opening parenthesis.")
+        if (open.type != TYPE_MARK || open.value != '('.code.toLong()) {
+            throw IOException("An HSP built-in function is not followed by '('.")
+        }
+
+        var nesting = 0
+        var cursor = openIndex + 1
+        var closeIndex = -1
+        while (cursor < tokens.size) {
+            val token = tokens[cursor]
+            if (token.type == TYPE_MARK && token.value == '('.code.toLong()) {
+                nesting += 1
+            } else if (token.type == TYPE_MARK && token.value == ')'.code.toLong()) {
+                if (nesting == 0) {
+                    closeIndex = cursor
+                    break
+                }
+                nesting -= 1
+            }
+            cursor += 1
+        }
+        if (closeIndex < 0) {
+            throw IOException("An HSP built-in function has no closing parenthesis.")
+        }
+
+        val groups = readArgumentGroups(tokens, openIndex + 1, closeIndex)
+        return groups.map { group -> decodeExpression(group, program) } to (closeIndex + 1)
     }
 
     private fun decodeCommand(
@@ -352,6 +404,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         const val TYPE_CMPCMD = 11
         const val TYPE_SYSVAR = 14
         const val TYPE_PROGCMD = 15
+        const val TYPE_INTFUNC = 13
 
         const val EXFLG_0 = 0x1000
         const val EXFLG_1 = 0x2000
@@ -405,6 +458,7 @@ sealed class Hsp3ExpressionNode {
     data class Literal(val value: Hsp3RuntimeValue) : Hsp3ExpressionNode()
     data class Variable(val index: Int) : Hsp3ExpressionNode()
     data class SystemVariable(val index: Int) : Hsp3ExpressionNode()
+    data class Function(val id: Int, val arguments: List<Hsp3Expression?>) : Hsp3ExpressionNode()
     data class Binary(
         val operator: Int,
         val left: Hsp3ExpressionNode,
@@ -445,8 +499,11 @@ class Hsp3Expression internal constructor(
 ) {
     fun evaluate(
         variable: (Int) -> Hsp3RuntimeValue,
-        systemVariable: (Int) -> Hsp3RuntimeValue
-    ): Hsp3RuntimeValue = evaluateNode(root, variable, systemVariable)
+        systemVariable: (Int) -> Hsp3RuntimeValue,
+        function: (Int, List<Hsp3RuntimeValue?>) -> Hsp3RuntimeValue = { id, _ ->
+            throw IOException("Unsupported HSP built-in function ID $id.")
+        }
+    ): Hsp3RuntimeValue = evaluateNode(root, variable, systemVariable, function)
 
     fun singleVariableReference(): Int? =
         (root as? Hsp3ExpressionNode.Variable)?.index
@@ -460,15 +517,22 @@ class Hsp3Expression internal constructor(
     private fun evaluateNode(
         node: Hsp3ExpressionNode,
         variable: (Int) -> Hsp3RuntimeValue,
-        systemVariable: (Int) -> Hsp3RuntimeValue
+        systemVariable: (Int) -> Hsp3RuntimeValue,
+        function: (Int, List<Hsp3RuntimeValue?>) -> Hsp3RuntimeValue
     ): Hsp3RuntimeValue = when (node) {
         is Hsp3ExpressionNode.Literal -> node.value
         is Hsp3ExpressionNode.Variable -> variable(node.index)
         is Hsp3ExpressionNode.SystemVariable -> systemVariable(node.index)
+        is Hsp3ExpressionNode.Function -> function(
+            node.id,
+            node.arguments.map { argument ->
+                argument?.evaluate(variable, systemVariable, function)
+            }
+        )
         is Hsp3ExpressionNode.Binary -> applyBinary(
             node.operator,
-            evaluateNode(node.left, variable, systemVariable),
-            evaluateNode(node.right, variable, systemVariable)
+            evaluateNode(node.left, variable, systemVariable, function),
+            evaluateNode(node.right, variable, systemVariable, function)
         )
     }
 
