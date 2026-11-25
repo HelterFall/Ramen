@@ -130,7 +130,7 @@ class LiveMakerObjectStore {
 
     private fun defaultValue(name: String, propertyId: Int): Any? = when (propertyId) {
         PR_NAME -> name
-        PR_PARENT, PR_SOURCE -> ""
+        PR_PARENT, PR_SOURCE, PR_ONNOTIFY, PR_ONPLAYEND -> ""
         PR_LEFT, PR_TOP, PR_WIDTH, PR_HEIGHT -> 0
         PR_ZOOMX, PR_ZOOMY -> 100
         PR_ALPHA -> 255
@@ -167,8 +167,10 @@ class LiveMakerObjectStore {
         const val PR_COLOR = 9
         const val PR_BORDERWIDTH = 10
         const val PR_BORDERCOLOR = 11
+        const val PR_ONNOTIFY = 34
         const val PR_ONLBTNDOWN = 37
         const val PR_ONLBTNUP = 38
+        const val PR_ONPLAYEND = 44
         const val PR_ONSELECT = 73
         const val PR_TEXT = 51
         const val PR_SELECTED = 88
