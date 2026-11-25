@@ -92,5 +92,28 @@ internal fun isLiveMakerBackgroundLayer(objectName: String, source: String): Boo
         path.contains("背景")
 }
 
+/**
+ * Dispatch the terminal TpWord message notification to the active MesNew callback.
+ * LiveNovel's message wait script relies on that callback to set __メッセージ終了.
+ * If a game omits the callback, set the completion flag directly instead of trapping
+ * the player in the message wait loop.
+ */
+internal fun dispatchLiveMakerMessageEnd(
+    session: LiveMakerGameSession,
+    targetName: String
+): Boolean {
+    val target = targetName.takeIf { it.isNotBlank() } ?: "メッセージボックス"
+    val callbackStarted = session.invokeObjectCallback(
+        name = target,
+        propertyId = LiveMakerObjectStore.PR_ONNOTIFY,
+        arguments = listOf("MESEND"),
+        senderName = target
+    )
+    if (!callbackStarted) {
+        session.setVariable("__メッセージ終了", 1)
+    }
+    return callbackStarted
+}
+
 private fun clean(value: String?): String? =
     value?.trim()?.trim('"', '\'')?.takeIf { it.isNotEmpty() }
