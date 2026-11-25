@@ -4,6 +4,9 @@ import java.io.IOException
 import java.util.ArrayDeque
 import java.util.Calendar
 import java.util.concurrent.ThreadLocalRandom
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import java.nio.charset.Charset
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -13,6 +16,25 @@ import kotlin.math.pow
 import kotlin.math.sin
 import kotlin.math.sqrt
 import kotlin.math.tan
+
+interface Hsp3FileStorage {
+    /** Returns a bounded file/resource payload, or null when no matching file exists. */
+    @Throws(IOException::class)
+    fun read(name: String): ByteArray?
+
+    /** Writes bytes inside the imported game's private directory. */
+    @Throws(IOException::class)
+    fun write(name: String, offset: Int, bytes: ByteArray)
+}
+
+object Hsp3UnavailableFileStorage : Hsp3FileStorage {
+    override fun read(name: String): ByteArray? =
+        throw IOException("HSP file I/O is unavailable in this runtime session.")
+
+    override fun write(name: String, offset: Int, bytes: ByteArray) {
+        throw IOException("HSP file I/O is unavailable in this runtime session.")
+    }
+}
 
 sealed class Hsp3Instruction {
     data class Screen(val id: Int, val width: Int, val height: Int) : Hsp3Instruction()
@@ -50,7 +72,15 @@ sealed class Hsp3Instruction {
     ) : Hsp3Instruction()
     data class Dimension(
         val variable: Int,
-        val dimensions: List<Hsp3Expression?>
+        val dimensions: List<Hsp3Expression?>,
+        val stringBuffer: Boolean = false
+    ) : Hsp3Instruction()
+    data class FileTransfer(
+        val commandId: Int,
+        val fileName: Hsp3Expression,
+        val destinationVariable: Int,
+        val size: Hsp3Expression? = null,
+        val fileOffset: Hsp3Expression? = null
     ) : Hsp3Instruction()
     data class NativeCommand(
         val commandType: Int,
@@ -139,7 +169,8 @@ class Hsp3VirtualMachine(
     private val graphics: Hsp3Graphics,
     private val input: Hsp3InputProvider = Hsp3InputProvider { 0 },
     private val maxCallDepth: Int = DEFAULT_MAX_CALL_DEPTH,
-    private val maxLoopDepth: Int = DEFAULT_MAX_LOOP_DEPTH
+    private val maxLoopDepth: Int = DEFAULT_MAX_LOOP_DEPTH,
+    private val fileStorage: Hsp3FileStorage = Hsp3UnavailableFileStorage
 ) {
     private data class RepeatFrame(
         val bodyStart: Int,
@@ -150,6 +181,7 @@ class Hsp3VirtualMachine(
     private val variables = linkedMapOf<Int, Hsp3RuntimeValue>()
     private val arrayDimensions = linkedMapOf<Int, List<Int>>()
     private val arrayValues = linkedMapOf<Pair<Int, List<Int>>, Hsp3RuntimeValue>()
+    private val stringBuffers = linkedMapOf<Int, ByteArray>()
     private val callStack = ArrayDeque<Int>()
     private val repeatStack = ArrayDeque<RepeatFrame>()
     private var programCounter = 0
@@ -263,28 +295,44 @@ class Hsp3VirtualMachine(
                         programCounter += 1
                     }
                     is Hsp3Instruction.Dimension -> {
-                        val requested = instruction.dimensions
-                            .mapNotNull { expression -> expression?.let { evaluate(it).asInt() } }
-                            .ifEmpty { listOf(1) }
-                        val invalidDimensions = requested.size !in 1..5 ||
-                            requested.any { it <= 0 || it > MAX_ARRAY_DIMENSION }
-                        val elementCount = if (invalidDimensions) {
-                            MAX_ARRAY_ELEMENTS + 1L
+                        if (instruction.stringBuffer) {
+                            if (instruction.dimensions.size > 1) {
+                                throw IOException("Multi-dimensional HSP sdim buffers are not supported.")
+                            }
+                            val size = instruction.dimensions.firstOrNull()
+                                ?.let { evaluate(it).asInt() } ?: DEFAULT_STRING_BUFFER_SIZE
+                            if (size !in 1..MAX_STRING_BUFFER_BYTES) {
+                                throw IOException("HSP sdim buffer size is outside the configured bound.")
+                            }
+                            stringBuffers[instruction.variable] = ByteArray(size)
+                            arrayDimensions.remove(instruction.variable)
+                            arrayValues.keys.removeAll { it.first == instruction.variable }
+                            variables[instruction.variable] = Hsp3RuntimeValue.StringValue("")
                         } else {
-                            requested.fold(1L) { total, size ->
-                                if (total > MAX_ARRAY_ELEMENTS / size.toLong()) {
-                                    MAX_ARRAY_ELEMENTS + 1L
-                                } else {
-                                    total * size.toLong()
+                            stringBuffers.remove(instruction.variable)
+                            val requested = instruction.dimensions
+                                .mapNotNull { expression -> expression?.let { evaluate(it).asInt() } }
+                                .ifEmpty { listOf(1) }
+                            val invalidDimensions = requested.size !in 1..5 ||
+                                requested.any { it <= 0 || it > MAX_ARRAY_DIMENSION }
+                            val elementCount = if (invalidDimensions) {
+                                MAX_ARRAY_ELEMENTS + 1L
+                            } else {
+                                requested.fold(1L) { total, size ->
+                                    if (total > MAX_ARRAY_ELEMENTS / size.toLong()) {
+                                        MAX_ARRAY_ELEMENTS + 1L
+                                    } else {
+                                        total * size.toLong()
+                                    }
                                 }
                             }
+                            if (invalidDimensions || elementCount > MAX_ARRAY_ELEMENTS) {
+                                throw IOException("HSP array dimensions exceed the configured bounds.")
+                            }
+                            arrayDimensions[instruction.variable] = requested
+                            arrayValues.keys.removeAll { it.first == instruction.variable }
+                            variables.remove(instruction.variable)
                         }
-                        if (invalidDimensions || elementCount > MAX_ARRAY_ELEMENTS) {
-                            throw IOException("HSP array dimensions exceed the configured bounds.")
-                        }
-                        arrayDimensions[instruction.variable] = requested
-                        arrayValues.keys.removeAll { it.first == instruction.variable }
-                        variables.remove(instruction.variable)
                         programCounter += 1
                     }
                     is Hsp3Instruction.Assign -> {
@@ -297,6 +345,10 @@ class Hsp3VirtualMachine(
                             calculate(instruction.operator, old, rhs)
                         }
                         writeVariable(instruction.variable, indices, value)
+                        programCounter += 1
+                    }
+                    is Hsp3Instruction.FileTransfer -> {
+                        executeFileTransfer(instruction)
                         programCounter += 1
                     }
                     is Hsp3Instruction.NativeCommand -> {
@@ -438,12 +490,14 @@ class Hsp3VirtualMachine(
             arg(index, Hsp3RuntimeValue.IntegerValue(default)).asInt()
         fun stringArg(index: Int, default: String = "") =
             arg(index, Hsp3RuntimeValue.StringValue(default)).asString()
+        fun doubleArg(index: Int, default: Double = 0.0) =
+            arg(index, Hsp3RuntimeValue.DoubleValue(default)).asDouble()
 
         if (command.commandType == Hsp3BytecodeDecoder.TYPE_EXTCMD) {
             when (command.commandId) {
                 Hsp3CommandIds.MES -> {
                     val message = stringArg(0)
-                    graphics.mes(message)
+                    graphics.mes(message, intArg(1))
                     stringSize = message.length
                 }
                 Hsp3CommandIds.POS -> {
@@ -453,23 +507,61 @@ class Hsp3VirtualMachine(
                 Hsp3CommandIds.FONT -> {
                     graphics.font(stringArg(0), intArg(1, 12), intArg(2, 0))
                 }
-                Hsp3CommandIds.PICLOAD -> graphics.picload(stringArg(0))
+                Hsp3CommandIds.PICLOAD -> graphics.picload(stringArg(0), intArg(1))
                 Hsp3CommandIds.COLOR -> graphics.color(intArg(0), intArg(1), intArg(2))
                 Hsp3CommandIds.REDRAW -> graphics.redraw(intArg(0, 1) != 0)
                 Hsp3CommandIds.GSEL -> graphics.gsel(intArg(0))
                 Hsp3CommandIds.GCOPY -> {
                     val position = graphics.currentPosition()
+                    val sourceId = intArg(0)
+                    val sourceSize = graphics.surfaceSize(sourceId)
                     graphics.gcopy(
-                        sourceId = intArg(0),
+                        sourceId = sourceId,
                         sourceX = intArg(1),
                         sourceY = intArg(2),
-                        width = intArg(3, Hsp3CanvasRenderer.DEFAULT_WIDTH),
-                        height = intArg(4, Hsp3CanvasRenderer.DEFAULT_HEIGHT),
+                        width = intArg(3, sourceSize.first),
+                        height = intArg(4, sourceSize.second),
                         destX = position.first,
                         destY = position.second
                     )
                 }
-                Hsp3CommandIds.GMODE -> graphics.gmode(intArg(0), intArg(1, 255))
+                Hsp3CommandIds.GZOOM -> graphics.gzoom(
+                    destWidth = intArg(0),
+                    destHeight = intArg(1),
+                    sourceId = intArg(2),
+                    sourceX = intArg(3),
+                    sourceY = intArg(4),
+                    sourceWidth = intArg(5),
+                    sourceHeight = intArg(6),
+                    quality = intArg(7, 1)
+                )
+                Hsp3CommandIds.GROTATE -> graphics.grotate(
+                    sourceId = intArg(0),
+                    sourceX = intArg(1),
+                    sourceY = intArg(2),
+                    angleRadians = doubleArg(3),
+                    destWidth = intArg(4),
+                    destHeight = intArg(5)
+                )
+                Hsp3CommandIds.CELLLOAD -> {
+                    hspStat = graphics.celload(stringArg(0), intArg(1, -1))
+                }
+                Hsp3CommandIds.CELDIV -> graphics.celdiv(
+                    id = intArg(0),
+                    cellWidth = intArg(1),
+                    cellHeight = intArg(2),
+                    mode = intArg(3)
+                )
+                Hsp3CommandIds.CELPUT -> graphics.celput(
+                    id = intArg(0),
+                    cellIndex = intArg(1),
+                    zoomX = doubleArg(2, 1.0),
+                    zoomY = doubleArg(3, 1.0),
+                    angleRadians = doubleArg(4)
+                )
+                Hsp3CommandIds.GMODE -> graphics.gmode(
+                    intArg(0), intArg(1, 255), intArg(2), intArg(3)
+                )
                 Hsp3CommandIds.BUFFER -> graphics.buffer(
                     intArg(0), intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
                     intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT)
@@ -478,7 +570,10 @@ class Hsp3VirtualMachine(
                     intArg(0), intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
                     intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT)
                 )
-                Hsp3CommandIds.BOXF -> graphics.boxf(intArg(0), intArg(1), intArg(2), intArg(3))
+                Hsp3CommandIds.BOXF -> {
+                    if (args.isEmpty()) graphics.boxf()
+                    else graphics.boxf(intArg(0), intArg(1), intArg(2), intArg(3))
+                }
                 Hsp3CommandIds.STICK -> {
                     val destination = requiredVariable(args.getOrNull(0), "stick destination")
                     val indices = destination.indices.map { evaluate(it).asInt() }
@@ -498,6 +593,112 @@ class Hsp3VirtualMachine(
         throw IOException(
             "Unsupported HSP command token type ${command.commandType}, command ID ${command.commandId}."
         )
+    }
+
+    private fun executeFileTransfer(instruction: Hsp3Instruction.FileTransfer) {
+        val fileName = evaluate(instruction.fileName).asString()
+        if (fileName.isBlank()) throw IOException("HSP bload/bsave filename is empty.")
+        val sourceOffset = (instruction.fileOffset?.let { evaluate(it).asInt() } ?: 0)
+            .coerceAtLeast(0)
+        val capacity = variableBytes(instruction.destinationVariable)
+        val requested = instruction.size?.let { evaluate(it).asInt() } ?: -1
+        val transferSize = if (requested < 0) capacity.size else minOf(requested, capacity.size)
+        if (instruction.commandId == Hsp3BytecodeDecoder.INTCMD_BLOAD) {
+            val fileBytes = fileStorage.read(fileName)
+                ?: throw IOException("HSP bload file was not found: " + fileName)
+            val start = sourceOffset.coerceAtMost(fileBytes.size)
+            val count = minOf(transferSize, fileBytes.size - start)
+            val loaded = fileBytes.copyOfRange(start, start + count)
+            writeVariableBytes(instruction.destinationVariable, loaded, count)
+            stringSize = count
+        } else if (instruction.commandId == Hsp3BytecodeDecoder.INTCMD_BSAVE) {
+            fileStorage.write(fileName, sourceOffset, capacity.copyOfRange(0, transferSize))
+        } else {
+            throw IOException("Unsupported HSP file command ID " + instruction.commandId)
+        }
+    }
+
+    private fun variableBytes(index: Int): ByteArray {
+        stringBuffers[index]?.let { return it.copyOf() }
+        val dimensions = arrayDimensions[index]
+        if (dimensions != null) {
+            val count = dimensions.fold(1L) { total, size -> total * size.toLong() }
+            if (count > MAX_ARRAY_ELEMENTS) throw IOException("HSP array byte buffer exceeds its configured bound.")
+            val output = ByteBuffer.allocate(count.toInt() * Int.SIZE_BYTES).order(ByteOrder.LITTLE_ENDIAN)
+            repeat(count.toInt()) { linearIndex ->
+                val indices = linearIndexToIndices(linearIndex, dimensions)
+                output.putInt((arrayValues[index to indices] ?: Hsp3RuntimeValue.IntegerValue(0)).asInt())
+            }
+            return output.array()
+        }
+        return when (val value = valueOf(index)) {
+            is Hsp3RuntimeValue.StringValue -> value.value.toByteArray(SHIFT_JIS) + byteArrayOf(0)
+            is Hsp3RuntimeValue.DoubleValue -> ByteBuffer.allocate(java.lang.Double.BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN).putDouble(value.value).array()
+            is Hsp3RuntimeValue.IntegerValue -> ByteBuffer.allocate(Int.SIZE_BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN).putInt(value.value).array()
+            is Hsp3RuntimeValue.LabelValue -> ByteBuffer.allocate(Int.SIZE_BYTES)
+                .order(ByteOrder.LITTLE_ENDIAN).putInt(value.codeOffsetBytes).array()
+        }
+    }
+
+    private fun writeVariableBytes(index: Int, source: ByteArray, count: Int) {
+        val stringBuffer = stringBuffers[index]
+        if (stringBuffer != null) {
+            stringBuffer.fill(0)
+            source.copyInto(stringBuffer, endIndex = minOf(count, stringBuffer.size))
+            variables[index] = Hsp3RuntimeValue.StringValue(decodeStringBuffer(stringBuffer))
+            return
+        }
+        val dimensions = arrayDimensions[index]
+        if (dimensions != null) {
+            val inputBytes = ByteBuffer.wrap(source).order(ByteOrder.LITTLE_ENDIAN)
+            val elementCount = dimensions.fold(1L) { total, size -> total * size.toLong() }.toInt()
+            repeat(elementCount) { linearIndex ->
+                val value = if (inputBytes.remaining() >= Int.SIZE_BYTES) inputBytes.int else 0
+                arrayValues[index to linearIndexToIndices(linearIndex, dimensions)] =
+                    Hsp3RuntimeValue.IntegerValue(value)
+            }
+            return
+        }
+        when (valueOf(index)) {
+            is Hsp3RuntimeValue.StringValue -> {
+                variables[index] = Hsp3RuntimeValue.StringValue(decodeStringBuffer(source.copyOf(count)))
+            }
+            is Hsp3RuntimeValue.DoubleValue -> {
+                val merged = variableBytes(index)
+                source.copyInto(merged, endIndex = minOf(count, merged.size))
+                if (merged.size >= java.lang.Double.BYTES) {
+                    variables[index] = Hsp3RuntimeValue.DoubleValue(
+                        ByteBuffer.wrap(merged).order(ByteOrder.LITTLE_ENDIAN).double
+                    )
+                }
+            }
+            else -> {
+                val merged = variableBytes(index)
+                source.copyInto(merged, endIndex = minOf(count, merged.size))
+                if (merged.size >= Int.SIZE_BYTES) {
+                    variables[index] = Hsp3RuntimeValue.IntegerValue(
+                        ByteBuffer.wrap(merged).order(ByteOrder.LITTLE_ENDIAN).int
+                    )
+                }
+            }
+        }
+    }
+
+    private fun linearIndexToIndices(linearIndex: Int, dimensions: List<Int>): List<Int> {
+        var remaining = linearIndex
+        val result = MutableList(dimensions.size) { 0 }
+        for (dimension in dimensions.indices.reversed()) {
+            result[dimension] = remaining % dimensions[dimension]
+            remaining /= dimensions[dimension]
+        }
+        return result
+    }
+
+    private fun decodeStringBuffer(bytes: ByteArray): String {
+        val terminator = bytes.indexOf(0)
+        return String(bytes, 0, if (terminator >= 0) terminator else bytes.size, SHIFT_JIS)
     }
 
     private fun readStick(
@@ -717,5 +918,8 @@ class Hsp3VirtualMachine(
         private const val BUDGET_YIELD_MS = 16L
         private const val MAX_ARRAY_DIMENSION = 65_536
         private const val MAX_ARRAY_ELEMENTS = 1_000_000L
+        private const val DEFAULT_STRING_BUFFER_SIZE = 64
+        private const val MAX_STRING_BUFFER_BYTES = 16 * 1024 * 1024
+        private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
     }
 }

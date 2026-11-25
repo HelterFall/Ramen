@@ -5,6 +5,8 @@ import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
@@ -18,15 +20,40 @@ interface Hsp3Graphics : Closeable {
     fun buffer(id: Int, width: Int, height: Int)
     fun gsel(id: Int)
     fun picload(name: String)
+    fun picload(name: String, mode: Int) = picload(name)
     fun gcopy(sourceId: Int, sourceX: Int, sourceY: Int, width: Int, height: Int, destX: Int, destY: Int)
+    fun gzoom(destWidth: Int, destHeight: Int, sourceId: Int, sourceX: Int, sourceY: Int,
+              sourceWidth: Int, sourceHeight: Int, quality: Int) {
+        val position = currentPosition()
+        gcopy(sourceId, sourceX, sourceY, sourceWidth, sourceHeight, position.first, position.second)
+    }
+    fun grotate(sourceId: Int, sourceX: Int, sourceY: Int, angleRadians: Double,
+                destWidth: Int, destHeight: Int) {
+        val size = surfaceSize(sourceId)
+        val position = currentPosition()
+        gcopy(sourceId, sourceX, sourceY, size.first, size.second,
+            position.first - destWidth / 2, position.second - destHeight / 2)
+    }
+    fun celload(name: String, id: Int): Int { picload(name); return id }
+    fun celdiv(id: Int, cellWidth: Int, cellHeight: Int, mode: Int) = Unit
+    fun celput(id: Int, cellIndex: Int, zoomX: Double, zoomY: Double, angleRadians: Double) {
+        val size = surfaceSize(id)
+        val position = currentPosition()
+        gcopy(id, 0, 0, size.first, size.second, position.first, position.second)
+    }
     fun boxf(x1: Int, y1: Int, x2: Int, y2: Int)
+    fun boxf() = boxf(0, 0, Hsp3CanvasRenderer.DEFAULT_WIDTH, Hsp3CanvasRenderer.DEFAULT_HEIGHT)
     fun mes(value: String)
+    fun mes(value: String, flags: Int) = mes(value)
     fun pos(x: Int, y: Int)
     fun color(red: Int, green: Int, blue: Int)
     fun font(name: String, size: Int, style: Int)
     fun gmode(mode: Int, alpha: Int = 255)
+    fun gmode(mode: Int, alpha: Int, copyWidth: Int, copyHeight: Int) = gmode(mode, alpha)
     fun redraw(enabled: Boolean)
     fun currentPosition(): Pair<Int, Int> = 0 to 0
+    fun surfaceSize(id: Int): Pair<Int, Int> =
+        Hsp3CanvasRenderer.DEFAULT_WIDTH to Hsp3CanvasRenderer.DEFAULT_HEIGHT
 }
 
 /** Android Canvas renderer for the first HSP3 2D drawing subset. */
@@ -36,8 +63,10 @@ class Hsp3CanvasRenderer(
     private val logicalHeight: Int = DEFAULT_HEIGHT
 ) : Hsp3Graphics {
     private data class Surface(val bitmap: Bitmap, val canvas: Canvas)
+    private data class CellGrid(val width: Int, val height: Int, val mode: Int)
 
     private val surfaces = linkedMapOf<Int, Surface>()
+    private val cellGrids = linkedMapOf<Int, CellGrid>()
     private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG).apply {
         color = Color.WHITE
     }
@@ -54,6 +83,8 @@ class Hsp3CanvasRenderer(
     private var currentColor = Color.WHITE
     private var blendMode = 0
     private var blendAlpha = 255
+    private var gmodeCopyWidth = 0
+    private var gmodeCopyHeight = 0
     private var shouldPresent = true
     private var closed = false
 
@@ -81,18 +112,98 @@ class Hsp3CanvasRenderer(
         activeId = id
     }
 
-    override fun picload(name: String) {
+    override fun picload(name: String) = picload(name, 0)
+
+    override fun picload(name: String, mode: Int) {
         checkOpen()
-        if (name.isBlank() || name.contains('/') || name.contains('\\') || name == "." || name == "..") {
+        if (name.isBlank() || name.startsWith("/") || name.contains(':') || name.indexOf(0.toChar()) >= 0) {
             throw IOException("Invalid HSP asset name.")
         }
-        val stream = openAsset(name) ?: throw IOException("HSP asset '$name' was not found.")
+        val stream = openAsset(name) ?: throw IOException("HSP asset '" + name + "' was not found.")
         val bitmap = stream.use { BitmapFactory.decodeStream(it) }
-            ?: throw IOException("HSP asset '$name' could not be decoded as a bitmap.")
-        val old = surfaces.put(activeId, Surface(bitmap, Canvas(bitmap)))
+            ?: throw IOException("HSP asset '" + name + "' could not be decoded as a bitmap.")
+        when (mode) {
+            0 -> {
+                val old = surfaces.put(activeId, Surface(bitmap, Canvas(bitmap)))
+                old?.bitmap?.recycle()
+                cellGrids.remove(activeId)
+                cursorX = 0
+                cursorY = 0
+            }
+            1 -> {
+                val destination = activeSurface()
+                destination.canvas.drawBitmap(bitmap, cursorX.toFloat(), cursorY.toFloat(), null)
+                bitmap.recycle()
+            }
+            2 -> {
+                val destination = activeSurface()
+                destination.canvas.drawColor(Color.BLACK)
+                destination.canvas.drawBitmap(bitmap, cursorX.toFloat(), cursorY.toFloat(), null)
+                bitmap.recycle()
+            }
+            else -> {
+                bitmap.recycle()
+                throw IOException("Unsupported HSP picload mode " + mode + ".")
+            }
+        }
+    }
+
+    override fun celload(name: String, id: Int): Int {
+        checkOpen()
+        if (name.isBlank() || name.startsWith("/") || name.contains(':') || name.indexOf(0.toChar()) >= 0) {
+            throw IOException("Invalid HSP celload asset name.")
+        }
+        val stream = openAsset(name) ?: throw IOException("HSP celload asset was not found: " + name)
+        val bitmap = stream.use { BitmapFactory.decodeStream(it) }
+            ?: throw IOException("HSP celload asset could not be decoded: " + name)
+        val targetId = if (id >= 0) id else generateSequence(1) { it + 1 }
+            .first { !surfaces.containsKey(it) }
+        val old = surfaces.put(targetId, Surface(bitmap, Canvas(bitmap)))
         old?.bitmap?.recycle()
-        cursorX = 0
-        cursorY = 0
+        cellGrids.remove(targetId)
+        return targetId
+    }
+
+    override fun celdiv(id: Int, cellWidth: Int, cellHeight: Int, mode: Int) {
+        checkOpen()
+        if (!surfaces.containsKey(id)) throw IOException("HSP celdiv source surface " + id + " does not exist.")
+        require(cellWidth > 0 && cellHeight > 0) { "HSP celdiv cell dimensions must be positive." }
+        if (mode !in 0..1) throw IOException("Unsupported HSP celdiv mode " + mode + ".")
+        cellGrids[id] = CellGrid(cellWidth, cellHeight, mode)
+    }
+
+    override fun celput(
+        id: Int,
+        cellIndex: Int,
+        zoomX: Double,
+        zoomY: Double,
+        angleRadians: Double
+    ) {
+        checkOpen()
+        if (cellIndex < 0) throw IOException("HSP celput cell index cannot be negative.")
+        val source = surfaces[id] ?: throw IOException("HSP celput source surface " + id + " does not exist.")
+        val grid = cellGrids[id] ?: CellGrid(source.bitmap.width, source.bitmap.height, 0)
+        val columns = (source.bitmap.width + grid.width - 1) / grid.width
+        val rows = (source.bitmap.height + grid.height - 1) / grid.height
+        if (cellIndex >= columns * rows) throw IOException("HSP celput cell index is outside the divided image.")
+        val sourceX = (cellIndex % columns) * grid.width
+        val sourceY = (cellIndex / columns) * grid.height
+        val sourceWidth = minOf(grid.width, source.bitmap.width - sourceX)
+        val sourceHeight = minOf(grid.height, source.bitmap.height - sourceY)
+        val destWidth = sourceWidth * zoomX
+        val destHeight = sourceHeight * zoomY
+        if (destWidth <= 0.0 || destHeight <= 0.0) return
+        val destination = RectF(
+            cursorX.toFloat(), cursorY.toFloat(),
+            cursorX + destWidth.toFloat(), cursorY + destHeight.toFloat()
+        )
+        drawRegion(
+            source,
+            Rect(sourceX, sourceY, sourceX + sourceWidth, sourceY + sourceHeight),
+            destination,
+            filter = true,
+            rotationDegrees = Math.toDegrees(angleRadians).toFloat()
+        )
     }
 
     override fun gcopy(
@@ -112,17 +223,60 @@ class Hsp3CanvasRenderer(
         if (width == 0 || height == 0) return
 
         val sourceRect = Rect(sourceX, sourceY, sourceX + width, sourceY + height)
-        val bitmap = if (blendMode == COLOR_KEY_BLACK) makeBlackTransparent(source.bitmap) else source.bitmap
-        bitmapPaint.color = Color.WHITE
-        bitmapPaint.alpha = if (blendMode == ALPHA_BLEND || blendMode == ALPHA_BLEND_ALT) blendAlpha else 255
-        destination.canvas.drawBitmap(
-            bitmap,
+        drawRegion(
+            source,
             sourceRect,
-            Rect(destX, destY, destX + width, destY + height),
-            bitmapPaint
+            RectF(destX.toFloat(), destY.toFloat(), (destX + width).toFloat(), (destY + height).toFloat())
         )
-        if (bitmap !== source.bitmap) bitmap.recycle()
-        bitmapPaint.alpha = 255
+    }
+
+    override fun gzoom(
+        destWidth: Int,
+        destHeight: Int,
+        sourceId: Int,
+        sourceX: Int,
+        sourceY: Int,
+        sourceWidth: Int,
+        sourceHeight: Int,
+        quality: Int
+    ) {
+        checkOpen()
+        require(destWidth >= 0 && destHeight >= 0 && sourceWidth >= 0 && sourceHeight >= 0)
+        val source = surfaces[sourceId] ?: throw IOException("HSP gzoom source surface " + sourceId + " does not exist.")
+        if (destWidth == 0 || destHeight == 0 || sourceWidth == 0 || sourceHeight == 0) return
+        val position = currentPosition()
+        drawRegion(
+            source,
+            Rect(sourceX, sourceY, sourceX + sourceWidth, sourceY + sourceHeight),
+            RectF(position.first.toFloat(), position.second.toFloat(),
+                (position.first + destWidth).toFloat(), (position.second + destHeight).toFloat()),
+            filter = quality != 0
+        )
+    }
+
+    override fun grotate(
+        sourceId: Int,
+        sourceX: Int,
+        sourceY: Int,
+        angleRadians: Double,
+        destWidth: Int,
+        destHeight: Int
+    ) {
+        checkOpen()
+        require(destWidth >= 0 && destHeight >= 0)
+        val source = surfaces[sourceId] ?: throw IOException("HSP grotate source surface " + sourceId + " does not exist.")
+        val sourceWidth = gmodeCopyWidth.takeIf { it > 0 } ?: source.bitmap.width
+        val sourceHeight = gmodeCopyHeight.takeIf { it > 0 } ?: source.bitmap.height
+        if (destWidth == 0 || destHeight == 0 || sourceWidth == 0 || sourceHeight == 0) return
+        val position = currentPosition()
+        val left = position.first - destWidth / 2f
+        val top = position.second - destHeight / 2f
+        drawRegion(
+            source,
+            Rect(sourceX, sourceY, sourceX + sourceWidth, sourceY + sourceHeight),
+            RectF(left, top, left + destWidth, top + destHeight),
+            rotationDegrees = Math.toDegrees(angleRadians).toFloat()
+        )
     }
 
     override fun boxf(x1: Int, y1: Int, x2: Int, y2: Int) {
@@ -139,11 +293,22 @@ class Hsp3CanvasRenderer(
         )
     }
 
-    override fun mes(value: String) {
+    override fun mes(value: String) = mes(value, 0)
+
+    override fun mes(value: String, flags: Int) {
         checkOpen()
         textPaint.color = currentColor
-        activeSurface().canvas.drawText(value, cursorX.toFloat(), cursorY + textPaint.textSize, textPaint)
-        cursorX += textPaint.measureText(value).toInt()
+        val lines = value.split('\n')
+        val startX = cursorX
+        val lineHeight = textPaint.fontSpacing.coerceAtLeast(textPaint.textSize)
+        lines.forEachIndexed { index, line ->
+            activeSurface().canvas.drawText(line, cursorX.toFloat(), cursorY + textPaint.textSize, textPaint)
+            cursorX += textPaint.measureText(line).toInt()
+            if (flags != 1 || index < lines.lastIndex) {
+                cursorX = startX
+                cursorY += lineHeight.toInt()
+            }
+        }
     }
 
     override fun pos(x: Int, y: Int) {
@@ -152,6 +317,17 @@ class Hsp3CanvasRenderer(
     }
 
     override fun currentPosition(): Pair<Int, Int> = cursorX to cursorY
+
+    override fun surfaceSize(id: Int): Pair<Int, Int> {
+        val bitmap = surfaces[id]?.bitmap
+            ?: throw IOException("HSP surface " + id + " does not exist.")
+        return bitmap.width to bitmap.height
+    }
+
+    override fun boxf() {
+        val bitmap = activeSurface().bitmap
+        boxf(0, 0, bitmap.width - 1, bitmap.height - 1)
+    }
 
     override fun color(red: Int, green: Int, blue: Int) {
         currentColor = Color.rgb(red.coerceIn(0, 255), green.coerceIn(0, 255), blue.coerceIn(0, 255))
@@ -169,12 +345,17 @@ class Hsp3CanvasRenderer(
         textPaint.textSize = size.toFloat()
     }
 
-    override fun gmode(mode: Int, alpha: Int) {
+    override fun gmode(mode: Int, alpha: Int) = gmode(mode, alpha, 0, 0)
+
+    override fun gmode(mode: Int, alpha: Int, copyWidth: Int, copyHeight: Int) {
         require(mode in SUPPORTED_GMODE) {
-            "HSP gmode $mode is not supported by the Canvas renderer."
+            "HSP gmode " + mode + " is not supported by the Canvas renderer."
         }
+        require(copyWidth >= 0 && copyHeight >= 0) { "HSP gmode copy dimensions cannot be negative." }
         blendMode = mode
         blendAlpha = alpha.coerceIn(0, 255)
+        gmodeCopyWidth = copyWidth
+        gmodeCopyHeight = copyHeight
     }
 
     override fun redraw(enabled: Boolean) {
@@ -208,6 +389,41 @@ class Hsp3CanvasRenderer(
             )
         } finally {
             target.restoreToCount(saveCount)
+        }
+    }
+
+    private fun drawRegion(
+        source: Surface,
+        sourceRect: Rect,
+        destinationRect: RectF,
+        filter: Boolean = true,
+        rotationDegrees: Float = 0f
+    ) {
+        if (sourceRect.width() <= 0 || sourceRect.height() <= 0 ||
+            destinationRect.width() <= 0f || destinationRect.height() <= 0f
+        ) return
+        val bitmap = if (blendMode == COLOR_KEY_BLACK) makeBlackTransparent(source.bitmap) else source.bitmap
+        bitmapPaint.color = Color.WHITE
+        bitmapPaint.isFilterBitmap = filter
+        bitmapPaint.alpha = if (blendMode == ALPHA_BLEND || blendMode == ALPHA_BLEND_ALT) blendAlpha else 255
+        bitmapPaint.xfermode = when (blendMode) {
+            ADDITIVE_BLEND -> PorterDuffXfermode(PorterDuff.Mode.ADD)
+            SUBTRACTIVE_BLEND -> PorterDuffXfermode(PorterDuff.Mode.DARKEN)
+            else -> null
+        }
+        val canvas = activeSurface().canvas
+        val saveCount = canvas.save()
+        try {
+            if (rotationDegrees != 0f) {
+                canvas.rotate(rotationDegrees, destinationRect.centerX(), destinationRect.centerY())
+            }
+            canvas.drawBitmap(bitmap, sourceRect, destinationRect, bitmapPaint)
+        } finally {
+            canvas.restoreToCount(saveCount)
+            bitmapPaint.alpha = 255
+            bitmapPaint.xfermode = null
+            bitmapPaint.isFilterBitmap = true
+            if (bitmap !== source.bitmap) bitmap.recycle()
         }
     }
 
@@ -265,7 +481,9 @@ class Hsp3CanvasRenderer(
         private const val FONT_STYLE_BOLD_ITALIC = FONT_STYLE_BOLD or FONT_STYLE_ITALIC
         private const val COLOR_KEY_BLACK = 2
         private const val ALPHA_BLEND = 3
-        private const val ALPHA_BLEND_ALT = 5
-        private val SUPPORTED_GMODE = setOf(0, COLOR_KEY_BLACK, ALPHA_BLEND, ALPHA_BLEND_ALT)
+        private const val ALPHA_BLEND_ALT = 4
+        private const val ADDITIVE_BLEND = 5
+        private const val SUBTRACTIVE_BLEND = 6
+        private val SUPPORTED_GMODE = 0..6
     }
 }

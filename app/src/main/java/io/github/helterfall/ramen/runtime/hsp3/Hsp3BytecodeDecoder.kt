@@ -242,19 +242,37 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 }
             }
             TYPE_INTCMD -> {
-                if (commandId == INTCMD_GETKEY) {
-                    val destination = requiredVariable(args.getOrNull(0), "getkey destination")
-                    val keyCode = args.getOrNull(1)
-                        ?: constantExpression(Hsp3RuntimeValue.IntegerValue(1))
-                    PendingInstruction(pc) { _, _ ->
-                        Hsp3Instruction.GetKey(
-                            destinationVariable = destination.index,
-                            keyCode = keyCode,
-                            destinationIndices = destination.indices
-                        )
+                when (commandId) {
+                    INTCMD_GETKEY -> {
+                        val destination = requiredVariable(args.getOrNull(0), "getkey destination")
+                        val keyCode = args.getOrNull(1)
+                            ?: constantExpression(Hsp3RuntimeValue.IntegerValue(1))
+                        PendingInstruction(pc) { _, _ ->
+                            Hsp3Instruction.GetKey(
+                                destinationVariable = destination.index,
+                                keyCode = keyCode,
+                                destinationIndices = destination.indices
+                            )
+                        }
                     }
-                } else {
-                    PendingInstruction(pc) { _, _ ->
+                    INTCMD_BLOAD, INTCMD_BSAVE -> {
+                        val fileName = args.getOrNull(0)
+                            ?: throw IOException("HSP bload/bsave requires a filename expression.")
+                        val destination = requiredVariable(args.getOrNull(1), "bload/bsave buffer")
+                        if (destination.indices.isNotEmpty()) {
+                            throw IOException("HSP bload/bsave requires a plain variable buffer.")
+                        }
+                        PendingInstruction(pc) { _, _ ->
+                            Hsp3Instruction.FileTransfer(
+                                commandId = commandId,
+                                fileName = fileName,
+                                destinationVariable = destination.index,
+                                size = args.getOrNull(2),
+                                fileOffset = args.getOrNull(3)
+                            )
+                        }
+                    }
+                    else -> PendingInstruction(pc) { _, _ ->
                         Hsp3Instruction.Unsupported(TYPE_INTCMD, commandId)
                     }
                 }
@@ -314,7 +332,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 }
                 val dimensions = args.drop(1).take(4)
                 PendingInstruction(pc) { _, _ ->
-                    Hsp3Instruction.Dimension(destination.index, dimensions)
+                    Hsp3Instruction.Dimension(destination.index, dimensions, stringBuffer = id == PROGCMD_SDIM)
                 }
             }
             PROGCMD_WAIT -> {
@@ -492,6 +510,8 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         const val CALCCODE_RR = 14
         const val CALCCODE_LR = 15
 
+        const val INTCMD_BLOAD = 0x16
+        const val INTCMD_BSAVE = 0x17
         const val INTCMD_GETKEY = 0x23
         const val CMP_CMD_IF = 0
         const val CMP_CMD_ELSE = 1
@@ -524,6 +544,11 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             Hsp3CommandIds.REDRAW,
             Hsp3CommandIds.GSEL,
             Hsp3CommandIds.GCOPY,
+            Hsp3CommandIds.GZOOM,
+            Hsp3CommandIds.GROTATE,
+            Hsp3CommandIds.CELLLOAD,
+            Hsp3CommandIds.CELDIV,
+            Hsp3CommandIds.CELPUT,
             Hsp3CommandIds.GMODE,
             Hsp3CommandIds.BUFFER,
             Hsp3CommandIds.SCREEN,
@@ -580,7 +605,7 @@ sealed class Hsp3RuntimeValue {
         is IntegerValue -> value.toString()
         is DoubleValue -> value.toString()
         is StringValue -> value
-        is LabelValue -> value.codeOffsetBytes.toString()
+        is LabelValue -> codeOffsetBytes.toString()
     }
 }
 

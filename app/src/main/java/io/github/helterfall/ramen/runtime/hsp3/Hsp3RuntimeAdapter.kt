@@ -17,6 +17,8 @@ import java.io.Closeable
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.io.FileInputStream
+import java.io.RandomAccessFile
 
 fun interface Hsp3InstructionDecoder {
     /**
@@ -40,9 +42,17 @@ class DpmxAssetRepository(
     private val executable: File,
     private val container: DpmxContainer,
     private val keyResolver: DpmxKeyResolver
-) : Closeable {
+) : Closeable, Hsp3FileStorage {
+    private val gameRoot: File = executable.canonicalFile.parentFile
+        ?: throw IOException("The HSP game directory is unavailable.")
+
     fun open(name: String): InputStream? {
-        val entry = container.findEntry(name) ?: return null
+        val normalized = normalizeRelativeName(name)
+        val local = resolvePrivateFile(normalized)
+        if (local.isFile) return FileInputStream(local)
+        val entry = container.entries.firstOrNull {
+            normalizeArchiveName(it.name).equals(normalized, ignoreCase = true)
+        } ?: return null
         val source = FileRandomAccessSource(executable)
         return try {
             val resolution = keyResolver.resolve(source, container, entry)
@@ -58,7 +68,85 @@ class DpmxAssetRepository(
         }
     }
 
+    override fun read(name: String): ByteArray? {
+        val stream = open(name) ?: return null
+        stream.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                total += count
+                if (total > MAX_FILE_BYTES) {
+                    throw IOException("HSP file read exceeds the configured size limit.")
+                }
+                output.write(buffer, 0, count)
+            }
+            return output.toByteArray()
+        }
+    }
+
+    override fun write(name: String, offset: Int, bytes: ByteArray) {
+        if (offset < 0 || bytes.size > MAX_FILE_BYTES ||
+            offset.toLong() + bytes.size.toLong() > MAX_FILE_BYTES
+        ) {
+            throw IOException("HSP bsave request exceeds the configured file bounds.")
+        }
+        val normalized = normalizeRelativeName(name)
+        val target = resolvePrivateFile(normalized)
+        val parent = target.parentFile ?: throw IOException("HSP save path has no parent directory.")
+        if (!parent.exists() && !parent.mkdirs()) {
+            throw IOException("Could not create the HSP save directory.")
+        }
+        val checkedTarget = target.canonicalFile
+        if (!checkedTarget.toPath().startsWith(gameRoot.toPath())) {
+            throw IOException("HSP save path escapes the imported game directory.")
+        }
+        if (offset > 0 && !checkedTarget.isFile) {
+            throw IOException("HSP bsave with a non-zero file offset requires an existing file.")
+        }
+        RandomAccessFile(checkedTarget, "rw").use { output ->
+            if (offset == 0) output.setLength(0L)
+            output.seek(offset.toLong())
+            output.write(bytes)
+            if (output.length() > MAX_FILE_BYTES) {
+                throw IOException("HSP save file exceeds the configured size limit.")
+            }
+        }
+    }
+
+    private fun resolvePrivateFile(normalized: String): File {
+        val target = File(gameRoot, normalized.replace('/', File.separatorChar)).canonicalFile
+        if (target == gameRoot || !target.toPath().startsWith(gameRoot.toPath())) {
+            throw IOException("HSP file path escapes the imported game directory.")
+        }
+        return target
+    }
+
+    private fun normalizeRelativeName(name: String): String {
+        val value = name.replace(92.toChar(), '/').trim()
+        if (value.isBlank() || value.startsWith("/") || value.contains(':') ||
+            value.indexOf(0.toChar()) >= 0
+        ) {
+            throw IOException("Invalid HSP relative file name.")
+        }
+        val parts = value.split('/').filter { it.isNotEmpty() && it != "." }
+        if (parts.isEmpty() || parts.any { it == ".." || it.indexOf(0.toChar()) >= 0 }) {
+            throw IOException("Invalid HSP relative file name.")
+        }
+        return parts.joinToString("/")
+    }
+
+    private fun normalizeArchiveName(name: String): String =
+        name.replace(92.toChar(), '/').trim().trimStart('/').split('/')
+            .filter { it.isNotEmpty() && it != "." }.joinToString("/")
+
     override fun close() = Unit
+
+    companion object {
+        private const val MAX_FILE_BYTES = 32 * 1024 * 1024
+    }
 }
 
 /**
@@ -128,7 +216,7 @@ class Hsp3RuntimeAdapter(
         try {
             val decodedInstructions = instructionDecoder.decode(prepared.program)
             val renderer = Hsp3CanvasRenderer(openAsset = assets::open)
-            val vm = Hsp3VirtualMachine(renderer, input)
+            val vm = Hsp3VirtualMachine(renderer, input, fileStorage = assets)
             return Hsp3RuntimeSession(prepared, decodedInstructions, assets, renderer, vm)
         } catch (error: Exception) {
             assets.close()
@@ -183,8 +271,10 @@ object Hsp3CommandIds {
     const val SCREEN = 0x2A
     const val BOXF = 0x31
     const val STICK = 0x34
-    const val GROTATE = 0x36
+    const val CELLLOAD = 0x3C
+    const val CELDIV = 0x3D
     const val CELPUT = 0x3E
+    const val GROTATE = 0x36
 }
 
 private class ByteArrayRandomAccessSource(

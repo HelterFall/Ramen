@@ -103,11 +103,63 @@ class Hsp3VirtualMachineTest {
     }
 
     @Test
+    fun bloadAndBsaveTransferBytesThroughSdimBuffer() {
+        val storage = MemoryFileStorage(
+            mutableMapOf(
+                "source.bin" to byteArrayOf(65, 66, 67, 0, 88),
+                "save.bin" to ByteArray(8)
+            )
+        )
+        fun integer(value: Int) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.IntegerValue(value))
+        )
+        fun string(value: String) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.StringValue(value))
+        )
+        val snapshot = Hsp3VirtualMachine(
+            RecordingGraphics(),
+            fileStorage = storage
+        ).runSlice(
+            listOf(
+                Hsp3Instruction.Dimension(8, listOf(integer(12)), stringBuffer = true),
+                Hsp3Instruction.FileTransfer(
+                    Hsp3BytecodeDecoder.INTCMD_BLOAD, string("source.bin"), 8
+                ),
+                Hsp3Instruction.FileTransfer(
+                    Hsp3BytecodeDecoder.INTCMD_BSAVE, string("save.bin"), 8,
+                    size = integer(4), fileOffset = integer(2)
+                ),
+                Hsp3Instruction.End
+            )
+        )
+
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(Hsp3RuntimeValue.StringValue("ABC"), snapshot.values[8])
+        assertEquals(
+            listOf(0, 0, 65, 66, 67, 0, 0, 0),
+            storage.files.getValue("save.bin").map { it.toInt() and 0xFF }
+        )
+    }
+
+    @Test
     fun rejectsUnsupportedHspCommandWithoutCrashingHost() {
         val vm = Hsp3VirtualMachine(RecordingGraphics())
         val snapshot = vm.runSlice(listOf(Hsp3Instruction.Unsupported(9, 0x77)))
         assertEquals(Hsp3VmStatus.FAILED, snapshot.status)
         assertTrue(snapshot.errorMessage!!.contains("Unsupported HSP command"))
+    }
+
+    private class MemoryFileStorage(
+        val files: MutableMap<String, ByteArray>
+    ) : Hsp3FileStorage {
+        override fun read(name: String): ByteArray? = files[name]?.copyOf()
+
+        override fun write(name: String, offset: Int, bytes: ByteArray) {
+            val existing = files[name] ?: throw java.io.IOException("Missing output file.")
+            val result = existing.copyOf(maxOf(existing.size, offset + bytes.size))
+            bytes.copyInto(result, destinationOffset = offset)
+            files[name] = result
+        }
     }
 
     private class RecordingGraphics : Hsp3Graphics {

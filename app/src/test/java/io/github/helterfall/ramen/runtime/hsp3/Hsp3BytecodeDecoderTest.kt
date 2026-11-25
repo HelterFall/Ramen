@@ -54,6 +54,34 @@ class Hsp3BytecodeDecoderTest {
     }
 
     @Test
+    fun byteTransferCommandsDecodeBufferAndFileArguments() {
+        withProgram(createBloadProgram()) { program ->
+            val transfer = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.FileTransfer
+            assertEquals(Hsp3BytecodeDecoder.INTCMD_BLOAD, transfer.commandId)
+            assertEquals(4, transfer.destinationVariable)
+            assertEquals(16, transfer.size!!.constantIntOrNull())
+            assertEquals(0, transfer.fileOffset!!.constantIntOrNull())
+        }
+    }
+
+    @Test
+    fun zoomRotateAndCellCommandsAreRecognizedAsNativeGraphicsCommands() {
+        val ids = listOf(
+            Hsp3CommandIds.GZOOM,
+            Hsp3CommandIds.GROTATE,
+            Hsp3CommandIds.CELLLOAD,
+            Hsp3CommandIds.CELDIV,
+            Hsp3CommandIds.CELPUT
+        )
+        ids.forEach { commandId ->
+            withProgram(createNativeCommandProgram(commandId)) { program ->
+                val command = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.NativeCommand
+                assertEquals(commandId, command.commandId)
+            }
+        }
+    }
+
+    @Test
     fun getkeyCommandPreservesDestinationAndKeyExpression() {
         withProgram(createGetKeyProgram()) { program ->
             val instructions = Hsp3BytecodeDecoder().decode(program)
@@ -177,6 +205,26 @@ class Hsp3BytecodeDecoderTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    private fun createBloadProgram(): ByteArray {
+        val code = listOf(
+            0x2008, Hsp3BytecodeDecoder.INTCMD_BLOAD,
+            0x0001, 3,     // filename variable
+            0x4001, 4,     // destination buffer variable
+            0x4004, 16,    // byte count
+            0x4004, 0,     // file offset
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(code)
+    }
+
+    private fun createNativeCommandProgram(commandId: Int): ByteArray {
+        val code = listOf(
+            0x2009, commandId,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(code)
     }
 
     private fun createArrayReadProgram(): ByteArray {
