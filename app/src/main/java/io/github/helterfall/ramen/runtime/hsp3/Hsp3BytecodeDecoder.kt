@@ -155,17 +155,47 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                     TYPE_STRING -> stack.addLast(Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.StringValue(program.stringAt(t.value))))
                     TYPE_DNUM -> stack.addLast(Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.DoubleValue(program.doubleAt(t.value))))
                     TYPE_INUM -> stack.addLast(Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.IntegerValue(t.value.toInt())))
-                    TYPE_LABEL,TYPE_XLABEL -> {
+                    TYPE_LABEL -> {
                         val target=program.labelCodeOffset(checkedIndex(t.value,program.objectTempSegment.sizeBytes/4L,"label"))
                         stack.addLast(Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.LabelValue(target.toInt())))
                     }
-                    TYPE_SYSVAR,TYPE_EXTSYSVAR -> stack.addLast(Hsp3ExpressionNode.SystemVariable(t.value.toInt()))
+                    TYPE_SYSVAR,TYPE_EXTSYSVAR -> {
+                        val next=tokens.getOrNull(i+1)
+                        if(next?.type==TYPE_MARK && next.value=='('.code.toLong()) {
+                            i=skipParenthesized(tokens,i+1)-1
+                            diagnosticBuffer+=Hsp3DecodeDiagnostic(
+                                t.codeOffset,t.type,t.value,t.extensionFlags,
+                                "Indexed system-variable callback retained as one opaque value."
+                            )
+                            stack.addLast(Hsp3ExpressionNode.Opaque(t.type,t.value.toInt()))
+                        } else stack.addLast(Hsp3ExpressionNode.SystemVariable(t.value.toInt()))
+                    }
+                    TYPE_XLABEL -> {
+                        val next=tokens.getOrNull(i+1)
+                        if(next?.type==TYPE_MARK && next.value=='('.code.toLong()) {
+                            i=skipParenthesized(tokens,i+1)-1
+                        }
+                        diagnosticBuffer+=Hsp3DecodeDiagnostic(
+                            t.codeOffset,t.type,t.value,t.extensionFlags,
+                            "TYPE_XLABEL requires external label metadata; retained as one opaque value."
+                        )
+                        stack.addLast(Hsp3ExpressionNode.Opaque(t.type,t.value.toInt()))
+                    }
                     TYPE_INTFUNC -> {
                         val (args,nextIndex)=readParenthesizedArguments(tokens,i+1,program)
                         stack.addLast(Hsp3ExpressionNode.Function(t.value.toInt(),args)); i=nextIndex-1
                     }
                     TYPE_STRUCT,TYPE_INTCMD,TYPE_EXTCMD,TYPE_CMPCMD,TYPE_MODCMD,
                     TYPE_PROGCMD,TYPE_DLLFUNC,TYPE_DLLCTRL,TYPE_USERDEF -> {
+                        if(t.type!=TYPE_STRUCT) {
+                            val next=tokens.getOrNull(i+1)
+                            if(next?.type==TYPE_MARK && next.value=='('.code.toLong()) {
+                                // OpenHSP dispatches these through HSP3TYPEINFO.reffunc.
+                                // A callback may consume its own argument list; discard
+                                // the balanced region as one opaque return value here.
+                                i=skipParenthesized(tokens,i+1)-1
+                            }
+                        }
                         diagnosticBuffer+=Hsp3DecodeDiagnostic(
                             t.codeOffset,t.type,t.value,t.extensionFlags,
                             if(t.type==TYPE_STRUCT) "TYPE_STRUCT needs module metadata; retained as one opaque value."
@@ -191,6 +221,23 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
      * Its argument list uses the same EXFLG_2/default convention as command
      * parameters, and nested calls are skipped by matching parenthesis markers.
      */
+    private fun skipParenthesized(tokens:List<Hsp3Token>,openIndex:Int):Int {
+        val open=tokens.getOrNull(openIndex)
+        if(open==null || open.type!=TYPE_MARK || open.value!='('.code.toLong()) {
+            throw Hsp3DecodeException(open,"Expected an opening parenthesis after an HSP callback token.")
+        }
+        var depth=0
+        for(index in openIndex+1 until tokens.size) {
+            val token=tokens[index]
+            if(token.type==TYPE_MARK && token.value=='('.code.toLong()) depth++
+            else if(token.type==TYPE_MARK && token.value==')'.code.toLong()) {
+                if(depth==0) return index+1
+                depth--
+            }
+        }
+        throw Hsp3DecodeException(open,"HSP callback argument list has no matching closing parenthesis.")
+    }
+
     private fun readParenthesizedArguments(
         tokens: List<Hsp3Token>,
         openIndex: Int,
