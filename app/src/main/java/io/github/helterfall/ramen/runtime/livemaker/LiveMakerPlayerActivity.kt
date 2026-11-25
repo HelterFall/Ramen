@@ -621,9 +621,11 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         if (names.isEmpty()) return
 
         val duration = transition.durationMillis.coerceIn(0L, MAX_TPWORD_WAIT_MS).toInt()
-        val actOut = transition.action.contains("OUT", ignoreCase = true)
-        val fadeOut = if (transition.reverse) !actOut else actOut
-        val removeAfter = actOut || transition.deleteAfter
+        // Act controls whether the affected object stays (FL_STAY/fade-in) or
+        // leaves the screen (FL_OUT/fade-out). Reverse changes wipe direction, not Act.
+        val fadeOut = transition.action.equals("FL_OUT", ignoreCase = true) ||
+            transition.action.endsWith("_OUT", ignoreCase = true)
+        val removeAfter = fadeOut || transition.deleteAfter
         val tokens = linkedMapOf<String, Long>()
 
         names.forEach { name ->
