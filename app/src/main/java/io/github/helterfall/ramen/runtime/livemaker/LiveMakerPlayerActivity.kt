@@ -1449,6 +1449,27 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 if (event.name.equals("MESEND", ignoreCase = true)) {
                     currentSpeakerName = null
                     textPlayback?.currentText = ""
+
+                    // MESEND is the notification that closes the active message. LiveNovel's
+                    // MesNew object forwards it to its PR_ONNOTIFY (.lsc) handler; that handler
+                    // sets __メッセージ終了 so 終了待ち.lsb can leave its While loop.
+                    // Merely hiding the Compose message window leaves the VM parked forever.
+                    val targetName = textPlayback?.event?.targetExpression
+                        ?.let(session::evaluateExpression)
+                        ?.toString()
+                        ?.takeIf { it.isNotBlank() }
+                        ?: "メッセージボックス"
+                    val callbackStarted = session.invokeObjectCallback(
+                        name = targetName,
+                        propertyId = LiveMakerObjectStore.PR_ONNOTIFY,
+                        arguments = listOf("MESEND"),
+                        senderName = targetName
+                    )
+                    if (!callbackStarted) {
+                        // Some games omit the helper callback on special system messages.
+                        // Preserve the documented completion signal as a safe fallback.
+                        session.setVariable("__メッセージ終了", 1)
+                    }
                 }
                 mainHandler.post {
                     if (!isFinishing && !isDestroyed) {
