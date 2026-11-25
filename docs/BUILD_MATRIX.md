@@ -156,8 +156,8 @@ If debug-only is desired, implement a dedicated product flavor/build config and 
 
 | Source | DPMX parser | HSPHED loader | VM / renderer | User-visible launch | Meaning |
 |---|---|---|---|---|---|
-| `feat/hsp3-dpmx-runtime` / PR #31 | Positional PE32+DPMX parsing and bounded decryption | 96-byte HSPHED, CS/DS/OT/DI, OpenHSP token flags and OT word offsets | OpenHSP expression/argument subset, typed VM, basic graphics/input commands | Hsp3PlayerActivity, 800x600 Canvas loop and touchscreen gamepad wired | Partial native HSP3 launch path; real Demonophobia compatibility not yet proven |
+| `feat/hsp3-dpmx-runtime` / PR #31 | Positional PE32+DPMX parsing and bounded decryption | 96-byte HSPHED, CS/DS/OT/DI, OpenHSP token flags and OT word offsets | Nested OpenHSP expression/argument subset, common built-ins, bounded sparse arrays, typed VM, basic graphics/input commands | Hsp3PlayerActivity, 800x600 Canvas loop and touchscreen gamepad wired | Partial native HSP3 launch path; real Demonophobia compatibility not yet proven |
 
 The branch is based on `main` at `56534a43c76f3567ea46d0dbeb7e8ad5f8e88975`. Details and tests are in [HSP3_DPMX_STATUS.md](HSP3_DPMX_STATUS.md).
 
-Known blockers: the PE `.data` key-schedule arithmetic still requires independent validation; array/function/module/DLL expression forms, additional graphics and platform commands remain incomplete; and no real-game Android end-to-end test has been run. HSP3 is now launchable through a native Activity after command decoding succeeds, but CI build/unit-test/lint success is not evidence of full Demonophobia playback.
+Known blockers: the PE `.data` key-schedule arithmetic still requires independent validation; array object/misc-type semantics, some built-in functions, module/DLL expressions, additional graphics and platform commands remain incomplete; and no real-game Android end-to-end test has been run. HSP3 is now launchable through a native Activity after command decoding succeeds, but CI build/unit-test/lint success is not evidence of full Demonophobia playback.
