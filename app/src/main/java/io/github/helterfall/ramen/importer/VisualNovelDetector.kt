@@ -2,6 +2,8 @@ package io.github.helterfall.ramen.importer
 
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
 import io.github.helterfall.ramen.runtime.hsp3.Hsp3RuntimeAdapter
+import io.github.helterfall.ramen.runtime.hsp3.Hsp3BytecodeDecoder
+import io.github.helterfall.ramen.runtime.hsp3.Hsp3Instruction
 import java.io.File
 
 data class GameDetection(
@@ -62,14 +64,16 @@ class VisualNovelDetector {
             .mapNotNull { file ->
                 runCatching {
                     val prepared = Hsp3RuntimeAdapter().prepare(file)
-                    prepared to prepared.program.tokens().count()
+                    val instructions = Hsp3BytecodeDecoder().decode(prepared.program)
+                    prepared to instructions
                 }.getOrNull()
             }
             .firstOrNull()
 
         if (hsp3Program != null) {
             val prepared = hsp3Program.first
-            val tokenCount = hsp3Program.second
+            val decodedInstructions = hsp3Program.second
+            val unsupportedCount = decodedInstructions.count { it is Hsp3Instruction.Unsupported }
             return GameDetection(
                 engineId = Hsp3RuntimeAdapter.ENGINE_ID,
                 engineLabel = Hsp3RuntimeAdapter.ENGINE_LABEL,
@@ -77,9 +81,10 @@ class VisualNovelDetector {
                 evidence = "Validated PE32/DPMX overlay at 0x" +
                     prepared.container.overlayOffset.toString(16) + "; " +
                     prepared.container.fileCount + " DPMX entries; " +
-                    "HSP3.1 HSPHED with CS/DS/OT/DI segments and " +
-                    tokenCount + " token envelopes parsed. " +
-                    "The AX command-argument decoder and playback Activity are not connected yet."
+                    "HSP3.1 HSPHED with CS/DS/OT/DI segments; " +
+                    decodedInstructions.size + " CS commands decoded, " +
+                    unsupportedCount + " command IDs retained as runtime-unsupported markers. " +
+                    "Android Canvas player and touch controls are connected."
             )
         }
 
