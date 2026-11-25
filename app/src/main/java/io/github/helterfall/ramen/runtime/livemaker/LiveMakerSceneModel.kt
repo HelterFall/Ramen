@@ -86,7 +86,9 @@ internal data class LiveMakerSceneComponent(
             val handlers = listOf(
                 LiveMakerObjectStore.PR_ONLBTNDOWN,
                 LiveMakerObjectStore.PR_ONLBTNUP,
-                LiveMakerObjectStore.PR_ONSELECT
+                LiveMakerObjectStore.PR_ONSELECT,
+                LiveMakerObjectStore.PR_ONNOTIFY,
+                LiveMakerObjectStore.PR_ONPLAYEND
             )
             val hasHandler = handlers.any { propertyId ->
                 properties[propertyId]?.let { value ->
