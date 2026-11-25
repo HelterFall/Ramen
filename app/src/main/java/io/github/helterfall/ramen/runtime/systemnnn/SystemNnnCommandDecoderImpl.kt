@@ -369,7 +369,20 @@ class SystemNnnCommandDecoderImpl(
             CODE_SYSTEMFUNCTION_CANNOTSKIP,
             CODE_SYSTEMFUNCTION_OPTIONOFF -> decodeCountedNativeSystemFunction(script, record)
             CODE_SYSTEMFUNCTION_FILMNAME,
-            CODE_SYSTEMFUNCTION_STORYNAME -> decodeStringNativeSystemFunction(script, record)
+            CODE_SYSTEMFUNCTION_STORYNAME -> {
+                val hasDescriptorThreeTargets =
+                    (script.offsetTables.getOrNull(FILM_TABLE_DESCRIPTOR_INDEX)?.entryCount ?: 0) > 0
+                val isDescriptorThreeEntry = hasDescriptorThreeTargets &&
+                    filmTableEntriesFor(script, stream).any { it.targetCommandOffset == record.offset }
+                if (isDescriptorThreeEntry) {
+                    // These 0x3333/0x50 and /0x51 entry stubs are pointer-table
+                    // markers, not film/story metadata callbacks. The descriptor-3
+                    // contract validates their adjacent continuation records.
+                    SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+                } else {
+                    decodeStringNativeSystemFunction(script, record)
+                }
+            }
             CODE_SYSTEMFUNCTION_MUSIC -> decodeMusic(script, record)
             CODE_SYSTEMFUNCTION_VOICE -> decodeVoice(script, record)
             CODE_SYSTEMFUNCTION_SOUND -> decodeSound(script, record)
