@@ -436,6 +436,54 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun alphaPropMotionSurfacesStartTargetDurationAndCurve() {
+        val bytes = LiveMakerLsbFixture.build(
+            version = 108,
+            commands = listOf(
+                LiveMakerLsbFixture.propMotion(
+                    version = 108,
+                    name = "logo-fade",
+                    objectName = "title-logo",
+                    propertyId = LiveMakerObjectStore.PR_ALPHA,
+                    value = 0,
+                    milliseconds = 720,
+                    moveType = "I",
+                    paused = false
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+        val objects = LiveMakerObjectStore().apply {
+            create(
+                "title-logo",
+                LiveMakerSceneComponent.COMPONENT_IMG_NEW,
+                mapOf(LiveMakerObjectStore.PR_ALPHA to 255)
+            )
+        }
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(
+                script = LiveMakerLsbParser().parse(source),
+                objectStore = objects
+            )
+            val motion = vm.runUntilEvent() as LiveMakerVmEvent.PropertyMotion
+
+            assertEquals("logo-fade", motion.name)
+            assertEquals("title-logo", motion.objectName)
+            assertEquals(LiveMakerObjectStore.PR_ALPHA, motion.propertyId)
+            assertEquals(255, motion.startValue)
+            assertEquals(0, motion.targetValue)
+            assertEquals(720L, motion.durationMillis)
+            assertEquals("I", motion.moveType)
+            assertEquals(false, motion.paused)
+            assertEquals(0, motion.commandIndex)
+            assertEquals(0, objects.getProperty("title-logo", LiveMakerObjectStore.PR_ALPHA))
+
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+        }
+    }
+
+    @Test
     fun doEventYieldsToTheHostEventLoopInsteadOfSpinningInTheVm() {
         val bytes = LiveMakerLsbFixture.build(
             commands = listOf(
