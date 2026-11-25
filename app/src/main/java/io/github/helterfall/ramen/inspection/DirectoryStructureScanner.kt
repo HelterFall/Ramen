@@ -40,7 +40,10 @@ class DirectoryStructureScanner(
         var truncated = false
 
         fun enqueueChildren(children: List<FolderEntryNode>, parentPath: String, depth: Int) {
-            val ordered = children.sortedBy { it.name.orEmpty() }
+            val ordered = children.sortedWith(
+                compareBy<FolderEntryNode> { !it.isDirectory }
+                    .thenBy { it.name.orEmpty() }
+            )
             val availableSlots = (maxEntries + 1 - pending.size).coerceAtLeast(0)
             if (ordered.size > availableSlots) {
                 truncated = true
