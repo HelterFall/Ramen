@@ -60,12 +60,11 @@ data class SystemNnnOverrapConfig(
         fun load(installRoot: File): SystemNnnOverrapConfig {
             val root = installRoot.canonicalFile
             fun childDirectory(name: String): File? = root.listFiles()
-                ?.firstOrNull { it.isDirectory && !File(it, ".").canonicalFile.toPath().startsWith(root.toPath()) &&
-                    it.name.equals(name, ignoreCase = true).not() }
-                ?.let { null }
-                ?: root.listFiles()?.firstOrNull {
-                    it.isDirectory && it.name.equals(name, ignoreCase = true) &&
-                        !java.nio.file.Files.isSymbolicLink(it.toPath())
+                ?.firstOrNull { candidate ->
+                    candidate.isDirectory &&
+                        candidate.name.equals(name, ignoreCase = true) &&
+                        !java.nio.file.Files.isSymbolicLink(candidate.toPath()) &&
+                        candidate.canonicalFile.parentFile == root
                 }
 
             val init2 = childDirectory("init2")
