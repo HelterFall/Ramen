@@ -7,7 +7,12 @@ import java.io.Writer
 import java.nio.charset.StandardCharsets
 import java.util.Locale
 
-/** Writes a compact UTF-8 JSON manifest. The caller retains ownership of the supplied stream. */
+/**
+ * Writes a compact UTF-8 JSON manifest. The caller retains ownership of the supplied stream.
+ *
+ * The directories array includes empty folders. The files array contains relative paths and
+ * optional metadata only; no file bytes are included in the manifest.
+ */
 class DirectoryStructureJsonWriter {
     fun write(report: DirectoryStructureReport, output: OutputStream) {
         val writer = BufferedWriter(OutputStreamWriter(output, StandardCharsets.UTF_8))
