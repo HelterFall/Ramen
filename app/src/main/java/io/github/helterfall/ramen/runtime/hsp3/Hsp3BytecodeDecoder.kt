@@ -60,16 +60,29 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         if (startIndex >= endIndex) return emptyList()
         val groups = ArrayList<MutableList<Hsp3Token>>()
         var current = mutableListOf<Hsp3Token>()
+        var parenthesisDepth = 0
         for (index in startIndex until endIndex) {
             val token = tokens[index]
-            if (token.extensionFlags and EXFLG_2 != 0) {
-                // EXFLG_2 starts a subsequent parameter. Preserve an empty
-                // group here too: OpenHSP omits a leading/default parameter
-                // without emitting a '?' marker for the first argument.
+            val isOpen = token.type == TYPE_MARK && token.value == '('.code.toLong()
+            val isClose = token.type == TYPE_MARK && token.value == ')'.code.toLong()
+            if (token.extensionFlags and EXFLG_2 != 0 && parenthesisDepth == 0) {
+                // EXFLG_2 starts a subsequent parameter at this level only.
+                // Preserve empty groups: OpenHSP omits a leading/default
+                // argument without emitting a '?' marker for the first slot.
                 groups += current
                 current = mutableListOf()
             }
             current += token.copy(extensionFlags = token.extensionFlags and EXFLG_2.inv())
+            if (isOpen) parenthesisDepth += 1
+            if (isClose) {
+                if (parenthesisDepth == 0) {
+                    throw IOException("Unbalanced closing parenthesis in HSP parameter list.")
+                }
+                parenthesisDepth -= 1
+            }
+        }
+        if (parenthesisDepth != 0) {
+            throw IOException("Unbalanced parentheses in HSP parameter list.")
         }
         if (current.isNotEmpty()) groups += current
         return groups
