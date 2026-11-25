@@ -371,7 +371,7 @@ class SystemNnnCommandDecoderImpl(
             CODE_SYSTEMFUNCTION_FILMNAME,
             CODE_SYSTEMFUNCTION_STORYNAME -> {
                 val hasDescriptorThreeTargets =
-                    (script.offsetTables.getOrNull(FILM_TABLE_DESCRIPTOR_INDEX)?.entryCount ?: 0) > 0
+                    script.offsetTables.getOrNull(2)?.entryCount?.let { it > 0 } == true
                 val isDescriptorThreeEntry = hasDescriptorThreeTargets &&
                     filmTableEntriesFor(script, stream).any { it.targetCommandOffset == record.offset }
                 if (isDescriptorThreeEntry) {
