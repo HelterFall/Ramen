@@ -87,6 +87,17 @@ class DpmxAssetRepository(
         }
     }
 
+    override fun size(name: String): Long? {
+        val normalized = normalizeRelativeName(name)
+        for (root in localSearchRoots) {
+            val local = resolveExistingFile(root, normalized)
+            if (local?.isFile == true) return local.length()
+        }
+        return container.entries.firstOrNull {
+            normalizeArchiveName(it.name).equals(normalized, ignoreCase = true)
+        }?.sizeBytes
+    }
+
     override fun read(name: String): ByteArray? {
         val stream = open(name) ?: return null
         stream.use { input ->
@@ -346,11 +357,16 @@ object Hsp3CommandIds {
     const val TYPE_PROGCMD = 15
 
     const val MES = 0x0F
+    const val TITLE = 0x10
     const val POS = 0x11
+    const val CLS = 0x13
     const val FONT = 0x14
     const val PICLOAD = 0x17
     const val COLOR = 0x18
+    const val PALCOLOR = 0x19
+    const val PALETTE = 0x1A
     const val REDRAW = 0x1B
+    const val WIDTH = 0x1C
     const val GSEL = 0x1D
     const val GCOPY = 0x1E
     const val GZOOM = 0x1F
@@ -359,6 +375,8 @@ object Hsp3CommandIds {
     const val SCREEN = 0x2A
     const val BOXF = 0x31
     const val STICK = 0x34
+    const val GRECT = 0x35
+    const val GETKEY = 0x23
     const val CELLLOAD = 0x3C
     const val CELDIV = 0x3D
     const val CELPUT = 0x3E
