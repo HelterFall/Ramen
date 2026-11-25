@@ -7,6 +7,8 @@ import android.os.Looper
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -17,6 +19,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,6 +27,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -32,6 +36,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -45,14 +50,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
+import io.github.helterfall.ramen.importer.SafDirectoryStructureScanner
+import io.github.helterfall.ramen.inspection.DirectoryStructureJsonWriter
+import io.github.helterfall.ramen.inspection.DirectoryStructureReport
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
+import io.github.helterfall.ramen.runtime.livemaker.LiveMakerPlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
@@ -68,8 +79,13 @@ private val RamenText = Color(0xFFF4F1EA)
 private val RamenMuted = Color(0xFFA8ADB7)
 
 @Composable
-fun RamenApp() {
+fun RamenApp(
+    crashReport: String? = null,
+    onCrashReportDismiss: () -> Unit = {}
+) {
     val context = LocalContext.current
+    val clipboardManager = LocalClipboardManager.current
+    var isCrashReportVisible by remember(crashReport) { mutableStateOf(crashReport != null) }
     val repository = remember { LibraryRepository(context.applicationContext) }
     val games = remember {
         mutableStateListOf<GameRecord>().apply {
@@ -77,6 +93,8 @@ fun RamenApp() {
         }
     }
     var isImporting by remember { mutableStateOf(false) }
+    var isExportingStructure by remember { mutableStateOf(false) }
+    var pendingDirectoryStructure by remember { mutableStateOf<DirectoryStructureReport?>(null) }
     var statusMessage by remember {
         mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
     }
@@ -200,8 +218,98 @@ fun RamenApp() {
         }
     }
 
+
+    val structureJsonSaver = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { outputUri ->
+        val report = pendingDirectoryStructure
+        pendingDirectoryStructure = null
+
+        if (outputUri == null) {
+            isExportingStructure = false
+            statusMessage = "Сохранение JSON структуры отменено."
+        } else if (report == null) {
+            isExportingStructure = false
+            statusMessage = "Не удалось подготовить структуру папок."
+        } else {
+            statusMessage = "Сохраняю JSON структуры папок…"
+            executor.execute {
+                try {
+                    val output = context.contentResolver.openOutputStream(outputUri)
+                        ?: throw IllegalStateException("Android не открыл файл для записи.")
+                    output.use { DirectoryStructureJsonWriter().write(report, it) }
+                    mainHandler.post {
+                        isExportingStructure = false
+                        val partialNote = if (report.truncated) {
+                            " Обход ограничен; смотри warnings в JSON."
+                        } else {
+                            ""
+                        }
+                        statusMessage =
+                            "JSON сохранён: " + report.directories.size + " папок." + partialNote
+                    }
+                } catch (error: Exception) {
+                    mainHandler.post {
+                        isExportingStructure = false
+                        statusMessage = error.message ?: "Не удалось сохранить JSON структуры."
+                    }
+                }
+            }
+        }
+    }
+
+    val structureFolderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri ->
+        if (treeUri == null) {
+            statusMessage = "Экспорт структуры отменён."
+        } else if (isImporting || isExportingStructure) {
+            statusMessage = "Дождись окончания текущей операции."
+        } else {
+            val permissionTaken = runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    treeUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }.isSuccess
+
+            if (!permissionTaken) {
+                statusMessage = "Android не предоставил доступ к выбранной папке."
+            } else {
+                isExportingStructure = true
+                statusMessage = "Сканирую только каталоги…"
+                executor.execute {
+                    try {
+                        val report = SafDirectoryStructureScanner(
+                            context.applicationContext
+                        ).scan(treeUri)
+                        mainHandler.post {
+                            pendingDirectoryStructure = report
+                            statusMessage =
+                                "Найдено " + report.directories.size + " папок. Выбери, куда сохранить JSON."
+                            structureJsonSaver.launch("ramen-folder-structure.json")
+                        }
+                    } catch (error: Exception) {
+                        mainHandler.post {
+                            isExportingStructure = false
+                            statusMessage =
+                                error.message ?: "Не удалось прочитать структуру папок."
+                        }
+                    } finally {
+                        runCatching {
+                            context.contentResolver.releasePersistableUriPermission(
+                                treeUri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     val onImportClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isImporting && !isExportingStructure) {
             documentPicker.launch(
                 arrayOf(
                     "application/zip",
@@ -214,13 +322,13 @@ fun RamenApp() {
     }
 
     val onImportFolderClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isImporting && !isExportingStructure) {
             folderPicker.launch(null)
         }
     }
 
     val onImportHtmlClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isImporting && !isExportingStructure) {
             // Some providers label .html as text/plain or octet-stream,
             // so accept the selection broadly and validate it in HtmlFileImporter.
             htmlFilePicker.launch(arrayOf("*/*"))
@@ -262,11 +370,17 @@ fun RamenApp() {
                         )
                     }
                 }
+                item {
+                    DirectoryStructureExportShortcut(
+                        isExporting = isExportingStructure,
+                        onClick = { structureFolderPicker.launch(null) }
+                    )
+                }
 
                 if (games.isEmpty()) {
                     item {
                         EmptyLibraryCard(
-                            isImporting = isImporting,
+                            isImporting = isImporting || isExportingStructure,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
                             onImportHtmlClick = onImportHtmlClick
@@ -276,7 +390,7 @@ fun RamenApp() {
                     item {
                         LibrarySummaryCard(
                             gameCount = games.size,
-                            isImporting = isImporting,
+                            isImporting = isImporting || isExportingStructure,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
                             onImportHtmlClick = onImportHtmlClick
@@ -296,6 +410,11 @@ fun RamenApp() {
                             },
                             onLaunch = {
                                 when (game.engineId) {
+                                    "livemaker-vf102" -> {
+                                        val intent = Intent(context, LiveMakerPlayerActivity::class.java)
+                                            .putExtra(LiveMakerPlayerActivity.EXTRA_GAME_ID, game.id)
+                                        context.startActivity(intent)
+                                    }
                                     "system-nnn-spt" -> {
                                         val intent = Intent(context, SystemNnnPlayerActivity::class.java)
                                             .putExtra(SystemNnnPlayerActivity.EXTRA_GAME_ID, game.id)
@@ -318,12 +437,53 @@ fun RamenApp() {
                 item {
                     ImportStatusCard(
                         message = statusMessage,
-                        isImporting = isImporting
+                        isImporting = isImporting || isExportingStructure
                     )
                 }
                 item { ComingNextSection() }
                 item { BuildFooter() }
             }
+        }
+
+        if (isCrashReportVisible && crashReport != null) {
+            AlertDialog(
+                onDismissRequest = {
+                    isCrashReportVisible = false
+                    onCrashReportDismiss()
+                },
+                title = { Text("Предыдущее завершение Ramen") },
+                text = {
+                    Column(
+                        modifier = Modifier.heightIn(max = 440.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Приложение аварийно завершилось. Сохранённый системный отчёт:")
+                        Text(
+                            text = crashReport,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                            fontSize = 10.sp,
+                            lineHeight = 13.sp
+                        )
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = {
+                        clipboardManager.setText(AnnotatedString(crashReport))
+                    }) {
+                        Text("Скопировать лог")
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = {
+                        isCrashReportVisible = false
+                        onCrashReportDismiss()
+                    }) {
+                        Text("Закрыть")
+                    }
+                }
+            )
         }
     }
 }
@@ -359,6 +519,53 @@ private fun ResourceInspectorShortcut(onClick: () -> Unit) {
             }
             Text(
                 text = "ОТКРЫТЬ  ›",
+                color = RamenAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun DirectoryStructureExportShortcut(
+    isExporting: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp)),
+        color = RamenSurfaceRaised,
+        shape = RoundedCornerShape(17.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable(enabled = !isExporting, onClick = onClick)
+                .padding(horizontal = 15.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "ЭКСПОРТ СТРУКТУРЫ ПАПОК",
+                    color = RamenAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = if (isExporting) {
+                        "Сканирую дерево…"
+                    } else {
+                        "Сохранить дерево папок в JSON"
+                    },
+                    color = RamenText,
+                    fontSize = 12.sp
+                )
+            }
+            Text(
+                text = if (isExporting) "…" else "JSON  ›",
                 color = RamenAccent,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold
@@ -650,6 +857,8 @@ private fun GameCard(
             )
             Text(
                 text = when (game.compatibilityStatus) {
+                    "PLAYABLE" ->
+                        "Активен LiveMaker LSB/VM-раннер: стартовые страницы, TextIns/TpWord, сцены ImgNew и аудио Sound/MediaPlay. Неподдержанные команды останавливают VM с диагностикой."
                     "PARSER_AVAILABLE" ->
                         if (game.engineId == "system-nnn-spt") {
                             "Доступен запуск System-NNN с декодированием указателей текста и ресурсов."
@@ -681,7 +890,8 @@ private fun GameCard(
                 Text("Просмотреть GPK/GTB и VPK/VTB")
             }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
-                (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE")
+                (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE") ||
+                (game.engineId == "livemaker-vf102" && game.compatibilityStatus == "PLAYABLE")
             ) {
                 Button(
                     onClick = onLaunch,
@@ -692,7 +902,10 @@ private fun GameCard(
                         contentColor = Color(0xFF24190B)
                     )
                 ) {
-                    Text("Запустить", fontWeight = FontWeight.Bold)
+                    Text(
+                        "Запустить",
+                        fontWeight = FontWeight.Bold
+                    )
                 }
             }
         }

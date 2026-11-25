@@ -1,9 +1,13 @@
 package io.github.helterfall.ramen.importer
 
+import io.github.helterfall.ramen.inspection.LiveMakerArchiveFixture
+import io.github.helterfall.ramen.inspection.LiveMakerFixtureFile
+import io.github.helterfall.ramen.inspection.LiveMakerLsbFixture
 import java.io.File
 import java.nio.charset.Charset
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VisualNovelDetectorTest {
@@ -103,6 +107,68 @@ class VisualNovelDetectorTest {
             val result = VisualNovelDetector().detect(root)
             assertEquals("system-nnn-spt", result.engineId)
             assertEquals("PARSER_AVAILABLE", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun detectsEmbeddedLiveMakerVf102Archive() {
+        val root = Files.createTempDirectory("ramen-livemaker-detect").toFile()
+
+        try {
+            File(root, "Game.exe").writeBytes(
+                LiveMakerArchiveFixture.executable(
+                    listOf(
+                        LiveMakerFixtureFile(
+                            name = "scenario/main.lsb",
+                            payload = LiveMakerLsbFixture.build(commands = emptyList())
+                        )
+                    )
+                )
+            )
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("livemaker-vf102", result.engineId)
+            assertEquals("PLAYABLE", result.compatibilityStatus)
+            assertTrue(result.evidence.contains("1 directory entries"))
+            assertTrue(result.evidence.contains("passed the LSB parser"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun invalidArchivedLsbDoesNotEnableTheRuntime() {
+        val root = Files.createTempDirectory("ramen-livemaker-invalid-lsb").toFile()
+        try {
+            File(root, "Game.exe").writeBytes(
+                LiveMakerArchiveFixture.executable(
+                    listOf(LiveMakerFixtureFile("scenario/bad.lsb", byteArrayOf(1, 2, 3)))
+                )
+            )
+            val result = VisualNovelDetector().detect(root)
+            assertEquals("livemaker-vf102", result.engineId)
+            assertEquals("PARSER_AVAILABLE", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun doesNotDetectAnUnrelatedMZExecutableAsLiveMaker() {
+        val root = Files.createTempDirectory("ramen-unrelated-exe-detect").toFile()
+
+        try {
+            File(root, "program.exe").writeBytes(
+                byteArrayOf('M'.code.toByte(), 'Z'.code.toByte()) + ByteArray(128)
+            )
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("unknown", result.engineId)
+            assertEquals("UNKNOWN", result.compatibilityStatus)
         } finally {
             root.deleteRecursively()
         }
