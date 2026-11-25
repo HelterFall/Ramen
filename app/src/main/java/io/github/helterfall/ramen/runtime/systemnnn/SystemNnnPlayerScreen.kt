@@ -1058,7 +1058,7 @@ private fun visualEffectRandom(value: Int): Int {
     return mixed and Int.MAX_VALUE
 }
 
-private val NATIVE_SCREEN_BUFFER_RENDER_EFFECTS = setOf(2, 20, 22, 31, 43, 50, 69, 71, 74)
+private val NATIVE_SCREEN_BUFFER_RENDER_EFFECTS = setOf(2, 20, 22, 29, 31, 43, 50, 69, 71, 74)
 
 @Composable
 private fun SystemNnnScreenEffectOverlay(
