@@ -10,7 +10,7 @@ import org.junit.Test
 class Hsp3BytecodeLoaderTest {
     @Test
     fun parsesHsp31HeaderAndDeclaredSegments() {
-        withProgramBytes(createProgramBytes()) { program ->
+        withProgramBytes { program ->
             assertEquals(0x301L, program.header.version)
             assertEquals(1032L, program.header.maxValueCount)
             assertEquals(0x78L, program.header.allSizeBytes)
