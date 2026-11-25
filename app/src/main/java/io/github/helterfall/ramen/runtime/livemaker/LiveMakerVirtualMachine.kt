@@ -212,10 +212,40 @@ class LiveMakerVirtualMachine(
                         programCounter += 1
                     }
                     33 -> {
+                        // Run the loop's increment/finalizer expression first.
                         evaluateRequired(command, 0)
                         val startIndex = command.integers.firstOrNull()
                             ?: return unsupported(command, "WhileLoop is missing its Start index.")
-                        programCounter = checkedCommandTarget(startIndex + 1L, command)
+
+                        // Compiled LSBs use both forms for Start: some point at WhileInit
+                        // (so the While condition is Start+1), while LiveNovel's
+                        // 終了待ち.lsb points directly at the While command (Start itself).
+                        // Re-evaluate that condition here; blindly jumping to Start+1
+                        // skips it in the latter form and creates an endless busy loop.
+                        val candidateIndexes = listOf(startIndex, startIndex + 1L)
+                        val whileHeader = candidateIndexes
+                            .asSequence()
+                            .filter { it in script.commands.indices.map(Int::toLong) }
+                            .map { script.commands[it.toInt()] }
+                            .firstOrNull { it.typeId == 31 }
+
+                        if (whileHeader == null) {
+                            programCounter = checkedCommandTarget(startIndex + 1L, command)
+                        } else {
+                            val condition = truthy(
+                                evaluateRequired(whileHeader, 0)
+                            )
+                            val endIndex = whileHeader.integers.firstOrNull()
+                                ?: return unsupported(
+                                    whileHeader,
+                                    "While is missing its End index."
+                                )
+                            programCounter = if (condition) {
+                                whileHeader.index + 1
+                            } else {
+                                checkedCommandTarget(endIndex + 2L, command)
+                            }
+                        }
                     }
                     34 -> {
                         val shouldBreak = truthy(evaluateRequired(command, 0))
