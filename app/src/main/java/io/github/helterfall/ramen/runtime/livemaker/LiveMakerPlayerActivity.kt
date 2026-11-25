@@ -63,6 +63,7 @@ import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnAudioPlaybackStatus
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.roundToInt
 
 private data class LiveMakerPlayerUiState(
@@ -121,7 +122,9 @@ private data class LiveMakerEventPresentation(
     val description: String,
     val canContinue: Boolean,
     val dialogueText: String = "",
-    val waitingForTap: Boolean = false
+    val waitingForTap: Boolean = false,
+    /** Return to the Android event loop and continue the VM on the next frame. */
+    val autoAdvanceOnFrame: Boolean = false
 )
 
 /** Android host for the compiled LiveMaker LSB runtime. */
@@ -129,6 +132,10 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     private val uiState = mutableStateOf(LiveMakerPlayerUiState())
     private val mainHandler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+    private val automaticAdvanceScheduled = AtomicBoolean(false)
+    @Volatile private var pointerPulsePendingRelease = false
+    @Volatile private var lastPointerX = 0
+    @Volatile private var lastPointerY = 0
     private var liveSession: LiveMakerGameSession? = null
     private var runtimeEnvironment: LiveMakerSystemEnvironment? = null
     private var currentEvent: LiveMakerSessionEvent? = null
@@ -238,6 +245,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             assets = assets.listAssets(),
                             mediaDiagnostics = assets.diagnostics
                         )
+                        if (presentation.autoAdvanceOnFrame) scheduleAutomaticAdvance()
                     }
                 }
             } catch (error: Exception) {
@@ -295,6 +303,9 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             val session = liveSession ?: return@execute
             val pointerX = x.roundToInt().coerceAtLeast(0)
             val pointerY = y.roundToInt().coerceAtLeast(0)
+            lastPointerX = pointerX
+            lastPointerY = pointerY
+            pointerPulsePendingRelease = true
             session.updatePointerState(pointerX, pointerY, leftClick = true, leftPush = true)
             try {
                 if (uiState.value.canContinue) {
@@ -324,15 +335,28 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             session.triggerObjectEvent(target.name, LiveMakerObjectStore.PR_ONLBTNUP)
                     }
 
-                    // LiveNovel scripts also poll @MOUSEX/@MOUSEY/@LCLICK and may
-                    // continue through DoEvent without a component callback.
+                    // If we were parked at DoEvent/Running, resume the VM with the
+                    // touch pulse still asserted so helper-page While loops can observe it.
+                    when (val pending = (currentEvent as? LiveMakerSessionEvent.EngineEvent)?.event) {
+                        is LiveMakerVmEvent.ProcessEvents -> session.resume()
+                        LiveMakerVmEvent.Running -> Unit
+                        else -> Unit
+                    }
                     val (next, presentation) = nextPresentation(session)
+                    if (!presentation.autoAdvanceOnFrame) releasePointerPulse(session)
                     publishPresentation(session, next, presentation)
                 }
             } catch (error: Exception) {
                 publishError(error)
             } finally {
-                session.updatePointerState(pointerX, pointerY, leftClick = false, leftPush = false)
+                // Keep a click pulse alive across a DoEvent/Running frame boundary.
+                // advanceSession releases it after the next VM slice has observed input.
+                if (currentEvent !is LiveMakerSessionEvent.EngineEvent ||
+                    (currentEvent as LiveMakerSessionEvent.EngineEvent).event !is LiveMakerVmEvent.ProcessEvents &&
+                    (currentEvent as LiveMakerSessionEvent.EngineEvent).event != LiveMakerVmEvent.Running
+                ) {
+                    releasePointerPulse(session)
+                }
             }
         }
     }
@@ -363,7 +387,9 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             when (val event = currentEvent) {
                 is LiveMakerSessionEvent.EngineEvent -> when (event.event) {
                     is LiveMakerVmEvent.TextBlock,
-                    is LiveMakerVmEvent.Delay -> session.resume()
+                    is LiveMakerVmEvent.Delay,
+                    is LiveMakerVmEvent.ProcessEvents -> session.resume()
+                    LiveMakerVmEvent.Running -> Unit
                     else -> return
                 }
                 else -> return
@@ -371,6 +397,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         }
 
         val (next, presentation) = nextPresentation(session)
+        if (pointerPulsePendingRelease) releasePointerPulse(session)
         publishPresentation(session, next, presentation)
     }
 
@@ -397,8 +424,27 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     isCompleted = isCompleted(next),
                     errorMessage = null
                 )
+                if (presentation.autoAdvanceOnFrame) scheduleAutomaticAdvance()
             }
         }
+    }
+
+    /**
+     * A DoEvent/Running boundary is a cooperative yield, not a player wait. Return to
+     * Android for a frame so input, Compose drawing and animation time can progress.
+     */
+    private fun scheduleAutomaticAdvance() {
+        if (!automaticAdvanceScheduled.compareAndSet(false, true)) return
+        mainHandler.postDelayed({
+            automaticAdvanceScheduled.set(false)
+            if (!isFinishing && !isDestroyed) continueSession()
+        }, EVENT_PUMP_FRAME_DELAY_MS)
+    }
+
+    private fun releasePointerPulse(session: LiveMakerGameSession) {
+        if (!pointerPulsePendingRelease) return
+        pointerPulsePendingRelease = false
+        session.updatePointerState(lastPointerX, lastPointerY, leftClick = false, leftPush = false)
     }
 
     private fun showHistory() {
@@ -456,11 +502,28 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             )
             if (recentSteps.size > 12) recentSteps.removeFirst()
 
-            // The VM yields Running after its bounded instruction slice. That is not
-            // a user-visible screen and must not leave the player frozen on the last CG.
+            // Running means a long script/While loop consumed one VM slice. Yield
+            // to Android now instead of burning all 512 presentation transitions.
             if (engineEvent == LiveMakerVmEvent.Running) {
-                session.resume()
-                return@repeat
+                return event to LiveMakerEventPresentation(
+                    description = "",
+                    canContinue = false,
+                    dialogueText = "",
+                    waitingForTap = false,
+                    autoAdvanceOnFrame = true
+                )
+            }
+
+            if (engineEvent is LiveMakerVmEvent.ProcessEvents) {
+                // DoEvent is a real event-pump boundary. The Android host gets a frame,
+                // then resumes the VM after queued touch/draw work has been processed.
+                return event to LiveMakerEventPresentation(
+                    description = "",
+                    canContinue = false,
+                    dialogueText = "",
+                    waitingForTap = false,
+                    autoAdvanceOnFrame = true
+                )
             }
 
             if (engineEvent is LiveMakerVmEvent.Delay) {
@@ -891,6 +954,12 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                         canContinue = engineEvent.milliseconds <= 0L,
                         dialogueText = "",
                         waitingForTap = engineEvent.milliseconds <= 0L
+                    )
+                is LiveMakerVmEvent.ProcessEvents ->
+                    LiveMakerEventPresentation(
+                        description = "",
+                        canContinue = false,
+                        autoAdvanceOnFrame = true
                     )
                 is LiveMakerVmEvent.HostCommandRequired ->
                     LiveMakerEventPresentation(
@@ -1389,6 +1458,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         private const val MAX_IMAGE_PIXELS = 16_000_000L
         private const val MAX_TPWORD_WAIT_MS = 60_000L
         private const val MAX_TPWORD_PLAYBACK_WAIT_MS = 10 * 60 * 1000L
+        private const val EVENT_PUMP_FRAME_DELAY_MS = 16L
         private const val MAX_ERROR_LOG_CHARS = 128_000
     }
 }
