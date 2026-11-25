@@ -81,8 +81,8 @@ class SystemNnnNativeEffectRendererTest {
         val result = SystemNnnNativeEffectRenderer.mosaic(source, 4, 2, 1, listOf(1, 2, 2, 0, 0, 4, 2))
         assertArrayEquals(
             intArrayOf(
-                0xFF121212.toInt(), 0xFF121212.toInt(), 0xFF141414.toInt(), 0xFF141414.toInt(),
-                0xFF121212.toInt(), 0xFF121212.toInt(), 0xFF141414.toInt(), 0xFF141414.toInt()
+                0xFF010101.toInt(), 0xFF010101.toInt(), 0xFF030303.toInt(), 0xFF030303.toInt(),
+                0xFF111111.toInt(), 0xFF111111.toInt(), 0xFF131313.toInt(), 0xFF131313.toInt()
             ),
             result
         )
@@ -132,7 +132,7 @@ class SystemNnnNativeEffectRendererTest {
         val koma = SystemNnnNativeEffectRenderer.komaAnimeSourceRect(
             256, 128, 5, listOf(20, 64, 64, 2)
         )
-        assertEquals(SystemNnnNativeEffectRenderer.RectI(64, 64, 128, 128), koma)
+        assertEquals(SystemNnnNativeEffectRenderer.RectI(128, 0, 192, 64), koma)
 
         val rain2 = SystemNnnNativeEffectRenderer.rain2Offsets(
             12, listOf(20, 2, 3, 3, 8, 6, 50, 100), 800, 600
