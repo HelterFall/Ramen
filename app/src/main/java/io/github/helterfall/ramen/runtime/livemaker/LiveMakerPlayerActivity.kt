@@ -442,11 +442,19 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     private fun nextPresentation(
         session: LiveMakerGameSession
     ): Pair<LiveMakerSessionEvent, LiveMakerEventPresentation> {
+        val recentSteps = ArrayDeque<String>()
         repeat(MAX_AUTOMATIC_HOST_COMMANDS) {
+            val beforePage = session.currentPageReference().orEmpty()
+            val beforeCommand = session.currentCommandIndex()
             val event = nextEvent(session)
             currentEvent = event
             val presentation = presentEvent(event, session)
             val engineEvent = (event as? LiveMakerSessionEvent.EngineEvent)?.event
+            recentSteps.addLast(
+                "$beforePage#$beforeCommand -> " +
+                    (engineEvent?.javaClass?.simpleName ?: event.javaClass.simpleName)
+            )
+            if (recentSteps.size > 12) recentSteps.removeFirst()
 
             // The VM yields Running after its bounded instruction slice. That is not
             // a user-visible screen and must not leave the player frozen on the last CG.
@@ -476,7 +484,12 @@ class LiveMakerPlayerActivity : ComponentActivity() {
 
             return event to presentation
         }
-        throw IOException("LiveMaker exceeded the automatic presentation budget.")
+        throw IOException(
+            "LiveMaker exceeded the automatic presentation budget after " +
+                MAX_AUTOMATIC_HOST_COMMANDS + " internal transitions. Current page=" +
+                session.currentPageReference() + ", command=" + session.currentCommandIndex() +
+                ". Recent VM steps: " + recentSteps.joinToString(" | ")
+        )
     }
 
     private fun isCompleted(event: LiveMakerSessionEvent): Boolean =
@@ -842,20 +855,14 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     if (historyHost.addText(decoded.plainText, includeInHistory)) {
                         publishHistory()
                     }
-                    val segments = decoded.segments.toMutableList()
-                    if (segments.isEmpty()) {
-                        // A TextIns with only CREATECG/WAIT/MESEND commands is not a
-                        // dialogue page and must not become a fake tap-to-continue screen.
-                        segments += LiveMakerTextSegment(
-                            "",
-                            waitForTap = engineEvent.shouldWait && decoded.plainText.isNotEmpty()
-                        )
-                    } else if (decoded.plainText.isNotEmpty()) {
-                        val last = segments.last()
-                        if (!last.waitForTap) {
-                            segments[segments.lastIndex] = last.copy(waitForTap = true)
-                        }
-                    }
+                    // The containing LSB TextIns Wait flag is authoritative even
+                    // when TpWord contains only system events and zero visible characters.
+                    // Otherwise the host skips the game's menu/title input boundary and
+                    // can execute hundreds of subsequent commands in one worker turn.
+                    val segments = applyLiveMakerTextBlockWait(
+                        decoded.segments,
+                        engineEvent.shouldWait
+                    )
                     textPlayback = LiveMakerTextPlayback(engineEvent, segments)
                     advanceTextPlayback(textPlayback!!, session)
                     LiveMakerEventPresentation(
