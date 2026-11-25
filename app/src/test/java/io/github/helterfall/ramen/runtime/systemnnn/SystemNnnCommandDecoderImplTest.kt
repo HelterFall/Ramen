@@ -944,7 +944,7 @@ class SystemNnnCommandDecoderImplTest {
             val unsupported = listOf(
                 0x33330011u, 0x33330017u, 0x33330018u,
                 0x3333001Bu, 0x3333001Cu, 0x3333001Eu, 0x33330028u,
-                0x33330050u, 0x33330051u, 0x33330052u, 0x33330053u,
+                0x33330053u, 0x33330054u, 0x33330056u, 0x33330060u,
                 0x33330057u, 0x33330058u, 0x33330059u, 0x3333005Au
             )
             val records = unsupported.map { code -> record(3, SYSTEM_FUNCTION, code) }
