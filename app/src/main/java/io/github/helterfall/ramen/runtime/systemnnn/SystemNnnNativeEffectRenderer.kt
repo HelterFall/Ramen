@@ -483,6 +483,7 @@ internal object SystemNnnNativeEffectRenderer {
     }
 
     /** HOTARU (71): additive firefly glow particles painted into the common buffer. */
+    /** HOTARU (71): deterministic replay of native 256-unit particles and 8x8 glow. */
     fun hotaru(
         source: IntArray,
         width: Int,
@@ -491,47 +492,128 @@ internal object SystemNnnNativeEffectRenderer {
         parameters: List<Int>
     ): IntArray {
         if (!validFrame(source, width, height)) return source.copyOf()
-        val count = (parameters.getOrNull(1) ?: 0).coerceIn(0, 96)
+        val requestedCount = (parameters.getOrNull(1) ?: 100).coerceAtLeast(0)
+        val workStart = (parameters.getOrNull(13) ?: 0).coerceIn(0, 600)
+        val count = min(requestedCount, 600 - workStart)
+        if (count <= 0) return source.copyOf()
+
         val originX = parameters.getOrNull(2) ?: width
         val originY = parameters.getOrNull(3) ?: (height - 180)
         val spanX = (parameters.getOrNull(4) ?: 100).coerceAtLeast(1)
         val spanY = (parameters.getOrNull(5) ?: 100).coerceAtLeast(1)
-        val velocityX = parameters.getOrNull(6) ?: -2
-        val velocityY = parameters.getOrNull(7) ?: -3
-        val red = (parameters.getOrNull(8) ?: 255).coerceIn(0, 255)
-        val green = (parameters.getOrNull(9) ?: 255).coerceIn(0, 255)
-        val blue = (parameters.getOrNull(10) ?: 255).coerceIn(0, 255)
-        val alpha = (parameters.getOrNull(14) ?: 100).coerceIn(0, 100) / 100.0
-        val radiusBase = (parameters.getOrNull(17) ?: 20).coerceIn(1, 80)
+        val baseSpeedX = parameters.getOrNull(6) ?: -2
+        val baseSpeedY = parameters.getOrNull(7) ?: -3
+        val red = parameters.getOrNull(8) ?: 255
+        val green = parameters.getOrNull(9) ?: 255
+        val blue = parameters.getOrNull(10) ?: 255
+        val loop = (parameters.getOrNull(11) ?: 0) != 0
+        val shakePeriod = (parameters.getOrNull(15) ?: 15).coerceAtLeast(1)
+        val shakeAngle = parameters.getOrNull(16) ?: -1
+        val shakeWidth = (parameters.getOrNull(17) ?: 20).coerceAtLeast(0)
+        val duration = (parameters.firstOrNull() ?: 20).coerceAtLeast(1)
+        val fadePercent = (
+            100 + ((parameters.getOrNull(14) ?: 100) - 100) * frame.coerceIn(0, duration) / duration
+        ).coerceIn(0, 100)
+        val clipLeft = 4
+        val clipTop = 4
+        val clipRight = width - 4
+        val clipBottom = height - 4
+        if (clipRight <= clipLeft || clipBottom <= clipTop) return source.copyOf()
+
+        val waveCos = if (shakeAngle == -1) 0.2 else 0.2 * cos(shakeAngle * 2.0 * PI / 360.0)
+        val waveSin = if (shakeAngle == -1) 0.0 else 0.2 * sin(shakeAngle * 2.0 * PI / 360.0)
         val result = source.copyOf()
+
         repeat(count) { particle ->
-            val seed = randomMix(particle * 0x45D9F3B xor 0x71C0A2)
-            val startX = originX + floorMod(seed, spanX)
-            val startY = originY + floorMod(randomMix(seed xor 0x1B873593), spanY)
-            val x = floorMod(startX + frame * velocityX, width)
-            val y = floorMod(startY + frame * velocityY, height)
-            val radius = max(2, radiusBase / 4 + (seed ushr 4) % max(2, radiusBase / 3))
-            val redAdd = (red * alpha).roundToInt()
-            val greenAdd = (green * alpha).roundToInt()
-            val blueAdd = (blue * alpha).roundToInt()
-            val y0 = max(0, y - radius)
-            val y1 = min(height - 1, y + radius)
-            val x0 = max(0, x - radius)
-            val x1 = min(width - 1, x + radius)
-            for (py in y0..y1) {
-                for (px in x0..x1) {
-                    val distance = hypot((px - x).toDouble(), (py - y).toDouble())
-                    if (distance > radius) continue
-                    val falloff = (1.0 - distance / radius).let { it * it }
-                    val index = py * width + px
-                    val old = result[index]
-                    result[index] = argb(
-                        old ushr 24,
-                        ((old ushr 16 and 0xFF) + (redAdd * falloff).roundToInt()).coerceIn(0, 255),
-                        ((old ushr 8 and 0xFF) + (greenAdd * falloff).roundToInt()).coerceIn(0, 255),
-                        ((old and 0xFF) + (blueAdd * falloff).roundToInt()).coerceIn(0, 255)
-                    )
+            val particleId = workStart + particle
+            val seed = randomMix(particleId * 0x45D9F3B xor 0x71C0A2)
+            var x = 0
+            var y = 0
+            var speedX = 0
+            var speedY = 0
+            var thetaMax = 1
+            var theta = 0
+
+            fun initialize(initSeed: Int) {
+                val xNoise = randomMix(initSeed xor 0x1B873593)
+                val yNoise = randomMix(initSeed xor 0x3449F5)
+                x = (originX + floorMod(xNoise, spanX)) * 256
+                y = (originY + floorMod(yNoise, spanY)) * 256
+
+                speedX = baseSpeedX * 256
+                speedY = baseSpeedY * 256
+                val divX = max(1, kotlin.math.abs(speedX / 2))
+                val divY = max(1, kotlin.math.abs(speedY / 2))
+                speedX += floorMod(randomMix(initSeed xor 0x7F4A), divX) - divX / 2
+                speedY += floorMod(randomMix(initSeed xor 0x1947), divY) - divY / 2
+
+                thetaMax = shakePeriod + floorMod(randomMix(initSeed xor 0xB5297A4D.toInt()), shakePeriod * 4)
+                theta = floorMod(randomMix(initSeed xor 0x2C1B3C6D), thetaMax)
+            }
+
+            initialize(seed)
+            var alive = true
+            for (tick in 0 until frame.coerceIn(0, 10_000)) {
+                x += speedX
+                y += speedY
+                theta += 1
+                if (theta >= thetaMax) theta -= thetaMax
+                val wave = cos(theta.toDouble() * 2.0 * PI / thetaMax.toDouble()) * shakeWidth * 256.0
+                val deltaX: Int
+                val deltaY: Int
+                if (shakeAngle == -1) {
+                    if (kotlin.math.abs(speedX) > kotlin.math.abs(speedY)) {
+                        deltaX = 0
+                        deltaY = (wave * 0.2 + 0.5).toInt()
+                    } else {
+                        deltaX = (wave * 0.2 + 0.5).toInt()
+                        deltaY = 0
+                    }
+                } else {
+                    deltaX = (wave * waveCos + 0.5).toInt()
+                    deltaY = (wave * waveSin + 0.5).toInt()
                 }
+                x += deltaX
+                y += deltaY
+
+                val px = x / 256
+                val py = y / 256
+                val outside = (if (speedX < 0) px < clipLeft else px > clipRight) ||
+                    (if (speedY < 0) py < clipTop else py > clipBottom)
+                if (outside) {
+                    if (loop) initialize(randomMix(seed xor (tick * 0x119DE1F3) xor 0x4A39B70D))
+                    else {
+                        alive = false
+                        break
+                    }
+                }
+            }
+            if (!alive) return@repeat
+
+            val centerX = x / 256
+            val centerY = y / 256
+            if (centerX !in clipLeft..clipRight || centerY !in clipTop..clipBottom) return@repeat
+
+            for (ky in 0 until 8) for (kx in 0 until 8) {
+                val dx = ((kx - 4) * 2) + 1
+                val dy = ((ky - 4) * 2) + 1
+                val falloff = (dx * dx + dy * dy) * 2
+                val px = centerX + kx - 4
+                val py = centerY + ky - 4
+                if (px !in 0 until width || py !in 0 until height) continue
+
+                fun delta(channel: Int): Int {
+                    val intensity = ((kotlin.math.abs(channel) - falloff).coerceAtLeast(0) * fadePercent) / 100
+                    return if (channel >= 0) intensity else -intensity
+                }
+                val index = py * width + px
+                val old = result[index]
+                result[index] = argb(
+                    old ushr 24,
+                    ((old ushr 16 and 0xFF) + delta(red)).coerceIn(0, 255),
+                    ((old ushr 8 and 0xFF) + delta(green)).coerceIn(0, 255),
+                    ((old and 0xFF) + delta(blue)).coerceIn(0, 255)
+                )
             }
         }
         return result
