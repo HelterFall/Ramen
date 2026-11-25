@@ -610,7 +610,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             "LiveMaker exceeded the automatic presentation budget after " +
                 MAX_AUTOMATIC_HOST_COMMANDS + " internal transitions. Current page=" +
                 session.currentPageReference() + ", command=" + session.currentCommandIndex() +
-                ". Recent VM steps: " + recentSteps.joinToString(" | ")
+                " (" + session.currentCommandDescription() + "). Recent VM steps: " +
+                recentSteps.joinToString(" | ")
         )
     }
 
