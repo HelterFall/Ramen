@@ -257,3 +257,30 @@ Make the binary inventory portable and comparable without requiring the original
 - `feat/system-nnn-spt-loader` is historical after PR #27 merge.
 - PR #25 and #26 remain unmerged and divergent. Their unique changes must be audited against main before any further integration.
 - System-NNN remains experimental; the decoder's assumptions and complete game playback are not proven by CI.
+
+
+## 2026-11-25 — HSP3.1 / DPMX parser and runtime foundation
+
+### Branch and scope
+- Created `feat/hsp3-dpmx-runtime` from main commit `56534a43c76f3567ea46d0dbeb7e8ad5f8e88975`.
+- Kept the implementation in the existing `:app` Gradle module; no empty engine module was added.
+- Read-only parsing follows `ReadOnlyRandomAccessSource` and positional `FileChannel` reads.
+
+### Code added
+- PE32/DPMX parser with dynamic last-section raw-end overlay calculation, bounded 32-byte entry records, Shift-JIS names and PE VA-to-file-offset mapping.
+- Stateful streaming DPMX decryptor and a close-owning decrypted resource InputStream.
+- Known sample-key vectors, an injectable PE/.data key-derivation strategy, and a bounded signature fallback for HSP3.1 AX, BMP and selected Shift-JIS text.
+- HSPHED 96-byte loader for CS/DS/OT/DI, token-envelope iterator, DS string and OT label-offset access.
+- Initial Android Canvas renderer, typed IR VM and `Hsp3RuntimeAdapter`; detector/repository format registry integration.
+- Generated unit tests for PE/DPMX boundaries, key resolution, HSPHED/tokens, adapter preparation, detector status and VM behavior.
+
+### Evidence / limitations
+- The key recurrence and the two sample (file_key, al, cl) pairs are encoded as supplied.
+- The exact arithmetic that derives `(al, cl)` from the PE `.data` bytes at VA `0x429e40..0x429e5c` was not present in the supplied description. It is intentionally an injected `DpmxDataKeyDeriver`, not an invented default.
+- The loader decodes the HSP3 token envelope only. It does not yet decode the complete expression and command-argument grammar into VM instructions.
+- The current VM is a bounded typed-IR runtime, not a full HSP3 interpreter. The Android playback Activity is not wired; HSP detection does not show a Launch button.
+- No commercial Demonophobia executable or asset was added to the repository.
+
+### Validation status
+- Unit tests and Android CI are pending on the branch at the time of this entry.
+- See [HSP3_DPMX_STATUS.md](HSP3_DPMX_STATUS.md) for module details, test coverage and the next implementation steps.

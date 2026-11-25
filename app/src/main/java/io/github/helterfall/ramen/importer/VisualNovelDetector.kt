@@ -1,6 +1,7 @@
 package io.github.helterfall.ramen.importer
 
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
+import io.github.helterfall.ramen.runtime.hsp3.Hsp3RuntimeAdapter
 import java.io.File
 
 data class GameDetection(
@@ -49,6 +50,36 @@ class VisualNovelDetector {
                     "${sptScript.commandByteCount} raw command-region bytes and " +
                     "${sptScript.textPool.size} Shift-JIS text/resource entries parsed. " +
                     "The playback interpreter is not connected yet."
+            )
+        }
+
+        // HSP is parser-available only after the PE32/DPMX container, start.ax
+        // key and HSPHED segments have all been validated. The UI deliberately
+        // does not expose Launch for this engine until the AX command decoder
+        // and playback Activity are connected.
+        val hsp3Program = scannedFiles.asSequence()
+            .filter { file -> file.extension.equals("exe", ignoreCase = true) }
+            .mapNotNull { file ->
+                runCatching {
+                    val prepared = Hsp3RuntimeAdapter().prepare(file)
+                    prepared to prepared.program.tokens().count()
+                }.getOrNull()
+            }
+            .firstOrNull()
+
+        if (hsp3Program != null) {
+            val prepared = hsp3Program.first
+            val tokenCount = hsp3Program.second
+            return GameDetection(
+                engineId = Hsp3RuntimeAdapter.ENGINE_ID,
+                engineLabel = Hsp3RuntimeAdapter.ENGINE_LABEL,
+                compatibilityStatus = "PARSER_AVAILABLE",
+                evidence = "Validated PE32/DPMX overlay at 0x" +
+                    prepared.container.overlayOffset.toString(16) + "; " +
+                    prepared.container.fileCount + " DPMX entries; " +
+                    "HSP3.1 HSPHED with CS/DS/OT/DI segments and " +
+                    tokenCount + " token envelopes parsed. " +
+                    "The AX command-argument decoder and playback Activity are not connected yet."
             )
         }
 

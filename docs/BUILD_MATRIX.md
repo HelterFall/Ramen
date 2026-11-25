@@ -150,3 +150,14 @@ Decide whether Resource Inspector should be:
 If debug-only is desired, implement a dedicated product flavor/build config and UI gating, then verify the release manifest and APK do not contain or expose the Inspector. Make a separate decision for the unfinished System-NNN player.
 
 **Current audit recommendation:** use main as the canonical development base. Resource Inspector remains included by the user's explicit choice. Do not call the app a release candidate until SPT semantics and real-device playback are validated; CI #278 is a debug build/test/lint result, not release or device acceptance.
+
+
+## 7. HSP3.1 / DPMX development branch
+
+| Source | DPMX parser | HSPHED loader | VM / renderer | User-visible launch | Meaning |
+|---|---|---|---|---|---|
+| `feat/hsp3-dpmx-runtime` | Implemented with positional reads and bounds checks | Implemented for 96-byte HSPHED and CS/DS/OT/DI | Initial typed IR VM and Canvas graphics subset | Not wired | Parser/runtime foundation only; not yet an executable HSP3.1 player |
+
+The branch is based on `main` at `56534a43c76f3567ea46d0dbeb7e8ad5f8e88975`. Details and tests are in [HSP3_DPMX_STATUS.md](HSP3_DPMX_STATUS.md).
+
+Known blockers: the PE `.data` key-schedule arithmetic still requires an injected `DpmxDataKeyDeriver`; the raw HSP3 token-to-command/argument decoder is not complete; and the HSP3 Activity/player host is not connected. The detector intentionally does not expose a Launch button for this engine. CI green status, once available, will prove only Android build/unit-test/lint success, not full Demonophobia playback.

@@ -1,0 +1,138 @@
+package io.github.helterfall.ramen.runtime.hsp3
+
+import io.github.helterfall.ramen.importer.VisualNovelDetector
+import io.github.helterfall.ramen.inspection.DpmxKeyResolution
+import java.io.File
+import java.nio.file.Files
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class Hsp3RuntimeAdapterTest {
+    @Test
+    fun preparesPeDpmxAndStartAxUsingVerifiedSampleKey() {
+        withExecutable(createExecutableFixture()) { executable ->
+            val prepared = Hsp3RuntimeAdapter().prepare(executable)
+
+            assertEquals(0x400L, prepared.container.overlayOffset)
+            assertEquals("start.ax", prepared.scriptEntry.name)
+            assertEquals(DpmxKeyResolution.Method.VERIFIED_SAMPLE_VECTOR, prepared.scriptKey.method)
+            assertEquals(0x301L, prepared.program.header.version)
+            assertEquals(42L, prepared.program.tokens().single().value)
+        }
+    }
+
+    @Test
+    fun detectorReportsParsedHspWithoutAdvertisingLaunch() {
+        withExecutable(createExecutableFixture()) { executable ->
+            val detection = VisualNovelDetector().detect(executable.parentFile!!)
+
+            assertEquals(Hsp3RuntimeAdapter.ENGINE_ID, detection.engineId)
+            assertEquals("PARSER_AVAILABLE", detection.compatibilityStatus)
+            assertTrue(detection.evidence.contains("command-argument decoder"))
+        }
+    }
+
+    @Test
+    fun missingStartAxDoesNotPrepareAsHsp() {
+        val bytes = createExecutableFixture(includeScript = false)
+        withExecutable(bytes) { executable ->
+            val error = runCatching { Hsp3RuntimeAdapter().prepare(executable) }.exceptionOrNull()
+            assertTrue(error is java.io.IOException)
+        }
+    }
+
+    private fun withExecutable(bytes: ByteArray, block: (File) -> Unit) {
+        val directory = Files.createTempDirectory("ramen-hsp3-adapter").toFile()
+        try {
+            val executable = File(directory, "Demonophobia.exe")
+            executable.writeBytes(bytes)
+            block(executable)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    private fun createExecutableFixture(includeScript: Boolean = true): ByteArray {
+        val script = createAxFixture()
+        val payload = if (includeScript) encrypt(script, SAMPLE_KEY) else byteArrayOf()
+        val overlayOffset = 0x400
+        val dataOffset = 0x80
+        val dataBlockOffset = overlayOffset + dataOffset
+        val bytes = ByteArray(dataBlockOffset + payload.size)
+
+        bytes[0] = 'M'.code.toByte()
+        bytes[1] = 'Z'.code.toByte()
+        putUInt32(bytes, 0x3C, 0x80L)
+        "PE\u0000\u0000".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0x80)
+        putUInt16(bytes, 0x86, 1)
+        putUInt16(bytes, 0x94, 0xE0)
+
+        val optional = 0x98
+        putUInt16(bytes, optional, 0x10B)
+        putUInt32(bytes, optional + 28, 0x00400000L)
+        val section = optional + 0xE0
+        ".data".toByteArray(Charsets.US_ASCII).copyInto(bytes, section)
+        putUInt32(bytes, section + 8, 0x200L)
+        putUInt32(bytes, section + 12, 0x1000L)
+        putUInt32(bytes, section + 16, 0x200L)
+        putUInt32(bytes, section + 20, 0x200L)
+
+        "DPMX".toByteArray(Charsets.US_ASCII).copyInto(bytes, overlayOffset)
+        putUInt32(bytes, overlayOffset + 4, dataOffset.toLong())
+        putUInt32(bytes, overlayOffset + 8, if (includeScript) 1L else 0L)
+        putUInt32(bytes, overlayOffset + 12, 0L)
+
+        if (includeScript) {
+            val record = overlayOffset + 16
+            "start.ax".toByteArray(Charsets.US_ASCII).copyInto(bytes, record)
+            putUInt32(bytes, record + 16, 0xFFFF_FFFFL)
+            putUInt32(bytes, record + 20, SAMPLE_FILE_KEY)
+            putUInt32(bytes, record + 24, 0L)
+            putUInt32(bytes, record + 28, script.size.toLong())
+            payload.copyInto(bytes, dataBlockOffset)
+        }
+        return bytes
+    }
+
+    private fun createAxFixture(): ByteArray {
+        val bytes = ByteArray(0x64)
+        "HSP3".toByteArray(Charsets.US_ASCII).copyInto(bytes)
+        putUInt32(bytes, 4, 0x301L)
+        putUInt32(bytes, 8, 1032L)
+        putUInt32(bytes, 12, bytes.size.toLong())
+        putUInt32(bytes, 16, 0x60L)
+        putUInt32(bytes, 20, 4L)
+        putUInt16(bytes, 0x60, 4)
+        putUInt16(bytes, 0x62, 42)
+        return bytes
+    }
+
+    private fun encrypt(plain: ByteArray, key: DpmxTestKey): ByteArray {
+        val encrypted = ByteArray(plain.size)
+        var previous = 0
+        for (index in plain.indices) {
+            val current = plain[index].toInt() and 0xFF
+            val delta = (current - previous) and 0xFF
+            encrypted[index] = (((delta xor key.cl) + key.al) and 0xFF).toByte()
+            previous = current
+        }
+        return encrypted
+    }
+
+    private data class DpmxTestKey(val al: Int, val cl: Int)
+
+    private fun putUInt16(target: ByteArray, offset: Int, value: Int) {
+        target[offset] = value.toByte()
+        target[offset + 1] = (value ushr 8).toByte()
+    }
+
+    private fun putUInt32(target: ByteArray, offset: Int, value: Long) {
+        for (index in 0 until 4) target[offset + index] = (value ushr (index * 8)).toByte()
+    }
+
+    companion object {
+        private const val SAMPLE_FILE_KEY = 0xB2B8EDB5L
+        private val SAMPLE_KEY = DpmxTestKey(al = 0xB2, cl = 0x53)
+    }
+}

@@ -518,3 +518,19 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - System-NNN остаётся экспериментальным: запуск подключён, но semantics SPT decoder и end-to-end совместимость требуют дальнейшего исследования.
 - PR #25/#26 по-прежнему нуждаются в отдельном аудите; не считай их целиком интегрированными.
 
+
+
+## 14. HSP3.1 / DPMX parser and runtime foundation
+
+A separate work branch, `feat/hsp3-dpmx-runtime`, was created from the verified main head `56534a43c76f3567ea46d0dbeb7e8ad5f8e88975`.
+
+Implementation notes and boundaries are recorded in [docs/HSP3_DPMX_STATUS.md](docs/HSP3_DPMX_STATUS.md). The branch adds:
+- a streaming PE32/DPMX overlay parser and DPMX key/decryption layer under `inspection/`;
+- an HSPHED + CS/DS/OT/DI loader and token-envelope iterator under `parser/`;
+- an Android Canvas renderer, bounded IR VM and `Hsp3RuntimeAdapter` under `runtime/hsp3/`;
+- DPMX/HSP3 validation in `VisualNovelDetector` and a DPMX entry in `ContainerFormatRegistry`;
+- generated binary unit-test fixtures only; no Demonophobia executable or commercial assets are stored in Git.
+
+**Readiness boundary:** container parsing, start.ax decryption/loading and the initial typed graphics/input VM foundation are implemented. The full HSP3 expression/argument decoder that maps raw token streams into VM instructions is not complete, and no HSP3 playback Activity is wired. The detector reports parser availability but the current UI does not expose a Launch action for this engine. The exact `.data` key schedule is also still an injected strategy because its arithmetic was not included in the supplied specification.
+
+Do not describe this branch as full Demonophobia compatibility until the raw command decoder, missing VM semantics, Android host and real-device end-to-end checks are complete.
