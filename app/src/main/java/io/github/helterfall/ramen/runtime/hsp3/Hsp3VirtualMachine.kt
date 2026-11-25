@@ -513,54 +513,62 @@ class Hsp3VirtualMachine(
                 Hsp3CommandIds.GSEL -> graphics.gsel(intArg(0))
                 Hsp3CommandIds.GCOPY -> {
                     val position = graphics.currentPosition()
+                    val defaultCopySize = graphics.copySize()
                     val sourceId = intArg(0)
-                    val sourceSize = graphics.surfaceSize(sourceId)
                     graphics.gcopy(
                         sourceId = sourceId,
                         sourceX = intArg(1),
                         sourceY = intArg(2),
-                        width = intArg(3, sourceSize.first),
-                        height = intArg(4, sourceSize.second),
+                        width = intArg(3, defaultCopySize.first),
+                        height = intArg(4, defaultCopySize.second),
                         destX = position.first,
                         destY = position.second
                     )
                 }
-                Hsp3CommandIds.GZOOM -> graphics.gzoom(
-                    destWidth = intArg(0),
-                    destHeight = intArg(1),
-                    sourceId = intArg(2),
-                    sourceX = intArg(3),
-                    sourceY = intArg(4),
-                    sourceWidth = intArg(5),
-                    sourceHeight = intArg(6),
-                    quality = intArg(7, 1)
-                )
-                Hsp3CommandIds.GROTATE -> graphics.grotate(
-                    sourceId = intArg(0),
-                    sourceX = intArg(1),
-                    sourceY = intArg(2),
-                    angleRadians = doubleArg(3),
-                    destWidth = intArg(4),
-                    destHeight = intArg(5)
-                )
+                Hsp3CommandIds.GZOOM -> {
+                    val destinationSize = graphics.currentSurfaceSize()
+                    val defaultCopySize = graphics.copySize()
+                    graphics.gzoom(
+                        destWidth = intArg(0, destinationSize.first),
+                        destHeight = intArg(1, destinationSize.second),
+                        sourceId = intArg(2),
+                        sourceX = intArg(3),
+                        sourceY = intArg(4),
+                        sourceWidth = intArg(5, defaultCopySize.first),
+                        sourceHeight = intArg(6, defaultCopySize.second),
+                        quality = intArg(7, 0)
+                    )
+                }
+                Hsp3CommandIds.GROTATE -> {
+                    val defaultCopySize = graphics.copySize()
+                    graphics.grotate(
+                        sourceId = intArg(0),
+                        sourceX = intArg(1),
+                        sourceY = intArg(2),
+                        angleRadians = doubleArg(3),
+                        destWidth = intArg(4, defaultCopySize.first),
+                        destHeight = intArg(5, defaultCopySize.second)
+                    )
+                }
                 Hsp3CommandIds.CELLLOAD -> {
-                    hspStat = graphics.celload(stringArg(0), intArg(1, -1))
+                    hspStat = graphics.celload(stringArg(0), intArg(1, -2), intArg(2))
                 }
                 Hsp3CommandIds.CELDIV -> graphics.celdiv(
-                    id = intArg(0),
+                    id = intArg(0, 1),
                     cellWidth = intArg(1),
                     cellHeight = intArg(2),
-                    mode = intArg(3)
+                    baseX = intArg(3),
+                    baseY = intArg(4)
                 )
                 Hsp3CommandIds.CELPUT -> graphics.celput(
-                    id = intArg(0),
+                    id = intArg(0, 1),
                     cellIndex = intArg(1),
                     zoomX = doubleArg(2, 1.0),
                     zoomY = doubleArg(3, 1.0),
                     angleRadians = doubleArg(4)
                 )
                 Hsp3CommandIds.GMODE -> graphics.gmode(
-                    intArg(0), intArg(1, 255), intArg(2), intArg(3)
+                    intArg(0), intArg(1, 32), intArg(2, 32), intArg(3, 0)
                 )
                 Hsp3CommandIds.BUFFER -> graphics.buffer(
                     intArg(0), intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
