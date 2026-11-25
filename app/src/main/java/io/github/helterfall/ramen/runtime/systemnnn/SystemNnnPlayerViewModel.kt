@@ -2123,7 +2123,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_IMAGE_WARNING_COUNT = 4
         private const val SCREEN_EFFECT_LAYER_INDEX = 31
         private val SCREEN_BUFFER_EFFECT_IDS = setOf(
-            2, 10, 11, 18, 20, 22, 31, 43, 50, 54, 55, 69, 71, 74
+            2, 10, 11, 18, 20, 22, 29, 31, 43, 50, 54, 55, 69, 71, 74
         )
         private const val DEFAULT_OVERRAP_LENGTH_FRAMES = 18
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
