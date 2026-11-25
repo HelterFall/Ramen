@@ -27,6 +27,12 @@ class LiveMakerStartupAndMediaRepositoryTest {
             )
         )
         assertEquals(
+            "START.lsb",
+            LiveMakerStartupScriptResolver.selectStartupPage(
+                listOf("ゲームメイン.lsb", "START.lsb", "ノベルシステム/START.lsb")
+            )
+        )
+        assertEquals(
             "a-first.lsb",
             LiveMakerStartupScriptResolver.selectStartupPage(listOf("z.lsb", "a-first.lsb"))
         )
