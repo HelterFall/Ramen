@@ -465,7 +465,11 @@ class Hsp3VirtualMachine(
                             ?.let { evaluate(it).asInt() } ?: instruction.count
                         val initialValue = instruction.initialValueExpression
                             ?.let { evaluate(it).asInt() } ?: instruction.initialValue
-                        val exit = checkedTarget(instruction.exitInstruction, instructions.size)
+                        val exit = if (instruction.exitInstruction >= 0) {
+                            checkedTarget(instruction.exitInstruction, instructions.size)
+                        } else {
+                            findMatchingLoop(instructions, programCounter + 1) + 1
+                        }
                         if (repeatCount == 0) {
                             programCounter = exit
                         } else {
@@ -503,7 +507,10 @@ class Hsp3VirtualMachine(
                             val nextCount = instruction.countExpression
                                 ?.let { evaluate(it).asInt() } ?: (frame.current + 1)
                             frame.current = nextCount - 1
-                            programCounter = advanceRepeat(frame, instructions.size)
+                            programCounter = checkedTarget(
+                                instruction.targetInstruction,
+                                instructions.size
+                            )
                         }
                     }
                     Hsp3Instruction.Wait -> {
@@ -513,11 +520,11 @@ class Hsp3VirtualMachine(
                         return snapshot()
                     }
                     is Hsp3Instruction.WaitFor -> {
-                        programCounter += 1
-                        status = Hsp3VmStatus.YIELDED
                         val requestedDelay = instruction.delayExpression
                             ?.let { evaluate(it).asInt().toLong() * instruction.delayMultiplier }
                             ?: instruction.delayMillis
+                        programCounter += 1
+                        status = Hsp3VmStatus.YIELDED
                         yieldDelayMillis = requestedDelay.coerceIn(0L, MAX_WAIT_MS)
                         return snapshot()
                     }
@@ -571,18 +578,29 @@ class Hsp3VirtualMachine(
 
     private fun executeNative(command: Hsp3Instruction.NativeCommand) {
         val args = command.arguments
+        val evaluated = arrayOfNulls<Hsp3RuntimeValue>(args.size)
+        val wasEvaluated = BooleanArray(args.size)
+        fun resolved(index: Int): Hsp3RuntimeValue? {
+            if (index !in args.indices) return null
+            if (!wasEvaluated[index]) {
+                evaluated[index] = args[index]?.let(::evaluate)
+                wasEvaluated[index] = true
+            }
+            return evaluated[index]
+        }
         fun arg(index: Int, default: Hsp3RuntimeValue = Hsp3RuntimeValue.IntegerValue(0)) =
-            args.getOrNull(index)?.let(::evaluate) ?: default
+            resolved(index) ?: default
         fun intArg(index: Int, default: Int = 0) =
             arg(index, Hsp3RuntimeValue.IntegerValue(default)).asInt()
         fun stringArg(index: Int, default: String = "") =
             arg(index, Hsp3RuntimeValue.StringValue(default)).asString()
         fun doubleArg(index: Int, default: Double = 0.0) =
             arg(index, Hsp3RuntimeValue.DoubleValue(default)).asDouble()
-        val evaluated = args.map { it?.let(::evaluate) }
-        fun resolved(index: Int): Hsp3RuntimeValue? = evaluated.getOrNull(index)
-        fun hasVariable(index: Int): Boolean = args.getOrNull(index)?.variableReferenceOrNull() != null
-        fun hasString(index: Int): Boolean = resolved(index) is Hsp3RuntimeValue.StringValue
+        fun hasVariable(index: Int): Boolean =
+            args.getOrNull(index)?.variableReferenceOrNull() != null
+        fun hasString(index: Int): Boolean =
+            resolved(index) is Hsp3RuntimeValue.StringValue
+        fun resolvedArguments(): List<Hsp3RuntimeValue?> = args.indices.map(::resolved)
 
         if (command.commandType == Hsp3BytecodeDecoder.TYPE_EXTCMD) {
             when (command.commandId) {
@@ -605,10 +623,11 @@ class Hsp3VirtualMachine(
                     else graphics.color(intArg(0), intArg(1), intArg(2))
                 }
                 Hsp3CommandIds.COLOR -> {
-                    if (args.size == 1) graphics.palette(evaluated)
-                    else graphics.color(intArg(0), intArg(1), intArg(2))
+                    if (args.size == 3) graphics.color(intArg(0), intArg(1), intArg(2))
+                    else graphics.palette(resolvedArguments())
                 }
-                Hsp3CommandIds.PALCOLOR, Hsp3CommandIds.PALETTE -> graphics.palette(evaluated)
+                Hsp3CommandIds.PALCOLOR, Hsp3CommandIds.PALETTE ->
+                    graphics.palette(resolvedArguments())
                 Hsp3CommandIds.REDRAW -> graphics.redraw(intArg(0, 1) != 0)
                 Hsp3CommandIds.WIDTH -> {
                     val size = graphics.currentSurfaceSize()
@@ -635,9 +654,10 @@ class Hsp3VirtualMachine(
                         )
                     }
                 }
-                Hsp3CommandIds.GMODE -> graphics.gmode(
-                    intArg(0), intArg(1, 32), intArg(2, 32), intArg(3, 0)
-                )
+                Hsp3CommandIds.GMODE -> {
+                    if (hasString(0)) graphics.picload(stringArg(0), intArg(1))
+                    else graphics.gmode(intArg(0), intArg(1, 32), intArg(2, 32), intArg(3, 0))
+                }
                 Hsp3CommandIds.GETKEY -> {
                     if (hasVariable(0)) {
                         val destination = requiredVariable(args.getOrNull(0), "getkey destination")
@@ -688,13 +708,24 @@ class Hsp3VirtualMachine(
                 }
                 Hsp3CommandIds.GRECT -> graphics.grect(intArg(0), intArg(1), doubleArg(2), intArg(3), intArg(4))
                 Hsp3CommandIds.GROTATE -> {
-                    if (args.size == 5) {
-                        graphics.celput(intArg(0, 1), intArg(1), doubleArg(2, 1.0),
-                            doubleArg(3, 1.0), doubleArg(4))
-                    } else {
-                        val size = graphics.copySize()
-                        graphics.grotate(intArg(0), intArg(1), intArg(2), doubleArg(3),
-                            intArg(4, size.first), intArg(5, size.second))
+                    when (args.size) {
+                        5 -> graphics.celput(
+                            intArg(0, 1), intArg(1), doubleArg(2, 1.0),
+                            doubleArg(3, 1.0), doubleArg(4)
+                        )
+                        8 -> {
+                            val size = graphics.copySize()
+                            graphics.gzoom(
+                                intArg(0, size.first), intArg(1, size.second), intArg(2),
+                                intArg(3), intArg(4), intArg(5, size.first),
+                                intArg(6, size.second), intArg(7)
+                            )
+                        }
+                        else -> {
+                            val size = graphics.copySize()
+                            graphics.grotate(intArg(0), intArg(1), intArg(2), doubleArg(3),
+                                intArg(4, size.first), intArg(5, size.second))
+                        }
                     }
                 }
                 Hsp3CommandIds.CELLLOAD -> {

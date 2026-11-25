@@ -44,10 +44,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             diagnosticBuffer+=Hsp3DecodeDiagnostic(0,null,null,0,msg)
             return listOf(Hsp3Instruction.Unsupported(TYPE_PROGCMD,0,-1,-1,0L,msg))
         }
-        val heads=tokens.indices.filter { i ->
-            val t=tokens[i]
-            t.extensionFlags and EXFLG_1!=0 && t.type in COMMAND_TYPES
-        }
+        val heads = tokens.indices.filter { index -> isCommandHead(tokens[index]) }
         if(heads.isEmpty()) {
             val t=tokens.first()
             val msg="No HSP3 command heads were found in the Code Segment."
@@ -78,6 +75,18 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         }
         val map=pending.mapIndexed { i,item -> item.codeOffset to i }.toMap()
         return pending.map { it.create(map,pending.size) }
+    }
+
+    private fun isCommandHead(token: Hsp3Token): Boolean {
+        if (token.extensionFlags and EXFLG_1 == 0 ||
+            token.extensionFlags and EXFLG_2 != 0
+        ) return false
+        val id = token.value.toInt()
+        return when (token.type) {
+            TYPE_VAR -> true
+            TYPE_INTCMD, TYPE_EXTCMD, TYPE_CMPCMD, TYPE_PROGCMD -> id in 0..0x0FFF
+            else -> false
+        }
     }
 
     private fun isUnsupportedCommand(t:Hsp3Token):Boolean = when(t.type) {
@@ -446,9 +455,6 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                         delayMultiplier = 1L
                     )
                 }
-            }
-            PROGCMD_RANDOMIZE -> PendingInstruction(pc) { _, _ ->
-                Hsp3Instruction.Randomize(args.firstOrNull())
             }
             PROGCMD_END -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.End }
             PROGCMD_STOP -> PendingInstruction(pc) { _, _ ->
