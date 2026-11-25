@@ -58,6 +58,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
+import io.github.helterfall.ramen.importer.SafDirectoryStructureScanner
+import io.github.helterfall.ramen.inspection.DirectoryStructureJsonWriter
+import io.github.helterfall.ramen.inspection.DirectoryStructureReport
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.runtime.livemaker.LiveMakerPlayerActivity
@@ -90,6 +93,8 @@ fun RamenApp(
         }
     }
     var isImporting by remember { mutableStateOf(false) }
+    var isExportingStructure by remember { mutableStateOf(false) }
+    var pendingDirectoryStructure by remember { mutableStateOf<DirectoryStructureReport?>(null) }
     var statusMessage by remember {
         mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
     }
@@ -213,8 +218,100 @@ fun RamenApp(
         }
     }
 
+
+    val structureJsonSaver = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { outputUri ->
+        val report = pendingDirectoryStructure
+        pendingDirectoryStructure = null
+
+        if (outputUri == null) {
+            isExportingStructure = false
+            statusMessage = "Сохранение JSON структуры отменено."
+        } else if (report == null) {
+            isExportingStructure = false
+            statusMessage = "Не удалось подготовить структуру папок."
+        } else {
+            statusMessage = "Сохраняю JSON структуры папок…"
+            executor.execute {
+                try {
+                    val output = context.contentResolver.openOutputStream(outputUri)
+                        ?: throw IllegalStateException("Android не открыл файл для записи.")
+                    output.use { DirectoryStructureJsonWriter().write(report, it) }
+                    mainHandler.post {
+                        isExportingStructure = false
+                        val partialNote = if (report.truncated) {
+                            " Обход ограничен; смотри warnings в JSON."
+                        } else {
+                            ""
+                        }
+                        statusMessage =
+                            "JSON сохранён: " + report.directories.size + " папок, " +
+                                report.files.size + " файлов." + partialNote
+                    }
+                } catch (error: Exception) {
+                    mainHandler.post {
+                        isExportingStructure = false
+                        statusMessage = error.message ?: "Не удалось сохранить JSON структуры."
+                    }
+                }
+            }
+        }
+    }
+
+    val structureFolderPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { treeUri ->
+        if (treeUri == null) {
+            statusMessage = "Экспорт структуры отменён."
+        } else if (isImporting || isExportingStructure) {
+            statusMessage = "Дождись окончания текущей операции."
+        } else {
+            val permissionTaken = runCatching {
+                context.contentResolver.takePersistableUriPermission(
+                    treeUri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }.isSuccess
+
+            if (!permissionTaken) {
+                statusMessage = "Android не предоставил доступ к выбранной папке."
+            } else {
+                isExportingStructure = true
+                statusMessage = "Читаю только имена папок и файлов…"
+                executor.execute {
+                    try {
+                        val report = SafDirectoryStructureScanner(
+                            context.applicationContext
+                        ).scan(treeUri)
+                        mainHandler.post {
+                            pendingDirectoryStructure = report
+                            statusMessage =
+                                "Найдено " + report.directories.size + " папок и " + report.files.size +
+                                " файлов. Выбери, куда сохранить JSON."
+                            structureJsonSaver.launch("ramen-folder-structure.json")
+                        }
+                    } catch (error: Exception) {
+                        mainHandler.post {
+                            isExportingStructure = false
+                            statusMessage =
+                                error.message ?: "Не удалось прочитать структуру папок."
+                        }
+                    } finally {
+                        runCatching {
+                            context.contentResolver.releasePersistableUriPermission(
+                                treeUri,
+                                Intent.FLAG_GRANT_READ_URI_PERMISSION
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     val onImportClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isImporting && !isExportingStructure) {
             documentPicker.launch(
                 arrayOf(
                     "application/zip",
@@ -227,13 +324,13 @@ fun RamenApp(
     }
 
     val onImportFolderClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isImporting && !isExportingStructure) {
             folderPicker.launch(null)
         }
     }
 
     val onImportHtmlClick: () -> Unit = {
-        if (!isImporting) {
+        if (!isImporting && !isExportingStructure) {
             // Some providers label .html as text/plain or octet-stream,
             // so accept the selection broadly and validate it in HtmlFileImporter.
             htmlFilePicker.launch(arrayOf("*/*"))
@@ -275,11 +372,17 @@ fun RamenApp(
                         )
                     }
                 }
+                item {
+                    DirectoryStructureExportShortcut(
+                        isExporting = isExportingStructure,
+                        onClick = { structureFolderPicker.launch(null) }
+                    )
+                }
 
                 if (games.isEmpty()) {
                     item {
                         EmptyLibraryCard(
-                            isImporting = isImporting,
+                            isImporting = isImporting || isExportingStructure,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
                             onImportHtmlClick = onImportHtmlClick
@@ -289,7 +392,7 @@ fun RamenApp(
                     item {
                         LibrarySummaryCard(
                             gameCount = games.size,
-                            isImporting = isImporting,
+                            isImporting = isImporting || isExportingStructure,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
                             onImportHtmlClick = onImportHtmlClick
@@ -336,7 +439,7 @@ fun RamenApp(
                 item {
                     ImportStatusCard(
                         message = statusMessage,
-                        isImporting = isImporting
+                        isImporting = isImporting || isExportingStructure
                     )
                 }
                 item { ComingNextSection() }
@@ -418,6 +521,53 @@ private fun ResourceInspectorShortcut(onClick: () -> Unit) {
             }
             Text(
                 text = "ОТКРЫТЬ  ›",
+                color = RamenAccent,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+
+@Composable
+private fun DirectoryStructureExportShortcut(
+    isExporting: Boolean,
+    onClick: () -> Unit
+) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(17.dp)),
+        color = RamenSurfaceRaised,
+        shape = RoundedCornerShape(17.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .clickable(enabled = !isExporting, onClick = onClick)
+                .padding(horizontal = 15.dp, vertical = 13.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "ЭКСПОРТ СТРУКТУРЫ ПАПОК",
+                    color = RamenAccent,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.sp
+                )
+                Text(
+                    text = if (isExporting) {
+                        "Сканирую дерево…"
+                    } else {
+                        "Сохранить список папок и файлов в JSON"
+                    },
+                    color = RamenText,
+                    fontSize = 12.sp
+                )
+            }
+            Text(
+                text = if (isExporting) "…" else "JSON  ›",
                 color = RamenAccent,
                 fontSize = 10.sp,
                 fontWeight = FontWeight.Bold
