@@ -94,6 +94,27 @@ internal object SystemNnnNativeEffectRenderer {
         }
     }
 
+    /** Native simple-wipe Add: saturating add-in during the first half,
+     * then reverse the source roles while fading the original source out. */
+    fun addOverrap(start: IntArray, end: IntArray, frame: Int, length: Int): IntArray? {
+        if (start.size != end.size) return null
+        val total = length.coerceAtLeast(1)
+        val step = frame.coerceIn(0, total)
+        val half = (total / 2).coerceAtLeast(1)
+        val reverse = step >= half
+        val denominator = if (reverse) (total - half).coerceAtLeast(1) else half
+        val progress = if (reverse) total - step else step
+        val weight = ((progress * 256L) / denominator).toInt().coerceIn(0, 256)
+        return IntArray(start.size) { index ->
+            val first = if (reverse) end[index] else start[index]
+            val second = if (reverse) start[index] else end[index]
+            fun channel(shift: Int): Int = (
+                ((first ushr shift) and 0xFF) +
+                    (((second ushr shift) and 0xFF) * weight / 256)
+                ).coerceIn(0, 255)
+            argb(255, channel(16), channel(8), channel(0))
+        }
+    }
     fun overrapWeights(frame: Int, length: Int): Pair<Int, Int> {
         val total = length.coerceAtLeast(1)
         val step = frame.coerceIn(0, total)
@@ -125,9 +146,12 @@ internal object SystemNnnNativeEffectRenderer {
         if (step <= 0) return start.copyOf()
         if (step >= total) return end.copyOf()
         val percent = step.toFloat() / total.toFloat()
-        if (transitionType == 0 || transitionType == 40 || transitionType !in 0..95) {
+        if (transitionType == 0 || transitionType !in 0..95) {
             val (startPercent, endPercent) = overrapWeights(step, total)
             return blendOverrap(start, end, startPercent, endPercent)
+        }
+        if (transitionType == 40) {
+            return addOverrap(start, end, step, total)
         }
         val type = transitionType
         val maxDimension = max(width, height).coerceAtLeast(1).toFloat()
@@ -371,22 +395,23 @@ internal object SystemNnnNativeEffectRenderer {
         val right = (parameters.getOrNull(5) ?: width).coerceIn(left, width)
         val bottom = (parameters.getOrNull(6) ?: height).coerceIn(top, height)
         val result = source.copyOf()
-        var y = top
-        while (y < bottom) {
-            val cellBottom = min(bottom, y + blockHeight)
-            val sampleY = min(height - 1, y + ((cellBottom - y - 1) / 2))
-            var x = left
-            while (x < right) {
-                val cellRight = min(right, x + blockWidth)
-                val sampleX = min(width - 1, x + ((cellRight - x - 1) / 2))
+        // Native PrintMozaicMain only processes complete cells; the source
+        // sample for each cell is a pseudo-random offset inside that same cell.
+        val cellsX = (right - left) / blockWidth
+        val cellsY = (bottom - top) / blockHeight
+        for (cellY in 0 until cellsY) {
+            for (cellX in 0 until cellsX) {
+                val x = left + cellX * blockWidth
+                val y = top + cellY * blockHeight
+                val seed = randomMix(frame * 0x45D9F3B xor cellY * 0x119DE1F3 xor cellX * 0x3449F5)
+                val sampleX = x + floorMod(seed, blockWidth)
+                val sampleY = y + floorMod(randomMix(seed xor 0x1B873593), blockHeight)
                 val sample = source[sampleY * width + sampleX]
-                for (yy in y until cellBottom) {
+                for (yy in y until y + blockHeight) {
                     val row = yy * width
-                    for (xx in x until cellRight) result[row + xx] = sample
+                    for (xx in x until x + blockWidth) result[row + xx] = sample
                 }
-                x = cellRight
             }
-            y = cellBottom
         }
         return result
     }
@@ -508,16 +533,23 @@ internal object SystemNnnNativeEffectRenderer {
             duration.coerceAtLeast(1).toDouble()
         val endX = (parameters.getOrNull(1) ?: width / 2).toDouble()
         val endY = (parameters.getOrNull(2) ?: height / 2).toDouble()
-        val endMagnification = (parameters.getOrNull(3) ?: 100).coerceAtLeast(1) / 100.0
-        val startMagnification = (parameters.getOrNull(4) ?: 100).coerceAtLeast(1) / 100.0
-        val endAlpha = (parameters.getOrNull(5) ?: 100).coerceIn(0, 100) / 100.0
-        val startAlpha = (parameters.getOrNull(6) ?: 100).coerceIn(0, 100) / 100.0
+        val startMagnification = ((parameters.getOrNull(4) ?: 100) * 100).coerceAtLeast(1)
+        val endMagnification = ((parameters.getOrNull(3) ?: 100) * 100).coerceAtLeast(1)
+        val magnificationHundredths = SystemNnnVisualEffectMath.nativeSpeedValue(
+            frame, duration.coerceAtLeast(1), startMagnification, endMagnification,
+            parameters.getOrNull(8) ?: 0, parameters.getOrNull(7) ?: 0
+        ).coerceAtLeast(10_000)
+        val startAlpha = (parameters.getOrNull(6) ?: 100).coerceIn(0, 100)
+        val endAlpha = (parameters.getOrNull(5) ?: 100).coerceIn(0, 100)
+        val opacity = SystemNnnVisualEffectMath.nativeSpeedValue(
+            frame, duration.coerceAtLeast(1), startAlpha, endAlpha,
+            parameters.getOrNull(10) ?: 0, parameters.getOrNull(9) ?: 0
+        ).coerceIn(0, 100) / 100.0
         val startX = (parameters.getOrNull(11) ?: endX.toInt()).toDouble()
         val startY = (parameters.getOrNull(12) ?: endY.toInt()).toDouble()
         val centerX = startX + (endX - startX) * t
         val centerY = startY + (endY - startY) * t
-        val magnification = startMagnification + (endMagnification - startMagnification) * t
-        val opacity = startAlpha + (endAlpha - startAlpha) * t
+        val magnification = magnificationHundredths / 10_000.0
         val result = IntArray(source.size)
         for (y in 0 until height) {
             for (x in 0 until width) {
@@ -570,12 +602,14 @@ internal object SystemNnnNativeEffectRenderer {
                 val localX = x - left
                 val tileX = localX / 128
                 val inTileX = localX % 128
-                val sourceX = inTileX / 16
+                val sourceX = inTileX / 2
                 val tile = tileY * tileColumns + tileX
-                val noise = randomMix(tile * 0x45D9F3B xor sourceY * 0x119DE1F3 xor sourceX * 0x3449F5 xor frame)
-                val lane = (sourceX + sourceY * 8) and 3
-                val value = ((noise ushr (lane * 8)) and 0xFF)
-                val gray = (value + (noise ushr 24 and 0x7F)) / 2
+                // Native Suna stretches a randomly selected 64x64 patch to
+                // a 128x128 block, so each source noise sample covers 2x2 pixels.
+                val noiseIndex = sourceY * 64 + sourceX
+                val noise = randomMix(tile * 0x45D9F3B xor noiseIndex * 0x119DE1F3 xor frame * 0x3449F5)
+                val value = noise and 0xFF
+                val gray = value
                 val index = y * width + x
                 val old = source[index]
                 result[index] = argb(
