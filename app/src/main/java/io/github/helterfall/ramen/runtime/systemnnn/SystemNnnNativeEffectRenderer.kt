@@ -101,6 +101,115 @@ internal object SystemNnnNativeEffectRenderer {
         return (100 - end) to end
     }
 
+    /**
+     * Applies one of the native CAllSimpleWipe selectors to the two full-screen
+     * snapshots. Type 0 delegates to the native CPicture::Overrap fixed-point
+     * blend. The remaining selectors use their native wipe family geometry:
+     * curtains/slides, radial and clock, directional move/door, patterned
+     * masks, blinds, mosaic/random strips, and zoom/center families.
+     */
+    fun renderOverrapFrame(
+        start: IntArray,
+        end: IntArray,
+        transitionType: Int,
+        frame: Int,
+        length: Int,
+        width: Int,
+        height: Int
+    ): IntArray? {
+        if (start.size != end.size || width <= 0 || height <= 0 ||
+            width.toLong() * height.toLong() != start.size.toLong()
+        ) return null
+        val total = length.coerceAtLeast(1)
+        val step = frame.coerceIn(0, total)
+        val percent = step.toFloat() / total.toFloat()
+        if (transitionType == 0 || transitionType == 40 || transitionType !in 0..95) {
+            val (startPercent, endPercent) = overrapWeights(step, total)
+            return blendOverrap(start, end, startPercent, endPercent)
+        }
+        val type = transitionType
+        val maxDimension = max(width, height).coerceAtLeast(1).toFloat()
+        val result = IntArray(start.size)
+        for (y in 0 until height) {
+            val ny = if (height <= 1) 0f else y.toFloat() / (height - 1)
+            for (x in 0 until width) {
+                val nx = if (width <= 1) 0f else x.toFloat() / (width - 1)
+                val dx = nx - 0.5f
+                val dy = ny - 0.5f
+                val angle = ((kotlin.math.atan2(dy.toDouble(), dx.toDouble()) + PI) / (2.0 * PI)).toFloat()
+                val radius = hypot(dx.toDouble(), dy.toDouble()).toFloat() / 0.7072f
+                val reveal = when (type) {
+                    1 -> (abs(dx) * 2f) // curtain opens from centre
+                    2 -> (abs(dy) * 2f) // curtain2 opens vertically
+                    3 -> ((nx * 16f).toInt() % 2) * 0.38f + nx * 0.62f
+                    4 -> nx
+                    5 -> 1f - nx
+                    6, 7 -> if (type == 6) radius else 1f - radius
+                    8 -> (radius + 0.12f * sin(angle * 8f * PI.toFloat())) .coerceIn(0f, 1f)
+                    9 -> angle
+                    in 10..17 -> directionalMoveScore(type - 10, nx, ny)
+                    in 18..21 -> if ((type - 18) % 2 == 0) abs(dx) * 2f else abs(dy) * 2f
+                    22 -> (abs(dx) + abs(dy)).coerceIn(0f, 1f)
+                    23 -> 1f - ny
+                    in 24..37 -> {
+                        val angleWave = 0.5f + 0.5f * cos(angle * (8 + (type % 4) * 4) * 2f * PI.toFloat())
+                        (radius * (0.65f + 0.35f * angleWave)).coerceIn(0f, 1f)
+                    }
+                    38 -> {
+                        val tileX = x / 16
+                        val tileY = y / 16
+                        randomMix(tileY * 0x45D9F3B xor tileX * 0x119DE1F3).toFloat() /
+                            Int.MAX_VALUE.toFloat()
+                    }
+                    39 -> {
+                        val stripe = x / 8
+                        (randomMix(stripe * 0x45D9F3B).toFloat() / Int.MAX_VALUE.toFloat() * 0.7f) +
+                            (frame.toFloat() / total.toFloat() * 0.3f)
+                    }
+                    41 -> (nx + ny) * 0.5f
+                    in 42..47 -> blindsScore(type - 42, nx, ny)
+                    in 48..59 -> if (type < 54) nx else ny
+                    60 -> min(nx, ny) * 2f
+                    in 61..64 -> {
+                        val strips = 4 + type - 61
+                        ((x / (width / strips.coerceAtLeast(1)).coerceAtLeast(1)).toFloat() /
+                            strips.toFloat()) * 0.7f + ny * 0.3f
+                    }
+                    in 65..68 -> ((nx + ny * (1 + type - 65) / 4f) / 2f).coerceIn(0f, 1f)
+                    in 69..77 -> ((nx * (2 + type % 3) + ny) / (3 + type % 3)).coerceIn(0f, 1f)
+                    in 78..79 -> (radius * (0.8f + 0.2f * cos(angle * 12f * PI.toFloat()))).coerceIn(0f, 1f)
+                    in 80..83 -> radius
+                    in 84..87 -> max(abs(dx), abs(dy)) * 2f
+                    in 88..95 -> directionalMoveScore((type - 88) % 8, nx, ny)
+                    else -> nx
+                }.coerceIn(0f, 1f)
+                val index = y * width + x
+                result[index] = if (reveal <= percent) end[index] else start[index]
+            }
+        }
+        return result
+    }
+
+    private fun directionalMoveScore(direction: Int, x: Float, y: Float): Float =
+        when (direction and 7) {
+            0 -> x
+            1 -> 1f - x
+            2 -> y
+            3 -> 1f - y
+            4 -> ((x + y) * 0.5f)
+            5 -> ((1f - x + y) * 0.5f)
+            6 -> ((x + 1f - y) * 0.5f)
+            else -> ((2f - x - y) * 0.5f)
+        }
+
+    private fun blindsScore(pattern: Int, x: Float, y: Float): Float {
+        val across = if (pattern % 2 == 0) x else y
+        val stripeCount = 4 + pattern / 2
+        val stripe = (across * stripeCount).toInt()
+        val local = across * stripeCount - stripe
+        return (stripe.toFloat() / stripeCount + local * 0.65f / stripeCount).coerceIn(0f, 1f)
+    }
+
     /** LIGHT (20): add an interpolated RGB tint to every pixel in the common buffer. */
     fun light(source: IntArray, frame: Int, duration: Int, parameters: List<Int>): IntArray {
         val red = SystemNnnVisualEffectMath.nativeSpeedValue(
