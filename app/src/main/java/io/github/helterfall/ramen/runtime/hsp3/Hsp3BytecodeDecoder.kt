@@ -592,7 +592,7 @@ class Hsp3Expression internal constructor(
         systemVariable: (Int) -> Hsp3RuntimeValue,
         function: (Int, List<Hsp3RuntimeValue?>) -> Hsp3RuntimeValue = { id, _ ->
             throw IOException("Unsupported HSP built-in function ID $id.")
-        }
+        },
         arrayVariable: (Int, List<Int>) -> Hsp3RuntimeValue = { index, _ ->
             throw IOException("HSP array variable $index was evaluated without an array runtime.")
         }
