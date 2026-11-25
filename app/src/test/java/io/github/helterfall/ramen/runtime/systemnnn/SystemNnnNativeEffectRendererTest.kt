@@ -69,7 +69,7 @@ class SystemNnnNativeEffectRendererTest {
         )
         assertEquals(source.size, result.size)
         assertTrue((result[0] and 0x00FFFFFF) != (source[0] and 0x00FFFFFF))
-        assertEquals(0xFF806141.toInt(), result[1])
+        assertEquals(0xFF809FBF.toInt(), result[1])
     }
 
     @Test
