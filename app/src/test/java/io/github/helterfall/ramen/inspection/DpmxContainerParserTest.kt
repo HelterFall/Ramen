@@ -157,7 +157,8 @@ class DpmxContainerParserTest {
 
     @Test
     fun autodetectsBmpKeyFromSignatureAndDeclaredSize() {
-        val plainBmp = ByteArray(58)
+        // Size 256 gives this BM+uint32 signature a single canonical key pair.
+        val plainBmp = ByteArray(256)
         plainBmp[0] = 'B'.code.toByte()
         plainBmp[1] = 'M'.code.toByte()
         putUInt32(plainBmp, 2, plainBmp.size.toLong())
