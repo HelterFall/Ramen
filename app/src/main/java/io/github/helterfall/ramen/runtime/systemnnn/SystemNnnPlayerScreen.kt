@@ -518,13 +518,19 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         }
     }
     val cycleFrames = when (effectId) {
+        27 -> ((parameters.getOrNull(8) ?: 30) + (parameters.getOrNull(9) ?: 0)).coerceIn(1, 9_999)
         39 -> (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
+        56 -> (parameters.firstOrNull()?.takeIf { it > 0 } ?: 120).coerceIn(1, 9_999)
+        63 -> (parameters.getOrNull(14)?.takeIf { it > 0 } ?: durationFrames).coerceIn(1, 9_999)
+        102 -> ((parameters.getOrNull(2) ?: 500) - (parameters.getOrNull(3) ?: 20)).coerceAtLeast(1)
         132 -> (parameters.getOrNull(3) ?: 8).coerceIn(1, 60)
         else -> 1
     }
     val cycle = remember(animationKey) { Animatable(0f) }
     LaunchedEffect(animationKey) {
-        if ((effectId == 39 && (parameters.getOrNull(3) ?: 0) != 0) || effectId == 132) {
+        if ((effectId == 39 && (parameters.getOrNull(3) ?: 0) != 0) ||
+            effectId in setOf(27, 56, 63, 102, 132)
+        ) {
             while (true) {
                 cycle.animateTo(1f, tween((cycleFrames * 16).coerceIn(16, 60_000), easing = LinearEasing))
                 cycle.snapTo(0f)
@@ -555,6 +561,10 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         else -> 1f
     }
     val isTurn = effectId == 64
+    val isKe = effectId == 27
+    val isKomaAnime = effectId == 63
+    val isRain2 = effectId == 56
+    val isRain4 = effectId == 102
     val isFlash = effectId == 17
     val isHaikeiYure = effectId == 100 && (parameters.getOrNull(5) ?: 0) == 0
     val isCloud = effectId == 82 &&
@@ -662,6 +672,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val width = viewportWidth * (rectWidth.coerceAtLeast(1).toFloat() / safeReferenceWidth)
     val height = viewportHeight * (rectHeight.coerceAtLeast(1).toFloat() / safeReferenceHeight)
     val spriteModifier = when {
+        isKe || isKomaAnime || isRain2 || isRain4 -> Modifier.fillMaxSize()
         isTurn -> Modifier.align(Alignment.Center)
             .offset(
                 x = viewportWidth * (turnOffset.x / safeReferenceWidth),
@@ -730,6 +741,115 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         }
     }) {
         when {
+            isKe -> {
+                val particles = SystemNnnNativeEffectRenderer.keParticles(
+                    bitmapWidth = sprite.bitmap.width,
+                    bitmapHeight = sprite.bitmap.height,
+                    frame = cycleFrame,
+                    parameters = parameters,
+                    screenWidth = safeReferenceWidth.roundToInt().coerceAtLeast(1),
+                    screenHeight = safeReferenceHeight.roundToInt().coerceAtLeast(1)
+                )
+                Canvas(Modifier.fillMaxSize()) {
+                    val image = sprite.bitmap.asImageBitmap()
+                    particles.forEach { particle ->
+                        val sourceRect = particle.sourceRect
+                        val dstWidth = (sourceRect.width * size.width / safeReferenceWidth * particle.scale).roundToInt().coerceAtLeast(1)
+                        val dstHeight = (sourceRect.height * size.height / safeReferenceHeight * particle.scale).roundToInt().coerceAtLeast(1)
+                        val centerX = particle.x * size.width / safeReferenceWidth
+                        val centerY = particle.y * size.height / safeReferenceHeight
+                        drawImage(
+                            image = image,
+                            srcOffset = IntOffset(sourceRect.left, sourceRect.top),
+                            srcSize = IntSize(sourceRect.width, sourceRect.height),
+                            dstOffset = IntOffset((centerX - dstWidth / 2f).roundToInt(), (centerY - dstHeight / 2f).roundToInt()),
+                            dstSize = IntSize(dstWidth, dstHeight),
+                            alpha = particle.alpha
+                        )
+                    }
+                }
+            }
+            isKomaAnime -> {
+                val sourceRect = SystemNnnNativeEffectRenderer.komaAnimeSourceRect(
+                    sprite.bitmap.width, sprite.bitmap.height, cycleFrame, parameters
+                )
+                val frameDenominator = (durationFrames - 1).coerceAtLeast(1)
+                val positionProgress = (frame.toFloat() / frameDenominator).coerceIn(0f, 1f)
+                val x1 = parameters.getOrNull(6) ?: 0
+                val y1 = parameters.getOrNull(7) ?: 0
+                val x2 = parameters.getOrNull(4) ?: x1
+                val y2 = parameters.getOrNull(5) ?: y1
+                val putX = x1 + ((x2 - x1) * positionProgress)
+                val putY = y1 + ((y2 - y1) * positionProgress)
+                val alphaStart = (parameters.getOrNull(11) ?: 100).coerceIn(0, 100)
+                val alphaEnd = (parameters.getOrNull(10) ?: 100).coerceIn(0, 100)
+                val partAlpha = (alphaStart + (alphaEnd - alphaStart) * positionProgress) / 100f
+                Canvas(Modifier.fillMaxSize()) {
+                    if (sourceRect.width > 0 && sourceRect.height > 0) {
+                        val dstWidth = (sourceRect.width * size.width / safeReferenceWidth).roundToInt().coerceAtLeast(1)
+                        val dstHeight = (sourceRect.height * size.height / safeReferenceHeight).roundToInt().coerceAtLeast(1)
+                        drawImage(
+                            image = sprite.bitmap.asImageBitmap(),
+                            srcOffset = IntOffset(sourceRect.left, sourceRect.top),
+                            srcSize = IntSize(sourceRect.width, sourceRect.height),
+                            dstOffset = IntOffset(
+                                (putX * size.width / safeReferenceWidth).roundToInt(),
+                                (putY * size.height / safeReferenceHeight).roundToInt()
+                            ),
+                            dstSize = IntSize(dstWidth, dstHeight),
+                            alpha = partAlpha
+                        )
+                    }
+                }
+            }
+            isRain2 -> {
+                val offsets = SystemNnnNativeEffectRenderer.rain2Offsets(
+                    frame = cycleFrame, parameters = parameters,
+                    screenWidth = safeReferenceWidth.roundToInt().coerceAtLeast(1),
+                    screenHeight = safeReferenceHeight.roundToInt().coerceAtLeast(1),
+                    bitmapWidth = sprite.bitmap.width, bitmapHeight = sprite.bitmap.height
+                )
+                Canvas(Modifier.fillMaxSize()) {
+                    val image = sprite.bitmap.asImageBitmap()
+                    val dstWidth = (sprite.bitmap.width * size.width / safeReferenceWidth).roundToInt().coerceAtLeast(1)
+                    val dstHeight = (sprite.bitmap.height * size.height / safeReferenceHeight).roundToInt().coerceAtLeast(1)
+                    offsets.forEach { offset ->
+                        val x = (offset.x * size.width / safeReferenceWidth).roundToInt()
+                        val y = (offset.y * size.height / safeReferenceHeight).roundToInt()
+                        for (rx in -1..1) for (ry in -1..1) {
+                            drawImage(
+                                image = image,
+                                dstOffset = IntOffset(x + rx * dstWidth, y + ry * dstHeight),
+                                dstSize = IntSize(dstWidth, dstHeight),
+                                alpha = offset.alpha
+                            )
+                        }
+                    }
+                }
+            }
+            isRain4 -> {
+                val copies = SystemNnnNativeEffectRenderer.rain4Copies(
+                    bitmapWidth = sprite.bitmap.width, bitmapHeight = sprite.bitmap.height,
+                    frame = cycleFrame, parameters = parameters,
+                    screenWidth = safeReferenceWidth.roundToInt().coerceAtLeast(1),
+                    screenHeight = safeReferenceHeight.roundToInt().coerceAtLeast(1)
+                )
+                Canvas(Modifier.fillMaxSize()) {
+                    val image = sprite.bitmap.asImageBitmap()
+                    copies.forEach { copy ->
+                        val dstWidth = (sprite.bitmap.width * copy.scale * size.width / safeReferenceWidth).roundToInt().coerceAtLeast(1)
+                        val dstHeight = (sprite.bitmap.height * copy.scale * size.height / safeReferenceHeight).roundToInt().coerceAtLeast(1)
+                        val centerX = copy.x * size.width / safeReferenceWidth
+                        val centerY = copy.y * size.height / safeReferenceHeight
+                        drawImage(
+                            image = image,
+                            dstOffset = IntOffset((centerX - dstWidth / 2f).roundToInt(), (centerY - dstHeight / 2f).roundToInt()),
+                            dstSize = IntSize(dstWidth, dstHeight),
+                            alpha = copy.alpha
+                        )
+                    }
+                }
+            }
             isTurn -> {
                 Image(
                     bitmap = sprite.bitmap.asImageBitmap(),
