@@ -49,7 +49,7 @@ data class SystemNnnChoiceOption(
     val targetCommandOffset: Long
 )
 
-internal enum class SystemNnnScreenCapturePurpose {
+enum class SystemNnnScreenCapturePurpose {
     GET_BUFFER,
     PREPARE_OVERRAP,
     OVERRAP_TARGET
