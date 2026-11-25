@@ -39,6 +39,11 @@ sealed interface LiveMakerVmEvent {
         val commandIndex: Int
     ) : LiveMakerVmEvent
 
+    /** Yield to the platform event loop for a frame before continuing the script. */
+    data class ProcessEvents(
+        val commandIndex: Int
+    ) : LiveMakerVmEvent
+
     data class ScriptTransfer(
         val page: String,
         val labelIndex: Long,
@@ -282,9 +287,12 @@ class LiveMakerVirtualMachine(
                         )
                     }
                     46 -> {
-                        // DoEvent drains the current event queue. Android input events
-                        // are delivered directly to the VM, so there is nothing to block on.
+                        // DoEvent asks the LiveMaker player to process pending input and
+                        // redraw/advance the current frame. Yield to Android instead of
+                        // turning helper pages such as "終了待ち" into a tight While loop.
                         programCounter += 1
+                        waitingForHost = true
+                        return LiveMakerVmEvent.ProcessEvents(command.index)
                     }
                     57 -> {
                         // PropMotion animates a property over time in the desktop player.
