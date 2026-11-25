@@ -141,6 +141,9 @@ class LiveMakerVirtualMachine(
 
     fun currentCommandIndex(): Int = programCounter
 
+    /** Current decoded LSB command, exposed for host-side diagnostics only. */
+    fun currentCommand(): LiveMakerCommand? = script.commands.getOrNull(programCounter)
+
     /** Logical page/script identifier, restored automatically when returning from a Call. */
     fun currentScriptIdentifier(): String? = scriptIdentifier
 
