@@ -137,9 +137,10 @@ fun SystemNnnPlayerScreen(
     LaunchedEffect(screenEffectKey) {
         val effectId = state.screenEffectId ?: return@LaunchedEffect
         val parameters = state.screenEffectParameters
-        val duration = if (effectId == 55) 9_999
+        val duration = if (effectId in setOf(55, 71)) 9_999
             else (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
-        val repeats = effectId == 55 || (effectId == 18 && (parameters.getOrNull(2) ?: 0) != 0)
+        val repeats = effectId in setOf(55, 71) ||
+            (effectId == 18 && (parameters.getOrNull(2) ?: 0) != 0)
         if (repeats) {
             while (true) {
                 delay(16L)
