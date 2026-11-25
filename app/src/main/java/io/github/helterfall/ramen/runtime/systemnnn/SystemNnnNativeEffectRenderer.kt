@@ -314,39 +314,37 @@ internal object SystemNnnNativeEffectRenderer {
     ): IntArray {
         if (!validFrame(source, width, height)) return source.copyOf()
         val startY = (parameters.getOrNull(1) ?: 0).coerceIn(0, height)
-        val spanY = (parameters.getOrNull(2) ?: height).coerceAtLeast(0)
-        val wait = (parameters.getOrNull(3) ?: 0).coerceAtLeast(0)
-        val scale = (parameters.getOrNull(4) ?: 100).coerceIn(0, 400) / 100.0
-        val waveHeightScale = (parameters.getOrNull(5) ?: 100).coerceIn(0, 400) / 100.0
-        val speedScale = (parameters.getOrNull(6) ?: 100).coerceIn(0, 400) / 100.0
-        val progress = if (wait <= 0) 1.0 else (frame.toDouble() / wait).coerceIn(0.0, 1.0)
-        val heights = intArrayOf(
-            parameters.getOrNull(7) ?: 0,
-            parameters.getOrNull(10) ?: 0,
-            parameters.getOrNull(13) ?: 0
-        )
-        val widths = intArrayOf(
-            parameters.getOrNull(8) ?: 1,
-            parameters.getOrNull(11) ?: 1,
-            parameters.getOrNull(14) ?: 1
-        )
-        val speeds = intArrayOf(
-            parameters.getOrNull(9) ?: 0,
-            parameters.getOrNull(12) ?: 0,
-            parameters.getOrNull(15) ?: 0
-        )
+        val spanY = (parameters.getOrNull(2) ?: height).coerceIn(0, height - startY)
+        val startWait = (parameters.getOrNull(3) ?: 0).coerceAtLeast(0)
+        val totalMulti = if (startWait > 0 && frame < startWait) {
+            frame.toDouble() / startWait.toDouble()
+        } else {
+            1.0
+        }
+        val heightScale = (parameters.getOrNull(4) ?: 100) / 100.0
+        val widthScale = (parameters.getOrNull(5) ?: 100) / 100.0
+        val speedScale = (parameters.getOrNull(6) ?: 100) / 100.0
+        val h1 = (parameters.getOrNull(7) ?: 0) * heightScale
+        val h2 = (parameters.getOrNull(10) ?: 0) * heightScale
+        val h3 = (parameters.getOrNull(13) ?: 0) * heightScale
+        val w1 = (parameters.getOrNull(8) ?: 1) * widthScale
+        val w2 = (parameters.getOrNull(11) ?: 1) * widthScale
+        val w3 = (parameters.getOrNull(14) ?: 1) * widthScale
+        val speed1 = (parameters.getOrNull(9) ?: 0) * speedScale
+        val speed2 = (parameters.getOrNull(12) ?: 0) * speedScale
+        val speed3 = (parameters.getOrNull(15) ?: 0) * speedScale
+        val twoPiOverHeight = 2.0 * PI / height.coerceAtLeast(1)
         val result = source.copyOf()
         val endY = min(height, startY + spanY)
         for (y in startY until endY) {
+            val yValue = y.toDouble()
+            val theta1 = (yValue * w1 + speed1 * frame) * twoPiOverHeight
+            val theta2 = (yValue * w2 - speed2 * frame) * twoPiOverHeight
+            val theta3 = (yValue * w3 - speed3 * frame) * twoPiOverHeight
+            val dx = (totalMulti * (
+                cos(theta1) * h1 + cos(theta2) * h2 + cos(theta3) * h3
+            ) + 0.5).toInt()
             val row = y * width
-            var displacement = 0.0
-            for (wave in 0..2) {
-                val phase = (y.toDouble() * widths[wave] -
-                    frame.toDouble() * speeds[wave] * speedScale) * (2.0 * PI / height.coerceAtLeast(1))
-                displacement += cos(phase) * heights[wave]
-            }
-            displacement *= scale * waveHeightScale * progress
-            val dx = displacement.roundToInt()
             for (x in 0 until width) {
                 val sourceX = Math.floorMod(x - dx, width)
                 result[row + x] = source[row + sourceX]
@@ -639,51 +637,72 @@ internal object SystemNnnNativeEffectRenderer {
         val cellHeight = (parameters.getOrNull(2) ?: 32).coerceIn(1, bitmapHeight)
         val particleCount = (parameters.getOrNull(3) ?: 1).coerceIn(1, 16)
         val attachMask = parameters.getOrNull(4) ?: 0
-        val spriteColumns = (parameters.getOrNull(5) ?: 1).coerceIn(1, bitmapWidth / cellWidth.coerceAtLeast(1))
+        val spriteColumns = (parameters.getOrNull(5) ?: 1).coerceIn(1, (bitmapWidth / cellWidth).coerceAtLeast(1))
         val animationCells = (parameters.getOrNull(6) ?: 1).coerceIn(1, 64)
         val animationSpeed = (parameters.getOrNull(7) ?: 1).coerceAtLeast(1)
-        val visibleFrames = (parameters.getOrNull(8) ?: 30).coerceAtLeast(1)
-        val hiddenFrames = (parameters.getOrNull(9) ?: 0).coerceAtLeast(0)
+        val visibleBase = (parameters.getOrNull(8) ?: 30).coerceAtLeast(1)
+        val hiddenBase = (parameters.getOrNull(9) ?: 0).coerceAtLeast(0)
         val jitter = (parameters.getOrNull(10) ?: 0).coerceIn(0, 64)
-        val interval = (visibleFrames + hiddenFrames).coerceAtLeast(1)
+        val edgeChangeProbability = (parameters.getOrNull(11) ?: 0).coerceIn(0, 10_000)
         val rows = (bitmapHeight / cellHeight).coerceAtLeast(1)
+        val totalFrames = frame.coerceIn(0, 10_000)
+
         return List(particleCount) { index ->
             val seed = randomMix(index * 0x45D9F3B xor 0x27C0FFEE)
-            val phase = floorMod(frame + (seed and 0x7FFF), interval)
-            val visible = phase < visibleFrames
-            val baseX = floorMod(seed, screenWidth)
-            val baseY = floorMod(randomMix(seed xor 0xB5297A4D.toInt()), screenHeight)
-            val noise = randomMix(seed xor (frame * 0x119DE1F3))
-            val jitterX = if (jitter == 0) 0 else floorMod(noise, jitter * 2 + 1) - jitter
-            val jitterY = if (jitter == 0) 0 else floorMod(randomMix(noise), jitter * 2 + 1) - jitter
-            val direction = when {
-                attachMask == 0 -> 0
-                else -> floorMod(index, 4) + 1
+            val showSpan = (visibleBase / 2 + floorMod(randomMix(seed xor 0x1947), visibleBase)).coerceAtLeast(1)
+            val hideSpan = if (hiddenBase == 0) 1 else
+                (hiddenBase / 2 + floorMod(randomMix(seed xor 0x7F4A), hiddenBase)).coerceAtLeast(1)
+            val startVisible = floorMod(randomMix(seed xor 0xB5297A4D.toInt()), visibleBase + hiddenBase) < visibleBase
+            val cycleLength = showSpan + hideSpan
+            val phase = floorMod(totalFrames + if (startVisible) 0 else showSpan, cycleLength)
+            val visible = phase < showSpan
+
+            var x = floorMod(seed, screenWidth)
+            var y = floorMod(randomMix(seed xor 0x3449F5), screenHeight)
+            var direction = chooseKeEdge(attachMask, seed)
+            for (tick in 0 until totalFrames) {
+                if (jitter > 0) {
+                    val movementSeed = randomMix(seed xor (tick * 0x119DE1F3))
+                    x = (x + floorMod(movementSeed, jitter * 2 + 1) - jitter).coerceIn(0, screenWidth - 1)
+                    y = (y + floorMod(randomMix(movementSeed xor 0x1B873593), jitter * 2 + 1) - jitter)
+                        .coerceIn(0, screenHeight - 1)
+                }
+                if (direction != 0 && edgeChangeProbability > 0) {
+                    val changeSeed = randomMix(seed xor (tick * 0x45D9F3B))
+                    if (floorMod(changeSeed, 10_000) < edgeChangeProbability) {
+                        direction = chooseKeEdge(attachMask, changeSeed)
+                    }
+                }
+                when (direction) {
+                    1 -> y = cellHeight / 2
+                    2 -> x = screenWidth - cellWidth / 2
+                    3 -> y = screenHeight - cellHeight / 2
+                    4 -> x = cellWidth / 2
+                }
             }
-            val x = when (direction) {
-                2 -> screenWidth - cellWidth / 2
-                4 -> cellWidth / 2
-                else -> floorMod(baseX + jitterX, screenWidth)
-            }
-            val y = when (direction) {
-                1 -> cellHeight / 2
-                3 -> screenHeight - cellHeight / 2
-                else -> floorMod(baseY + jitterY, screenHeight)
-            }
-            val cel = floorMod(frame / animationSpeed + index, animationCells)
-            val cellX = index % spriteColumns
-            val cellY = cel % rows
+
+            val cel = floorMod(totalFrames / animationSpeed, animationCells)
+            val sourceColumn = index % spriteColumns
+            val sourceRow = cel % rows
             ParticleStamp(
                 x.toFloat(), y.toFloat(),
                 RectI(
-                    cellX * cellWidth, cellY * cellHeight,
-                    min(bitmapWidth, (cellX + 1) * cellWidth),
-                    min(bitmapHeight, (cellY + 1) * cellHeight)
+                    sourceColumn * cellWidth, sourceRow * cellHeight,
+                    min(bitmapWidth, (sourceColumn + 1) * cellWidth),
+                    min(bitmapHeight, (sourceRow + 1) * cellHeight)
                 ),
-                if (visible) 1f else 0f,
-                scale = 1f
+                if (visible) 1f else 0f
             )
         }.filter { it.alpha > 0f && it.sourceRect.width > 0 && it.sourceRect.height > 0 }
+    }
+
+    private fun chooseKeEdge(mask: Int, seed: Int): Int {
+        if (mask == 0) return 0
+        val allowed = (0 until 4).mapNotNull { index ->
+            val bit = 1 shl index
+            if ((mask and bit) != 0) index + 1 else null
+        }
+        return allowed.getOrNull(floorMod(seed, allowed.size.coerceAtLeast(1))) ?: 0
     }
 
     /** RAIN2 (56): repeated layer placements with native per-frame translation. */
@@ -696,26 +715,51 @@ internal object SystemNnnNativeEffectRenderer {
         bitmapHeight: Int = screenHeight
     ): List<LayerOffset> {
         val count = (parameters.getOrNull(3) ?: 1).coerceIn(1, 4)
-        val speedX = (parameters.getOrNull(1) ?: 0) * 0.01f
-        val speedY = (parameters.getOrNull(2) ?: 0) * 0.01f
-        val variationX = (parameters.getOrNull(4) ?: 0).coerceAtLeast(0)
-        val variationY = (parameters.getOrNull(5) ?: 0).coerceAtLeast(0)
+        val baseSpeedX = (parameters.getOrNull(1) ?: 0) * 100
+        val baseSpeedY = (parameters.getOrNull(2) ?: 0) * 100
+        val variationX = (parameters.getOrNull(4) ?: 0).coerceAtLeast(0) * 100
+        val variationY = (parameters.getOrNull(5) ?: 0).coerceAtLeast(0) * 100
+        val nextPercent = (parameters.getOrNull(6) ?: 100).coerceIn(0, 100)
+        val randomInterval = (parameters.getOrNull(7) ?: 100).coerceAtLeast(1)
+        val minX = min(bitmapWidth, screenWidth).coerceAtLeast(1)
+        val minY = min(bitmapHeight, screenHeight).coerceAtLeast(1)
+        val ticks = frame.coerceIn(0, 10_000)
+
         return List(count) { index ->
-            val seed = randomMix(index * 0x119DE1F3)
-            val jitterSpanX = (variationX * 2 + 1).coerceAtLeast(1)
-            val jitterSpanY = (variationY * 2 + 1).coerceAtLeast(1)
-            val jitterX = floorMod(randomMix(seed xor (frame * 0x45D9F3B)), jitterSpanX) - variationX
-            val jitterY = floorMod(randomMix(seed xor (frame * 0x119DE1F3)), jitterSpanY) - variationY
-            val initialX = floorMod(seed, bitmapWidth.coerceAtLeast(1))
-            val initialY = floorMod(randomMix(seed xor 0x3449F5), bitmapHeight.coerceAtLeast(1))
-            val xPeriod = min(bitmapWidth, screenWidth).coerceAtLeast(1)
-            val yPeriod = min(bitmapHeight, screenHeight).coerceAtLeast(1)
-            LayerOffset(
-                floorMod((initialX + frame * speedX).roundToInt() + jitterX, xPeriod),
-                floorMod((initialY + frame * speedY).roundToInt() + jitterY, yPeriod),
-                1f,
-                1f
-            )
+            val scale = if (index == 0) 100 else nextPercent
+            var speedX = baseSpeedX * scale / 100
+            var speedY = baseSpeedY * scale / 100
+            val randomX = variationX * scale / 100
+            val randomY = variationY * scale / 100
+            var x = floorMod(randomMix(index * 0x119DE1F3), bitmapWidth.coerceAtLeast(1)) * 100
+            var y = floorMod(randomMix(index * 0x3449F5), bitmapHeight.coerceAtLeast(1)) * 100
+
+            for (tick in 0 until ticks) {
+                val seed = randomMix(index * 0x45D9F3B xor (tick * 0x119DE1F3))
+                if (randomX > 0 && floorMod(seed, randomInterval) == 0) {
+                    var dx = floorMod(randomMix(seed xor 0x1B873593), randomX)
+                    if ((randomMix(seed xor 0x3449F5) and 1) != 0) dx = -dx
+                    speedX = (speedX + dx).coerceIn(
+                        (baseSpeedX - variationX) * scale / 100,
+                        (baseSpeedX + variationX) * scale / 100
+                    )
+                }
+                if (randomY > 0 && floorMod(randomMix(seed xor 0x7F4A), randomInterval) == 0) {
+                    var dy = floorMod(randomMix(seed xor 0xB5297A4D.toInt()), randomY)
+                    if ((randomMix(seed xor 0x1947) and 1) != 0) dy = -dy
+                    speedY = (speedY + dy).coerceIn(
+                        (baseSpeedY - variationY) * scale / 100,
+                        (baseSpeedY + variationY) * scale / 100
+                    ).coerceAtLeast(100)
+                }
+                x += speedX
+                y += speedY
+                if (x <= -minX * 100) x += minX * 1_000
+                if (x >= minX * 100) x %= minX * 100
+                if (y < -minY * 100) y += minY * 1_000
+                if (y >= minY * 100) y %= minY * 100
+            }
+            LayerOffset(x / 100, y / 100)
         }
     }
 
