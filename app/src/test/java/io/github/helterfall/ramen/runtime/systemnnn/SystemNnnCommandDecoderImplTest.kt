@@ -21,7 +21,7 @@ class SystemNnnCommandDecoderImplTest {
             val script = testScript(
                 records = listOf(
                     record(3, 0x66660008u, 0x55560005u),
-                    record(3, SYSTEM_COMMAND, 0x22220005u),
+                    record(3, SYSTEM_COMMAND, 0x22220099u),
                     record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
                 ),
                 textCount = 1
@@ -51,7 +51,7 @@ class SystemNnnCommandDecoderImplTest {
 
             val log = logFile.readText()
             assertTrue(log.contains("address=0x50 identifier=0x66660008 code=0x55560005"))
-            assertTrue(log.contains("address=0x5c identifier=0x66660006 code=0x22220005"))
+            assertTrue(log.contains("address=0x5c identifier=0x66660006 code=0x22220099"))
         } finally {
             logFile.delete()
         }
@@ -337,6 +337,55 @@ class SystemNnnCommandDecoderImplTest {
         }
     }
 
+    @Test
+    fun decodesAllThirtyThreeObservedSetEffectParameterVectorsExactly() {
+        val vectors = listOf(
+            0 to emptyList(), 1 to emptyList(), 2 to listOf(9999, 0, 0, 0, 1),
+            8 to listOf(0, 20), 9 to listOf(2000, 100, 0, 2, 100, 0, 0, 800, 600, 0, 0, 800, 600),
+            10 to listOf(150, 0, 0, 0, 0), 11 to listOf(30, 255, 255, 255),
+            17 to listOf(20, 1, 4, 255, 255, 255), 20 to listOf(40, 255, 255, 255, 3, 0),
+            22 to listOf(120, 0, 600, 0, 100, 100, 100, 9, 7, 11, 4, 17, 6, 30, 2, -5),
+            27 to listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120),
+            29 to listOf(90, 1, 20, 20, 0, 0, 0, 800, 600), 31 to listOf(20, 5, 5, 100, 0),
+            39 to listOf(20, 32, 0, 1), 40 to listOf(60, 9, 100, 100, 0, 0, 0, 0),
+            43 to listOf(50, 5, 2, 0, 0, 800, 600),
+            50 to listOf(9999, 255, 255, 255, 255, 239, 237, 2, 245, 80, 90, 70, 100, 50, 110),
+            52 to listOf(90), 54 to emptyList(),
+            55 to listOf(9999, 10, 0, 800, 600, 7, 1, 140, 100, 70, 200, 80, 40),
+            56 to listOf(0, 0, 170, 3, 5, 0, 50, 100),
+            63 to listOf(9999, 300, 244, 10, 332, 88, 332, 88, 0, 2, 100, 100, 0, 0, 9999),
+            64 to listOf(700, 375, 312, 0, 0, 220, 300, 2, 100, 100, 0, 0, 0, 0, 0, 0),
+            65 to listOf(30, 0, 0, 50, 50, 100, 100, 0, 0, 2, 100, 0, 5, 5),
+            66 to emptyList(), 69 to listOf(230, 8, 400, 300, 40, 220, 4, 18, 10, 100, 0, 0, 300),
+            71 to listOf(0, 50, 0, 0, 900, 800, -1, -2, 185, 130, 120, 1, 0, 0, 100, 135, 169, 16),
+            73 to listOf(20), 74 to listOf(90, 1, 200, 400, 400, 70, 100, 0, 0, 0, 0, 430, 1),
+            82 to listOf(0, 300, 13, 4, 9999, 200, 1362, 200, 0, 1, 100, 60, 50, 50),
+            99 to listOf(20, -189, -255, -255, -189, -255, -255, 1, 0, 0),
+            100 to listOf(20, 20, 30, 55, 30, 1, 0, 0, 0, 0, 0, 0, 0),
+            102 to listOf(0, 3, 500, 20, -2, 400, 300, 30, 200)
+        )
+        assertEquals(33, vectors.size)
+        val records = vectors.map { pair ->
+            val effectId = pair.first
+            val parameters = pair.second
+            record(6 + parameters.size, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SETEFFECT,
+                (parameters.size + 2).toUInt(), 0u, effectId.toUInt(), *parameters.map { it.toUInt() }.toTypedArray())
+        }
+        val script = testScript(records, 0)
+        var offset = RECORD_START
+        vectors.zip(records).forEach { pair ->
+            val effectId = pair.first.first
+            val parameters = pair.first.second
+            val recordWords = pair.second
+            assertEquals(
+                SystemNnnDecodedCommand.SetImageLayerEffect(
+                    offset + recordWords.size * DWORD_BYTES, 0, effectId, parameters
+                ),
+                decoder().decodeNext(script, offset)
+            )
+            offset += recordWords.size * DWORD_BYTES
+        }
+    }
     @Test
     fun decodesOverrapAsAVisibleBoundaryAndPreservesItsArguments() {
         val script = testScript(listOf(record(6, SYSTEM_COMMAND, 0x22220005u, 2u, 40u, 5u)), 0)
