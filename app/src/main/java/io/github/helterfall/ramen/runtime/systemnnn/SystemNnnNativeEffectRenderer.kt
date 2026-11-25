@@ -128,13 +128,14 @@ internal object SystemNnnNativeEffectRenderer {
 
     /** NEGA (31): native negative interpolation around the channel midpoint 128. */
     fun negative(source: IntArray, frame: Int, duration: Int, parameters: List<Int>): IntArray {
-        val startPercent = parameters.getOrNull(4) ?: 0
-        val endPercent = parameters.getOrNull(3) ?: 100
-        val amount = SystemNnnVisualEffectMath.nativeSpeedValue(
-            frame, duration, startPercent, endPercent,
+        // Native effectNega.cpp converts percentages to the signed contrast
+        // coefficient first, then feeds those endpoints to CCalcuSpeed.
+        val startFactor = (((parameters.getOrNull(4) ?: 0) * -254 * 2) / 100) + 254
+        val endFactor = (((parameters.getOrNull(3) ?: 100) * -254 * 2) / 100) + 254
+        val negativeFactor = SystemNnnVisualEffectMath.nativeSpeedValue(
+            frame, duration, startFactor, endFactor,
             parameters.getOrNull(2) ?: 0, parameters.getOrNull(1) ?: 0
-        ).coerceIn(0, 100)
-        val negativeFactor = (254 - (amount * 508 / 100)).coerceIn(-254, 254)
+        ).coerceIn(-254, 254)
         return IntArray(source.size) { index ->
             val pixel = source[index]
             argb(
