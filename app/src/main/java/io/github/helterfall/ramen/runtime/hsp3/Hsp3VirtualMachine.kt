@@ -35,20 +35,33 @@ sealed class Hsp3Instruction {
     data class Font(val name: String, val size: Int, val style: Int) : Hsp3Instruction()
     data class Gmode(val mode: Int, val alpha: Int = 255) : Hsp3Instruction()
     data class Redraw(val enabled: Boolean) : Hsp3Instruction()
-    data class Stick(val destinationVariable: Int, val nonTriggerMask: Int = 0) : Hsp3Instruction()
+    data class Stick(
+        val destinationVariable: Int,
+        val nonTriggerMask: Int = 0,
+        val destinationIndices: List<Hsp3Expression> = emptyList()
+    ) : Hsp3Instruction()
     data class SetInt(val variable: Int, val value: Int) : Hsp3Instruction()
     data class AddInt(val variable: Int, val value: Int) : Hsp3Instruction()
     data class Assign(
         val variable: Int,
         val operator: Int,
-        val expression: Hsp3Expression
+        val expression: Hsp3Expression,
+        val arrayIndices: List<Hsp3Expression> = emptyList()
+    ) : Hsp3Instruction()
+    data class Dimension(
+        val variable: Int,
+        val dimensions: List<Hsp3Expression?>
     ) : Hsp3Instruction()
     data class NativeCommand(
         val commandType: Int,
         val commandId: Int,
         val arguments: List<Hsp3Expression?>
     ) : Hsp3Instruction()
-    data class GetKey(val destinationVariable: Int, val keyCode: Hsp3Expression) : Hsp3Instruction()
+    data class GetKey(
+        val destinationVariable: Int,
+        val keyCode: Hsp3Expression,
+        val destinationIndices: List<Hsp3Expression> = emptyList()
+    ) : Hsp3Instruction()
     data class Jump(val targetInstruction: Int) : Hsp3Instruction()
     data class JumpIfZero(val variable: Int, val targetInstruction: Int) : Hsp3Instruction()
     data class JumpIfFalse(val condition: Hsp3Expression, val targetInstruction: Int) : Hsp3Instruction()
@@ -113,7 +126,8 @@ data class Hsp3VmSnapshot(
     val variables: Map<Int, Int>,
     val errorMessage: String? = null,
     val values: Map<Int, Hsp3RuntimeValue> = emptyMap(),
-    val yieldDelayMillis: Long = 0L
+    val yieldDelayMillis: Long = 0L,
+    val arrayValues: Map<Pair<Int, List<Int>>, Hsp3RuntimeValue> = emptyMap()
 )
 
 /**
@@ -134,6 +148,8 @@ class Hsp3VirtualMachine(
     )
 
     private val variables = linkedMapOf<Int, Hsp3RuntimeValue>()
+    private val arrayDimensions = linkedMapOf<Int, List<Int>>()
+    private val arrayValues = linkedMapOf<Pair<Int, List<Int>>, Hsp3RuntimeValue>()
     private val callStack = ArrayDeque<Int>()
     private val repeatStack = ArrayDeque<RepeatFrame>()
     private var programCounter = 0
@@ -225,7 +241,13 @@ class Hsp3VirtualMachine(
                         programCounter += 1
                     }
                     is Hsp3Instruction.Stick -> {
-                        readStick(instruction.destinationVariable, instruction.nonTriggerMask, true)
+                        val indices = instruction.destinationIndices.map { evaluate(it).asInt() }
+                        readStick(
+                            instruction.destinationVariable,
+                            indices,
+                            instruction.nonTriggerMask,
+                            true
+                        )
                         programCounter += 1
                     }
                     is Hsp3Instruction.SetInt -> {
@@ -240,14 +262,31 @@ class Hsp3VirtualMachine(
                         )
                         programCounter += 1
                     }
+                    is Hsp3Instruction.Dimension -> {
+                        val requested = instruction.dimensions
+                            .mapNotNull { expression -> expression?.let { evaluate(it).asInt() } }
+                            .ifEmpty { listOf(1) }
+                        if (requested.size !in 1..5 ||
+                            requested.any { it <= 0 || it > MAX_ARRAY_DIMENSION } ||
+                            requested.fold(1L) { total, size -> total * size.toLong() } > MAX_ARRAY_ELEMENTS
+                        ) {
+                            throw IOException("HSP array dimensions exceed the configured bounds.")
+                        }
+                        arrayDimensions[instruction.variable] = requested
+                        arrayValues.keys.removeAll { it.first == instruction.variable }
+                        variables.remove(instruction.variable)
+                        programCounter += 1
+                    }
                     is Hsp3Instruction.Assign -> {
+                        val indices = instruction.arrayIndices.map { evaluate(it).asInt() }
+                        val old = readVariable(instruction.variable, indices)
                         val rhs = evaluate(instruction.expression)
                         val value = if (instruction.operator == Hsp3BytecodeDecoder.CALCCODE_EQ) {
                             rhs
                         } else {
-                            calculate(instruction.operator, valueOf(instruction.variable), rhs)
+                            calculate(instruction.operator, old, rhs)
                         }
-                        variables[instruction.variable] = value
+                        writeVariable(instruction.variable, indices, value)
                         programCounter += 1
                     }
                     is Hsp3Instruction.NativeCommand -> {
@@ -256,8 +295,11 @@ class Hsp3VirtualMachine(
                     }
                     is Hsp3Instruction.GetKey -> {
                         val keyCode = evaluate(instruction.keyCode).asInt()
-                        variables[instruction.destinationVariable] = Hsp3RuntimeValue.IntegerValue(
-                            if (input.isKeyDown(keyCode)) 1 else 0
+                        val indices = instruction.destinationIndices.map { evaluate(it).asInt() }
+                        writeVariable(
+                            instruction.destinationVariable,
+                            indices,
+                            Hsp3RuntimeValue.IntegerValue(if (input.isKeyDown(keyCode)) 1 else 0)
                         )
                         programCounter += 1
                     }
@@ -373,7 +415,8 @@ class Hsp3VirtualMachine(
             variables = numericValues,
             errorMessage = errorMessage,
             values = variables.toMap(),
-            yieldDelayMillis = yieldDelayMillis
+            yieldDelayMillis = yieldDelayMillis,
+            arrayValues = arrayValues.toMap()
         )
     }
 
@@ -428,7 +471,13 @@ class Hsp3VirtualMachine(
                 Hsp3CommandIds.BOXF -> graphics.boxf(intArg(0), intArg(1), intArg(2), intArg(3))
                 Hsp3CommandIds.STICK -> {
                     val destination = requiredVariable(args.getOrNull(0), "stick destination")
-                    readStick(destination, intArg(1), intArg(2, 1) != 0)
+                    val indices = destination.indices.map { evaluate(it).asInt() }
+                    readStick(
+                        destination.index,
+                        indices,
+                        intArg(1),
+                        intArg(2, 1) != 0
+                    )
                 }
                 else -> throw IOException(
                     "Unsupported HSP graphics command ID ${command.commandId}."
@@ -441,20 +490,25 @@ class Hsp3VirtualMachine(
         )
     }
 
-    private fun readStick(destination: Int, nonTriggerMask: Int, activeWindowCheck: Boolean) {
+    private fun readStick(
+        destination: Int,
+        indices: List<Int>,
+        nonTriggerMask: Int,
+        activeWindowCheck: Boolean
+    ) {
         val current = input.stickMask(activeWindowCheck)
         val triggered = (current xor previousStickMask) and current
         previousStickMask = current
         val result = triggered or (current and nonTriggerMask)
-        variables[destination] = Hsp3RuntimeValue.IntegerValue(result)
+        writeVariable(destination, indices, Hsp3RuntimeValue.IntegerValue(result))
     }
 
-    private fun requiredVariable(expression: Hsp3Expression?, label: String): Int =
-        expression?.singleVariableReference()
-            ?: throw IOException("The HSP $label must be a scalar variable.")
+    private fun requiredVariable(expression: Hsp3Expression?, label: String): Hsp3VariableReference =
+        expression?.variableReferenceOrNull()
+            ?: throw IOException("The HSP $label must be a variable reference.")
 
     private fun evaluate(expression: Hsp3Expression): Hsp3RuntimeValue =
-        expression.evaluate(::valueOf, ::systemValue, ::evaluateFunction)
+        expression.evaluate(::valueOf, ::systemValue, ::evaluateFunction, ::arrayValueOf)
 
     /** Executes the common built-ins defined by OpenHSP's TYPE_INTFUNC table. */
     private fun evaluateFunction(
@@ -551,6 +605,40 @@ class Hsp3VirtualMachine(
     private fun valueOf(index: Int): Hsp3RuntimeValue =
         variables[index] ?: Hsp3RuntimeValue.IntegerValue(0)
 
+    private fun arrayValueOf(index: Int, indices: List<Int>): Hsp3RuntimeValue =
+        readVariable(index, indices)
+
+    private fun readVariable(index: Int, indices: List<Int>): Hsp3RuntimeValue {
+        if (indices.isEmpty()) return valueOf(index)
+        val dimensions = arrayDimensions[index]
+            ?: throw IOException("HSP variable $index has not been dimensioned as an array.")
+        if (indices.size != dimensions.size ||
+            indices.indices.any { indices[it] !in 0 until dimensions[it] }
+        ) {
+            throw IOException("HSP array index is outside the declared dimensions.")
+        }
+        return arrayValues[index to indices]
+            ?: Hsp3RuntimeValue.IntegerValue(0)
+    }
+
+    private fun writeVariable(index: Int, indices: List<Int>, value: Hsp3RuntimeValue) {
+        if (indices.isEmpty()) {
+            if (arrayDimensions.containsKey(index)) {
+                throw IOException("An HSP array variable cannot be assigned without an index.")
+            }
+            variables[index] = value
+            return
+        }
+        val dimensions = arrayDimensions[index]
+            ?: throw IOException("HSP variable $index has not been dimensioned as an array.")
+        if (indices.size != dimensions.size ||
+            indices.indices.any { indices[it] !in 0 until dimensions[it] }
+        ) {
+            throw IOException("HSP array index is outside the declared dimensions.")
+        }
+        arrayValues[index to indices.toList()] = value
+    }
+
     private fun systemValue(index: Int): Hsp3RuntimeValue = when (index) {
         0 -> Hsp3RuntimeValue.IntegerValue(0)
         1 -> Hsp3RuntimeValue.IntegerValue(hspStat)
@@ -610,5 +698,7 @@ class Hsp3VirtualMachine(
         private const val DEFAULT_INSTRUCTION_BUDGET = 10_000
         private const val DEFAULT_WAIT_MS = 100L
         private const val BUDGET_YIELD_MS = 16L
+        private const val MAX_ARRAY_DIMENSION = 65_536
+        private const val MAX_ARRAY_ELEMENTS = 1_000_000L
     }
 }
