@@ -6,6 +6,7 @@ on:
     branches:
       - docs/system-nnn-launch-roadmap
       - effects/audit-flash-cloud-haikeiyure-20261107
+      - audit/system-nnn-compat-20261126
     paths:
       - ".github/workflows/android-apk-check.yml"
       - "app/src/main/java/io/github/helterfall/ramen/runtime/systemnnn/**"
