@@ -358,18 +358,16 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                     ?: constantExpression(Hsp3RuntimeValue.IntegerValue(-1))
                 val initialExpression = args.getOrNull(2)
                     ?: constantExpression(Hsp3RuntimeValue.IntegerValue(0))
+                val constantCount = countExpression.constantIntOrNull()
+                val constantInitial = initialExpression.constantIntOrNull()
                 PendingInstruction(pc) { addressMap, count ->
                     Hsp3Instruction.Repeat(
-                        count = countExpression.constantIntOrNull() ?: -1,
+                        count = constantCount ?: -1,
                         exitInstruction = resolveTarget(target, addressMap, count, program.codeSegment.sizeBytes.toInt()),
-                        initialValue = initialExpression.constantIntOrNull() ?: 0
+                        initialValue = constantInitial ?: 0,
+                        countExpression = countExpression.takeIf { constantCount == null },
+                        initialValueExpression = initialExpression.takeIf { constantInitial == null }
                     )
-                }.also {
-                    if (countExpression.constantIntOrNull() == null ||
-                        initialExpression.constantIntOrNull() == null
-                    ) {
-                        throw IOException("Dynamic repeat expressions are not yet supported by this VM profile.")
-                    }
                 }
             }
             PROGCMD_LOOP -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.Loop }
@@ -385,15 +383,27 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 }
             }
             PROGCMD_WAIT -> {
-                val wait = args.firstOrNull()?.constantIntOrNull() ?: 100
+                val delayExpression = args.firstOrNull()
+                    ?: constantExpression(Hsp3RuntimeValue.IntegerValue(100))
+                val constantDelay = delayExpression.constantIntOrNull()
                 PendingInstruction(pc) { _, _ ->
-                    Hsp3Instruction.WaitFor((wait.coerceAtLeast(0) * 10L).coerceAtMost(MAX_WAIT_MS))
+                    Hsp3Instruction.WaitFor(
+                        delayMillis = ((constantDelay ?: 0).coerceAtLeast(0) * 10L).coerceAtMost(MAX_WAIT_MS),
+                        delayExpression = delayExpression.takeIf { constantDelay == null },
+                        delayMultiplier = 10L
+                    )
                 }
             }
             PROGCMD_AWAIT -> {
-                val wait = args.firstOrNull()?.constantIntOrNull() ?: 0
+                val delayExpression = args.firstOrNull()
+                    ?: constantExpression(Hsp3RuntimeValue.IntegerValue(0))
+                val constantDelay = delayExpression.constantIntOrNull()
                 PendingInstruction(pc) { _, _ ->
-                    Hsp3Instruction.WaitFor(wait.coerceAtLeast(0).toLong().coerceAtMost(MAX_WAIT_MS))
+                    Hsp3Instruction.WaitFor(
+                        delayMillis = (constantDelay ?: 0).coerceAtLeast(0).toLong().coerceAtMost(MAX_WAIT_MS),
+                        delayExpression = delayExpression.takeIf { constantDelay == null },
+                        delayMultiplier = 1L
+                    )
                 }
             }
             PROGCMD_END, PROGCMD_STOP -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.End }

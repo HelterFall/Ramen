@@ -201,6 +201,54 @@ class Hsp3VirtualMachineTest {
         assertEquals(null, snapshot.errorMessage)
     }
 
+    @Test
+    fun repeatEvaluatesCountAndInitialValueExpressionsAtRuntime() {
+        val vm = Hsp3VirtualMachine(RecordingGraphics())
+        val variable = Hsp3Expression(Hsp3ExpressionNode.Variable(0))
+        val initial = Hsp3Expression(Hsp3ExpressionNode.Variable(1))
+        val snapshot = vm.runSlice(
+            listOf(
+                Hsp3Instruction.SetInt(0, 3),
+                Hsp3Instruction.SetInt(1, 7),
+                Hsp3Instruction.Repeat(
+                    count = -1,
+                    exitInstruction = 4,
+                    countExpression = variable,
+                    initialValueExpression = initial
+                ),
+                Hsp3Instruction.AddInt(2, 1),
+                Hsp3Instruction.Loop,
+                Hsp3Instruction.End
+            )
+        )
+
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(3, snapshot.variables[2])
+    }
+
+    @Test
+    fun waitAndAwaitEvaluateDynamicDelaysAndApplyDifferentUnits() {
+        val delay = Hsp3Expression(Hsp3ExpressionNode.Variable(0))
+        val vm = Hsp3VirtualMachine(RecordingGraphics())
+        val wait = vm.runSlice(
+            listOf(
+                Hsp3Instruction.SetInt(0, 25),
+                Hsp3Instruction.WaitFor(0L, delayExpression = delay, delayMultiplier = 10L)
+            )
+        )
+        assertEquals(Hsp3VmStatus.YIELDED, wait.status)
+        assertEquals(250L, wait.yieldDelayMillis)
+
+        val await = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
+            listOf(
+                Hsp3Instruction.SetInt(0, 25),
+                Hsp3Instruction.WaitFor(0L, delayExpression = delay, delayMultiplier = 1L)
+            )
+        )
+        assertEquals(Hsp3VmStatus.YIELDED, await.status)
+        assertEquals(25L, await.yieldDelayMillis)
+    }
+
     private class MemoryFileStorage(
         val files: MutableMap<String, ByteArray>
     ) : Hsp3FileStorage {

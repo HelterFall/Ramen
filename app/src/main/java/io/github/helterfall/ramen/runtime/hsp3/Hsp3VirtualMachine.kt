@@ -100,13 +100,19 @@ sealed class Hsp3Instruction {
     data class Repeat(
         val count: Int,
         val exitInstruction: Int = -1,
-        val initialValue: Int = 0
+        val initialValue: Int = 0,
+        val countExpression: Hsp3Expression? = null,
+        val initialValueExpression: Hsp3Expression? = null
     ) : Hsp3Instruction()
     object Loop : Hsp3Instruction()
     object Break : Hsp3Instruction()
     object Continue : Hsp3Instruction()
     object Wait : Hsp3Instruction()
-    data class WaitFor(val delayMillis: Long) : Hsp3Instruction()
+    data class WaitFor(
+        val delayMillis: Long,
+        val delayExpression: Hsp3Expression? = null,
+        val delayMultiplier: Long = 1L
+    ) : Hsp3Instruction()
     object End : Hsp3Instruction()
     data class Unsupported(
         val commandType:Int,val commandId:Int,val codeOffset:Int=-1,
@@ -394,7 +400,13 @@ class Hsp3VirtualMachine(
                         programCounter = callStack.removeLast()
                     }
                     is Hsp3Instruction.Repeat -> {
-                        if (instruction.count == 0) {
+                        val repeatCount = instruction.countExpression
+                            ?.let { evaluate(it).asInt() }
+                            ?: instruction.count
+                        val initialValue = instruction.initialValueExpression
+                            ?.let { evaluate(it).asInt() }
+                            ?: instruction.initialValue
+                        if (repeatCount == 0) {
                             programCounter = if (instruction.exitInstruction >= 0) {
                                 checkedTarget(instruction.exitInstruction, instructions.size)
                             } else {
@@ -407,8 +419,8 @@ class Hsp3VirtualMachine(
                             repeatStack.addLast(
                                 RepeatFrame(
                                     bodyStart = programCounter + 1,
-                                    remaining = instruction.count,
-                                    current = instruction.initialValue
+                                    remaining = repeatCount,
+                                    current = initialValue
                                 )
                             )
                             programCounter += 1
@@ -443,7 +455,10 @@ class Hsp3VirtualMachine(
                     is Hsp3Instruction.WaitFor -> {
                         programCounter += 1
                         status = Hsp3VmStatus.YIELDED
-                        yieldDelayMillis = instruction.delayMillis
+                        val requestedDelay = instruction.delayExpression
+                            ?.let { evaluate(it).asInt().toLong() * instruction.delayMultiplier }
+                            ?: instruction.delayMillis
+                        yieldDelayMillis = requestedDelay.coerceIn(0L, MAX_WAIT_MS)
                         return snapshot()
                     }
                     Hsp3Instruction.End -> {
