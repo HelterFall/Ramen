@@ -304,6 +304,7 @@ fun SystemNnnPlayerScreen(
 
         val overrapFrameBitmap = remember(
             state.overrapTransitionId,
+            state.overrapTransitionType,
             state.overrapTransitionDurationFrames,
             state.overrapFromBitmap,
             state.overrapToBitmap,
@@ -323,10 +324,14 @@ fun SystemNnnPlayerScreen(
                     to.getPixels(toPixels, 0, to.width, 0, 0, to.width, to.height)
                     val duration = state.overrapTransitionDurationFrames.coerceAtLeast(1)
                     val frame = (overrapProgress.coerceIn(0f, 1f) * duration).roundToInt()
-                    val (fromWeight, toWeight) =
-                        SystemNnnNativeEffectRenderer.overrapWeights(frame, duration)
-                    val mixed = SystemNnnNativeEffectRenderer.blendOverrap(
-                        fromPixels, toPixels, fromWeight, toWeight
+                    val mixed = SystemNnnNativeEffectRenderer.renderOverrapFrame(
+                        start = fromPixels,
+                        end = toPixels,
+                        transitionType = state.overrapTransitionType,
+                        frame = frame,
+                        length = duration,
+                        width = from.width,
+                        height = from.height
                     ) ?: return@runCatching null
                     Bitmap.createBitmap(mixed, from.width, from.height, Bitmap.Config.ARGB_8888)
                 }.getOrNull()
