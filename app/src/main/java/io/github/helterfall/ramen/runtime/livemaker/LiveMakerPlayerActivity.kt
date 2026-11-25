@@ -12,6 +12,8 @@ import android.os.Looper
 import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -45,6 +47,7 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -107,7 +110,10 @@ private data class LiveMakerSceneBitmap(
     val alpha: Float,
     val priority: Float,
     val isBackground: Boolean,
-    val visible: Boolean = true
+    val visible: Boolean = true,
+    val transitionFromAlpha: Float? = null,
+    val transitionDurationMillis: Int = 0,
+    val transitionToken: Long = 0L
 )
 
 private data class LiveMakerTextPlayback(
@@ -124,7 +130,9 @@ private data class LiveMakerEventPresentation(
     val dialogueText: String = "",
     val waitingForTap: Boolean = false,
     /** Return to the Android event loop and continue the VM on the next frame. */
-    val autoAdvanceOnFrame: Boolean = false
+    val autoAdvanceOnFrame: Boolean = false,
+    /** Continue after a blocking visual transition has finished. */
+    val autoAdvanceDelayMs: Long? = null
 )
 
 /** Android host for the compiled LiveMaker LSB runtime. */
@@ -133,6 +141,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val automaticAdvanceScheduled = AtomicBoolean(false)
+    private var flipTransitionSerial = 0L
     @Volatile private var pointerPulsePendingRelease = false
     @Volatile private var lastPointerX = 0
     @Volatile private var lastPointerY = 0
@@ -245,7 +254,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                             assets = assets.listAssets(),
                             mediaDiagnostics = assets.diagnostics
                         )
-                        if (presentation.autoAdvanceOnFrame) scheduleAutomaticAdvance()
+                        schedulePresentationContinuation(presentation)
                     }
                 }
             } catch (error: Exception) {
@@ -388,7 +397,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 is LiveMakerSessionEvent.EngineEvent -> when (event.event) {
                     is LiveMakerVmEvent.TextBlock,
                     is LiveMakerVmEvent.Delay,
-                    is LiveMakerVmEvent.ProcessEvents -> session.resume()
+                    is LiveMakerVmEvent.ProcessEvents,
+                    is LiveMakerVmEvent.FlipTransition -> session.resume()
                     LiveMakerVmEvent.Running -> Unit
                     else -> return
                 }
@@ -426,7 +436,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     isCompleted = isCompleted(next),
                     errorMessage = null
                 )
-                if (presentation.autoAdvanceOnFrame) scheduleAutomaticAdvance()
+                schedulePresentationContinuation(presentation)
             }
         }
     }
@@ -435,12 +445,20 @@ class LiveMakerPlayerActivity : ComponentActivity() {
      * A DoEvent/Running boundary is a cooperative yield, not a player wait. Return to
      * Android for a frame so input, Compose drawing and animation time can progress.
      */
-    private fun scheduleAutomaticAdvance() {
+    private fun schedulePresentationContinuation(presentation: LiveMakerEventPresentation) {
+        when {
+            presentation.autoAdvanceDelayMs != null ->
+                scheduleAutomaticAdvance(presentation.autoAdvanceDelayMs)
+            presentation.autoAdvanceOnFrame -> scheduleAutomaticAdvance()
+        }
+    }
+
+    private fun scheduleAutomaticAdvance(delayMillis: Long = EVENT_PUMP_FRAME_DELAY_MS) {
         if (!automaticAdvanceScheduled.compareAndSet(false, true)) return
         mainHandler.postDelayed({
             automaticAdvanceScheduled.set(false)
             if (!isFinishing && !isDestroyed) continueSession()
-        }, EVENT_PUMP_FRAME_DELAY_MS)
+        }, delayMillis.coerceAtLeast(1L))
     }
 
     private fun releasePointerPulse(session: LiveMakerGameSession) {
@@ -528,6 +546,19 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 )
             }
 
+            if (engineEvent is LiveMakerVmEvent.FlipTransition) {
+                if (engineEvent.stopEventProcessing) {
+                    return event to LiveMakerEventPresentation(
+                        description = "",
+                        canContinue = false,
+                        autoAdvanceDelayMs = engineEvent.durationMillis
+                    )
+                }
+                // The effect continues asynchronously while the scenario advances.
+                session.resume()
+                return@repeat
+            }
+
             if (engineEvent is LiveMakerVmEvent.Delay) {
                 if (engineEvent.milliseconds <= 0L) {
                     // Time=0 is an unbounded LiveMaker wait. Present an invisible input
@@ -563,6 +594,79 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 session.currentPageReference() + ", command=" + session.currentCommandIndex() +
                 ". Recent VM steps: " + recentSteps.joinToString(" | ")
         )
+    }
+
+    /**
+     * Runs LiveNovel's FADE transition on named scene layers. Other wipe names currently
+     * use a safe alpha cross-fade fallback instead of leaving an image permanently static.
+     */
+    private fun startFlipTransition(
+        transition: LiveMakerVmEvent.FlipTransition,
+        session: LiveMakerGameSession
+    ) {
+        val effect = transition.effect.uppercase()
+        if (effect == "NONE") return
+
+        val names = transition.targetNames.ifEmpty { sceneObjects.keys.toList() }
+        if (names.isEmpty()) return
+
+        val duration = transition.durationMillis.coerceIn(0L, MAX_TPWORD_WAIT_MS).toInt()
+        val actOut = transition.action.contains("OUT", ignoreCase = true)
+        val fadeOut = if (transition.reverse) !actOut else actOut
+        val removeAfter = actOut || transition.deleteAfter
+        val tokens = linkedMapOf<String, Long>()
+
+        names.forEach { name ->
+            val image = sceneObjects[name] ?: return@forEach
+            val token = ++flipTransitionSerial
+            val startAlpha = if (fadeOut) image.alpha else 0f
+            val endAlpha = if (fadeOut) 0f else image.alpha.coerceIn(0f, 1f)
+            sceneObjects[name] = image.copy(
+                alpha = endAlpha,
+                transitionFromAlpha = startAlpha,
+                transitionDurationMillis = duration,
+                transitionToken = token
+            )
+            session.setObjectProperty(
+                name,
+                LiveMakerObjectStore.PR_ALPHA,
+                (endAlpha * 255f).roundToInt().coerceIn(0, 255)
+            )
+            tokens[name] = token
+        }
+
+        publishSceneState(session)
+        if (duration == 0) {
+            if (removeAfter) {
+                tokens.keys.forEach { name ->
+                    sceneObjects.remove(name)
+                    session.deleteObject(name)
+                }
+                publishSceneState(session)
+            }
+            return
+        }
+
+        mainHandler.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            worker.execute {
+                tokens.forEach { (name, token) ->
+                    val current = sceneObjects[name] ?: return@forEach
+                    // A later Flip or image replacement owns this layer now.
+                    if (current.transitionToken != token) return@forEach
+                    if (removeAfter) {
+                        sceneObjects.remove(name)
+                        session.deleteObject(name)
+                    } else {
+                        sceneObjects[name] = current.copy(
+                            transitionFromAlpha = null,
+                            transitionDurationMillis = 0
+                        )
+                    }
+                }
+                publishSceneState(session)
+            }
+        }, duration.toLong())
     }
 
     private fun isCompleted(event: LiveMakerSessionEvent): Boolean =
@@ -963,6 +1067,13 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                         canContinue = false,
                         autoAdvanceOnFrame = true
                     )
+                is LiveMakerVmEvent.FlipTransition -> {
+                    startFlipTransition(engineEvent, session)
+                    LiveMakerEventPresentation(
+                        description = "",
+                        canContinue = false
+                    )
+                }
                 is LiveMakerVmEvent.HostCommandRequired ->
                     LiveMakerEventPresentation(
                         "Команда сцены " + engineEvent.command.typeName +
@@ -1528,12 +1639,25 @@ private fun LiveMakerPlayerScreen(
                     }
             ) {
                 state.sceneImages.filter { it.isBackground }.forEach { image ->
+                    val animatedAlpha = remember(image.objectName, image.transitionToken) {
+                        Animatable(image.transitionFromAlpha ?: image.alpha)
+                    }
+                    LaunchedEffect(image.objectName, image.transitionToken, image.alpha) {
+                        if (image.transitionFromAlpha != null && image.transitionDurationMillis > 0) {
+                            animatedAlpha.animateTo(
+                                targetValue = image.alpha,
+                                animationSpec = tween(durationMillis = image.transitionDurationMillis)
+                            )
+                        } else {
+                            animatedAlpha.snapTo(image.alpha)
+                        }
+                    }
                     Image(
                         bitmap = image.bitmap.asImageBitmap(),
                         contentDescription = image.resourcePath,
                         modifier = Modifier
                             .fillMaxSize()
-                            .graphicsLayer(alpha = if (image.visible) image.alpha else 0f),
+                            .graphicsLayer(alpha = if (image.visible) animatedAlpha.value else 0f),
                         contentScale = ContentScale.FillBounds
                     )
                 }
@@ -1541,6 +1665,19 @@ private fun LiveMakerPlayerScreen(
                 state.sceneImages
                     .filterNot { it.isBackground }
                     .forEach { image ->
+                        val animatedAlpha = remember(image.objectName, image.transitionToken) {
+                            Animatable(image.transitionFromAlpha ?: image.alpha)
+                        }
+                        LaunchedEffect(image.objectName, image.transitionToken, image.alpha) {
+                            if (image.transitionFromAlpha != null && image.transitionDurationMillis > 0) {
+                                animatedAlpha.animateTo(
+                                    targetValue = image.alpha,
+                                    animationSpec = tween(durationMillis = image.transitionDurationMillis)
+                                )
+                            } else {
+                                animatedAlpha.snapTo(image.alpha)
+                            }
+                        }
                         Image(
                             bitmap = image.bitmap.asImageBitmap(),
                             contentDescription = image.resourcePath,
@@ -1551,7 +1688,7 @@ private fun LiveMakerPlayerScreen(
                                 )
                                 .width(stageWidth * (image.width / canvasWidth).coerceIn(0.01f, 2f))
                                 .height(stageHeight * (image.height / canvasHeight).coerceIn(0.01f, 2f))
-                                .graphicsLayer(alpha = if (image.visible) image.alpha else 0f),
+                                .graphicsLayer(alpha = if (image.visible) animatedAlpha.value else 0f),
                             contentScale = ContentScale.Fit
                         )
                     }
