@@ -136,6 +136,24 @@ class Hsp3BytecodeDecoderTest {
         }
     }
 
+    @Test
+    fun dimensionsAndIndexedAssignmentAreExecutedByVm() {
+        withProgram(createArrayAssignmentProgram()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+            assertTrue(instructions.first() is Hsp3Instruction.Dimension)
+            val assignment = instructions[1] as Hsp3Instruction.Assign
+            assertEquals(4, assignment.variable)
+            assertEquals(1, assignment.arrayIndices.size)
+
+            val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertEquals(
+                Hsp3RuntimeValue.IntegerValue(5),
+                snapshot.arrayValues[4 to listOf(1)]
+            )
+        }
+    }
+
     private fun withProgram(bytes: ByteArray, block: (io.github.helterfall.ramen.parser.Hsp3Program) -> Unit) {
         val directory = Files.createTempDirectory("ramen-hsp3-decoder").toFile()
         try {
@@ -145,6 +163,22 @@ class Hsp3BytecodeDecoderTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    private fun createArrayAssignmentProgram(): ByteArray {
+        val code = listOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM, // dim
+            0x0001, 4,                              // variable #4
+            0x4004, 3,                              // length = 3
+            0x2001, 4,                              // assignment to variable #4
+            0x0000, '('.code,
+            0x0004, 1,                              // index 1
+            0x0000, ')'.code,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0004, 5,                              // value 5
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(code)
     }
 
     private fun createIfProgram(): ByteArray {
