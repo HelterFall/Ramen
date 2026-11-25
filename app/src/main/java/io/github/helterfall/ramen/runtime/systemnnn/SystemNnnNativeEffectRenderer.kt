@@ -122,6 +122,8 @@ internal object SystemNnnNativeEffectRenderer {
         ) return null
         val total = length.coerceAtLeast(1)
         val step = frame.coerceIn(0, total)
+        if (step <= 0) return start.copyOf()
+        if (step >= total) return end.copyOf()
         val percent = step.toFloat() / total.toFloat()
         if (transitionType == 0 || transitionType == 40 || transitionType !in 0..95) {
             val (startPercent, endPercent) = overrapWeights(step, total)
