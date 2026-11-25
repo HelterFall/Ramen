@@ -619,34 +619,41 @@ class Hsp3VirtualMachine(
         readVariable(index, indices)
 
     private fun readVariable(index: Int, indices: List<Int>): Hsp3RuntimeValue {
-        if (indices.isEmpty()) return valueOf(index)
         val dimensions = arrayDimensions[index]
-            ?: throw IOException("HSP variable $index has not been dimensioned as an array.")
-        if (indices.size != dimensions.size ||
-            indices.indices.any { indices[it] !in 0 until dimensions[it] }
+        if (dimensions == null) {
+            if (indices.isNotEmpty()) {
+                throw IOException("HSP variable $index has not been dimensioned as an array.")
+            }
+            return valueOf(index)
+        }
+        // OpenHSP resets an unindexed PVal to APTR 0. Therefore a bare array
+        // reference denotes the first element rather than a separate scalar.
+        val resolvedIndices = if (indices.isEmpty()) List(dimensions.size) { 0 } else indices
+        if (resolvedIndices.size != dimensions.size ||
+            resolvedIndices.indices.any { resolvedIndices[it] !in 0 until dimensions[it] }
         ) {
             throw IOException("HSP array index is outside the declared dimensions.")
         }
-        return arrayValues[index to indices]
+        return arrayValues[index to resolvedIndices]
             ?: Hsp3RuntimeValue.IntegerValue(0)
     }
 
     private fun writeVariable(index: Int, indices: List<Int>, value: Hsp3RuntimeValue) {
-        if (indices.isEmpty()) {
-            if (arrayDimensions.containsKey(index)) {
-                throw IOException("An HSP array variable cannot be assigned without an index.")
+        val dimensions = arrayDimensions[index]
+        if (dimensions == null) {
+            if (indices.isNotEmpty()) {
+                throw IOException("HSP variable $index has not been dimensioned as an array.")
             }
             variables[index] = value
             return
         }
-        val dimensions = arrayDimensions[index]
-            ?: throw IOException("HSP variable $index has not been dimensioned as an array.")
-        if (indices.size != dimensions.size ||
-            indices.indices.any { indices[it] !in 0 until dimensions[it] }
+        val resolvedIndices = if (indices.isEmpty()) List(dimensions.size) { 0 } else indices
+        if (resolvedIndices.size != dimensions.size ||
+            resolvedIndices.indices.any { resolvedIndices[it] !in 0 until dimensions[it] }
         ) {
             throw IOException("HSP array index is outside the declared dimensions.")
         }
-        arrayValues[index to indices.toList()] = value
+        arrayValues[index to resolvedIndices.toList()] = value
     }
 
     private fun systemValue(index: Int): Hsp3RuntimeValue = when (index) {
