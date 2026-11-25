@@ -266,9 +266,16 @@ class Hsp3VirtualMachine(
                         val requested = instruction.dimensions
                             .mapNotNull { expression -> expression?.let { evaluate(it).asInt() } }
                             .ifEmpty { listOf(1) }
+                        val elementCount = requested.fold(1L) { total, size ->
+                            if (total > MAX_ARRAY_ELEMENTS / size.toLong()) {
+                                MAX_ARRAY_ELEMENTS + 1L
+                            } else {
+                                total * size.toLong()
+                            }
+                        }
                         if (requested.size !in 1..5 ||
                             requested.any { it <= 0 || it > MAX_ARRAY_DIMENSION } ||
-                            requested.fold(1L) { total, size -> total * size.toLong() } > MAX_ARRAY_ELEMENTS
+                            elementCount > MAX_ARRAY_ELEMENTS
                         ) {
                             throw IOException("HSP array dimensions exceed the configured bounds.")
                         }
