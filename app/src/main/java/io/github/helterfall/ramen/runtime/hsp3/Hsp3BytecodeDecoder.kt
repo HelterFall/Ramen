@@ -35,8 +35,12 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         commandIndexes.forEachIndexed { commandOrdinal, tokenIndex ->
             val command = tokens[tokenIndex]
             val nextTokenIndex = commandIndexes.getOrNull(commandOrdinal + 1) ?: tokens.size
-            val args = readArguments(tokens, tokenIndex + 1, nextTokenIndex, program)
-            pending += decodeCommand(program, command, args)
+            val rawArguments = readArgumentGroups(tokens, tokenIndex + 1, nextTokenIndex)
+            pending += if (command.type == TYPE_VAR) {
+                decodeAssignment(program, command, rawArguments)
+            } else {
+                decodeCommand(program, command, rawArguments.map { decodeExpression(it, program) })
+            }
         }
 
         val codeToInstruction = pending.mapIndexed { index, item ->
@@ -48,12 +52,11 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         }
     }
 
-    private fun readArguments(
+    private fun readArgumentGroups(
         tokens: List<Hsp3Token>,
         startIndex: Int,
-        endIndex: Int,
-        program: Hsp3Program
-    ): List<Hsp3Expression?> {
+        endIndex: Int
+    ): List<List<Hsp3Token>> {
         if (startIndex >= endIndex) return emptyList()
         val groups = ArrayList<MutableList<Hsp3Token>>()
         var current = mutableListOf<Hsp3Token>()
@@ -66,7 +69,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             current += token.copy(extensionFlags = token.extensionFlags and EXFLG_2.inv())
         }
         if (current.isNotEmpty()) groups += current
-        return groups.map { group -> decodeExpression(group, program) }
+        return groups
     }
 
     private fun decodeExpression(
@@ -200,7 +203,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 PendingInstruction(pc) { addressMap, count ->
                     Hsp3Instruction.Repeat(
                         count = countExpression.constantIntOrNull() ?: -1,
-                        exitInstruction = resolveTarget(target, addressMap, count),
+                        exitInstruction = resolveTarget(target, addressMap, count, program.codeSegment.sizeBytes.toInt()),
                         initialValue = initialExpression.constantIntOrNull() ?: 0
                     )
                 }.also {
@@ -252,43 +255,43 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             return PendingInstruction(pc) { addressMap, count ->
                 Hsp3Instruction.JumpIfFalse(
                     condition,
-                    resolveTarget(branchTarget.toInt(), addressMap, count)
+                    resolveTarget(branchTarget.toInt(), addressMap, count, program.codeSegment.sizeBytes)
                 )
             }
         }
         return PendingInstruction(pc) { addressMap, count ->
-            Hsp3Instruction.Jump(resolveTarget(branchTarget.toInt(), addressMap, count))
+            Hsp3Instruction.Jump(resolveTarget(branchTarget.toInt(), addressMap, count, program.codeSegment.sizeBytes))
         }
     }
 
     private fun decodeAssignment(
         program: Hsp3Program,
         command: Hsp3Token,
-        args: List<Hsp3Expression?>
+        argumentGroups: List<List<Hsp3Token>>
     ): PendingInstruction {
         val variable = checkedIndex(command.value, program.header.maxValueCount, "assignment variable")
-        val operatorToken = args.firstOrNull()
-        // The assignment operator is emitted as a TYPE_MARK immediately after
-        // the variable token, so this branch is rebuilt below by reading CS.
-        val operator = readUInt16(program.codeSegment.bytes, command.codeOffset + command.encodedSizeBytes)
-        val markerType = operator and TOKEN_TYPE_MASK
-        val markerValue = if (markerType == TYPE_MARK) {
-            readUInt16(program.codeSegment.bytes, command.codeOffset + command.encodedSizeBytes + 2)
-        } else {
-            throw IOException("An HSP variable assignment is missing its operator token.")
+        val firstGroup = argumentGroups.firstOrNull().orEmpty()
+        val operatorToken = firstGroup.firstOrNull()
+            ?: throw IOException("An HSP variable assignment is missing its operator token.")
+        if (operatorToken.type != TYPE_MARK) {
+            throw IOException("An HSP variable assignment is missing its TYPE_MARK operator.")
         }
-        val operandStartOffset = command.codeOffset + command.encodedSizeBytes + 4
-        val expression = args.firstOrNull()
-            ?: constantExpression(Hsp3RuntimeValue.IntegerValue(1))
-        if (markerValue !in CALCCODE_ADD..CALCCODE_LR) {
-            throw IOException("Unsupported HSP assignment operator $markerValue.")
+        val operator = operatorToken.value.toInt()
+        if (operator !in CALCCODE_ADD..CALCCODE_LR) {
+            throw IOException("Unsupported HSP assignment operator $operator.")
+        }
+        val expressionTokens = firstGroup.drop(1)
+        val expression = if (expressionTokens.isEmpty()) {
+            constantExpression(Hsp3RuntimeValue.IntegerValue(1))
+        } else {
+            decodeExpression(expressionTokens, program)
+                ?: constantExpression(Hsp3RuntimeValue.IntegerValue(1))
+        }
+        if (argumentGroups.size > 1) {
+            throw IOException("An HSP assignment contains an unexpected extra argument.")
         }
         return PendingInstruction(command.codeOffset) { _, _ ->
-            Hsp3Instruction.Assign(variable, markerValue, expression)
-        }.also {
-            if (operandStartOffset > program.codeSegment.sizeBytes) {
-                throw IOException("The HSP assignment expression starts outside CS.")
-            }
+            Hsp3Instruction.Assign(variable, operator, expression)
         }
     }
 
@@ -312,15 +315,13 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
     private fun resolveTarget(
         targetCodeOffset: Int,
         addressMap: Map<Int, Int>,
-        instructionCount: Int
+        instructionCount: Int,
+        codeSizeBytes: Int
     ): Int {
-        if (targetCodeOffset == codeEndOffset(addressMap, instructionCount)) return instructionCount
+        if (targetCodeOffset == codeSizeBytes) return instructionCount
         return addressMap[targetCodeOffset]
             ?: throw IOException("HSP branch target 0x${targetCodeOffset.toString(16)} is not a command boundary.")
     }
-
-    private fun codeEndOffset(addressMap: Map<Int, Int>, instructionCount: Int): Int =
-        addressMap.keys.maxOrNull()?.plus(1) ?: instructionCount
 
     private fun checkedIndex(value: Long, maxExclusive: Long, label: String): Int {
         if (value < 0L || value >= maxExclusive || value > Int.MAX_VALUE.toLong()) {
