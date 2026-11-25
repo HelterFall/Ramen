@@ -23,13 +23,13 @@ class Hsp3RuntimeAdapterTest {
     }
 
     @Test
-    fun detectorReportsParsedHspWithoutAdvertisingLaunch() {
-        withExecutable(createExecutableFixture()) { executable ->
+    fun detectorReportsDecodedHspWithLaunchStatus() {
+        withExecutable(createExecutableFixture(validCommand = true)) { executable ->
             val detection = VisualNovelDetector().detect(executable.parentFile!!)
 
             assertEquals(Hsp3RuntimeAdapter.ENGINE_ID, detection.engineId)
             assertEquals("PARSER_AVAILABLE", detection.compatibilityStatus)
-            assertTrue(detection.evidence.contains("command-argument decoder"))
+            assertTrue(detection.evidence.contains("commands decoded"))
         }
     }
 
@@ -53,8 +53,11 @@ class Hsp3RuntimeAdapterTest {
         }
     }
 
-    private fun createExecutableFixture(includeScript: Boolean = true): ByteArray {
-        val script = createAxFixture()
+    private fun createExecutableFixture(
+        includeScript: Boolean = true,
+        validCommand: Boolean = false
+    ): ByteArray {
+        val script = createAxFixture(validCommand)
         val payload = if (includeScript) encrypt(script, SAMPLE_KEY) else byteArrayOf()
         val overlayOffset = 0x400
         val dataOffset = 0x80
@@ -95,7 +98,7 @@ class Hsp3RuntimeAdapterTest {
         return bytes
     }
 
-    private fun createAxFixture(): ByteArray {
+    private fun createAxFixture(validCommand: Boolean): ByteArray {
         val bytes = ByteArray(0x64)
         "HSP3".toByteArray(Charsets.US_ASCII).copyInto(bytes)
         putUInt32(bytes, 4, 0x301L)
@@ -103,8 +106,14 @@ class Hsp3RuntimeAdapterTest {
         putUInt32(bytes, 12, bytes.size.toLong())
         putUInt32(bytes, 16, 0x60L)
         putUInt32(bytes, 20, 4L)
-        putUInt16(bytes, 0x60, 4)
-        putUInt16(bytes, 0x62, 42)
+        if (validCommand) {
+            // OpenHSP TYPE_PROGCMD=end command head (EXFLG_1 | TYPE_PROGCMD).
+            putUInt16(bytes, 0x60, 0x200F)
+            putUInt16(bytes, 0x62, 0x10)
+        } else {
+            putUInt16(bytes, 0x60, 4)
+            putUInt16(bytes, 0x62, 42)
+        }
         return bytes
     }
 
