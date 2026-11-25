@@ -527,12 +527,12 @@ A separate work branch, `feat/hsp3-dpmx-runtime`, was created from the verified 
 Implementation notes and boundaries are recorded in [docs/HSP3_DPMX_STATUS.md](docs/HSP3_DPMX_STATUS.md). The branch adds:
 - a streaming PE32/DPMX overlay parser and DPMX key/decryption layer under `inspection/`;
 - an HSPHED + CS/DS/OT/DI loader with OpenHSP token flags, conditional-command branch words and word-based OT offsets;
-- a CS decoder for command heads, argument boundaries, postfix scalar expressions, core control flow and a limited graphics/input command profile;
-- a typed bounded VM with scalar int/double/string values, expression evaluation, assignments, branches, loops, wait yields, `stick` and `getkey`;
+- a CS decoder for command heads, argument boundaries, nested postfix expressions, common TYPE_INTFUNC calls, scalar/array references, core control flow and a limited graphics/input command profile;
+- a typed bounded VM with int/double/string scalars, bounded sparse arrays, `dim`/indexed reads and writes, expression evaluation, assignments, branches, loops, wait yields, `stick` and `getkey`;
 - an Android `Hsp3PlayerActivity` with an 800x600 Canvas viewport, bounded host loop and touchscreen D-pad / Enter-Z / Esc-X / Space controls;
 - DPMX/HSP3 validation in `VisualNovelDetector`, a DPMX entry in `ContainerFormatRegistry`, and a user-visible HSP3 Launch route;
 - generated binary unit-test fixtures only; no Demonophobia executable or commercial assets are stored in Git.
 
-**Readiness boundary:** the native launch path is connected, but this is a partial HSP3.1 runtime, not proven full Demonophobia compatibility. The exact PE `.data` key schedule still requires independent validation; array/function/module/DLL expression forms and many platform/graphics commands remain unsupported; there is no real-game end-to-end Android test yet. The library exposes Launch only after HSP3 command decoding succeeds, but unsupported commands can still stop execution at runtime.
+**Readiness boundary:** the native launch path is connected, but this is a partial HSP3.1 runtime, not proven full Demonophobia compatibility. The exact PE `.data` key schedule still requires independent validation; array object/misc-type semantics, some built-in function IDs, module/DLL expression forms and many platform/graphics commands remain unsupported; there is no real-game end-to-end Android test yet. The library exposes Launch only after HSP3 command decoding succeeds, but unsupported commands can still stop execution at runtime.
 
 CI build/unit-test/lint success proves source/build correctness only. It is not a physical-device test or a guarantee that the target game's full script will play.
