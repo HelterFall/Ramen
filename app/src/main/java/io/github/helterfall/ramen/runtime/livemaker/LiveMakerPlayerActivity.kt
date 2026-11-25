@@ -331,7 +331,18 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                         .asSequence()
                         .filter { snapshot ->
                             val component = LiveMakerSceneComponent.from(snapshot)
-                            component.visible && component.clickable &&
+                            val hasMessageCallback =
+                                snapshot.properties[LiveMakerObjectStore.PR_ONPLAYEND]
+                                    ?.toString()?.isNotBlank() == true ||
+                                snapshot.properties[LiveMakerObjectStore.PR_ONNOTIFY]
+                                    ?.toString()?.isNotBlank() == true
+                            // LiveNovel's MesNew wait object is deliberately invisible
+                            // (PR_VISIBLE=0) but owns a full-stage OnPlayEnd callback.
+                            // It must still receive a touch so the waiting page can finish.
+                            val hiddenMessageInput =
+                                snapshot.componentTypeId == LiveMakerSceneComponent.COMPONENT_MES_NEW &&
+                                    hasMessageCallback
+                            component.clickable && (component.visible || hiddenMessageInput) &&
                                 component.width > 0f && component.height > 0f &&
                                 x >= component.left && y >= component.top &&
                                 x <= component.left + component.width &&
@@ -343,9 +354,37 @@ class LiveMakerPlayerActivity : ComponentActivity() {
 
                     if (target != null) {
                         session.setObjectProperty(target.name, LiveMakerObjectStore.PR_SELECTED, true)
-                        session.triggerObjectEvent(target.name, LiveMakerObjectStore.PR_ONLBTNDOWN) ||
-                            session.triggerObjectEvent(target.name, LiveMakerObjectStore.PR_ONSELECT) ||
-                            session.triggerObjectEvent(target.name, LiveMakerObjectStore.PR_ONLBTNUP)
+                        val properties = target.properties
+                        val hasPlayEnd = properties[LiveMakerObjectStore.PR_ONPLAYEND]
+                            ?.toString()?.isNotBlank() == true
+                        val hasNotify = properties[LiveMakerObjectStore.PR_ONNOTIFY]
+                            ?.toString()?.isNotBlank() == true
+
+                        // A tap on LiveNovel's invisible MesNew wait surface is a
+                        // message-play-end event, not an ordinary button click. Invoke its
+                        // external OnPlayEnd script; if that script is unavailable, send the
+                        // documented MESEND notification handled by イベント.lsb.
+                        val messageCallbackStarted = if (hasPlayEnd) {
+                            session.invokeObjectCallback(
+                                target.name,
+                                LiveMakerObjectStore.PR_ONPLAYEND,
+                                senderName = target.name
+                            )
+                        } else {
+                            false
+                        }
+                        if (!messageCallbackStarted && hasNotify) {
+                            session.invokeObjectCallback(
+                                target.name,
+                                LiveMakerObjectStore.PR_ONNOTIFY,
+                                arguments = listOf("MESEND"),
+                                senderName = target.name
+                            )
+                        } else if (!messageCallbackStarted && !hasNotify) {
+                            session.triggerObjectEvent(target.name, LiveMakerObjectStore.PR_ONLBTNDOWN) ||
+                                session.triggerObjectEvent(target.name, LiveMakerObjectStore.PR_ONSELECT) ||
+                                session.triggerObjectEvent(target.name, LiveMakerObjectStore.PR_ONLBTNUP)
+                        }
                     }
 
                     // If we were parked at DoEvent/Running, resume the VM with the
