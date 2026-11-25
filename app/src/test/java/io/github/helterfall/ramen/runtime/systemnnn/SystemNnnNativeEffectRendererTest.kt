@@ -29,6 +29,37 @@ class SystemNnnNativeEffectRendererTest {
     }
 
     @Test
+    fun overrapTypeZeroIsTheExactNativeCrossDissolve() {
+        val start = IntArray(16) { 0xFF102030.toInt() }
+        val end = IntArray(16) { 0xFF304050.toInt() }
+        val actual = SystemNnnNativeEffectRenderer.renderOverrapFrame(
+            start, end, transitionType = 0, frame = 5, length = 10, width = 4, height = 4
+        )
+        val expected = SystemNnnNativeEffectRenderer.blendOverrap(start, end, 50, 50)
+        assertArrayEquals(expected, actual)
+    }
+
+    @Test
+    fun overrapWipeSelectorsRetainBothEndpointsAndProduceIntermediateFrames() {
+        val start = IntArray(64) { 0xFF000000.toInt() }
+        val end = IntArray(64) { 0xFFFFFFFF.toInt() }
+        for (type in listOf(1, 2, 3, 4, 5, 6, 7, 9, 22, 38, 39, 42, 60, 80, 84, 94)) {
+            val first = SystemNnnNativeEffectRenderer.renderOverrapFrame(
+                start, end, type, 0, 8, 8, 8
+            )
+            val middle = SystemNnnNativeEffectRenderer.renderOverrapFrame(
+                start, end, type, 4, 8, 8, 8
+            )
+            val last = SystemNnnNativeEffectRenderer.renderOverrapFrame(
+                start, end, type, 8, 8, 8, 8
+            )
+            assertArrayEquals("type=$type first frame", start, first)
+            assertArrayEquals("type=$type final frame", end, last)
+            assertNotNull("type=$type middle frame", middle)
+            assertEquals(start.size, middle!!.size)
+        }
+    }
+    @Test
     fun overrapWeightsCoverWholeTransitionWithoutGaps() {
         assertEquals(100 to 0, SystemNnnNativeEffectRenderer.overrapWeights(0, 90))
         assertEquals(50 to 50, SystemNnnNativeEffectRenderer.overrapWeights(45, 90))
