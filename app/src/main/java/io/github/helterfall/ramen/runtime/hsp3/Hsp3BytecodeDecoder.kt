@@ -218,13 +218,13 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             PROGCMD_WAIT -> {
                 val wait = args.firstOrNull()?.constantIntOrNull() ?: 100
                 PendingInstruction(pc) { _, _ ->
-                    Hsp3Instruction.Wait((wait.coerceAtLeast(0) * 10L).coerceAtMost(MAX_WAIT_MS))
+                    Hsp3Instruction.WaitFor((wait.coerceAtLeast(0) * 10L).coerceAtMost(MAX_WAIT_MS))
                 }
             }
             PROGCMD_AWAIT -> {
                 val wait = args.firstOrNull()?.constantIntOrNull() ?: 0
                 PendingInstruction(pc) { _, _ ->
-                    Hsp3Instruction.Wait(wait.coerceAtLeast(0).toLong().coerceAtMost(MAX_WAIT_MS))
+                    Hsp3Instruction.WaitFor(wait.coerceAtLeast(0).toLong().coerceAtMost(MAX_WAIT_MS))
                 }
             }
             PROGCMD_END, PROGCMD_STOP -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.End }
