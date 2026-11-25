@@ -228,6 +228,7 @@ class Hsp3CanvasRenderer(
         }
     }
 
+    @Synchronized
     override fun celdiv(id: Int, cellWidth: Int, cellHeight: Int, baseX: Int, baseY: Int) {
         checkOpen()
         if (!surfaces.containsKey(id)) throw IOException("HSP celdiv source surface " + id + " does not exist.")

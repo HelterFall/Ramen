@@ -208,7 +208,7 @@ class VisualNovelDetector {
     )
 
     companion object {
-        private const val MAX_SCAN_DEPTH = 4
+        private const val MAX_SCAN_DEPTH = 12
         private const val MAX_SCANNED_FILES = 10_000
         private const val MAX_DIAGNOSTIC_LENGTH = 240
         private const val NSIS_ENGINE_ID = "nsis-installer"

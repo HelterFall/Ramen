@@ -124,6 +124,26 @@ class VisualNovelDetectorTest {
     }
 
     @Test
+    fun detectsDeeplyNestedDpmxExecutableWithinPlayerScanDepth() {
+        val root = Files.createTempDirectory("ramen-deep-dpmx-detect").toFile()
+        try {
+            val nested = File(root, "one/two/three/four/five")
+            assertTrue(nested.mkdirs())
+            File(nested, "Demonophobia.exe").writeBytes(
+                minimalPeWithOverlay("DPMX".toByteArray(Charsets.US_ASCII))
+            )
+
+            val result = VisualNovelDetector().detect(root)
+
+            assertEquals("hsp3-dpmx", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+            org.junit.Assert.assertTrue(result.evidence.contains("DPMX overlay signature"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun reportsNullsoftInstallerMarkerWhenNoGameEngineCanBeLoaded() {
         val root = Files.createTempDirectory("ramen-nsis-diagnostic").toFile()
         try {
