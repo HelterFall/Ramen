@@ -120,7 +120,7 @@ class Hsp3RuntimeAdapter(
     @Throws(IOException::class)
     fun createSession(
         executable: File,
-        instructionDecoder: Hsp3InstructionDecoder,
+        instructionDecoder: Hsp3InstructionDecoder = Hsp3BytecodeDecoder(),
         input: Hsp3InputProvider = Hsp3InputProvider { 0 }
     ): Hsp3RuntimeSession {
         val prepared = prepare(executable)
