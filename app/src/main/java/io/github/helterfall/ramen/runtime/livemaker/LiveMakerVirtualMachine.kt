@@ -57,6 +57,18 @@ sealed interface LiveMakerVmEvent {
         val commandIndex: Int
     ) : LiveMakerVmEvent
 
+    data class PropertyMotion(
+        val name: String,
+        val objectName: String,
+        val propertyId: Int,
+        val startValue: Any?,
+        val targetValue: Any?,
+        val durationMillis: Long,
+        val moveType: String,
+        val paused: Boolean?,
+        val commandIndex: Int
+    ) : LiveMakerVmEvent
+
     data class ScriptTransfer(
         val page: String,
         val labelIndex: Long,
@@ -353,9 +365,8 @@ class LiveMakerVirtualMachine(
                         return LiveMakerVmEvent.ProcessEvents(command.index)
                     }
                     57 -> {
-                        // PropMotion animates a property over time in the desktop player.
-                        // Apply the final value immediately; the scene renderer observes
-                        // the shared object store after the next VM event.
+                        val motionName = command.expressions.getOrNull(0)
+                            ?.let { evaluate(it) }?.toString().orEmpty()
                         val objectName = command.expressions.getOrNull(1)
                             ?.let { evaluate(it) }?.toString().orEmpty()
                         val propertyId = command.expressions.getOrNull(2)
@@ -364,10 +375,42 @@ class LiveMakerVirtualMachine(
                         val value = command.expressions.getOrNull(3)
                             ?.let { evaluate(it) }
                             ?: return unsupported(command, "PropMotion is missing its target value.")
+                        val duration = command.expressions.getOrNull(4)
+                            ?.let { number(evaluate(it))?.toLong() }
+                            ?.coerceAtLeast(0L) ?: 0L
+                        val moveType = command.expressions.getOrNull(5)
+                            ?.let { evaluate(it)?.toString()?.uppercase() } ?: "N"
+                        val paused = if (script.version > 107) {
+                            command.expressions.getOrNull(6)?.let { truthy(evaluate(it)) }
+                        } else {
+                            null
+                        }
+                        val startValue = if (objectName.isNotBlank()) {
+                            objectStore.getProperty(objectName, propertyId)
+                        } else {
+                            null
+                        }
                         if (objectName.isNotBlank()) objectStore.setProperty(objectName, propertyId, value)
-                        // Evaluate remaining timing/type parameters to preserve script side effects.
-                        command.expressions.drop(4).forEach { evaluate(it) }
                         programCounter += 1
+
+                        // Alpha is the property used for LiveNovel fade motions. Surface
+                        // it to the Android renderer so the change is interpolated instead
+                        // of snapping to its final value as other numeric properties do.
+                        if (propertyId == LiveMakerObjectStore.PR_ALPHA &&
+                            objectName.isNotBlank() && duration > 0L
+                        ) {
+                            return LiveMakerVmEvent.PropertyMotion(
+                                name = motionName,
+                                objectName = objectName,
+                                propertyId = propertyId,
+                                startValue = startValue,
+                                targetValue = value,
+                                durationMillis = duration,
+                                moveType = moveType,
+                                paused = paused,
+                                commandIndex = command.index
+                            )
+                        }
                     }
                     59, 60 -> {
                         val componentParameterCount = command.componentPropertyIds.size
