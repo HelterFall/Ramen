@@ -369,12 +369,16 @@ internal object SystemNnnVisualEffectMath {
      */
     fun hasNativeLayerEffectPath(effectId: Int, parameters: List<Int>): Boolean =
         when (effectId) {
-            0, 1, 2, 8, 9, 10, 11, 17, 18, 20, 22, 27, 29, 31, 39, 40, 43,
-            50, 52, 54, 55, 56, 62, 63, 64, 65, 66, 69, 71, 73, 74, 82, 99,
-            100, 102, 119, 132 -> true
             82 -> (parameters.getOrNull(0) ?: 9_999) == 0 &&
                 (parameters.getOrNull(8) ?: 0) == 0
-            100 -> (parameters.getOrNull(5) ?: 0) == 0
+            100 -> parameters.size >= 6 && (parameters[5] == 0)
+            27 -> parameters.size >= 12
+            29 -> parameters.size >= 9
+            56 -> parameters.size >= 8
+            63 -> parameters.size >= 15
+            102 -> parameters.size >= 9
+            0, 1, 2, 8, 9, 10, 11, 17, 18, 20, 22, 31, 39, 40, 43,
+            50, 52, 54, 55, 62, 64, 65, 66, 69, 71, 73, 74, 99, 119, 132 -> true
             else -> false
         }
 
