@@ -79,6 +79,30 @@ class Hsp3VirtualMachineTest {
     }
 
     @Test
+    fun getkeyMapsTouchGamepadAliasesToOpenHspKeyCodes() {
+        val mask = (1 shl 5) or (1 shl 11) or (1 shl 7) // Enter, Z and Escape
+        val vm = Hsp3VirtualMachine(
+            RecordingGraphics(),
+            Hsp3InputProvider { mask }
+        )
+        fun key(code: Int) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.IntegerValue(code))
+        )
+        val snapshot = vm.runSlice(
+            listOf(
+                Hsp3Instruction.GetKey(0, key(13)),
+                Hsp3Instruction.GetKey(1, key(90)),
+                Hsp3Instruction.GetKey(2, key(27)),
+                Hsp3Instruction.End
+            )
+        )
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(1, snapshot.variables[0])
+        assertEquals(1, snapshot.variables[1])
+        assertEquals(1, snapshot.variables[2])
+    }
+
+    @Test
     fun rejectsUnsupportedHspCommandWithoutCrashingHost() {
         val vm = Hsp3VirtualMachine(RecordingGraphics())
         val snapshot = vm.runSlice(listOf(Hsp3Instruction.Unsupported(9, 0x77)))
