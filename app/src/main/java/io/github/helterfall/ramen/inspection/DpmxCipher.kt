@@ -231,7 +231,7 @@ class DpmxKeyResolver(
 
     companion object {
         const val GAME_KEY_CONSTANTS_VA = 0x00429E40L
-        const val GAME_KEY_CONSTANTS_LENGTH = 0x1CL
+        const val GAME_KEY_CONSTANTS_LENGTH = 0x1C
         private const val HSP3_VERSION_31 = 0x00000301L
         private const val AX_PREFIX_LENGTH = 8
         private const val BMP_PREFIX_LENGTH = 64
