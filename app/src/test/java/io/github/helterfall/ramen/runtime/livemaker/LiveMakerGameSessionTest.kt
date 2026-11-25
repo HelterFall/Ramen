@@ -15,6 +15,81 @@ import org.junit.Test
 
 class LiveMakerGameSessionTest {
     @Test
+    fun invokesExternalMesNewCallbackWithParamStrAndSenderContext() {
+        val callbackBytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.command(
+                    type = 14,
+                    body = LiveMakerLsbFixture.expression(
+                        LiveMakerLsbFixture.operation(
+                            type = 10,
+                            name = "____event",
+                            operands = listOf(
+                                LiveMakerLsbFixture.paramVar("@ParamStr"),
+                                LiveMakerLsbFixture.paramInt(0)
+                            )
+                        ),
+                        LiveMakerLsbFixture.operation(
+                            type = 1,
+                            name = "receivedEvent",
+                            operands = listOf(LiveMakerLsbFixture.paramVar("____event"))
+                        )
+                    )
+                ),
+                LiveMakerLsbFixture.command(
+                    type = 14,
+                    body = LiveMakerLsbFixture.expression(
+                        LiveMakerLsbFixture.operation(
+                            type = 1,
+                            name = "receivedSender",
+                            operands = listOf(LiveMakerLsbFixture.paramVar("@Sender"))
+                        )
+                    )
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+        val mainBytes = LiveMakerLsbFixture.build(
+            commands = listOf(LiveMakerLsbFixture.exitWhenTrue())
+        )
+        val repository = object : LiveMakerScriptRepository {
+            override fun loadPage(pageReference: String): io.github.helterfall.ramen.inspection.LiveMakerLsb {
+                assertEquals("callbacks/event.lsc", pageReference)
+                return parse(callbackBytes)
+            }
+        }
+        val objects = LiveMakerObjectStore().apply {
+            create(
+                name = "message-box",
+                componentTypeId = LiveMakerSceneComponent.COMPONENT_MES_NEW,
+                initialProperties = mapOf(
+                    LiveMakerObjectStore.PR_ONNOTIFY to "callbacks/event.lsc"
+                )
+            )
+        }
+        val session = LiveMakerGameSession(
+            initialScript = parse(mainBytes),
+            initialPageReference = "main.lsb",
+            pageRepository = repository,
+            objectStore = objects
+        )
+
+        assertTrue(
+            session.invokeObjectCallback(
+                name = "message-box",
+                propertyId = LiveMakerObjectStore.PR_ONNOTIFY,
+                arguments = listOf("MESEND"),
+                senderName = "message-box"
+            )
+        )
+        val finished = session.runUntilEvent() as LiveMakerSessionEvent.EngineEvent
+
+        assertTrue(finished.event is LiveMakerVmEvent.Completed)
+        assertEquals("MESEND", session.variablesSnapshot()["receivedEvent"])
+        assertEquals("message-box", session.variablesSnapshot()["receivedSender"])
+    }
+
+    @Test
     fun resolvesCallPageByCommandIndexRatherThanDebugLineNo() {
         val root = Files.createTempDirectory("ramen-livemaker-session").toFile()
         try {
