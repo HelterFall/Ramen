@@ -169,7 +169,6 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             }
             TYPE_PROGCMD -> decodeProgramCommand(program, command, args)
             TYPE_CMPCMD -> decodeConditionalCommand(program, command, args)
-            TYPE_VAR -> decodeAssignment(program, command, args)
             else -> PendingInstruction(pc) { _, _ ->
                 Hsp3Instruction.Unsupported(command.type, commandId)
             }
@@ -187,7 +186,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             PROGCMD_GOTO, PROGCMD_GOSUB -> {
                 val target = requiredLabelOffset(program, args.firstOrNull(), "goto/gosub")
                 PendingInstruction(pc) { addressMap, count ->
-                    val index = resolveTarget(target, addressMap, count)
+                    val index = resolveTarget(target, addressMap, count, program.codeSegment.sizeBytes.toInt())
                     if (id == PROGCMD_GOTO) Hsp3Instruction.Jump(index)
                     else Hsp3Instruction.Gosub(index)
                 }
