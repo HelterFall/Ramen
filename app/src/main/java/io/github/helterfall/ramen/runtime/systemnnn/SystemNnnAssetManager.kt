@@ -7,6 +7,7 @@ import io.github.helterfall.ramen.runtime.nativeaudio.AndroidGpkImageDecoder
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import java.util.Locale
 
 enum class SystemNnnAssetBankType {
     INDEXED_IMAGE,
