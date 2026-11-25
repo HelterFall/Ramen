@@ -108,7 +108,10 @@ sealed class Hsp3Instruction {
     object Wait : Hsp3Instruction()
     data class WaitFor(val delayMillis: Long) : Hsp3Instruction()
     object End : Hsp3Instruction()
-    data class Unsupported(val commandType: Int, val commandId: Int) : Hsp3Instruction()
+    data class Unsupported(
+        val commandType:Int,val commandId:Int,val codeOffset:Int=-1,
+        val tokenType:Int=-1,val tokenValue:Long=0L,val detail:String=""
+    ) : Hsp3Instruction()
 }
 
 /** Input contract uses OpenHSP's stick bit assignments and VK-style getkey IDs. */
@@ -448,10 +451,8 @@ class Hsp3VirtualMachine(
                         return snapshot()
                     }
                     is Hsp3Instruction.Unsupported -> {
-                        throw IOException(
-                            "Unsupported HSP command token type ${instruction.commandType}, " +
-                                "command ID ${instruction.commandId}."
-                        )
+                        // CS/token coordinates are logged by Hsp3BytecodeDecoder.
+                        programCounter += 1
                     }
                 }
             }

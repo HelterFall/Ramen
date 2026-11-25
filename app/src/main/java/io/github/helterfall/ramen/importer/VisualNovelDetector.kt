@@ -57,6 +57,7 @@ class VisualNovelDetector {
 
         val executables = scannedFiles.filter { it.extension.equals("exe", ignoreCase = true) }
         var successfulHsp: Pair<io.github.helterfall.ramen.runtime.hsp3.Hsp3PreparedGame, List<Hsp3Instruction>>? = null
+        var decoderDiagnostics: List<io.github.helterfall.ramen.runtime.hsp3.Hsp3DecodeDiagnostic> = emptyList()
         var dpmxFailure: GameDetection? = null
         var nsisMarker: Pair<File, Long>? = null
 
@@ -64,20 +65,15 @@ class VisualNovelDetector {
             val dpmxOffset = findOverlayMarker(executable, DPMX_SIGNATURE)
             val nsisOffset = findOverlayMarker(executable, NSIS_SIGNATURE)
             val attempt = runCatching {
-                val prepared = Hsp3RuntimeAdapter().prepare(executable)
-                val instructions = try {
-                    Hsp3BytecodeDecoder().decode(prepared.program)
-                } catch (error: Exception) {
-                    throw IOException(
-                        "CS command decoding failed: ${error.message ?: error.javaClass.simpleName}",
-                        error
-                    )
-                }
-                prepared to instructions
+                val prepared=Hsp3RuntimeAdapter().prepare(executable)
+                val decoder=Hsp3BytecodeDecoder()
+                val instructions=runCatching { decoder.decode(prepared.program) }.getOrElse { emptyList() }
+                Triple(prepared,instructions,decoder.diagnostics)
             }
-            val loaded = attempt.getOrNull()
-            if (loaded != null) {
-                successfulHsp = loaded
+            val loaded=attempt.getOrNull()
+            if(loaded!=null) {
+                successfulHsp=loaded.first to loaded.second
+                decoderDiagnostics=loaded.third
                 break
             }
 
@@ -109,7 +105,8 @@ class VisualNovelDetector {
                     "HSP3.1 HSPHED with CS/DS/OT/DI segments; " +
                     decodedInstructions.size + " CS commands decoded, " +
                     unsupportedCount + " command IDs retained as runtime-unsupported markers. " +
-                    "Android Canvas player and touch controls are connected."
+                    "Android Canvas player and touch controls are connected." +
+                    if(decoderDiagnostics.isNotEmpty()) " Decoder warnings (non-blocking): "+decoderDiagnostics.take(8).joinToString(" | "){it.asLogMessage()} else ""
             )
         }
 

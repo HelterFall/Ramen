@@ -7,6 +7,7 @@ junit = "4.13.2"
 documentFile = "1.1.0"
 webkit = "1.18.0"
 lifecycle = "2.11.0"
+xz = "1.12"
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -24,3 +25,4 @@ androidx-lifecycle-viewmodel = { module = "androidx.lifecycle:lifecycle-viewmode
 junit = { module = "junit:junit", version.ref = "junit" }
 androidx-documentfile = { module = "androidx.documentfile:documentfile", version.ref = "documentFile" }
 androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "webkit" }
+xz = { module = "org.tukaani:xz", version.ref = "xz" }

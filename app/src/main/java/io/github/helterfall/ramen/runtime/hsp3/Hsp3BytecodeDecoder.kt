@@ -5,6 +5,16 @@ import io.github.helterfall.ramen.parser.Hsp3Token
 import java.io.IOException
 import java.util.ArrayDeque
 
+data class Hsp3DecodeDiagnostic(
+    val codeOffset:Int,val tokenType:Int?,val tokenValue:Long?,val extensionFlags:Int,val message:String
+) {
+    fun asLogMessage():String =
+        "cs_offset=0x${codeOffset.toString(16)} token_type=${tokenType ?: "?"}" +
+        " token_value=${tokenValue?.let { "0x${it.toString(16)}" } ?: "?"}" +
+        " exflag=0x${extensionFlags.toString(16)}: $message"
+}
+private class Hsp3DecodeException(val token:Hsp3Token?,message:String,cause:Throwable?=null):IOException(message,cause)
+
 /**
  * OpenHSP CS expression reader and command-argument decoder.
  *
@@ -14,172 +24,164 @@ import java.util.ArrayDeque
  * Expression operators are postfix and use CALCCODE_* values 0..15.
  */
 class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
+    private val diagnosticBuffer=ArrayList<Hsp3DecodeDiagnostic>()
+    val diagnostics:List<Hsp3DecodeDiagnostic> get()=diagnosticBuffer.toList()
+
     private data class PendingInstruction(
         val codeOffset: Int,
         val create: (Map<Int, Int>, Int) -> Hsp3Instruction
     )
 
-    override fun decode(program: Hsp3Program): List<Hsp3Instruction> {
-        val tokens = program.tokens().toList()
-        if (tokens.isEmpty()) throw IOException("The HSP3 Code Segment is empty.")
-
-        val commandIndexes = tokens.indices.filter { index ->
-            val token = tokens[index]
-            token.extensionFlags and EXFLG_1 != 0 && token.type in COMMAND_TYPES
+    override fun decode(program:Hsp3Program):List<Hsp3Instruction> {
+        diagnosticBuffer.clear()
+        val tokens=try { program.tokens().toList() } catch(e:Exception) {
+            val msg="CS token scan failed: ${e.message ?: e.javaClass.simpleName}"
+            diagnosticBuffer+=Hsp3DecodeDiagnostic(0,null,null,0,msg)
+            return listOf(Hsp3Instruction.Unsupported(TYPE_PROGCMD,0,0,-1,0L,msg))
         }
-        if (commandIndexes.isEmpty()) {
-            throw IOException("No HSP3 command heads were found in the Code Segment.")
+        if(tokens.isEmpty()) {
+            val msg="The HSP3 Code Segment is empty."
+            diagnosticBuffer+=Hsp3DecodeDiagnostic(0,null,null,0,msg)
+            return listOf(Hsp3Instruction.Unsupported(TYPE_PROGCMD,0,-1,-1,0L,msg))
         }
-
-        val pending = ArrayList<PendingInstruction>(commandIndexes.size)
-        commandIndexes.forEachIndexed { commandOrdinal, tokenIndex ->
-            val command = tokens[tokenIndex]
-            val nextTokenIndex = commandIndexes.getOrNull(commandOrdinal + 1) ?: tokens.size
-            val rawArguments = readArgumentGroups(tokens, tokenIndex + 1, nextTokenIndex)
-            pending += if (command.type == TYPE_VAR) {
-                decodeAssignment(program, command, rawArguments)
-            } else {
-                decodeCommand(program, command, rawArguments.map { decodeExpression(it, program) })
+        val heads=tokens.indices.filter { i ->
+            val t=tokens[i]
+            t.extensionFlags and EXFLG_1!=0 && t.type in COMMAND_TYPES
+        }
+        if(heads.isEmpty()) {
+            val t=tokens.first()
+            val msg="No HSP3 command heads were found in the Code Segment."
+            diagnosticBuffer+=Hsp3DecodeDiagnostic(t.codeOffset,t.type,t.value,t.extensionFlags,msg)
+            return listOf(Hsp3Instruction.Unsupported(t.type,t.value.toInt(),t.codeOffset,t.type,t.value,msg))
+        }
+        val pending=ArrayList<PendingInstruction>(heads.size)
+        heads.forEachIndexed { ordinal,index ->
+            val command=tokens[index]
+            val end=heads.getOrNull(ordinal+1) ?: tokens.size
+            try {
+                val groups=readArgumentGroups(tokens,index+1,end)
+                val decoded=if(command.type==TYPE_VAR) decodeAssignment(program,command,groups)
+                    else decodeCommand(program,command,groups.map { decodeExpression(it,program) })
+                pending+=decoded
+                if(isUnsupportedCommand(command)) diagnosticBuffer+=Hsp3DecodeDiagnostic(
+                    command.codeOffset,command.type,command.value,command.extensionFlags,
+                    "Command is unsupported by this Android VM profile and will be skipped."
+                )
+            } catch(e:Exception) {
+                val t=(e as? Hsp3DecodeException)?.token ?: command
+                val msg=e.message ?: e.javaClass.simpleName
+                diagnosticBuffer+=Hsp3DecodeDiagnostic(t.codeOffset,t.type,t.value,t.extensionFlags,msg)
+                pending+=PendingInstruction(command.codeOffset) { _,_ ->
+                    Hsp3Instruction.Unsupported(command.type,command.value.toInt(),t.codeOffset,t.type,t.value,msg)
+                }
             }
         }
-
-        val codeToInstruction = pending.mapIndexed { index, item ->
-            item.codeOffset to index
-        }.toMap()
-        val instructionCount = pending.size
-        return pending.map { item ->
-            item.create(codeToInstruction, instructionCount)
-        }
+        val map=pending.mapIndexed { i,item -> item.codeOffset to i }.toMap()
+        return pending.map { it.create(map,pending.size) }
     }
 
-    private fun readArgumentGroups(
-        tokens: List<Hsp3Token>,
-        startIndex: Int,
-        endIndex: Int
-    ): List<List<Hsp3Token>> {
-        if (startIndex >= endIndex) return emptyList()
-        val groups = ArrayList<MutableList<Hsp3Token>>()
-        var current = mutableListOf<Hsp3Token>()
-        var parenthesisDepth = 0
-        for (index in startIndex until endIndex) {
-            val token = tokens[index]
-            val isOpen = token.type == TYPE_MARK && token.value == '('.code.toLong()
-            val isClose = token.type == TYPE_MARK && token.value == ')'.code.toLong()
-            if (token.extensionFlags and EXFLG_2 != 0 && parenthesisDepth == 0) {
-                // EXFLG_2 starts a subsequent parameter at this level only.
-                // Preserve empty groups: OpenHSP omits a leading/default
-                // argument without emitting a '?' marker for the first slot.
-                groups += current
-                current = mutableListOf()
+    private fun isUnsupportedCommand(t:Hsp3Token):Boolean = when(t.type) {
+        TYPE_EXTCMD -> t.value.toInt() !in SUPPORTED_EXT_COMMANDS
+        TYPE_INTCMD -> t.value.toInt() !in setOf(INTCMD_BLOAD,INTCMD_BSAVE,INTCMD_GETKEY)
+        TYPE_PROGCMD -> t.value.toInt() !in setOf(
+            PROGCMD_GOTO,PROGCMD_GOSUB,PROGCMD_RETURN,PROGCMD_BREAK,PROGCMD_REPEAT,
+            PROGCMD_LOOP,PROGCMD_CONTINUE,PROGCMD_DIM,PROGCMD_SDIM,PROGCMD_WAIT,
+            PROGCMD_AWAIT,PROGCMD_END,PROGCMD_STOP
+        )
+        else -> t.type!=TYPE_VAR && t.type!=TYPE_CMPCMD
+    }
+
+    private fun readArgumentGroups(tokens:List<Hsp3Token>,startIndex:Int,endIndex:Int):List<List<Hsp3Token>> {
+        if(startIndex>=endIndex) return emptyList()
+        val groups=ArrayList<List<Hsp3Token>>()
+        var current=ArrayList<Hsp3Token>()
+        var depth=0
+        var previousFast=false
+        fun finish() { if(current.isNotEmpty()) groups+=current.toList(); current=ArrayList() }
+        for(i in startIndex until endIndex) {
+            val t=tokens[i]
+            val open=t.type==TYPE_MARK && t.value=='('.code.toLong()
+            val close=t.type==TYPE_MARK && t.value==')'.code.toLong()
+            if(t.extensionFlags and EXFLG_2!=0 && depth==0) {
+                if(current.isNotEmpty()) finish()
+                else if(groups.isEmpty() || !previousFast) groups+=emptyList()
             }
-            current += token.copy(extensionFlags = token.extensionFlags and EXFLG_2.inv())
-            if (isOpen) parenthesisDepth += 1
-            if (isClose) {
-                if (parenthesisDepth == 0) {
-                    throw IOException("Unbalanced closing parenthesis in HSP parameter list.")
-                }
-                parenthesisDepth -= 1
+            if(t.extensionFlags and EXFLG_0!=0 && depth==0) {
+                finish()
+                groups+=listOf(t.copy(extensionFlags=t.extensionFlags and (EXFLG_0 or EXFLG_2).inv()))
+                previousFast=true
+                continue
+            }
+            current+=t.copy(extensionFlags=t.extensionFlags and EXFLG_2.inv())
+            previousFast=false
+            if(open) depth++
+            if(close) {
+                if(depth==0) throw Hsp3DecodeException(t,"Unbalanced closing parenthesis in HSP parameters.")
+                depth--
             }
         }
-        if (parenthesisDepth != 0) {
-            throw IOException("Unbalanced parentheses in HSP parameter list.")
-        }
-        if (current.isNotEmpty()) groups += current
+        if(depth!=0) throw Hsp3DecodeException(tokens.getOrNull(endIndex-1),"Unbalanced HSP parentheses.")
+        finish()
         return groups
     }
 
-    private fun decodeExpression(
-        tokens: List<Hsp3Token>,
-        program: Hsp3Program
-    ): Hsp3Expression? {
-        if (tokens.isEmpty()) return null
-        if (tokens.size == 1 && tokens[0].type == TYPE_MARK &&
-            tokens[0].value == OMITTED_ARGUMENT_MARK.toLong()
-        ) return null
-
-        val stack = ArrayDeque<Hsp3ExpressionNode>()
-        var cursor = 0
-        while (cursor < tokens.size) {
-            val token = tokens[cursor]
-            when (token.type) {
-                TYPE_MARK -> {
-                    val operator = token.value.toInt()
-                    if (operator == OMITTED_ARGUMENT_MARK) {
-                        throw IOException("An omitted HSP parameter was mixed into an expression.")
+    private fun decodeExpression(tokens:List<Hsp3Token>,program:Hsp3Program):Hsp3Expression? {
+        if(tokens.isEmpty()) return null
+        if(tokens.size==1 && tokens[0].type==TYPE_MARK &&
+            tokens[0].value==OMITTED_ARGUMENT_MARK.toLong()) return null
+        val stack=ArrayDeque<Hsp3ExpressionNode>()
+        var i=0
+        while(i<tokens.size) {
+            val t=tokens[i]
+            try {
+                when(t.type) {
+                    TYPE_MARK -> {
+                        val op=t.value.toInt()
+                        if(op==OMITTED_ARGUMENT_MARK) throw IOException("Omitted marker inside expression.")
+                        if(op !in CALCCODE_ADD..CALCCODE_LR) throw IOException("Unsupported expression marker $op.")
+                        if(stack.size<2) throw IOException("The HSP postfix expression has too few operands.")
+                        val right=stack.removeLast(); val left=stack.removeLast()
+                        stack.addLast(Hsp3ExpressionNode.Binary(op,left,right))
                     }
-                    if (operator !in CALCCODE_ADD..CALCCODE_LR) {
-                        throw IOException("Unsupported HSP expression marker $operator.")
+                    TYPE_VAR -> {
+                        val v=checkedIndex(t.value,program.header.maxValueCount,"variable")
+                        val next=tokens.getOrNull(i+1)
+                        if(next?.type==TYPE_MARK && next.value=='('.code.toLong()) {
+                            val (args,nextIndex)=readParenthesizedArguments(tokens,i+1,program)
+                            val indices=args.map { it ?: throw IOException("Omitted HSP array index.") }
+                            stack.addLast(Hsp3ExpressionNode.Variable(v,indices)); i=nextIndex-1
+                        } else stack.addLast(Hsp3ExpressionNode.Variable(v))
                     }
-                    if (stack.size < 2) {
-                        throw IOException("The HSP postfix expression has too few operands.")
+                    TYPE_STRING -> stack.addLast(Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.StringValue(program.stringAt(t.value))))
+                    TYPE_DNUM -> stack.addLast(Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.DoubleValue(program.doubleAt(t.value))))
+                    TYPE_INUM -> stack.addLast(Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.IntegerValue(t.value.toInt())))
+                    TYPE_LABEL,TYPE_XLABEL -> {
+                        val target=program.labelCodeOffset(checkedIndex(t.value,program.objectTempSegment.sizeBytes/4L,"label"))
+                        stack.addLast(Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.LabelValue(target.toInt())))
                     }
-                    val right = stack.removeLast()
-                    val left = stack.removeLast()
-                    stack.addLast(Hsp3ExpressionNode.Binary(operator, left, right))
-                }
-                TYPE_VAR -> {
-                    val variable = checkedIndex(token.value, program.header.maxValueCount, "variable")
-                    val next = tokens.getOrNull(cursor + 1)
-                    if (next?.type == TYPE_MARK && next.value == '('.code.toLong()) {
-                        val (argumentExpressions, nextCursor) = readParenthesizedArguments(
-                            tokens,
-                            cursor + 1,
-                            program
+                    TYPE_SYSVAR,TYPE_EXTSYSVAR -> stack.addLast(Hsp3ExpressionNode.SystemVariable(t.value.toInt()))
+                    TYPE_INTFUNC -> {
+                        val (args,nextIndex)=readParenthesizedArguments(tokens,i+1,program)
+                        stack.addLast(Hsp3ExpressionNode.Function(t.value.toInt(),args)); i=nextIndex-1
+                    }
+                    TYPE_STRUCT,TYPE_INTCMD,TYPE_EXTCMD,TYPE_CMPCMD,TYPE_MODCMD,
+                    TYPE_PROGCMD,TYPE_DLLFUNC,TYPE_DLLCTRL,TYPE_USERDEF -> {
+                        diagnosticBuffer+=Hsp3DecodeDiagnostic(
+                            t.codeOffset,t.type,t.value,t.extensionFlags,
+                            if(t.type==TYPE_STRUCT) "TYPE_STRUCT needs module metadata; retained as one opaque value."
+                            else "Token type ${t.type} has no runtime resolver; retained as one opaque value."
                         )
-                        val indices = argumentExpressions.map { expression ->
-                            expression ?: throw IOException("An HSP array index cannot be omitted.")
-                        }
-                        stack.addLast(Hsp3ExpressionNode.Variable(variable, indices))
-                        cursor = nextCursor - 1
-                    } else {
-                        stack.addLast(Hsp3ExpressionNode.Variable(variable))
+                        stack.addLast(Hsp3ExpressionNode.Opaque(t.type,t.value.toInt()))
                     }
+                    else -> throw IOException("Unsupported HSP expression token type ${t.type}.")
                 }
-                TYPE_STRING -> {
-                    stack.addLast(Hsp3ExpressionNode.Literal(
-                        Hsp3RuntimeValue.StringValue(program.stringAt(token.value))
-                    ))
-                }
-                TYPE_DNUM -> {
-                    stack.addLast(Hsp3ExpressionNode.Literal(
-                        Hsp3RuntimeValue.DoubleValue(program.doubleAt(token.value))
-                    ))
-                }
-                TYPE_INUM -> {
-                    stack.addLast(Hsp3ExpressionNode.Literal(
-                        Hsp3RuntimeValue.IntegerValue(token.value.toInt())
-                    ))
-                }
-                TYPE_LABEL -> {
-                    val target = program.labelCodeOffset(checkedIndex(
-                        token.value,
-                        program.objectTempSegment.sizeBytes / 4L,
-                        "label"
-                    ))
-                    stack.addLast(Hsp3ExpressionNode.Literal(
-                        Hsp3RuntimeValue.LabelValue(target.toInt())
-                    ))
-                }
-                TYPE_SYSVAR -> {
-                    stack.addLast(Hsp3ExpressionNode.SystemVariable(token.value.toInt()))
-                }
-                TYPE_INTFUNC -> {
-                    val (arguments, nextCursor) = readParenthesizedArguments(
-                        tokens,
-                        cursor + 1,
-                        program
-                    )
-                    stack.addLast(Hsp3ExpressionNode.Function(token.value.toInt(), arguments))
-                    cursor = nextCursor - 1
-                }
-                else -> throw IOException(
-                    "Unsupported HSP expression token type ${token.type} at CS+${token.codeOffset}."
-                )
-            }
-            cursor += 1
+            } catch(e:Hsp3DecodeException) { throw e }
+            catch(e:Exception) { throw Hsp3DecodeException(t,e.message ?: e.javaClass.simpleName,e) }
+            i++
         }
-        if (stack.size != 1) {
-            throw IOException("The HSP postfix expression leaves ${stack.size} values on its stack.")
+        if(stack.size!=1) {
+            val t=tokens.lastOrNull()
+            throw Hsp3DecodeException(t,"The HSP postfix expression leaves ${stack.size} values on its stack.")
         }
         return Hsp3Expression(stack.removeLast())
     }
@@ -480,12 +482,19 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         const val TYPE_STRING = 2
         const val TYPE_DNUM = 3
         const val TYPE_INUM = 4
+        const val TYPE_STRUCT = 5
+        const val TYPE_XLABEL = 6
         const val TYPE_LABEL = 7
         const val TYPE_INTCMD = 8
         const val TYPE_EXTCMD = 9
+        const val TYPE_EXTSYSVAR = 10
         const val TYPE_CMPCMD = 11
+        const val TYPE_MODCMD = 12
         const val TYPE_SYSVAR = 14
         const val TYPE_PROGCMD = 15
+        const val TYPE_DLLFUNC = 16
+        const val TYPE_DLLCTRL = 17
+        const val TYPE_USERDEF = 18
         const val TYPE_INTFUNC = 13
 
         const val EXFLG_0 = 0x1000
@@ -533,7 +542,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         private const val OMITTED_ARGUMENT_MARK = 63
         private const val MAX_WAIT_MS = 60_000L
         private val COMMAND_TYPES = setOf(
-            TYPE_VAR, TYPE_INTCMD, TYPE_EXTCMD, TYPE_CMPCMD, TYPE_PROGCMD
+            TYPE_VAR,TYPE_INTCMD,TYPE_EXTCMD,TYPE_CMPCMD,TYPE_MODCMD,TYPE_PROGCMD,TYPE_DLLFUNC,TYPE_DLLCTRL,TYPE_USERDEF
         )
         private val SUPPORTED_EXT_COMMANDS = setOf(
             Hsp3CommandIds.MES,
@@ -573,6 +582,7 @@ sealed class Hsp3ExpressionNode {
         val indices: List<Hsp3Expression> = emptyList()
     ) : Hsp3ExpressionNode()
     data class SystemVariable(val index: Int) : Hsp3ExpressionNode()
+    data class Opaque(val tokenType:Int,val tokenValue:Int) : Hsp3ExpressionNode()
     data class Function(val id: Int, val arguments: List<Hsp3Expression?>) : Hsp3ExpressionNode()
     data class Binary(
         val operator: Int,
@@ -658,6 +668,7 @@ class Hsp3Expression internal constructor(
             }
         }
         is Hsp3ExpressionNode.SystemVariable -> systemVariable(node.index)
+        is Hsp3ExpressionNode.Opaque -> Hsp3RuntimeValue.IntegerValue(0)
         is Hsp3ExpressionNode.Function -> function(
             node.id,
             node.arguments.map { argument ->

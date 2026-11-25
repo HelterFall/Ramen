@@ -3,6 +3,7 @@ package io.github.helterfall.ramen.runtime.hsp3
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -151,11 +152,12 @@ class Hsp3PlayerActivity : ComponentActivity() {
         var lastError: Exception? = null
         for (executable in executables) {
             try {
-                return Hsp3RuntimeAdapter().createSession(
-                    executable = executable,
-                    instructionDecoder = Hsp3BytecodeDecoder(),
-                    input = inputController
+                val decoder=Hsp3BytecodeDecoder()
+                val session=Hsp3RuntimeAdapter().createSession(
+                    executable=executable,instructionDecoder=decoder,input=inputController
                 )
+                decoder.diagnostics.forEach { Log.w("RamenHsp3Decoder",it.asLogMessage()) }
+                return session
             } catch (error: Exception) {
                 lastError = error
             }
