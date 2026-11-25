@@ -101,7 +101,7 @@ class SystemNnnNativeEffectRendererTest {
     fun screenEffectsReturnNullForUnknownIdsAndPreserveBufferSizeForKnownIds() {
         val source = IntArray(32) { 0xFF334455.toInt() }
         val parameters = listOf(20, 80, 90, 100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
-        for (id in listOf(20, 22, 31, 43, 50, 69, 71, 74)) {
+        for (id in listOf(20, 22, 29, 31, 43, 50, 69, 71, 74)) {
             val result = SystemNnnNativeEffectRenderer.renderScreenBufferEffect(
                 id, 5, parameters, source, 8, 4
             )
@@ -114,16 +114,20 @@ class SystemNnnNativeEffectRendererTest {
     }
 
     @Test
-    fun sunaDissolveAndNativeLayerPlacementHelpersAreBoundedAndDeterministic() {
+    fun sunaNoiseUsesTheConfiguredScreenRectangle() {
         val source = IntArray(64) { 0xFF123456.toInt() }
-        val first = SystemNnnNativeEffectRenderer.sunaDissolve(
-            source, 8, 8, 45, listOf(90, 1, 100, 20, 0, 0, 0, 800, 600)
+        val first = SystemNnnNativeEffectRenderer.sunaNoise(
+            source, 8, 8, 45, 90, listOf(90, 1, 20, 20, 0, 0, 0, 0, 8, 8)
         )
-        val repeated = SystemNnnNativeEffectRenderer.sunaDissolve(
-            source, 8, 8, 45, listOf(90, 1, 100, 20, 0, 0, 0, 800, 600)
+        val repeated = SystemNnnNativeEffectRenderer.sunaNoise(
+            source, 8, 8, 45, 90, listOf(90, 1, 20, 20, 0, 0, 0, 0, 8, 8)
         )
         assertArrayEquals(first, repeated)
         assertEquals(64, first.size)
+        val outside = SystemNnnNativeEffectRenderer.sunaNoise(
+            source, 8, 8, 45, 90, listOf(90, 1, 20, 20, 0, 0, 4, 4, 2, 2)
+        )
+        assertEquals(source[0], outside[0])
 
         val koma = SystemNnnNativeEffectRenderer.komaAnimeSourceRect(
             256, 128, 5, listOf(20, 64, 64, 2)
