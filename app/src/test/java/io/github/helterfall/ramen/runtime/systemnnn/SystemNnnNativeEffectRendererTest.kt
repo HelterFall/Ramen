@@ -51,6 +51,33 @@ class SystemNnnNativeEffectRendererTest {
     }
 
     @Test
+    fun gradationAppliesNativeVerticalAdditiveRgbRampInsideP15P16Region() {
+        val source = IntArray(8) { 0xFF000000.toInt() }
+        val parameters = listOf(10, 100, 50, 20, 200, 150, 100, 0, 0, 0, 0, 0, 10, 20, 30)
+        val result = SystemNnnNativeEffectRenderer.gradation(
+            source, width = 2, height = 4, frame = 10, duration = 10, parameters = parameters
+        )
+        assertEquals(0xFF643214.toInt(), result[0])
+        assertEquals(result[0], result[1])
+        assertEquals(0xFF7D4B28.toInt(), result[2])
+        assertEquals(result[2], result[3])
+        assertEquals(0xFF96643C.toInt(), result[4])
+        assertEquals(0xFFAF7D50.toInt(), result[6])
+    }
+
+    @Test
+    fun gradationRespectsNativeStartYAndPrintHeight() {
+        val source = IntArray(12) { 0xFF101010.toInt() }
+        val parameters = listOf(10, 100, 100, 100, 100, 100, 100, 0, 0, 50, 50, 50, 0, 0, 0, 1, 2)
+        val result = SystemNnnNativeEffectRenderer.gradation(
+            source, 3, 4, 10, 10, parameters
+        )
+        assertArrayEquals(source.sliceArray(0..2), result.sliceArray(0..2))
+        assertTrue(result[3] != source[3])
+        assertTrue(result[6] != source[6])
+        assertArrayEquals(source.sliceArray(9..11), result.sliceArray(9..11))
+    }
+    @Test
     fun kagerouUsesThreeIndependentNativeWavePhases() {
         val source = IntArray(8 * 8) { index ->
             val x = index % 8
