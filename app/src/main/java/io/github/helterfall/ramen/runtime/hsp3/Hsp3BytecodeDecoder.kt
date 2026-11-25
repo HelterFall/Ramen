@@ -62,7 +62,10 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         var current = mutableListOf<Hsp3Token>()
         for (index in startIndex until endIndex) {
             val token = tokens[index]
-            if (token.extensionFlags and EXFLG_2 != 0 && current.isNotEmpty()) {
+            if (token.extensionFlags and EXFLG_2 != 0) {
+                // EXFLG_2 starts a subsequent parameter. Preserve an empty
+                // group here too: OpenHSP omits a leading/default parameter
+                // without emitting a '?' marker for the first argument.
                 groups += current
                 current = mutableListOf()
             }
