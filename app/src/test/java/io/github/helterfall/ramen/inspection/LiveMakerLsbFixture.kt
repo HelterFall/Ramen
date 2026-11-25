@@ -144,6 +144,27 @@ internal object LiveMakerLsbFixture {
         }
     }.toByteArray())
 
+    fun propMotion(
+        version: Int,
+        name: String,
+        objectName: String,
+        propertyId: Int,
+        value: Int,
+        milliseconds: Int,
+        moveType: String,
+        paused: Boolean = false
+    ): ByteArray = command(57, ByteArrayOutputStream().also { output ->
+        output.write(expression(operation(0, "____arg", listOf(paramString(name)))))
+        output.write(expression(operation(0, "____arg", listOf(paramString(objectName)))))
+        output.write(expression(operation(0, "____arg", listOf(paramInt(propertyId)))))
+        output.write(expression(operation(0, "____arg", listOf(paramInt(value)))))
+        output.write(expression(operation(0, "____arg", listOf(paramInt(milliseconds)))))
+        output.write(expression(operation(0, "____arg", listOf(paramString(moveType)))))
+        if (version > 107) {
+            output.write(expression(operation(0, "____arg", listOf(paramFlag(paused)))))
+        }
+    }.toByteArray())
+
     fun emptyString(): ByteArray = byteArrayOf(0, 0, 0, 0)
 
     fun callPage(
