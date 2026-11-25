@@ -49,6 +49,12 @@ data class SystemNnnChoiceOption(
     val targetCommandOffset: Long
 )
 
+internal enum class SystemNnnScreenCapturePurpose {
+    GET_BUFFER,
+    PREPARE_OVERRAP,
+    OVERRAP_TARGET
+}
+
 data class SystemNnnPlayerUiState(
     /** Changes only when a dialogue/choice frame is published. */
     val frameId: Long = 0L,
@@ -74,7 +80,17 @@ data class SystemNnnPlayerUiState(
     val screenEffectParameters: List<Int> = emptyList(),
     val screenEffectCommandOffset: Long? = null,
     /** Number of native DRAW frames to present before advancing the SPT stream. */
-    val pendingDrawFrameCount: Int? = null
+    val pendingDrawFrameCount: Int? = null,
+    /** A one-shot request for the Compose scene's actual viewport pixels. */
+    val screenCaptureRequestId: Long = 0L,
+    val screenCapturePurpose: SystemNnnScreenCapturePurpose? = null,
+    /** Native CEffectGet buffer, exposed only while PUT restores it. */
+    val savedGetScreenBufferBitmap: Bitmap? = null,
+    /** The pair of full-scene snapshots blended during a native OVERRAP. */
+    val overrapFromBitmap: Bitmap? = null,
+    val overrapToBitmap: Bitmap? = null,
+    val overrapTransitionId: Long = 0L,
+    val overrapTransitionDurationFrames: Int = 0
 )
 
 /**
@@ -303,6 +319,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var nextCommandOffset: Long = 0L
     private var frameCounter: Long = 0L
     private var drawEventCounter: Long = 0L
+    private var screenCaptureRequestCounter: Long = 0L
+    private var savedGetScreenBufferBitmap: Bitmap? = null
+    private var preparedOverrapBitmap: Bitmap? = null
     private var overrapPrepared: Boolean = false
     private var currentModuleName: String? = null
     private var currentFilmNumber: Int? = null
@@ -591,6 +610,114 @@ class SystemNnnPlayerViewModel : ViewModel() {
         val current = uiState
         if (current.pendingDrawFrameCount == null || current.isLoading || current.isEnded) return
         uiState = current.copy(pendingDrawFrameCount = null)
+        advanceToVisibleEvent()
+    }
+
+    /** Requests a frame capture and pauses the interpreter until Compose returns it. */
+    private fun requestScreenCapture(purpose: SystemNnnScreenCapturePurpose) {
+        screenCaptureRequestCounter += 1L
+        uiState = uiState.copy(
+            isLoading = false,
+            pendingDrawFrameCount = null,
+            screenCaptureRequestId = screenCaptureRequestCounter,
+            screenCapturePurpose = purpose
+        )
+    }
+
+    /** Completes GET/PREPAREOVERRAP/OVERRAP using the exact scene pixels recorded by Compose. */
+    fun onScreenCaptureReady(requestId: Long, bitmap: Bitmap?) {
+        val current = uiState
+        if (requestId == 0L || requestId != current.screenCaptureRequestId) {
+            bitmap?.takeIf { !it.isRecycled }?.recycle()
+            return
+        }
+        val purpose = current.screenCapturePurpose
+        if (bitmap == null || bitmap.isRecycled) {
+            uiState = current.copy(
+                isLoading = false,
+                screenCaptureRequestId = 0L,
+                screenCapturePurpose = null,
+                errorMessage = "Не удалось получить снимок буфера System-NNN."
+            )
+            when (purpose) {
+                SystemNnnScreenCapturePurpose.OVERRAP_TARGET -> {
+                    overrapPrepared = false
+                    preparedOverrapBitmap = null
+                    advanceToVisibleEvent()
+                }
+                else -> advanceToVisibleEvent()
+            }
+            return
+        }
+
+        when (purpose) {
+            SystemNnnScreenCapturePurpose.GET_BUFFER -> {
+                savedGetScreenBufferBitmap = bitmap
+                uiState = current.copy(
+                    isLoading = false,
+                    screenCaptureRequestId = 0L,
+                    screenCapturePurpose = null,
+                    savedGetScreenBufferBitmap = bitmap
+                )
+                advanceToVisibleEvent()
+            }
+            SystemNnnScreenCapturePurpose.PREPARE_OVERRAP -> {
+                preparedOverrapBitmap = bitmap
+                overrapPrepared = true
+                uiState = current.copy(
+                    isLoading = false,
+                    screenCaptureRequestId = 0L,
+                    screenCapturePurpose = null
+                )
+                advanceToVisibleEvent()
+            }
+            SystemNnnScreenCapturePurpose.OVERRAP_TARGET -> {
+                val from = preparedOverrapBitmap
+                preparedOverrapBitmap = null
+                overrapPrepared = false
+                if (from == null || from.isRecycled) {
+                    uiState = current.copy(
+                        isLoading = false,
+                        screenCaptureRequestId = 0L,
+                        screenCapturePurpose = null,
+                        pendingDrawFrameCount = 1
+                    )
+                } else {
+                    uiState = current.copy(
+                        isLoading = false,
+                        screenCaptureRequestId = 0L,
+                        screenCapturePurpose = null,
+                        overrapFromBitmap = from,
+                        overrapToBitmap = bitmap,
+                        overrapTransitionId = current.overrapTransitionId + 1L,
+                        overrapTransitionDurationFrames = DEFAULT_OVERRAP_LENGTH_FRAMES,
+                        pendingDrawFrameCount = null
+                    )
+                }
+            }
+            null -> {
+                bitmap.recycle()
+                uiState = current.copy(
+                    isLoading = false,
+                    screenCaptureRequestId = 0L,
+                    screenCapturePurpose = null
+                )
+                advanceToVisibleEvent()
+            }
+        }
+    }
+
+    /** Called by Compose after the two native overrap snapshots reach their final mix. */
+    fun onOverrapTransitionFinished(transitionId: Long) {
+        val current = uiState
+        if (transitionId == 0L || transitionId != current.overrapTransitionId ||
+            current.overrapFromBitmap == null || current.overrapToBitmap == null
+        ) return
+        uiState = current.copy(
+            overrapFromBitmap = null,
+            overrapToBitmap = null,
+            overrapTransitionDurationFrames = 0
+        )
         advanceToVisibleEvent()
     }
 
@@ -1167,13 +1294,21 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
 
-                        // Native MAE is a continuation marker, while IDs 4..7 are
-                        // unregistered native effects. Neither replaces the layer's
-                        // currently active effect.
+                        // GET (73) copies the actual composed viewport. The script
+                        // cannot continue until the frame has been captured by Compose.
+                        if (command.effectId == 73) {
+                            requestScreenCapture(SystemNnnScreenCapturePurpose.GET_BUFFER)
+                            return
+                        }
+
+                        // These native effects operate on the shared screen buffer,
+                        // rather than on the bitmap assigned to one image layer.
                         if (SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)) {
-                            if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX &&
-                                command.effectId in SCREEN_BUFFER_EFFECT_IDS
-                            ) {
+                            if (command.effectId == 1 && command.layerIndex == SCREEN_EFFECT_LAYER_INDEX) {
+                                pendingScreenEffectId = null
+                                pendingScreenEffectParameters = emptyList()
+                                pendingScreenEffectCommandOffset = null
+                            } else if (command.effectId in SCREEN_BUFFER_EFFECT_IDS) {
                                 pendingScreenEffectId = command.effectId
                                 pendingScreenEffectParameters = command.parameters
                                 pendingScreenEffectCommandOffset = command.nextCommandOffset
@@ -1280,7 +1415,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     is SystemNnnDecodedCommand.NativeSystemFunction -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
-                        if (command.functionId == 0x0011) overrapPrepared = true
                         diagnosticLog?.record(
                             "native_system_function",
                             "module=" + (currentModuleName ?: "standalone") + " film=" + (currentFilmNumber ?: "none") +
@@ -1288,6 +1422,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 " params=" + command.parameters.joinToString(";") + " text=" + (command.textValue ?: "none")
                         )
                         commandsWithoutVisibleOutput += 1
+                        if (command.functionId == 0x0011) {
+                            requestScreenCapture(SystemNnnScreenCapturePurpose.PREPARE_OVERRAP)
+                            return
+                        }
                     }
 
                     is SystemNnnDecodedCommand.Skip -> {
@@ -1418,8 +1556,15 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset,
-                            pendingDrawFrameCount = drawFrames
+                            pendingDrawFrameCount = if (command.overrapParameters != null && overrapPrepared) {
+                                null
+                            } else {
+                                drawFrames
+                            }
                         )
+                        if (command.overrapParameters != null && overrapPrepared) {
+                            requestScreenCapture(SystemNnnScreenCapturePurpose.OVERRAP_TARGET)
+                        }
                         return
                     }
 
@@ -1977,7 +2122,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_IMAGE_LAYERS = 32
         private const val MAX_IMAGE_WARNING_COUNT = 4
         private const val SCREEN_EFFECT_LAYER_INDEX = 31
-        private val SCREEN_BUFFER_EFFECT_IDS = setOf(10, 11, 18, 54, 55)
+        private val SCREEN_BUFFER_EFFECT_IDS = setOf(
+            2, 10, 11, 18, 20, 22, 31, 43, 50, 54, 55, 69, 71, 74
+        )
+        private const val DEFAULT_OVERRAP_LENGTH_FRAMES = 18
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
         // and one nested SPT executor. A direct scene starts in slot 1.
