@@ -10,7 +10,8 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
-class AndroidGpkImageDecoderTest {\n
+class AndroidGpkImageDecoderTest {
+
     @Test
     fun dwqJpegAlphaMaskReplacesOnlyTheAlphaChannel() {
         val source = intArrayOf(0xFF112233.toInt(), 0xFFABCDEF.toInt(), 0xFF010203.toInt())
