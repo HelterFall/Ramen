@@ -13,6 +13,9 @@ import android.view.View
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutLinearInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -113,7 +116,8 @@ private data class LiveMakerSceneBitmap(
     val visible: Boolean = true,
     val transitionFromAlpha: Float? = null,
     val transitionDurationMillis: Int = 0,
-    val transitionToken: Long = 0L
+    val transitionToken: Long = 0L,
+    val transitionMoveType: String = "N"
 )
 
 private data class LiveMakerTextPlayback(
@@ -559,6 +563,12 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 return@repeat
             }
 
+            if (engineEvent is LiveMakerVmEvent.PropertyMotion) {
+                // Non-blocking alpha motions run on the Compose renderer while the VM continues.
+                session.resume()
+                return@repeat
+            }
+
             if (engineEvent is LiveMakerVmEvent.Delay) {
                 if (engineEvent.milliseconds <= 0L) {
                     // Time=0 is an unbounded LiveMaker wait. Present an invisible input
@@ -667,6 +677,67 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                 publishSceneState(session)
             }
         }, duration.toLong())
+    }
+
+    /** Animates the alpha property of an image object without blocking the VM. */
+    private fun startPropertyMotion(
+        motion: LiveMakerVmEvent.PropertyMotion,
+        session: LiveMakerGameSession
+    ) {
+        if (motion.propertyId != LiveMakerObjectStore.PR_ALPHA) {
+            publishSceneState(session)
+            return
+        }
+        val image = sceneObjects[motion.objectName]
+        if (image == null) {
+            publishSceneState(session)
+            return
+        }
+
+        val startAlpha = sceneAlpha(motion.startValue, image.alpha)
+        val targetAlpha = sceneAlpha(motion.targetValue, image.alpha)
+        val duration = motion.durationMillis.coerceIn(0L, MAX_TPWORD_WAIT_MS).toInt()
+        val token = ++flipTransitionSerial
+        sceneObjects[motion.objectName] = image.copy(
+            alpha = targetAlpha,
+            transitionFromAlpha = startAlpha,
+            transitionDurationMillis = duration,
+            transitionToken = token,
+            transitionMoveType = motion.moveType
+        )
+        publishSceneState(session)
+
+        if (duration == 0) {
+            sceneObjects[motion.objectName]?.let { current ->
+                if (current.transitionToken == token) {
+                    sceneObjects[motion.objectName] = current.copy(
+                        transitionFromAlpha = null,
+                        transitionDurationMillis = 0
+                    )
+                }
+            }
+            publishSceneState(session)
+            return
+        }
+
+        mainHandler.postDelayed({
+            if (isFinishing || isDestroyed) return@postDelayed
+            worker.execute {
+                val current = sceneObjects[motion.objectName]
+                if (current?.transitionToken == token) {
+                    sceneObjects[motion.objectName] = current.copy(
+                        transitionFromAlpha = null,
+                        transitionDurationMillis = 0
+                    )
+                    publishSceneState(session)
+                }
+            }
+        }, duration.toLong())
+    }
+
+    private fun sceneAlpha(value: Any?, fallback: Float): Float {
+        val number = (value as? Number)?.toFloat() ?: return fallback
+        return (if (number > 1f) number / 255f else number).coerceIn(0f, 1f)
     }
 
     private fun isCompleted(event: LiveMakerSessionEvent): Boolean =
@@ -1069,6 +1140,13 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     )
                 is LiveMakerVmEvent.FlipTransition -> {
                     startFlipTransition(engineEvent, session)
+                    LiveMakerEventPresentation(
+                        description = "",
+                        canContinue = false
+                    )
+                }
+                is LiveMakerVmEvent.PropertyMotion -> {
+                    startPropertyMotion(engineEvent, session)
                     LiveMakerEventPresentation(
                         description = "",
                         canContinue = false
@@ -1644,9 +1722,17 @@ private fun LiveMakerPlayerScreen(
                     }
                     LaunchedEffect(image.objectName, image.transitionToken, image.alpha) {
                         if (image.transitionFromAlpha != null && image.transitionDurationMillis > 0) {
+                            val easing = when (image.transitionMoveType.uppercase()) {
+                                "I" -> FastOutLinearInEasing
+                                "D" -> LinearOutSlowInEasing
+                                else -> LinearEasing
+                            }
                             animatedAlpha.animateTo(
                                 targetValue = image.alpha,
-                                animationSpec = tween(durationMillis = image.transitionDurationMillis)
+                                animationSpec = tween(
+                                    durationMillis = image.transitionDurationMillis,
+                                    easing = easing
+                                )
                             )
                         } else {
                             animatedAlpha.snapTo(image.alpha)
@@ -1670,9 +1756,17 @@ private fun LiveMakerPlayerScreen(
                         }
                         LaunchedEffect(image.objectName, image.transitionToken, image.alpha) {
                             if (image.transitionFromAlpha != null && image.transitionDurationMillis > 0) {
+                                val easing = when (image.transitionMoveType.uppercase()) {
+                                    "I" -> FastOutLinearInEasing
+                                    "D" -> LinearOutSlowInEasing
+                                    else -> LinearEasing
+                                }
                                 animatedAlpha.animateTo(
                                     targetValue = image.alpha,
-                                    animationSpec = tween(durationMillis = image.transitionDurationMillis)
+                                    animationSpec = tween(
+                                        durationMillis = image.transitionDurationMillis,
+                                        easing = easing
+                                    )
                                 )
                             } else {
                                 animatedAlpha.snapTo(image.alpha)
