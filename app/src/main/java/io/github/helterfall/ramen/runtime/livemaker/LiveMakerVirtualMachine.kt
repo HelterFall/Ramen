@@ -44,6 +44,19 @@ sealed interface LiveMakerVmEvent {
         val commandIndex: Int
     ) : LiveMakerVmEvent
 
+    data class FlipTransition(
+        val effect: String,
+        val durationMillis: Long,
+        val reverse: Boolean,
+        val action: String,
+        val targetNames: List<String>,
+        val deleteAfter: Boolean,
+        val source: String?,
+        val stopEventProcessing: Boolean,
+        val parameters: List<Any?>,
+        val commandIndex: Int
+    ) : LiveMakerVmEvent
+
     data class ScriptTransfer(
         val page: String,
         val labelIndex: Long,
@@ -224,11 +237,56 @@ class LiveMakerVirtualMachine(
                         programCounter += 1
                     }
                     13 -> {
-                        // Flip carries a Wipe transition and an array of target objects.
-                        // Until wipe animations are available, evaluate its arguments and
-                        // complete it without applying an incorrect whole-canvas mirror.
-                        command.expressions.forEach { evaluate(it) }
+                        // Binary Flip layout:
+                        // Wipe, Time, Reverse, Act, Targets[], Delete, Param[2],
+                        // then version-gated Source, StopEvent and DifferenceOnly.
+                        val optionalCount = (if (script.version > 100) 1 else 0) +
+                            (if (script.version > 106) 1 else 0) +
+                            (if (script.version > 116) 1 else 0)
+                        val minimumCount = 7 + optionalCount
+                        if (command.expressions.size < minimumCount) {
+                            return unsupported(command, "Flip command has an incomplete parameter list.")
+                        }
+                        val values = command.expressions.map(::evaluate)
+                        val targetCount = values.size - minimumCount
+                        val deleteIndex = 4 + targetCount
+                        val sourceIndex = deleteIndex + 3
+                        val stopIndex = sourceIndex + if (script.version > 100) 1 else 0
+                        val differenceIndex = stopIndex + if (script.version > 106) 1 else 0
+                        val effect = values[0]?.toString()?.uppercase().orEmpty()
+                        val duration = (number(values[1])?.toLong() ?: 0L).coerceAtLeast(0L)
+                        val reverse = truthy(values[2])
+                        val action = values[3]?.toString()?.uppercase().orEmpty()
+                        val targets = values.subList(4, 4 + targetCount).flatMap { value ->
+                            when (value) {
+                                is Iterable<*> -> value.mapNotNull { it?.toString()?.takeIf(String::isNotBlank) }
+                                else -> listOfNotNull(value?.toString()?.takeIf(String::isNotBlank))
+                            }
+                        }.distinct()
+                        val deleteAfter = truthy(values[deleteIndex])
+                        val parameters = values.subList(deleteIndex + 1, deleteIndex + 3)
+                        val source = if (script.version > 100) {
+                            values[sourceIndex]?.toString()?.takeIf(String::isNotBlank)
+                        } else null
+                        val stopEventProcessing = script.version > 106 &&
+                            truthy(values[stopIndex])
+                        // The optional DifferenceOnly flag is decoded and preserved in the
+                        // command model; the Android alpha transition does not need it.
+                        if (script.version > 116) values[differenceIndex]
                         programCounter += 1
+                        waitingForHost = stopEventProcessing
+                        return LiveMakerVmEvent.FlipTransition(
+                            effect = effect,
+                            durationMillis = duration,
+                            reverse = reverse,
+                            action = action,
+                            targetNames = targets,
+                            deleteAfter = deleteAfter,
+                            source = source,
+                            stopEventProcessing = stopEventProcessing,
+                            parameters = parameters,
+                            commandIndex = command.index
+                        )
                     }
                     17 -> {
                         val objectName = evaluateRequired(command, 0)?.toString().orEmpty()
@@ -421,11 +479,9 @@ class LiveMakerVirtualMachine(
                             (command.expressions.getOrNull(2)
                                 ?.let { truthy(evaluate(it)) } ?: false)
                         programCounter += 1
-                        // Time is a duration in milliseconds. A zero duration
-                        // completes immediately; input waits are represented by TextIns
-                        // Wait and explicit event-pump commands, not by an undocumented
-                        // special interpretation of Wait(Time=0).
-                        if (shouldWait && duration > 0L) {
+                        // LiveNovel's Wait(Time=0) means no time limit. Yield to the
+                        // host instead of falling through into a tight script loop.
+                        if (shouldWait) {
                             waitingForHost = true
                             return LiveMakerVmEvent.Delay(
                                 duration,
