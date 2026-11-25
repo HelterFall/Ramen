@@ -34,8 +34,17 @@ internal object MutableArgbBitmapDecoder {
             inMutable = true
             inPreferredConfig = Bitmap.Config.ARGB_8888
         }
-        val decoded = BitmapFactory.decodeByteArray(bytes, offset, length, configured) ?: return null
-        return decoded.ensureMutableArgb8888()
+        val decoded = try {
+            BitmapFactory.decodeByteArray(bytes, offset, length, configured)
+        } catch (failure: RuntimeException) {
+            if (BmpFallbackDecoder.hasBmpSignature(bytes, offset, length)) {
+                return BmpFallbackDecoder.decode(bytes, offset, length)
+            }
+            throw failure
+        }
+        if (decoded != null) return decoded.ensureMutableArgb8888()
+        if (configured.inJustDecodeBounds) return null
+        return BmpFallbackDecoder.decode(bytes, offset, length)
     }
 
     fun create(width: Int, height: Int): Bitmap =

@@ -4,6 +4,7 @@ kotlin = "2.4.21"
 composeBom = "2026.09.00"
 activityCompose = "1.13.0"
 junit = "4.13.2"
+robolectric = "4.18.1"
 documentFile = "1.1.0"
 webkit = "1.18.0"
 lifecycle = "2.11.0"
@@ -23,6 +24,7 @@ androidx-compose-ui-tooling = { module = "androidx.compose.ui:ui-tooling" }
 androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
 androidx-lifecycle-viewmodel = { module = "androidx.lifecycle:lifecycle-viewmodel", version.ref = "lifecycle" }
 junit = { module = "junit:junit", version.ref = "junit" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 androidx-documentfile = { module = "androidx.documentfile:documentfile", version.ref = "documentFile" }
 androidx-webkit = { module = "androidx.webkit:webkit", version.ref = "webkit" }
 xz = { module = "org.tukaani:xz", version.ref = "xz" }

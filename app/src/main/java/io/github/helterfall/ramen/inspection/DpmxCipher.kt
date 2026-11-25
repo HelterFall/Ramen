@@ -101,6 +101,63 @@ data class DpmxKeyResolution(
 }
 
 /**
+ * Strictly validates the decrypted BMP prefix used for DPMX key auto-detection.
+ * BITMAPCOREHEADER stores planes at file offset 22; INFOHEADER variants store
+ * it at offset 26. Both layouts are handled explicitly.
+ */
+internal fun isPlausibleDpmxBmpHeader(bytes: ByteArray, expectedSizeBytes: Long): Boolean {
+    if (bytes.size < 26 || expectedSizeBytes < 26L ||
+        bytes[0] != 'B'.code.toByte() || bytes[1] != 'M'.code.toByte()
+    ) return false
+
+    fun u16(offset: Int): Int =
+        (bytes[offset].toInt() and 0xFF) or
+            ((bytes[offset + 1].toInt() and 0xFF) shl 8)
+
+    fun u32(offset: Int): Long =
+        (bytes[offset].toLong() and 0xFFL) or
+            ((bytes[offset + 1].toLong() and 0xFFL) shl 8) or
+            ((bytes[offset + 2].toLong() and 0xFFL) shl 16) or
+            ((bytes[offset + 3].toLong() and 0xFFL) shl 24)
+
+    if (u32(2) != expectedSizeBytes) return false
+    if (bytes[6] != 0.toByte() || bytes[7] != 0.toByte() ||
+        bytes[8] != 0.toByte() || bytes[9] != 0.toByte()
+    ) return false
+
+    val dibHeaderSize = u32(14)
+    if (dibHeaderSize !in SUPPORTED_BMP_DIB_HEADER_SIZES) return false
+    val isCoreHeader = dibHeaderSize == 12L
+    val planesOffset = if (isCoreHeader) 22 else 26
+    val bitsPerPixelOffset = if (isCoreHeader) 24 else 28
+    if (bytes.size < bitsPerPixelOffset + 2) return false
+    if (u16(planesOffset) != 1) return false
+    if (u16(bitsPerPixelOffset) !in SUPPORTED_BMP_BITS_PER_PIXEL) return false
+
+    val pixelOffset = u32(10)
+    val headerEnd = 14L + dibHeaderSize
+    if (pixelOffset < headerEnd || pixelOffset >= expectedSizeBytes) return false
+
+    val width: Long
+    val height: Long
+    if (isCoreHeader) {
+        width = u16(18).toLong()
+        height = u16(20).toLong()
+    } else {
+        if (bytes.size < 30) return false
+        width = u32(18).toInt().toLong()
+        val signedHeight = u32(22).toInt()
+        if (signedHeight == Int.MIN_VALUE) return false
+        height = kotlin.math.abs(signedHeight.toLong())
+    }
+    return width in 1L..8192L && height in 1L..8192L
+}
+
+private val SUPPORTED_BMP_DIB_HEADER_SIZES =
+    setOf(12L, 40L, 52L, 56L, 108L, 124L)
+private val SUPPORTED_BMP_BITS_PER_PIXEL = setOf(1, 4, 8, 24, 32)
+
+/**
  * Resolves keys in this order: injected .data schedule, the two supplied
  * known-good sample vectors, then an exhaustive 256x256 signature search.
  * Fallback candidates are accepted only when their plaintext prefixes are identical.
@@ -192,10 +249,7 @@ class DpmxKeyResolver(
     private fun isPlausible(entry: DpmxFileEntry, bytes: ByteArray): Boolean {
         return when (entry.name.substringAfterLast('.', "").lowercase()) {
             "ax" -> isValidHspHeader(entry, bytes)
-            "bmp" -> bytes.size >= BMP_PREFIX_LENGTH &&
-                bytes[0] == 'B'.code.toByte() &&
-                bytes[1] == 'M'.code.toByte() &&
-                readUInt32(bytes, 2) == entry.sizeBytes
+            "bmp" -> isPlausibleDpmxBmpHeader(bytes, entry.sizeBytes)
             "txt", "ini", "as", "hsp", "cfg" -> isPrintableShiftJis(bytes)
             else -> false
         }
@@ -297,7 +351,7 @@ class DpmxKeyResolver(
         private const val HSP3_VERSION_MIN = 0x00000300L
         private const val HSP3_VERSION_MAX = 0x00000399L
         private const val HSPHED_SIZE_BYTES = 0x60
-        private const val BMP_PREFIX_LENGTH = 6
+        private const val BMP_PREFIX_LENGTH = 30
         private const val TEXT_PREFIX_LENGTH = 32
         private const val MIN_SAMPLE_LENGTH = 6
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")

@@ -131,7 +131,7 @@ class Hsp3CanvasRenderer(
             throw IOException("Invalid HSP asset name.")
         }
         val stream = openAsset(name) ?: throw IOException("HSP asset '" + name + "' was not found.")
-        val bitmap = stream.use { MutableArgbBitmapDecoder.decodeStream(it) }
+        val bitmap = stream.use { MutableArgbBitmapDecoder.decodeByteArray(it.readBytes()) }
             ?: throw IOException("HSP asset '" + name + "' could not be decoded as a bitmap.")
         when (mode) {
             0 -> {
@@ -178,7 +178,7 @@ class Hsp3CanvasRenderer(
             if (surfaces.containsKey(cached)) return cached
         }
         val stream = openAsset(name) ?: throw IOException("HSP celload asset was not found: " + name)
-        val bitmap = stream.use { MutableArgbBitmapDecoder.decodeStream(it) }
+        val bitmap = stream.use { MutableArgbBitmapDecoder.decodeByteArray(it.readBytes()) }
             ?: throw IOException("HSP celload asset could not be decoded: " + name)
         val targetId = if (id >= 0) id else generateSequence(1) { it + 1 }
             .first { !surfaces.containsKey(it) }
@@ -376,6 +376,14 @@ class Hsp3CanvasRenderer(
         val bitmap = surfaces[id]?.bitmap
             ?: throw IOException("HSP surface " + id + " does not exist.")
         return bitmap.width to bitmap.height
+    }
+
+    /** Independent mutable snapshot used by renderer-level bitmap tests. */
+    internal fun copySurfaceBitmap(id: Int): Bitmap {
+        val bitmap = surfaces[id]?.bitmap
+            ?: throw IOException("HSP surface " + id + " does not exist.")
+        return bitmap.copy(Bitmap.Config.ARGB_8888, true)
+            ?: throw IOException("Could not copy HSP surface " + id + ".")
     }
 
     override fun boxf() {
