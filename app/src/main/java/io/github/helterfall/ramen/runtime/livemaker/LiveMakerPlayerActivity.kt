@@ -464,9 +464,17 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             }
 
             if (engineEvent is LiveMakerVmEvent.Delay) {
-                if (engineEvent.milliseconds > 0L) {
-                    Thread.sleep(engineEvent.milliseconds.coerceAtMost(MAX_TPWORD_WAIT_MS))
+                if (engineEvent.milliseconds <= 0L) {
+                    // Time=0 is an unbounded LiveMaker wait. Present an invisible input
+                    // boundary on the virtual stage; do not resume into a busy loop.
+                    return event to LiveMakerEventPresentation(
+                        description = "",
+                        canContinue = true,
+                        dialogueText = "",
+                        waitingForTap = true
+                    )
                 }
+                Thread.sleep(engineEvent.milliseconds.coerceAtMost(MAX_TPWORD_WAIT_MS))
                 session.resume()
                 return@repeat
             }
@@ -878,7 +886,12 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     )
                 }
                 is LiveMakerVmEvent.Delay ->
-                    LiveMakerEventPresentation("", false)
+                    LiveMakerEventPresentation(
+                        description = "",
+                        canContinue = engineEvent.milliseconds <= 0L,
+                        dialogueText = "",
+                        waitingForTap = engineEvent.milliseconds <= 0L
+                    )
                 is LiveMakerVmEvent.HostCommandRequired ->
                     LiveMakerEventPresentation(
                         "Команда сцены " + engineEvent.command.typeName +
