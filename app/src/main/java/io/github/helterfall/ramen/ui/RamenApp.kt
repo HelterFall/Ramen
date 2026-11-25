@@ -53,6 +53,7 @@ import io.github.helterfall.ramen.importer.HtmlFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
+import io.github.helterfall.ramen.runtime.hsp3.Hsp3PlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
@@ -296,6 +297,11 @@ fun RamenApp() {
                             },
                             onLaunch = {
                                 when (game.engineId) {
+                                    "hsp3-dpmx" -> {
+                                        val intent = Intent(context, Hsp3PlayerActivity::class.java)
+                                            .putExtra(Hsp3PlayerActivity.EXTRA_GAME_ID, game.id)
+                                        context.startActivity(intent)
+                                    }
                                     "system-nnn-spt" -> {
                                         val intent = Intent(context, SystemNnnPlayerActivity::class.java)
                                             .putExtra(SystemNnnPlayerActivity.EXTRA_GAME_ID, game.id)
@@ -651,10 +657,12 @@ private fun GameCard(
             Text(
                 text = when (game.compatibilityStatus) {
                     "PARSER_AVAILABLE" ->
-                        if (game.engineId == "system-nnn-spt") {
-                            "Доступен запуск System-NNN с декодированием указателей текста и ресурсов."
-                        } else {
-                            "Формат сценария распознан; запуск пока не подключён."
+                        when (game.engineId) {
+                            "system-nnn-spt" ->
+                                "Доступен запуск System-NNN с декодированием указателей текста и ресурсов."
+                            "hsp3-dpmx" ->
+                                "Доступен запуск HSP3 через Android Canvas и экранный геймпад; набор команд пока ограничен."
+                            else -> "Формат сценария распознан; запуск пока не подключён."
                         }
                     "SUPPORTED_LIMITED" ->
                         "Доступен ограниченный автономный HTML5-запуск."
@@ -681,7 +689,8 @@ private fun GameCard(
                 Text("Просмотреть GPK/GTB и VPK/VTB")
             }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
-                (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE")
+                (game.compatibilityStatus == "PARSER_AVAILABLE" &&
+                    game.engineId in setOf("system-nnn-spt", "hsp3-dpmx"))
             ) {
                 Button(
                     onClick = onLaunch,
