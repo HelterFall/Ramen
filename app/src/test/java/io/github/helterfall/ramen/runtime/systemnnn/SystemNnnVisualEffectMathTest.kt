@@ -9,6 +9,21 @@ import org.junit.Test
 class SystemNnnVisualEffectMathTest {
 
     @Test
+    fun observedNativeEffectCatalogMatchesAllThirtyThreeGameEffectSignatures() {
+        val expected = mapOf(
+            0 to 0, 1 to 0, 2 to 5, 8 to 2, 9 to 13, 10 to 5, 11 to 4,
+            17 to 6, 20 to 6, 22 to 16, 27 to 12, 29 to 9, 31 to 5, 39 to 4,
+            40 to 8, 43 to 7, 50 to 15, 52 to 1, 54 to 0, 55 to 13, 56 to 8,
+            63 to 15, 64 to 16, 65 to 14, 66 to 0, 69 to 13, 71 to 18, 73 to 1,
+            74 to 13, 82 to 14, 99 to 10, 100 to 13, 102 to 9
+        )
+        val actual = SystemNnnVisualEffectMath.observedGameEffectSignatures.associate {
+            it.effectId to it.parameterCount
+        }
+        assertEquals(expected, actual)
+        assertEquals(33, actual.size)
+    }
+    @Test
     fun nativeEffectContinuationAndUnregisteredIdsDoNotReplaceThePreviousEffect() {
         for (effectId in listOf(-1, 1, 4, 5, 6, 7)) {
             assertFalse(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))
