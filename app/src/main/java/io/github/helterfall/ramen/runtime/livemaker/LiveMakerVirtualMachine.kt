@@ -325,20 +325,29 @@ class LiveMakerVirtualMachine(
                         // The optional DifferenceOnly flag is decoded and preserved in the
                         // command model; the Android alpha transition does not need it.
                         if (script.version > 116) values[differenceIndex]
-                        programCounter += 1
-                        waitingForHost = stopEventProcessing
-                        return LiveMakerVmEvent.FlipTransition(
-                            effect = effect,
-                            durationMillis = duration,
-                            reverse = reverse,
-                            action = action,
-                            targetNames = targets,
-                            deleteAfter = deleteAfter,
-                            source = source,
-                            stopEventProcessing = stopEventProcessing,
-                            parameters = parameters,
-                            commandIndex = command.index
-                        )
+
+                        // Some system scripts contain a structurally present Flip command whose
+                        // every expression is empty. It represents no visual transition and
+                        // must not yield an empty host event (which would stall script startup
+                        // in a player without a transition adapter).
+                        if (values.all { it == null }) {
+                            programCounter += 1
+                        } else {
+                            programCounter += 1
+                            waitingForHost = stopEventProcessing
+                            return LiveMakerVmEvent.FlipTransition(
+                                effect = effect,
+                                durationMillis = duration,
+                                reverse = reverse,
+                                action = action,
+                                targetNames = targets,
+                                deleteAfter = deleteAfter,
+                                source = source,
+                                stopEventProcessing = stopEventProcessing,
+                                parameters = parameters,
+                                commandIndex = command.index
+                            )
+                        }
                     }
                     17 -> {
                         val objectName = evaluateRequired(command, 0)?.toString().orEmpty()
