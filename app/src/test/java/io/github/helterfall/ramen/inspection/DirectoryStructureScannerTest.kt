@@ -22,14 +22,14 @@ class DirectoryStructureScannerTest {
                     isDirectory = true,
                     children = listOf(
                         FakeNode(name = "empty", isDirectory = true),
-                        FakeNode(name = "logo.png", isDirectory = false, sizeBytes = 128L)
+                        FakeNode(name = "logo.png", isDirectory = false, declaredSizeBytes = 128L)
                     )
                 ),
                 FakeNode(
                     name = "scripts",
                     isDirectory = true,
                     children = listOf(
-                        FakeNode(name = "START.lsb", isDirectory = false, sizeBytes = 512L)
+                        FakeNode(name = "START.lsb", isDirectory = false, declaredSizeBytes = 512L)
                     )
                 ),
                 FakeNode(name = "root.dat", isDirectory = false)
