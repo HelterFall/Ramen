@@ -59,6 +59,7 @@ internal object SystemNnnNativeEffectRenderer {
             }
             20 -> light(source, currentFrame, duration, parameters)
             22 -> kagerou(source, width, height, currentFrame, parameters)
+            29 -> sunaNoise(source, width, height, currentFrame, duration, parameters)
             31 -> negative(source, currentFrame, duration, parameters)
             43 -> mosaic(source, width, height, currentFrame, parameters)
             50 -> gradation(source, width, height, currentFrame, duration, parameters)
@@ -419,7 +420,66 @@ internal object SystemNnnNativeEffectRenderer {
         return result
     }
 
-    /** SUNA (29): deterministic tile reveal/dissolve using the source layer as the particle texture. */
+    /** SUNA (29): native 128x64 noise cells blended into a bounded viewport rectangle. */
+    fun sunaNoise(
+        source: IntArray,
+        width: Int,
+        height: Int,
+        frame: Int,
+        duration: Int,
+        parameters: List<Int>
+    ): IntArray {
+        if (!validFrame(source, width, height)) return source.copyOf()
+        var left = (parameters.getOrNull(6) ?: 0).coerceIn(0, width)
+        var top = (parameters.getOrNull(7) ?: 0).coerceIn(0, height)
+        val right = (left + (parameters.getOrNull(8) ?: width).coerceAtLeast(0)).coerceAtMost(width)
+        val bottom = (top + (parameters.getOrNull(9) ?: height).coerceAtLeast(0)).coerceAtMost(height)
+        if (right <= left || bottom <= top) return source.copyOf()
+
+        val transparent = (parameters.getOrNull(1) ?: 0) != 0
+        val startPercent = (parameters.getOrNull(3) ?: 100).coerceIn(0, 100)
+        val endPercent = (parameters.getOrNull(2) ?: 100).coerceIn(0, 100)
+        val blendPercent = if (transparent) {
+            SystemNnnVisualEffectMath.nativeSpeedValue(
+                frame, duration.coerceAtLeast(1), startPercent, endPercent,
+                parameters.getOrNull(5) ?: 0, parameters.getOrNull(4) ?: 0
+            ).coerceIn(0, 100)
+        } else 100
+        val weight = blendPercent * 256 / 100
+        val result = source.copyOf()
+        // The native mask is an 8x8 texture expanded to 2x2 pixel blocks and
+        // tiled in 128x128 screen patches. Use a fixed seed per tile/frame so
+        // animation is stable for the entire presentation frame.
+        val tileColumns = (right - left + 127) / 128
+        for (y in top until bottom) {
+            val localY = y - top
+            val tileY = localY / 128
+            val inTileY = localY % 128
+            val sourceY = inTileY / 16
+            for (x in left until right) {
+                val localX = x - left
+                val tileX = localX / 128
+                val inTileX = localX % 128
+                val sourceX = inTileX / 16
+                val tile = tileY * tileColumns + tileX
+                val noise = randomMix(tile * 0x45D9F3B xor sourceY * 0x119DE1F3 xor sourceX * 0x3449F5 xor frame)
+                val lane = (sourceX + sourceY * 8) and 3
+                val value = ((noise ushr (lane * 8)) and 0xFF)
+                val gray = (value + (noise ushr 24 and 0x7F)) / 2
+                val index = y * width + x
+                val old = source[index]
+                result[index] = argb(
+                    old ushr 24,
+                    blendChannel(old ushr 16, gray, 256 - weight, weight),
+                    blendChannel(old ushr 8, gray, 256 - weight, weight),
+                    blendChannel(old, gray, 256 - weight, weight)
+                )
+            }
+        }
+        return result
+    }
+
+    /** SUNA source-mask helper retained for offline tile-dissolve previews. */
     fun sunaDissolve(
         source: IntArray,
         width: Int,
@@ -460,32 +520,60 @@ internal object SystemNnnNativeEffectRenderer {
         bitmapWidth: Int,
         bitmapHeight: Int,
         frame: Int,
-        parameters: List<Int>
+        parameters: List<Int>,
+        screenWidth: Int = bitmapWidth,
+        screenHeight: Int = bitmapHeight
     ): List<ParticleStamp> {
-        if (bitmapWidth <= 0 || bitmapHeight <= 0) return emptyList()
+        if (bitmapWidth <= 0 || bitmapHeight <= 0 || screenWidth <= 0 || screenHeight <= 0) return emptyList()
         val cellWidth = (parameters.getOrNull(1) ?: 32).coerceIn(1, bitmapWidth)
         val cellHeight = (parameters.getOrNull(2) ?: 32).coerceIn(1, bitmapHeight)
-        val particleCount = (parameters.getOrNull(3) ?: 16).coerceIn(1, 64)
-        val lifeOn = (parameters.getOrNull(8) ?: 81).coerceAtLeast(1)
-        val lifeOff = (parameters.getOrNull(9) ?: 4).coerceAtLeast(0)
-        val interval = (lifeOn + lifeOff).coerceAtLeast(1)
-        val columns = (bitmapWidth / cellWidth).coerceAtLeast(1)
+        val particleCount = (parameters.getOrNull(3) ?: 1).coerceIn(1, 16)
+        val attachMask = parameters.getOrNull(4) ?: 0
+        val spriteColumns = (parameters.getOrNull(5) ?: 1).coerceIn(1, bitmapWidth / cellWidth.coerceAtLeast(1))
+        val animationCells = (parameters.getOrNull(6) ?: 1).coerceIn(1, 64)
+        val animationSpeed = (parameters.getOrNull(7) ?: 1).coerceAtLeast(1)
+        val visibleFrames = (parameters.getOrNull(8) ?: 30).coerceAtLeast(1)
+        val hiddenFrames = (parameters.getOrNull(9) ?: 0).coerceAtLeast(0)
+        val jitter = (parameters.getOrNull(10) ?: 0).coerceIn(0, 64)
+        val interval = (visibleFrames + hiddenFrames).coerceAtLeast(1)
         val rows = (bitmapHeight / cellHeight).coerceAtLeast(1)
         return List(particleCount) { index ->
             val seed = randomMix(index * 0x45D9F3B xor 0x27C0FFEE)
-            val age = floorMod(frame + (seed and 0x7FFF), interval)
-            val active = age < lifeOn
-            val cell = floorMod(index + frame / (parameters.getOrNull(7) ?: 1).coerceAtLeast(1), columns * rows)
-            val x = floorMod(seed, bitmapWidth)
-            val y = floorMod(randomMix(seed xor 0xB5297A4D.toInt()), bitmapHeight)
+            val phase = floorMod(frame + (seed and 0x7FFF), interval)
+            val visible = phase < visibleFrames
+            val baseX = floorMod(seed, screenWidth)
+            val baseY = floorMod(randomMix(seed xor 0xB5297A4D.toInt()), screenHeight)
+            val noise = randomMix(seed xor (frame * 0x119DE1F3))
+            val jitterX = if (jitter == 0) 0 else floorMod(noise, jitter * 2 + 1) - jitter
+            val jitterY = if (jitter == 0) 0 else floorMod(randomMix(noise), jitter * 2 + 1) - jitter
+            val direction = when {
+                attachMask == 0 -> 0
+                else -> floorMod(index, 4) + 1
+            }
+            val x = when (direction) {
+                2 -> screenWidth - cellWidth / 2
+                4 -> cellWidth / 2
+                else -> floorMod(baseX + jitterX, screenWidth)
+            }
+            val y = when (direction) {
+                1 -> cellHeight / 2
+                3 -> screenHeight - cellHeight / 2
+                else -> floorMod(baseY + jitterY, screenHeight)
+            }
+            val cel = floorMod(frame / animationSpeed + index, animationCells)
+            val cellX = index % spriteColumns
+            val cellY = cel % rows
             ParticleStamp(
                 x.toFloat(), y.toFloat(),
-                RectI((cell % columns) * cellWidth, (cell / columns) * cellHeight,
-                    ((cell % columns) + 1) * cellWidth, ((cell / columns) + 1) * cellHeight),
-                if (active) (1f - age.toFloat() / lifeOn) else 0f,
-                scale = 0.75f + ((seed ushr 16) and 0xFF) / 512f
+                RectI(
+                    cellX * cellWidth, cellY * cellHeight,
+                    min(bitmapWidth, (cellX + 1) * cellWidth),
+                    min(bitmapHeight, (cellY + 1) * cellHeight)
+                ),
+                if (visible) 1f else 0f,
+                scale = 1f
             )
-        }.filter { it.alpha > 0f }
+        }.filter { it.alpha > 0f && it.sourceRect.width > 0 && it.sourceRect.height > 0 }
     }
 
     /** RAIN2 (56): repeated layer placements with native per-frame translation. */
@@ -493,22 +581,29 @@ internal object SystemNnnNativeEffectRenderer {
         frame: Int,
         parameters: List<Int>,
         screenWidth: Int,
-        screenHeight: Int
+        screenHeight: Int,
+        bitmapWidth: Int = screenWidth,
+        bitmapHeight: Int = screenHeight
     ): List<LayerOffset> {
         val count = (parameters.getOrNull(3) ?: 1).coerceIn(1, 4)
-        val speedX = parameters.getOrNull(1) ?: 0
-        val speedY = parameters.getOrNull(2) ?: 0
+        val speedX = (parameters.getOrNull(1) ?: 0) * 0.01f
+        val speedY = (parameters.getOrNull(2) ?: 0) * 0.01f
         val variationX = (parameters.getOrNull(4) ?: 0).coerceAtLeast(0)
         val variationY = (parameters.getOrNull(5) ?: 0).coerceAtLeast(0)
-        val secondaryScale = (parameters.getOrNull(6) ?: 100).coerceIn(1, 300) / 100f
         return List(count) { index ->
             val seed = randomMix(index * 0x119DE1F3)
-            val jitterX = floorMod(seed, variationX + 1)
-            val jitterY = floorMod(randomMix(seed xor 0x3449F5), variationY + 1)
+            val jitterSpanX = (variationX * 2 + 1).coerceAtLeast(1)
+            val jitterSpanY = (variationY * 2 + 1).coerceAtLeast(1)
+            val jitterX = floorMod(randomMix(seed xor (frame * 0x45D9F3B)), jitterSpanX) - variationX
+            val jitterY = floorMod(randomMix(seed xor (frame * 0x119DE1F3)), jitterSpanY) - variationY
+            val initialX = floorMod(seed, bitmapWidth.coerceAtLeast(1))
+            val initialY = floorMod(randomMix(seed xor 0x3449F5), bitmapHeight.coerceAtLeast(1))
+            val xPeriod = min(bitmapWidth, screenWidth).coerceAtLeast(1)
+            val yPeriod = min(bitmapHeight, screenHeight).coerceAtLeast(1)
             LayerOffset(
-                floorMod(frame * speedX / 100 + jitterX, screenWidth.coerceAtLeast(1)),
-                floorMod(frame * speedY / 100 + jitterY, screenHeight.coerceAtLeast(1)),
-                if (index == 0) 1f else secondaryScale,
+                floorMod((initialX + frame * speedX).roundToInt() + jitterX, xPeriod),
+                floorMod((initialY + frame * speedY).roundToInt() + jitterY, yPeriod),
+                1f,
                 1f
             )
         }
@@ -527,7 +622,10 @@ internal object SystemNnnNativeEffectRenderer {
         val rows = (bitmapHeight / cellHeight).coerceAtLeast(1)
         val celCount = (columns * rows).coerceAtLeast(1)
         val frameDuration = (parameters.getOrNull(3) ?: 1).coerceAtLeast(1)
-        val cel = floorMod(frame / frameDuration, celCount)
+        var cel = frame / frameDuration
+        val loopCount = (parameters.getOrNull(9) ?: 0)
+        if (loopCount > 0) cel %= loopCount
+        cel = floorMod(cel, celCount)
         val x = (cel % columns) * cellWidth
         val y = (cel / columns) * cellHeight
         return RectI(x, y, min(bitmapWidth, x + cellWidth), min(bitmapHeight, y + cellHeight))
