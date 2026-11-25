@@ -636,6 +636,34 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun whileLoopCanReferenceTheWhileCommandDirectlyAsInLiveNovelEndWaitPage() {
+        val bytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.whileInit(
+                    LiveMakerLsbFixture.assignInt("counter", 0)
+                ),
+                LiveMakerLsbFixture.whileCondition(
+                    LiveMakerLsbFixture.lessThanVariable("counter", 3),
+                    endIndex = 2
+                ),
+                LiveMakerLsbFixture.command(27, LiveMakerLsbFixture.emptyString(), indent = 1),
+                // This exact layout is used by ノベルシステム\\メッセージボックス\\終了待ち.lsb:
+                // Start=1 references the While command itself rather than WhileInit at 0.
+                LiveMakerLsbFixture.whileLoop(
+                    LiveMakerLsbFixture.incrementVariable("counter"),
+                    startIndex = 1
+                )
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+            assertEquals(3L, vm.variablesSnapshot()["counter"])
+        }
+    }
+
+    @Test
     fun evaluatesPureStringMathAndArrayExpressionFunctions() {
         val bytes = LiveMakerLsbFixture.build(
             commands = listOf(
