@@ -7,14 +7,10 @@ import org.junit.Test
 
 class DirectoryStructureJsonWriterTest {
     @Test
-    fun writesFoldersFilesSizesAndTruncationState() {
+    fun writesOnlyDirectoryPathsAndTruncationState() {
         val report = DirectoryStructureReport(
             rootName = "Visual Novel",
             directories = listOf("assets", "assets/empty", "script"),
-            files = listOf(
-                DirectoryStructureFile("START.lsb", 256L),
-                DirectoryStructureFile("script/main.lsb", null)
-            ),
             truncated = false
         )
 
@@ -22,23 +18,22 @@ class DirectoryStructureJsonWriterTest {
         DirectoryStructureJsonWriter().write(report, writer)
         val json = writer.toString()
 
-        assertTrue(json.contains("\"schemaVersion\": 1"))
+        assertTrue(json.contains("\"schemaVersion\": 2"))
         assertTrue(json.contains("\"rootName\": \"Visual Novel\""))
         assertTrue(json.contains("\"directoryCount\": 3"))
-        assertTrue(json.contains("\"fileCount\": 2"))
         assertTrue(json.contains("\"assets/empty\""))
-        assertTrue(json.contains("\"relativePath\": \"START.lsb\""))
-        assertTrue(json.contains("\"sizeBytes\": 256"))
-        assertTrue(json.contains("\"sizeBytes\": null"))
         assertTrue(json.contains("\"truncated\": false"))
+        assertTrue(json.contains("\"directories\""))
+        assertFalse(json.contains("\"fileCount\""))
+        assertFalse(json.contains("\"files\""))
+        assertFalse(json.contains("\"sizeBytes\""))
     }
 
     @Test
     fun escapesQuotesBackslashesAndControlCharacters() {
         val report = DirectoryStructureReport(
             rootName = "root\"name\nnext",
-            directories = listOf("dir\\part"),
-            files = listOf(DirectoryStructureFile("dir\\part/file\tname.lsb", 1L)),
+            directories = listOf("dir\\part", "dir\tname"),
             truncated = true,
             warnings = listOf("line one\nline two")
         )
@@ -49,8 +44,7 @@ class DirectoryStructureJsonWriterTest {
 
         assertTrue(json.contains("\"rootName\": \"root\\\"name\\nnext\""))
         assertTrue(json.contains("\"dir\\\\part\""))
-        // JSON must contain the escaped tab sequence, not a raw tab.
-        assertTrue(json.contains("file\\tname.lsb"))
+        assertTrue(json.contains("dir\\tname"))
         assertTrue(json.contains("\"line one\\nline two\""))
         assertFalse(json.contains("root\"name\nnext"))
     }

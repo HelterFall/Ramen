@@ -5,17 +5,14 @@ import java.io.IOException
 import java.util.ArrayDeque
 import java.util.Locale
 
-data class DirectoryStructureFile(val relativePath: String, val sizeBytes: Long?)
-
 data class DirectoryStructureReport(
     val rootName: String,
     val directories: List<String>,
-    val files: List<DirectoryStructureFile>,
     val truncated: Boolean,
     val warnings: List<String> = emptyList()
 )
 
-/** Bounded read-only tree walk. File contents are never opened or copied. */
+/** Bounded read-only walk that records directories only; files are ignored. */
 class DirectoryStructureScanner(
     private val maxEntries: Int = DEFAULT_MAX_ENTRIES,
     private val maxDepth: Int = DEFAULT_MAX_DEPTH
@@ -30,7 +27,6 @@ class DirectoryStructureScanner(
         if (!root.isDirectory) throw IOException("The selected item is not a folder.")
 
         val directories = mutableListOf<String>()
-        val files = mutableListOf<DirectoryStructureFile>()
         val warnings = mutableListOf<String>()
         val seenPaths = HashSet<String>()
         val seenSourceIds = HashSet<String>()
@@ -40,14 +36,15 @@ class DirectoryStructureScanner(
         var truncated = false
 
         fun enqueueChildren(children: List<FolderEntryNode>, parentPath: String, depth: Int) {
-            val ordered = children.sortedWith(
-                compareBy<FolderEntryNode> { !it.isDirectory }
-                    .thenBy { it.name.orEmpty() }
-            )
+            // Do not inspect file names, sizes, or contents. Only folders enter the queue.
+            val ordered = children.asSequence()
+                .filter { it.isDirectory }
+                .sortedBy { it.name.orEmpty() }
+                .toList()
             val availableSlots = (maxEntries + 1 - pending.size).coerceAtLeast(0)
             if (ordered.size > availableSlots) {
                 truncated = true
-                warnings += "A directory contains more entries than the scan can queue; some entries may be omitted."
+                warnings += "A directory contains more subfolders than the scan can queue; some folders may be omitted."
             }
             ordered.take(availableSlots).asReversed().forEach { child ->
                 pending.addLast(PendingNode(child, parentPath, depth))
@@ -60,10 +57,11 @@ class DirectoryStructureScanner(
             throw IOException("Could not enumerate the selected folder.", error)
         }
         enqueueChildren(rootChildren, parentPath = "", depth = 1)
+
         while (pending.isNotEmpty()) {
-            if (directories.size + files.size >= maxEntries) {
+            if (directories.size >= maxEntries) {
                 truncated = true
-                warnings += "Directory structure reached the configured limit of $maxEntries entries; additional entries may exist."
+                warnings += "Directory structure reached the configured limit of $maxEntries folders; additional folders may exist."
                 break
             }
 
@@ -76,7 +74,7 @@ class DirectoryStructureScanner(
 
             val sourceId = current.node.sourceId
             if (!sourceId.isNullOrBlank() && !seenSourceIds.add(sourceId)) {
-                throw IOException("The folder provider returned the same item more than once.")
+                throw IOException("The folder provider returned the same directory more than once.")
             }
 
             val segment = validateSegment(current.node.name)
@@ -92,32 +90,25 @@ class DirectoryStructureScanner(
                 throw IOException("The selected folder contains duplicate paths.")
             }
 
-            if (current.node.isDirectory) {
-                directories += relativePath
-                val children = try {
-                    current.node.listChildren()
-                } catch (error: Exception) {
-                    truncated = true
-                    warnings += "Could not enumerate directory: $relativePath."
-                    emptyList()
-                }
+            directories += relativePath
+            val children = try {
+                current.node.listChildren()
+            } catch (error: Exception) {
+                truncated = true
+                warnings += "Could not enumerate directory: $relativePath."
+                emptyList()
+            }
 
-                if (current.depth >= maxDepth) {
-                    if (children.isNotEmpty()) {
-                        truncated = true
-                        warnings += "Directory structure reached the configured depth limit of $maxDepth."
-                    }
-                } else {
-                    enqueueChildren(
-                        children,
-                        parentPath = relativePath,
-                        depth = current.depth + 1
-                    )
+            if (current.depth >= maxDepth) {
+                if (children.any { it.isDirectory }) {
+                    truncated = true
+                    warnings += "Directory structure reached the configured depth limit of $maxDepth."
                 }
             } else {
-                files += DirectoryStructureFile(
-                    relativePath,
-                    current.node.declaredSizeBytes?.takeIf { it >= 0L }
+                enqueueChildren(
+                    children,
+                    parentPath = relativePath,
+                    depth = current.depth + 1
                 )
             }
         }
@@ -125,7 +116,6 @@ class DirectoryStructureScanner(
         return DirectoryStructureReport(
             rootName = root.name?.takeIf { it.isNotBlank() } ?: "game",
             directories = directories,
-            files = files,
             truncated = truncated,
             warnings = warnings.distinct()
         )
@@ -133,15 +123,15 @@ class DirectoryStructureScanner(
 
     private fun validateSegment(rawName: String?): String {
         if (rawName.isNullOrBlank() || rawName.length > MAX_SEGMENT_LENGTH) {
-            throw IOException("The selected folder contains an invalid file name.")
+            throw IOException("The selected folder contains an invalid directory name.")
         }
         if (rawName == "." || rawName == "..") throw IOException("Relative path segments are not allowed.")
         if (rawName.contains('/') || rawName.contains('\\')) {
-            throw IOException("A file name cannot contain path separators.")
+            throw IOException("A directory name cannot contain path separators.")
         }
-        if (rawName.any { it.isISOControl() }) throw IOException("A file name contains control characters.")
+        if (rawName.any { it.isISOControl() }) throw IOException("A directory name contains control characters.")
         if (WINDOWS_DRIVE_PREFIX.containsMatchIn(rawName)) {
-            throw IOException("Drive-prefixed file names are not allowed.")
+            throw IOException("Drive-prefixed directory names are not allowed.")
         }
         return rawName
     }

@@ -8,10 +8,8 @@ import java.nio.charset.StandardCharsets
 import java.util.Locale
 
 /**
- * Writes a compact UTF-8 JSON manifest. The caller retains ownership of the supplied stream.
- *
- * The directories array includes empty folders. The files array contains relative paths and
- * optional metadata only; no file bytes are included in the manifest.
+ * Writes a compact UTF-8 JSON manifest containing directory paths only.
+ * The caller retains ownership of the supplied stream.
  */
 class DirectoryStructureJsonWriter {
     fun write(report: DirectoryStructureReport, output: OutputStream) {
@@ -28,8 +26,6 @@ class DirectoryStructureJsonWriter {
         writer.write(",\n")
         writeNumberProperty(writer, "directoryCount", report.directories.size.toLong())
         writer.write(",\n")
-        writeNumberProperty(writer, "fileCount", report.files.size.toLong())
-        writer.write(",\n")
         writeBooleanProperty(writer, "truncated", report.truncated)
         writer.write(",\n")
         writePropertyName(writer, "warnings")
@@ -37,25 +33,7 @@ class DirectoryStructureJsonWriter {
         writer.write(",\n")
         writePropertyName(writer, "directories")
         writeStringArray(writer, report.directories)
-        writer.write(",\n")
-        writePropertyName(writer, "files")
-        writer.write("[")
-        if (report.files.isNotEmpty()) writer.write("\n")
-        report.files.forEachIndexed { index, file ->
-            writer.write("    {\n")
-            writer.write("      ")
-            writePropertyName(writer, "relativePath")
-            writeQuoted(writer, file.relativePath)
-            writer.write(",\n")
-            writer.write("      ")
-            writePropertyName(writer, "sizeBytes")
-            writer.write(file.sizeBytes?.toString() ?: "null")
-            writer.write("\n    }")
-            if (index != report.files.lastIndex) writer.write(",")
-            writer.write("\n")
-        }
-        writer.write("  ]\n")
-        writer.write("}\n")
+        writer.write("\n}\n")
     }
 
     private fun writeStringProperty(writer: Writer, name: String, value: String) {
@@ -114,7 +92,7 @@ class DirectoryStructureJsonWriter {
     }
 
     companion object {
-        const val SCHEMA_VERSION = 1
+        const val SCHEMA_VERSION = 2
         private const val JSON_MIN_PRINTABLE_CODE = 0x20
     }
 }

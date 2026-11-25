@@ -246,8 +246,7 @@ fun RamenApp(
                             ""
                         }
                         statusMessage =
-                            "JSON сохранён: " + report.directories.size + " папок, " +
-                                report.files.size + " файлов." + partialNote
+                            "JSON сохранён: " + report.directories.size + " папок." + partialNote
                     }
                 } catch (error: Exception) {
                     mainHandler.post {
@@ -278,7 +277,7 @@ fun RamenApp(
                 statusMessage = "Android не предоставил доступ к выбранной папке."
             } else {
                 isExportingStructure = true
-                statusMessage = "Читаю только имена папок и файлов…"
+                statusMessage = "Сканирую только каталоги…"
                 executor.execute {
                     try {
                         val report = SafDirectoryStructureScanner(
@@ -287,8 +286,7 @@ fun RamenApp(
                         mainHandler.post {
                             pendingDirectoryStructure = report
                             statusMessage =
-                                "Найдено " + report.directories.size + " папок и " + report.files.size +
-                                " файлов. Выбери, куда сохранить JSON."
+                                "Найдено " + report.directories.size + " папок. Выбери, куда сохранить JSON."
                             structureJsonSaver.launch("ramen-folder-structure.json")
                         }
                     } catch (error: Exception) {
@@ -560,7 +558,7 @@ private fun DirectoryStructureExportShortcut(
                     text = if (isExporting) {
                         "Сканирую дерево…"
                     } else {
-                        "Сохранить список папок и файлов в JSON"
+                        "Сохранить дерево папок в JSON"
                     },
                     color = RamenText,
                     fontSize = 12.sp

@@ -1,18 +1,16 @@
 package io.github.helterfall.ramen.inspection
 
 import io.github.helterfall.ramen.importer.FolderEntryNode
-import java.io.ByteArrayInputStream
 import java.io.IOException
 import java.io.InputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DirectoryStructureScannerTest {
     @Test
-    fun preservesNestedAndEmptyDirectoriesWithoutReadingFileContents() {
+    fun preservesNestedAndEmptyDirectoriesWhileIgnoringFiles() {
         val root = FakeNode(
             name = "game",
             isDirectory = true,
@@ -22,14 +20,14 @@ class DirectoryStructureScannerTest {
                     isDirectory = true,
                     children = listOf(
                         FakeNode(name = "empty", isDirectory = true),
-                        FakeNode(name = "logo.png", isDirectory = false, declaredSizeBytes = 128L)
+                        FakeNode(name = "logo.png", isDirectory = false, sizeBytes = 128L)
                     )
                 ),
                 FakeNode(
                     name = "scripts",
                     isDirectory = true,
                     children = listOf(
-                        FakeNode(name = "START.lsb", isDirectory = false, declaredSizeBytes = 512L)
+                        FakeNode(name = "START.lsb", isDirectory = false, sizeBytes = 512L)
                     )
                 ),
                 FakeNode(name = "root.dat", isDirectory = false)
@@ -39,19 +37,12 @@ class DirectoryStructureScannerTest {
         val report = DirectoryStructureScanner().scan(root)
 
         assertEquals(listOf("assets", "assets/empty", "scripts"), report.directories)
-        assertEquals(
-            listOf("assets/logo.png", "scripts/START.lsb", "root.dat"),
-            report.files.map { it.relativePath }
-        )
-        assertEquals(128L, report.files[0].sizeBytes)
-        assertNull(report.files[2].sizeBytes)
         assertEquals("game", report.rootName)
         assertFalse(report.truncated)
-        assertEquals(0, root.openStreamCalls)
     }
 
     @Test
-    fun marksReportTruncatedWhenEntryLimitIsReached() {
+    fun entryLimitCountsDirectoriesRatherThanFiles() {
         val root = FakeNode(
             name = "game",
             isDirectory = true,
@@ -59,22 +50,26 @@ class DirectoryStructureScannerTest {
                 FakeNode(
                     name = "a",
                     isDirectory = true,
-                    children = listOf(FakeNode("one.dat", isDirectory = false))
+                    children = listOf(FakeNode("inside", isDirectory = true))
                 ),
-                FakeNode(name = "b.dat", isDirectory = false)
+                FakeNode(name = "b", isDirectory = true),
+                FakeNode(name = "many-files", isDirectory = true, children = listOf(
+                    FakeNode("one.dat", isDirectory = false),
+                    FakeNode("two.dat", isDirectory = false),
+                    FakeNode("three.dat", isDirectory = false)
+                ))
             )
         )
 
         val report = DirectoryStructureScanner(maxEntries = 2).scan(root)
 
-        assertEquals(1, report.directories.size)
-        assertEquals(1, report.files.size)
+        assertEquals(listOf("a", "a/inside"), report.directories)
         assertTrue(report.truncated)
         assertTrue(report.warnings.any { it.contains("limit") })
     }
 
     @Test
-    fun marksReportTruncatedWhenDepthLimitSkipsChildren() {
+    fun marksReportTruncatedWhenDepthLimitSkipsSubdirectories() {
         val root = FakeNode(
             name = "game",
             isDirectory = true,
@@ -100,11 +95,11 @@ class DirectoryStructureScannerTest {
     }
 
     @Test
-    fun rejectsUnsafePathSegments() {
+    fun rejectsUnsafeDirectoryPathSegments() {
         val root = FakeNode(
             name = "game",
             isDirectory = true,
-            children = listOf(FakeNode("../outside.lsb", isDirectory = false))
+            children = listOf(FakeNode("../outside", isDirectory = true))
         )
 
         val error = runCatching { DirectoryStructureScanner().scan(root) }.exceptionOrNull()
@@ -115,17 +110,19 @@ class DirectoryStructureScannerTest {
     private class FakeNode(
         override val name: String?,
         override val isDirectory: Boolean,
-        override val declaredSizeBytes: Long? = null,
+        private val sizeBytes: Long? = null,
         private val children: List<FakeNode> = emptyList()
     ) : FolderEntryNode {
-        var openStreamCalls: Int = 0
-            private set
+        override val declaredSizeBytes: Long?
+            get() {
+                check(isDirectory) { "The directory scanner must not query file sizes." }
+                return sizeBytes
+            }
 
         override fun listChildren(): List<FolderEntryNode> = children
 
         override fun openInputStream(): InputStream {
-            openStreamCalls += 1
-            return ByteArrayInputStream(byteArrayOf())
+            throw AssertionError("The directory scanner must not open file streams.")
         }
     }
 }
