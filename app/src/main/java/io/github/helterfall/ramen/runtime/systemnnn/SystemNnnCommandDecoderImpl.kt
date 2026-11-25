@@ -675,6 +675,8 @@ class SystemNnnCommandDecoderImpl(
                 skipFollowingBranch(script, stream, record)
             )
 
+            CODE_CONTROL_GOTO -> decodeGoto(script, stream, record)
+
             CODE_CONTROL_SUB -> decodeLocalSubroutine(script, stream, record)
 
             CODE_CONTROL_RETURN -> returnFromLocalSubroutine(stream, record)
@@ -720,6 +722,30 @@ class SystemNnnCommandDecoderImpl(
      * through descriptor 3. The target archive confirms the same two operands
      * and valid 0x3333/0x50 or 0x3333/0x51 function targets for every SUB.
      */
+    /**
+     * Native CODE_CONTROL_GOTO stores an absolute DWORD offset into the
+     * demasked SPT image. Convert it to a byte offset and accept only an
+     * already validated command-record boundary; never jump into a payload.
+     */
+    private fun decodeGoto(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.Jump {
+        if (record.payloadWordCount != GOTO_PAYLOAD_WORD_COUNT) {
+            throw IOException("A System-NNN GOTO record must contain exactly one DWORD target.")
+        }
+        val targetWordOffset = readPayloadWord(script, record, GOTO_TARGET_PAYLOAD).toLong()
+        if (targetWordOffset > Long.MAX_VALUE / DWORD_BYTES) {
+            throw IOException("A System-NNN GOTO target overflows the byte-offset range.")
+        }
+        val targetByteOffset = targetWordOffset * DWORD_BYTES
+        if (stream.records.binarySearchBy(targetByteOffset) { it.offset } < 0) {
+            throw IOException("A System-NNN GOTO target is not a validated command boundary.")
+        }
+        return SystemNnnDecodedCommand.Jump(targetByteOffset)
+    }
+
     private fun decodeLocalSubroutine(
         script: SystemNnnScript,
         stream: SystemNnnCommandStream,
@@ -1181,6 +1207,9 @@ class SystemNnnCommandDecoderImpl(
         const val CODE_CONTROL_CASE = 0x0008
         const val CODE_CONTROL_SUB = 0x0009
         const val CODE_CONTROL_RETURN = 0x0007
+        const val CODE_CONTROL_GOTO = 0x0020
+        const val GOTO_PAYLOAD_WORD_COUNT = 1
+        const val GOTO_TARGET_PAYLOAD = 0
         const val LOCAL_SUB_PAYLOAD_WORD_COUNT = 2
         const val LOCAL_SUB_TABLE_INDEX_PAYLOAD = 0
         const val LOCAL_SUB_ID_PAYLOAD = 1
