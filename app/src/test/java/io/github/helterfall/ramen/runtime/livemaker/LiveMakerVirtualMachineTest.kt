@@ -424,7 +424,7 @@ class LiveMakerVirtualMachineTest {
             assertEquals("FL_OUT", event.action)
             assertEquals(listOf("title-logo", "title-background"), event.targetNames)
             assertTrue(event.deleteAfter)
-            assertEquals(listOf(5L, 8L), event.parameters)
+            assertEquals(listOf(5, 8), event.parameters)
             assertEquals(null, event.source)
             assertTrue(event.stopEventProcessing)
             assertEquals(0, event.commandIndex)
