@@ -1,7 +1,6 @@
 package io.github.helterfall.ramen.runtime.hsp3
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
@@ -10,6 +9,7 @@ import android.graphics.PorterDuffXfermode
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import io.github.helterfall.ramen.runtime.MutableArgbBitmapDecoder
 import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
@@ -65,7 +65,14 @@ class Hsp3CanvasRenderer(
     private val logicalWidth: Int = DEFAULT_WIDTH,
     private val logicalHeight: Int = DEFAULT_HEIGHT
 ) : Hsp3Graphics {
-    private data class Surface(val bitmap: Bitmap, val canvas: Canvas)
+    private data class Surface(val bitmap: Bitmap, val canvas: Canvas) {
+        init {
+            check(bitmap.isMutable) { "HSP Canvas surfaces must use mutable bitmaps." }
+            check(bitmap.config == Bitmap.Config.ARGB_8888) {
+                "HSP Canvas surfaces must use ARGB_8888 bitmaps."
+            }
+        }
+    }
     private data class CellGrid(val width: Int, val height: Int, val baseX: Int, val baseY: Int)
 
     private val surfaces = linkedMapOf<Int, Surface>()
@@ -124,7 +131,7 @@ class Hsp3CanvasRenderer(
             throw IOException("Invalid HSP asset name.")
         }
         val stream = openAsset(name) ?: throw IOException("HSP asset '" + name + "' was not found.")
-        val bitmap = stream.use { BitmapFactory.decodeStream(it) }
+        val bitmap = stream.use { MutableArgbBitmapDecoder.decodeStream(it) }
             ?: throw IOException("HSP asset '" + name + "' could not be decoded as a bitmap.")
         when (mode) {
             0 -> {
@@ -140,7 +147,7 @@ class Hsp3CanvasRenderer(
                 bitmap.recycle()
             }
             2 -> {
-                val resized = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+                val resized = MutableArgbBitmapDecoder.create(bitmap.width, bitmap.height)
                 val resizedCanvas = Canvas(resized)
                 resizedCanvas.drawColor(Color.BLACK)
                 resizedCanvas.drawBitmap(bitmap, 0f, 0f, null)
@@ -171,7 +178,7 @@ class Hsp3CanvasRenderer(
             if (surfaces.containsKey(cached)) return cached
         }
         val stream = openAsset(name) ?: throw IOException("HSP celload asset was not found: " + name)
-        val bitmap = stream.use { BitmapFactory.decodeStream(it) }
+        val bitmap = stream.use { MutableArgbBitmapDecoder.decodeStream(it) }
             ?: throw IOException("HSP celload asset could not be decoded: " + name)
         val targetId = if (id >= 0) id else generateSequence(1) { it + 1 }
             .first { !surfaces.containsKey(it) }
@@ -499,7 +506,7 @@ class Hsp3CanvasRenderer(
 
     private fun createSurface(id: Int, width: Int, height: Int) {
         validateDimensions(width, height)
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val bitmap = MutableArgbBitmapDecoder.create(width, height)
         val old = surfaces.put(id, Surface(bitmap, Canvas(bitmap)))
         old?.bitmap?.recycle()
     }
