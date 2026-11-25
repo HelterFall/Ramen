@@ -2,7 +2,7 @@
 
 **Work branch:** `feat/hsp3-dpmx-runtime`  
 **Base:** `main` at `56534a43c76f3567ea46d0dbeb7e8ad5f8e88975`  
-**Status:** parser and runtime foundation; not yet a complete Demonophobia player.
+**Status:** partial HSP3 command decoder, typed VM, Android PlayerActivity and touch gamepad are wired; not yet a complete Demonophobia player.
 
 This note separates implemented code from format observations and unfinished work. No commercial game executable or asset was added to the repository.
 
@@ -13,11 +13,14 @@ This note separates implemented code from format observations and unfinished wor
 | DPMX container parser | `inspection/DpmxContainerParser.kt` | Read-only PE32 section scan, dynamic overlay offset, DPMX header/table validation, entry ranges and PE virtual-address mapping |
 | DPMX decryptor and key resolver | `inspection/DpmxCipher.kt` | Stateful streaming decryption, known sample vectors, injectable PE/.data key derivation and bounded signature search |
 | DPMX decrypted asset stream | `inspection/DpmxDecryptingInputStream.kt` | Decrypts one entry as an InputStream and owns/closes its dedicated positional source |
-| HSP3 bytecode loader | `parser/Hsp3BytecodeLoader.kt` | HSPHED 96-byte base header, CS/DS/OT/DI ranges, bounded segment reads, 16/32-bit token envelope, Shift-JIS DS strings and OT offsets |
+| HSP3 bytecode loader | `parser/Hsp3BytecodeLoader.kt` | HSPHED 96-byte base header, bounded CS/DS/OT/DI, 16/32-bit tokens, EXFLG flags, raw if/else branch word, Shift-JIS DS strings, little-endian doubles and word-based OT offsets |
+| CS expression/argument decoder | `runtime/hsp3/Hsp3BytecodeDecoder.kt` | EXFLG_1 command heads, EXFLG_2 parameter boundaries/defaults, EXFLG_3 wide values, postfix integer/double/string/variable/sysvar/label expressions, core branch/loop commands and basic assignment/getkey decoding |
+| Android player host | `runtime/hsp3/Hsp3PlayerActivity.kt` | Private-library executable lookup, background DPMX/start.ax preparation, Canvas presentation, bounded VM slices and Activity lifecycle |
+| Touch gamepad | `runtime/hsp3/Hsp3PlayerActivity.kt` | OpenHSP stick bits for D-pad, Enter/Z, Esc/X and Space, held-key state exposed to stick/getkey |
 | Canvas renderer | `runtime/hsp3/Hsp3CanvasRenderer.kt` | 800x600 default coordinate surface, screen/buffer IDs, gsel, picload, gcopy, boxf, mes, pos, color, font, gmode 0/2/3/5 and redraw presentation gate |
-| VM intermediate instruction loop | `runtime/hsp3/Hsp3VirtualMachine.kt` | Bounded slices, scalar integer variables, branches, gosub/return, repeat/loop/break/continue, wait/yield, stick and graphics IR dispatch |
-| Runtime adapter | `runtime/hsp3/Hsp3RuntimeAdapter.kt` | PE/DPMX preparation, start.ax key resolution/decryption, HSP3 load, on-demand decrypted assets and injectable instruction decoder |
-| Engine detection | `importer/VisualNovelDetector.kt` | Reports HSP3 parser availability only after DPMX, start.ax, HSPHED and token-envelope validation |
+| VM intermediate instruction loop | `runtime/hsp3/Hsp3VirtualMachine.kt` | Typed scalar int/double/string values, postfix evaluation, arithmetic/comparison/bitwise operators, assignments, branches, gosub/return, repeat/loop, wait/yield, getkey/stick and graphics dispatch |
+| Runtime adapter | `runtime/hsp3/Hsp3RuntimeAdapter.kt` | PE/DPMX preparation, start.ax key resolution/decryption, HSP3 load, on-demand decrypted assets and default OpenHSP decoder → VM wiring |
+| Engine detection | `importer/VisualNovelDetector.kt` | Requires DPMX/start.ax/HSPHED validation plus successful CS command decoding before exposing the HSP3 launch status |
 
 The project remains in its existing `:app` Gradle module. No new Gradle module was created, consistent with the repository handoff rules.
 
@@ -57,8 +60,11 @@ The loader reads the 96-byte HSP3.1 HSPHED base layout, validates `allsize`, and
 
 The token iterator reads the common token envelope:
 - token type: low 12 bits of the first 16-bit word;
-- extension flags: `0x6000`;
-- `0x8000` marks a 32-bit value; otherwise the value is 16-bit.
+- extension flags: `EXFLG_0=0x1000`, `EXFLG_1=0x2000`, `EXFLG_2=0x4000`;
+- `EXFLG_3=0x8000` marks a 32-bit value; otherwise the value is 16-bit;
+- `TYPE_CMPCMD` carries an extra raw 16-bit branch-distance word after its command token.
+  
+OT entries are 32-bit offsets in 16-bit CS words, so the loader converts them to byte offsets when resolving labels.
 
 It also exposes bounded NUL-terminated Shift-JIS string lookup in DS and 32-bit offsets from OT. This is a token-envelope parser, not a complete HSP3 language parser.
 
@@ -74,15 +80,15 @@ The renderer implements the initial target set:
 
 The screen is initially 800x600 and is letterboxed without changing its aspect ratio. Offscreen surfaces have independent IDs and are bounded by dimension/pixel limits.
 
-The VM consumes a typed IR (`Hsp3Instruction`). Command IDs from the OpenHSP dispatcher are listed in `Hsp3CommandIds`, but the real HSP3 command parameter grammar has not yet been decoded. The `Hsp3InstructionDecoder` interface is deliberately injectable. The adapter cannot execute arbitrary raw `.ax` token streams until a correct decoder is supplied.
+The VM consumes a typed IR (`Hsp3Instruction`). `Hsp3BytecodeDecoder` is now the default decoder in `Hsp3RuntimeAdapter.createSession`. It reads command heads and argument groups from CS, builds postfix expression trees, and resolves OT labels to command boundaries. Implemented command coverage includes basic assignments, goto/gosub/return, repeat/loop/break/continue, wait/await, if/else branches, getkey, and the initial graphics/input command subset (mes, pos, font, picload, color, redraw, gsel, gcopy, gmode, screen, buffer, boxf, stick).
 
-The initial VM uses integer variables for control-flow tests. Full HSP variable types, arrays, expression evaluation, all conditional forms, filesystem commands, and save/load semantics are not yet implemented. The `wait` instruction yields to the host; Android frame/tick scheduling is still a host integration task.
+The decoder is intentionally strict. Unknown command types/IDs are preserved as unsupported VM instructions or rejected rather than guessed. Expressions currently cover scalar integer/double/string literals, scalar variable references, selected system variables and the OpenHSP postfix binary operators. Array indexing, function-call expressions, module/DLL tokens, dynamic repeat expressions, and the full HSP variable model are not implemented. The Android host schedules bounded VM slices and wait delays; it does not emulate every platform service offered by Windows OpenHSP.
 
 ## Detection and user-facing behavior
 
 `VisualNovelDetector` recognizes an HSP3 game only when an `.exe` in the imported folder passes the DPMX parser and its `start.ax` passes key resolution, HSPHED validation and token iteration.
 
-The status is `PARSER_AVAILABLE`, and the evidence text explicitly says the command-argument decoder and playback Activity are not connected. Existing UI logic does not show a Launch button for `hsp3-dpmx`, so this parser work cannot be mistaken for working game playback.
+The detector now requires the CS decoder to complete before reporting `PARSER_AVAILABLE`. The library shows a Launch button for `hsp3-dpmx` and starts `Hsp3PlayerActivity`, which creates a Canvas-backed 800x600 surface, runs bounded VM slices, and overlays D-pad / Enter-Z / Esc-X / Space touch controls. This proves the Android launch path is wired; it does not prove that an arbitrary HSP3 title or Demonophobia's complete script is compatible.
 
 ## Tests added
 
@@ -91,21 +97,21 @@ Synthetic fixtures cover:
 - entry parsing, entry range checks and PE VA-to-file-offset mapping;
 - stateful decryption across very small read buffers;
 - known `start.ax` vector and BMP signature auto-detection;
-- HSPHED fields, CS/DS/OT/DI reads, narrow/wide tokens, DS string and OT label lookup;
+- HSPHED fields, CS/DS/OT/DI reads, narrow/wide tokens, EXFLG command heads, Shift-JIS strings, double literals and word-based OT label offsets;
+- postfix arithmetic/bitwise/comparison expression decoding, argument boundaries, getkey and decoded command-to-VM dispatch;
 - malformed HSP header/segment/token rejection;
-- VM graphics dispatch, repeat/gosub, stick rising-edge behavior and unsupported-command failure;
+- VM graphics dispatch, typed expression evaluation, assignments, repeat/gosub, stick rising-edge behavior, wait yields and unsupported-command failure;
 - DPMX-to-HSP preparation and detector status.
 
 The fixtures are generated by unit tests; they do not contain or redistribute Demonophobia assets.
 
-## Remaining work before Demonophobia playback
+## Remaining work before claiming Demonophobia compatibility
 
-1. Recover and independently validate the exact `.data` key arithmetic at the supplied PE virtual-address range, using several known file-key/plaintext pairs.
-2. Implement the HSP3 expression, argument, command and control-flow decoder against the actual HSP 3.1 token grammar. Preserve unknown-token failures rather than guessing.
-3. Decode all required graphics/input commands used by `demono.hsp`; add `gzoom`, `grotate`, `celput`, the remaining gmode behavior, and any additional drawing state found in the script.
-4. Implement HSP variable types, arrays, arithmetic/comparison operations, conditional branches, file I/O and wait timing needed by the target script.
-5. Add an Android player Activity/ViewModel host, lifecycle handling, touch/gamepad mapping, and a real imported-game end-to-end test.
-6. Verify the first rendered scene and resource lookup against the real game on an Android device.
+1. Recover and independently validate the exact PE `.data` key arithmetic at the supplied virtual-address range. The strategy hook is present, but the formula was not supplied and must not be guessed.
+2. Validate the decoder against real HSP 3.1 `start.ax` files. Current command/argument support is a useful subset, not the entire OpenHSP grammar: arrays, function-call expressions, module/DLL tokens, additional system variables and dynamic repeat expressions remain unsupported.
+3. Decode the additional graphics/input operations actually used by `demono.hsp`, including `gzoom`, `grotate`, `celput`, other gmode variants and any additional drawing state.
+4. Add the filesystem, audio, save/load and other platform-facing services needed by the target script.
+5. Run an end-to-end test with an unmodified Demonophobia installation and verify the first scene, resource lookups, branching, input and wait timing on an Android device.
 
 Until those steps pass, the implementation should be described as **HSP3.1/DPMX parser and runtime foundation**, not full Demonophobia compatibility.
 
