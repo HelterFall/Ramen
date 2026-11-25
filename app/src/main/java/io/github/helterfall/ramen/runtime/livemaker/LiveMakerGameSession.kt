@@ -264,9 +264,46 @@ class LiveMakerGameSession(
 
     fun deleteObject(name: String): Boolean = objectStore.remove(name)
 
-    /** Dispatch a click/selection callback stored on a named scene component. */
+    /** Dispatch a local label handler stored on a named scene component. */
     fun triggerObjectEvent(name: String, propertyId: Int): Boolean =
         vm.triggerObjectEvent(name, propertyId)
+
+    /**
+     * Invoke a component callback stored as an external .lsc/.lsb page reference.
+     * Compiled LSB properties commonly retain the .lsc source suffix; repositories
+     * normalize it to the corresponding compiled .lsb page when loading.
+     */
+    @Throws(IOException::class)
+    fun invokeObjectCallback(
+        name: String,
+        propertyId: Int,
+        arguments: List<Any?> = emptyList(),
+        senderName: String = name
+    ): Boolean {
+        val snapshot = objectStore.snapshot(name) ?: return false
+        val handler = snapshot.properties[propertyId] ?: return false
+        if (handler is Number) return vm.triggerObjectEvent(name, propertyId)
+        val pageReference = handler.toString().takeIf { it.isNotBlank() } ?: return false
+        val looksLikePage = pageReference.contains('/') ||
+            pageReference.contains('\\') ||
+            pageReference.endsWith(".lsc", ignoreCase = true) ||
+            pageReference.endsWith(".lsb", ignoreCase = true)
+        if (!looksLikePage) return vm.triggerObjectEvent(name, propertyId)
+
+        val destination = try {
+            pageRepository.loadPage(pageReference)
+        } catch (_: LiveMakerPageNotFoundException) {
+            return false
+        }
+        vm.invokeCallbackScript(
+            newScript = destination,
+            entryCommandIndex = 0,
+            scriptIdentifier = pageReference,
+            commandLineArguments = arguments,
+            senderName = senderName
+        )
+        return true
+    }
 
     fun evaluateExpression(
         expression: io.github.helterfall.ramen.inspection.LiveMakerExpression
@@ -337,12 +374,18 @@ class LiveMakerGameSession(
             throw IOException("The destination LiveMaker page has an incomplete LSB parse.")
         }
         val commandIndex = resolveCommandIndex(destination, transfer.labelIndex, transfer.page)
+        val callArguments = if (transfer.isCall) {
+            vm.evaluateExpressions(transfer.arguments)
+        } else {
+            emptyList()
+        }
         vm.loadTransferredScript(
             newScript = destination,
             entryCommandIndex = commandIndex,
             isCall = transfer.isCall,
             returnVariable = transfer.returnVariable,
-            scriptIdentifier = transfer.page
+            scriptIdentifier = transfer.page,
+            commandLineArguments = callArguments
         )
         pendingTransfer = null
         return LiveMakerSessionEvent.PageEntered(
