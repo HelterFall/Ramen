@@ -393,6 +393,53 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun zeroDurationWaitYieldsAnUnboundedHostWaitInsteadOfFallingThrough() {
+        val bytes = LiveMakerLsbFixture.build(
+            version = 107,
+            commands = listOf(
+                LiveMakerLsbFixture.wait(
+                    milliseconds = 0,
+                    shouldWait = true,
+                    stopEventProcessing = false
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            val wait = vm.runUntilEvent() as LiveMakerVmEvent.Delay
+
+            assertEquals(0L, wait.milliseconds)
+            assertEquals(false, wait.stopEventProcessing)
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.AwaitingHost)
+
+            vm.resume()
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+        }
+    }
+
+    @Test
+    fun zeroDurationWaitWithFalseConditionDoesNotBlock() {
+        val bytes = LiveMakerLsbFixture.build(
+            version = 107,
+            commands = listOf(
+                LiveMakerLsbFixture.wait(
+                    milliseconds = 0,
+                    shouldWait = false,
+                    stopEventProcessing = true
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+        }
+    }
+
+    @Test
     fun textInsDoesNotWaitWhenStopEventIsFalseInVersion107() {
         val bytes = LiveMakerLsbFixture.build(
             version = 107,
