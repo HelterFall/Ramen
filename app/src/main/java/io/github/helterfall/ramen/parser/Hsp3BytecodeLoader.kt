@@ -4,6 +4,8 @@ import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import java.io.EOFException
 import java.io.File
 import java.io.IOException
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import java.nio.charset.Charset
 
 data class Hsp3Segment(
@@ -96,6 +98,14 @@ class Hsp3Program internal constructor(
                 )
             )
             cursor += tokenSize
+            // OpenHSP's TYPE_CMPCMD dispatcher consumes one raw 16-bit
+            // branch-distance word immediately after the command token.
+            if (type == TYPE_CMPCMD) {
+                if (code.size - cursor < 2) {
+                    throw IOException("The HSP if/else command is missing its raw branch offset.")
+                }
+                cursor += 2
+            }
         }
     }
 
@@ -116,6 +126,17 @@ class Hsp3Program internal constructor(
         return String(dataSegment.bytes, start, end - start, SHIFT_JIS)
     }
 
+    /** Reads an IEEE-754 little-endian double from the Data Segment. */
+    @Throws(IOException::class)
+    fun doubleAt(dataOffset: Long): Double {
+        if (dataOffset < 0L || dataOffset > dataSegment.sizeBytes.toLong() - java.lang.Double.BYTES) {
+            throw IOException("The HSP3 double offset is outside the Data Segment.")
+        }
+        return ByteBuffer.wrap(dataSegment.bytes, dataOffset.toInt(), java.lang.Double.BYTES)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .double
+    }
+
     /**
      * Reads one 32-bit label/code offset from Object Temp. HSP stores this
      * segment as an int table; max_ot is a byte size, not an entry count.
@@ -127,11 +148,13 @@ class Hsp3Program internal constructor(
         if (byteOffset > objectTempSegment.sizeBytes.toLong() - UInt.SIZE_BYTES) {
             throw IOException("The HSP3 label index is outside Object Temp.")
         }
-        val value = readUInt32(objectTempSegment.bytes, byteOffset.toInt())
-        if (value >= header.codeSizeBytes) {
+        // OpenHSP indexes mem_mcs as unsigned-short words, not bytes.
+        val wordOffset = readUInt32(objectTempSegment.bytes, byteOffset.toInt())
+        val byteCodeOffset = wordOffset * 2L
+        if (byteCodeOffset >= header.codeSizeBytes) {
             throw IOException("The HSP3 label points outside the Code Segment.")
         }
-        return value
+        return byteCodeOffset
     }
 
     companion object {
@@ -139,8 +162,9 @@ class Hsp3Program internal constructor(
         private const val TOKEN_16BIT_SIZE_BYTES = 4
         private const val TOKEN_32BIT_SIZE_BYTES = 6
         private const val TOKEN_TYPE_MASK = 0x0FFF
-        private const val TOKEN_EXTENSION_FLAGS_MASK = 0x6000
+        private const val TOKEN_EXTENSION_FLAGS_MASK = 0x7000
         private const val TOKEN_32BIT_VALUE_FLAG = 0x8000
+        private const val TYPE_CMPCMD = 11
         private const val DEFAULT_MAX_STRING_BYTES = 1024 * 1024
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
 
