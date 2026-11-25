@@ -1459,17 +1459,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                         ?.toString()
                         ?.takeIf { it.isNotBlank() }
                         ?: "メッセージボックス"
-                    val callbackStarted = session.invokeObjectCallback(
-                        name = targetName,
-                        propertyId = LiveMakerObjectStore.PR_ONNOTIFY,
-                        arguments = listOf("MESEND"),
-                        senderName = targetName
-                    )
-                    if (!callbackStarted) {
-                        // Some games omit the helper callback on special system messages.
-                        // Preserve the documented completion signal as a safe fallback.
-                        session.setVariable("__メッセージ終了", 1)
-                    }
+                    dispatchLiveMakerMessageEnd(session, targetName)
                 }
                 mainHandler.post {
                     if (!isFinishing && !isDestroyed) {
