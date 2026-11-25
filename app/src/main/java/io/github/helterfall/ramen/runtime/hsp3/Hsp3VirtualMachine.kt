@@ -940,6 +940,7 @@ class Hsp3VirtualMachine(
         private const val DEFAULT_INSTRUCTION_BUDGET = 10_000
         private const val DEFAULT_WAIT_MS = 100L
         private const val BUDGET_YIELD_MS = 16L
+        private const val MAX_WAIT_MS = 60_000L
         private const val MAX_ARRAY_DIMENSION = 65_536
         private const val MAX_ARRAY_ELEMENTS = 1_000_000L
         private const val DEFAULT_STRING_BUFFER_SIZE = 64
