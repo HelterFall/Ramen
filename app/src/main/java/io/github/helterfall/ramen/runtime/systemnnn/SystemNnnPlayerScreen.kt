@@ -816,9 +816,14 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                 val y2 = parameters.getOrNull(5) ?: y1
                 val putX = x1 + ((x2 - x1) * positionProgress)
                 val putY = y1 + ((y2 - y1) * positionProgress)
+                val transparencyMode = parameters.getOrNull(8) ?: 1
                 val alphaStart = (parameters.getOrNull(11) ?: 100).coerceIn(0, 100)
                 val alphaEnd = (parameters.getOrNull(10) ?: 100).coerceIn(0, 100)
-                val partAlpha = (alphaStart + (alphaEnd - alphaStart) * positionProgress) / 100f
+                val partAlpha = if (transparencyMode == 2) {
+                    (alphaStart + (alphaEnd - alphaStart) * positionProgress) / 100f
+                } else {
+                    1f
+                }
                 Canvas(Modifier.fillMaxSize()) {
                     if (sourceRect.width > 0 && sourceRect.height > 0) {
                         val dstWidth = (sourceRect.width * size.width / safeReferenceWidth).roundToInt().coerceAtLeast(1)
@@ -851,13 +856,23 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                     offsets.forEach { offset ->
                         val x = (offset.x * size.width / safeReferenceWidth).roundToInt()
                         val y = (offset.y * size.height / safeReferenceHeight).roundToInt()
-                        for (rx in -1..1) for (ry in -1..1) {
-                            drawImage(
-                                image = image,
-                                dstOffset = IntOffset(x + rx * dstWidth, y + ry * dstHeight),
-                                dstSize = IntSize(dstWidth, dstHeight),
-                                alpha = offset.alpha
-                            )
+                        val firstColumn = if (offset.x > 0) -1 else 0
+                        val firstRow = if (offset.y > 0) -1 else 0
+                        val lastColumn = if (x + dstWidth < size.width) {
+                            (size.width.toInt() - (x + dstWidth) + dstWidth - 1) / dstWidth
+                        } else 0
+                        val lastRow = if (y + dstHeight < size.height) {
+                            (size.height.toInt() - (y + dstHeight) + dstHeight - 1) / dstHeight
+                        } else 0
+                        for (row in firstRow..lastRow) {
+                            for (column in firstColumn..lastColumn) {
+                                drawImage(
+                                    image = image,
+                                    dstOffset = IntOffset(x + column * dstWidth, y + row * dstHeight),
+                                    dstSize = IntSize(dstWidth, dstHeight),
+                                    alpha = offset.alpha
+                                )
+                            }
                         }
                     }
                 }
