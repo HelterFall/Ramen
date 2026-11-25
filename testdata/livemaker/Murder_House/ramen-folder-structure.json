@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "rootName": "Murder_House",
+  "directoryCount": 0,
+  "fileCount": 12,
+  "truncated": false,
+  "warnings": [],
+  "directories": [],
+  "files": [
+    { "relativePath": "Game.exe", "sizeBytes": 178946949 },
+    { "relativePath": "RamenWine-diagnostics (1).txt", "sizeBytes": 365782 },
+    { "relativePath": "RamenWine-diagnostics (2).txt", "sizeBytes": 12461 },
+    { "relativePath": "RamenWine-diagnostics (3).txt", "sizeBytes": 213779 },
+    { "relativePath": "RamenWine-diagnostics (4).txt", "sizeBytes": 174941 },
+    { "relativePath": "RamenWine-diagnostics.txt", "sizeBytes": 363101 },
+    { "relativePath": "fackin cotton pp.jpg", "sizeBytes": 19972 },
+    { "relativePath": "jopa.zip", "sizeBytes": 190639 },
+    { "relativePath": "live.dll", "sizeBytes": 364544 },
+    { "relativePath": "save.dat", "sizeBytes": 1102 },
+    { "relativePath": "はじめにお読み下さい.txt", "sizeBytes": 1429 },
+    { "relativePath": "サークルＴＯＰページへ.URL", "sizeBytes": 90 }
+  ]
+}
