@@ -80,7 +80,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         program: Hsp3Program
     ): Hsp3Expression? {
         if (tokens.isEmpty()) return null
-        if (tokens.size == 1 && tokens[0].type == TYPE_MARK && tokens[0].value == OMITTED_ARGUMENT_MARK) {
+        if (tokens.size == 1 && tokens[0].type == TYPE_MARK && tokens[0].value == OMITTED_ARGUMENT_MARK.toLong()) {
             return null
         }
 
