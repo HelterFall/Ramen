@@ -49,6 +49,7 @@ class DirectoryStructureJsonWriterTest {
 
         assertTrue(json.contains("\"rootName\": \"root\\\"name\\nnext\""))
         assertTrue(json.contains("\"dir\\\\part\""))
+        // JSON must contain the escaped tab sequence, not a raw tab.
         assertTrue(json.contains("file\\tname.lsb"))
         assertTrue(json.contains("\"line one\\nline two\""))
         assertFalse(json.contains("root\"name\nnext"))
