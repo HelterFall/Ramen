@@ -119,7 +119,21 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 }
                 TYPE_VAR -> {
                     val variable = checkedIndex(token.value, program.header.maxValueCount, "variable")
-                    stack.addLast(Hsp3ExpressionNode.Variable(variable))
+                    val next = tokens.getOrNull(cursor + 1)
+                    if (next?.type == TYPE_MARK && next.value == '('.code.toLong()) {
+                        val (argumentExpressions, nextCursor) = readParenthesizedArguments(
+                            tokens,
+                            cursor + 1,
+                            program
+                        )
+                        val indices = argumentExpressions.map { expression ->
+                            expression ?: throw IOException("An HSP array index cannot be omitted.")
+                        }
+                        stack.addLast(Hsp3ExpressionNode.Variable(variable, indices))
+                        cursor = nextCursor - 1
+                    } else {
+                        stack.addLast(Hsp3ExpressionNode.Variable(variable))
+                    }
                 }
                 TYPE_STRING -> {
                     stack.addLast(Hsp3ExpressionNode.Literal(
@@ -150,7 +164,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                     stack.addLast(Hsp3ExpressionNode.SystemVariable(token.value.toInt()))
                 }
                 TYPE_INTFUNC -> {
-                    val (arguments, nextCursor) = readFunctionArguments(
+                    val (arguments, nextCursor) = readParenthesizedArguments(
                         tokens,
                         cursor + 1,
                         program
@@ -175,7 +189,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
      * Its argument list uses the same EXFLG_2/default convention as command
      * parameters, and nested calls are skipped by matching parenthesis markers.
      */
-    private fun readFunctionArguments(
+    private fun readParenthesizedArguments(
         tokens: List<Hsp3Token>,
         openIndex: Int,
         program: Hsp3Program
@@ -233,7 +247,11 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                     val keyCode = args.getOrNull(1)
                         ?: constantExpression(Hsp3RuntimeValue.IntegerValue(1))
                     PendingInstruction(pc) { _, _ ->
-                        Hsp3Instruction.GetKey(destination, keyCode)
+                        Hsp3Instruction.GetKey(
+                            destinationVariable = destination.index,
+                            keyCode = keyCode,
+                            destinationIndices = destination.indices
+                        )
                     }
                 } else {
                     PendingInstruction(pc) { _, _ ->
@@ -289,6 +307,16 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             }
             PROGCMD_LOOP -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.Loop }
             PROGCMD_CONTINUE -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.Continue }
+            PROGCMD_DIM, PROGCMD_SDIM -> {
+                val destination = requiredVariable(args.firstOrNull(), "dim destination")
+                if (destination.indices.isNotEmpty()) {
+                    throw IOException("HSP dim/sdim requires a plain variable, not an array element.")
+                }
+                val dimensions = args.drop(1).take(4)
+                PendingInstruction(pc) { _, _ ->
+                    Hsp3Instruction.Dimension(destination.index, dimensions)
+                }
+            }
             PROGCMD_WAIT -> {
                 val wait = args.firstOrNull()?.constantIntOrNull() ?: 100
                 PendingInstruction(pc) { _, _ ->
@@ -349,7 +377,19 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
     ): PendingInstruction {
         val variable = checkedIndex(command.value, program.header.maxValueCount, "assignment variable")
         val firstGroup = argumentGroups.firstOrNull().orEmpty()
-        val operatorToken = firstGroup.firstOrNull()
+        var cursor = 0
+        val arrayIndices = if (
+            firstGroup.getOrNull(cursor)?.let { it.type == TYPE_MARK && it.value == '('.code.toLong() } == true
+        ) {
+            val (indices, nextCursor) = readParenthesizedArguments(firstGroup, cursor, program)
+            cursor = nextCursor
+            indices.map { expression ->
+                expression ?: throw IOException("An HSP array assignment index cannot be omitted.")
+            }
+        } else {
+            emptyList()
+        }
+        val operatorToken = firstGroup.getOrNull(cursor)
             ?: throw IOException("An HSP variable assignment is missing its operator token.")
         if (operatorToken.type != TYPE_MARK) {
             throw IOException("An HSP variable assignment is missing its TYPE_MARK operator.")
@@ -358,7 +398,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         if (operator !in CALCCODE_ADD..CALCCODE_LR) {
             throw IOException("Unsupported HSP assignment operator $operator.")
         }
-        val expressionTokens = firstGroup.drop(1)
+        val expressionTokens = firstGroup.drop(cursor + 1)
         val expression = if (expressionTokens.isEmpty()) {
             constantExpression(Hsp3RuntimeValue.IntegerValue(1))
         } else {
@@ -369,13 +409,13 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             throw IOException("An HSP assignment contains an unexpected extra argument.")
         }
         return PendingInstruction(command.codeOffset) { _, _ ->
-            Hsp3Instruction.Assign(variable, operator, expression)
+            Hsp3Instruction.Assign(variable, operator, expression, arrayIndices)
         }
     }
 
-    private fun requiredVariable(expression: Hsp3Expression?, label: String): Int =
-        expression?.singleVariableReference()
-            ?: throw IOException("The HSP $label must be a scalar variable.")
+    private fun requiredVariable(expression: Hsp3Expression?, label: String): Hsp3VariableReference =
+        expression?.variableReferenceOrNull()
+            ?: throw IOException("The HSP $label must be a variable reference.")
 
     private fun requiredLabelOffset(
         program: Hsp3Program,
@@ -462,6 +502,8 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         const val PROGCMD_REPEAT = 0x04
         const val PROGCMD_LOOP = 0x05
         const val PROGCMD_CONTINUE = 0x06
+        const val PROGCMD_DIM = 0x09
+        const val PROGCMD_SDIM = 0x0A
         const val PROGCMD_WAIT = 0x07
         const val PROGCMD_AWAIT = 0x08
         const val PROGCMD_END = 0x10
@@ -494,9 +536,17 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
     }
 }
 
+data class Hsp3VariableReference(
+    val index: Int,
+    val indices: List<Hsp3Expression>
+)
+
 sealed class Hsp3ExpressionNode {
     data class Literal(val value: Hsp3RuntimeValue) : Hsp3ExpressionNode()
-    data class Variable(val index: Int) : Hsp3ExpressionNode()
+    data class Variable(
+        val index: Int,
+        val indices: List<Hsp3Expression> = emptyList()
+    ) : Hsp3ExpressionNode()
     data class SystemVariable(val index: Int) : Hsp3ExpressionNode()
     data class Function(val id: Int, val arguments: List<Hsp3Expression?>) : Hsp3ExpressionNode()
     data class Binary(
@@ -546,7 +596,12 @@ class Hsp3Expression internal constructor(
     ): Hsp3RuntimeValue = evaluateNode(root, variable, systemVariable, function)
 
     fun singleVariableReference(): Int? =
-        (root as? Hsp3ExpressionNode.Variable)?.index
+        (root as? Hsp3ExpressionNode.Variable)?.takeIf { it.indices.isEmpty() }?.index
+
+    fun variableReferenceOrNull(): Hsp3VariableReference? =
+        (root as? Hsp3ExpressionNode.Variable)?.let {
+            Hsp3VariableReference(it.index, it.indices)
+        }
 
     fun constantValueOrNull(): Hsp3RuntimeValue? =
         (root as? Hsp3ExpressionNode.Literal)?.value
