@@ -127,7 +127,12 @@ class LiveMakerStartupScriptResolver(
         private const val MAX_TEXT_FILE_BYTES = 8L * 1024L * 1024L
         private val ARCHIVE_EXTENSIONS = setOf("exe", "dat", "vf", "ext")
 
-        /** Prefer ゲームメイン.lsb, then ノベルシステム/START.lsb, then the first LSB. */
+        /**
+         * A root START.lsb is the actual game bootstrap: it initializes display/audio
+         * settings and game lists, then transfers to ゲームメイン.lsb. Starting the
+         * latter directly skips those required initialization commands. Some older
+         * packages omit root START.lsb, so retain the game-main and nested START fallbacks.
+         */
         fun selectStartupPage(pageReferences: List<String>): String? {
             val candidates = pageReferences
                 .map { it.replace('\\', '/') }
@@ -136,9 +141,10 @@ class LiveMakerStartupScriptResolver(
             return candidates.minWithOrNull(
                 compareBy<String> { path ->
                     when {
-                        path.substringAfterLast('/').equals("ゲームメイン.lsb", ignoreCase = true) -> 0
-                        path.equals("ノベルシステム/START.lsb", ignoreCase = true) -> 1
-                        else -> 2
+                        path.equals("START.lsb", ignoreCase = true) -> 0
+                        path.substringAfterLast('/').equals("ゲームメイン.lsb", ignoreCase = true) -> 1
+                        path.equals("ノベルシステム/START.lsb", ignoreCase = true) -> 2
+                        else -> 3
                     }
                 }.thenBy { it.lowercase() }.thenBy { it }
             )
