@@ -65,9 +65,9 @@ class DpmxAssetRepository(
  * Ramen-side HSP3 adapter boundary for PE32+DPMX executables.
  *
  * prepare() identifies and decrypts start.ax in a bounded in-memory script
- * buffer, then hands that bytecode to Hsp3BytecodeLoader. A platform-neutral
- * instruction decoder remains injectable because the HSP expression and
- * command-parameter grammar is not represented by the token envelope alone.
+ * buffer, then hands that bytecode to Hsp3BytecodeLoader. createSession()
+ * defaults to the OpenHSP CS decoder; an alternate decoder can still be
+ * injected for validation or future compatibility profiles.
  */
 class Hsp3RuntimeAdapter(
     private val containerParser: DpmxContainerParser = DpmxContainerParser(),
