@@ -205,8 +205,14 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         val pc = command.codeOffset
         val commandId = command.value.toInt()
         return when (command.type) {
-            TYPE_EXTCMD -> PendingInstruction(pc) { _, _ ->
-                Hsp3Instruction.NativeCommand(TYPE_EXTCMD, commandId, args)
+            TYPE_EXTCMD -> if (commandId in SUPPORTED_EXT_COMMANDS) {
+                PendingInstruction(pc) { _, _ ->
+                    Hsp3Instruction.NativeCommand(TYPE_EXTCMD, commandId, args)
+                }
+            } else {
+                PendingInstruction(pc) { _, _ ->
+                    Hsp3Instruction.Unsupported(TYPE_EXTCMD, commandId)
+                }
             }
             TYPE_INTCMD -> {
                 if (commandId == INTCMD_GETKEY) {
@@ -303,18 +309,23 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         }
         val id = command.value.toInt()
         val pc = command.codeOffset
-        if (id == CMP_CMD_IF) {
-            val condition = args.firstOrNull()
-                ?: throw IOException("The HSP if command has no condition expression.")
-            return PendingInstruction(pc) { addressMap, count ->
-                Hsp3Instruction.JumpIfFalse(
-                    condition,
-                    resolveTarget(branchTarget.toInt(), addressMap, count, program.codeSegment.sizeBytes)
-                )
-            }
+        val targetInstruction = { addressMap: Map<Int, Int>, count: Int ->
+            resolveTarget(branchTarget.toInt(), addressMap, count, program.codeSegment.sizeBytes)
         }
-        return PendingInstruction(pc) { addressMap, count ->
-            Hsp3Instruction.Jump(resolveTarget(branchTarget.toInt(), addressMap, count, program.codeSegment.sizeBytes))
+        return when (id) {
+            CMP_CMD_IF -> {
+                val condition = args.firstOrNull()
+                    ?: throw IOException("The HSP if command has no condition expression.")
+                PendingInstruction(pc) { addressMap, count ->
+                    Hsp3Instruction.JumpIfFalse(condition, targetInstruction(addressMap, count))
+                }
+            }
+            CMP_CMD_ELSE -> PendingInstruction(pc) { addressMap, count ->
+                Hsp3Instruction.Jump(targetInstruction(addressMap, count))
+            }
+            else -> PendingInstruction(pc) { _, _ ->
+                Hsp3Instruction.Unsupported(TYPE_CMPCMD, id)
+            }
         }
     }
 
@@ -430,6 +441,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
 
         const val INTCMD_GETKEY = 0x23
         const val CMP_CMD_IF = 0
+        const val CMP_CMD_ELSE = 1
         const val PROGCMD_GOTO = 0x00
         const val PROGCMD_GOSUB = 0x01
         const val PROGCMD_RETURN = 0x02
@@ -447,6 +459,21 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         private const val MAX_WAIT_MS = 60_000L
         private val COMMAND_TYPES = setOf(
             TYPE_VAR, TYPE_INTCMD, TYPE_EXTCMD, TYPE_CMPCMD, TYPE_PROGCMD
+        )
+        private val SUPPORTED_EXT_COMMANDS = setOf(
+            Hsp3CommandIds.MES,
+            Hsp3CommandIds.POS,
+            Hsp3CommandIds.FONT,
+            Hsp3CommandIds.PICLOAD,
+            Hsp3CommandIds.COLOR,
+            Hsp3CommandIds.REDRAW,
+            Hsp3CommandIds.GSEL,
+            Hsp3CommandIds.GCOPY,
+            Hsp3CommandIds.GMODE,
+            Hsp3CommandIds.BUFFER,
+            Hsp3CommandIds.SCREEN,
+            Hsp3CommandIds.BOXF,
+            Hsp3CommandIds.STICK
         )
 
         private fun constantExpression(value: Hsp3RuntimeValue) =
