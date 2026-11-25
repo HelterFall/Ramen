@@ -393,6 +393,49 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun flipCommandSurfacesFadeTargetsAndStopEventFields() {
+        val bytes = LiveMakerLsbFixture.build(
+            version = 107,
+            commands = listOf(
+                LiveMakerLsbFixture.flip(
+                    version = 107,
+                    effect = "FADE",
+                    milliseconds = 640,
+                    reverse = false,
+                    action = "FL_OUT",
+                    targets = listOf("title-logo", "title-background"),
+                    deleteAfter = true,
+                    param1 = 5,
+                    param2 = 8,
+                    source = "",
+                    stopEventProcessing = true
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            val event = vm.runUntilEvent() as LiveMakerVmEvent.FlipTransition
+
+            assertEquals("FADE", event.effect)
+            assertEquals(640L, event.durationMillis)
+            assertFalse(event.reverse)
+            assertEquals("FL_OUT", event.action)
+            assertEquals(listOf("title-logo", "title-background"), event.targetNames)
+            assertTrue(event.deleteAfter)
+            assertEquals(listOf(5, 8), event.parameters)
+            assertEquals("", event.source)
+            assertTrue(event.stopEventProcessing)
+            assertEquals(0, event.commandIndex)
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.AwaitingHost)
+
+            vm.resume()
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+        }
+    }
+
+    @Test
     fun doEventYieldsToTheHostEventLoopInsteadOfSpinningInTheVm() {
         val bytes = LiveMakerLsbFixture.build(
             commands = listOf(
@@ -415,7 +458,7 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
-    fun zeroDurationWaitCompletesImmediately() {
+    fun zeroDurationWaitYieldsAnUnboundedHostWaitInsteadOfFallingThrough() {
         val bytes = LiveMakerLsbFixture.build(
             version = 107,
             commands = listOf(
@@ -430,6 +473,13 @@ class LiveMakerVirtualMachineTest {
 
         withSource(bytes) { source ->
             val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            val wait = vm.runUntilEvent() as LiveMakerVmEvent.Delay
+
+            assertEquals(0L, wait.milliseconds)
+            assertFalse(wait.stopEventProcessing)
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.AwaitingHost)
+
+            vm.resume()
             assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
         }
     }
