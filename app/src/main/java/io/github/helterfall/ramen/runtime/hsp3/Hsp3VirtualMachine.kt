@@ -2,6 +2,17 @@ package io.github.helterfall.ramen.runtime.hsp3
 
 import java.io.IOException
 import java.util.ArrayDeque
+import java.util.Calendar
+import java.util.concurrent.ThreadLocalRandom
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
+import kotlin.math.exp
+import kotlin.math.ln
+import kotlin.math.pow
+import kotlin.math.sin
+import kotlin.math.sqrt
+import kotlin.math.tan
 
 sealed class Hsp3Instruction {
     data class Screen(val id: Int, val width: Int, val height: Int) : Hsp3Instruction()
@@ -443,7 +454,99 @@ class Hsp3VirtualMachine(
             ?: throw IOException("The HSP $label must be a scalar variable.")
 
     private fun evaluate(expression: Hsp3Expression): Hsp3RuntimeValue =
-        expression.evaluate(::valueOf, ::systemValue)
+        expression.evaluate(::valueOf, ::systemValue, ::evaluateFunction)
+
+    /** Executes the common built-ins defined by OpenHSP's TYPE_INTFUNC table. */
+    private fun evaluateFunction(
+        functionId: Int,
+        arguments: List<Hsp3RuntimeValue?>
+    ): Hsp3RuntimeValue {
+        fun value(index: Int): Hsp3RuntimeValue =
+            arguments.getOrNull(index)
+                ?: throw IOException("HSP function $functionId is missing argument ${index + 1}.")
+        fun int(index: Int): Int = value(index).asInt()
+        fun intDefault(index: Int, default: Int): Int =
+            arguments.getOrNull(index)?.asInt() ?: default
+        fun double(index: Int): Double = value(index).asDouble()
+        fun doubleDefault(index: Int, default: Double): Double =
+            arguments.getOrNull(index)?.asDouble() ?: default
+        fun string(index: Int): String = value(index).asString()
+
+        return when (functionId) {
+            0x000 -> Hsp3RuntimeValue.IntegerValue(int(0)) // int()
+            0x001 -> {
+                val upperBound = int(0)
+                if (upperBound <= 0) throw IOException("rnd() requires a positive upper bound.")
+                Hsp3RuntimeValue.IntegerValue(ThreadLocalRandom.current().nextInt(upperBound))
+            }
+            0x002 -> Hsp3RuntimeValue.IntegerValue(string(0).length) // strlen()
+            0x008 -> Hsp3RuntimeValue.IntegerValue(readTimePart(int(0))) // gettime()
+            0x010 -> Hsp3RuntimeValue.IntegerValue(abs(int(0))) // abs()
+            0x011 -> {
+                val source = int(0)
+                val lower = intDefault(1, Int.MIN_VALUE)
+                val upper = intDefault(2, Int.MAX_VALUE)
+                Hsp3RuntimeValue.IntegerValue(source.coerceIn(lower, upper))
+            }
+            0x100 -> Hsp3RuntimeValue.StringValue(string(0)) // str()
+            0x101 -> {
+                val source = string(0)
+                var start = int(1)
+                var length = int(2)
+                if (start < 0) start = (source.length - length).coerceAtLeast(0)
+                if (start >= source.length || length <= 0) {
+                    Hsp3RuntimeValue.StringValue("")
+                } else {
+                    val end = (start.toLong() + length.toLong())
+                        .coerceAtMost(source.length.toLong()).toInt()
+                    Hsp3RuntimeValue.StringValue(source.substring(start, end))
+                }
+            }
+            0x180 -> Hsp3RuntimeValue.DoubleValue(sin(doubleDefault(0, 0.0)))
+            0x181 -> Hsp3RuntimeValue.DoubleValue(cos(doubleDefault(0, 0.0)))
+            0x182 -> Hsp3RuntimeValue.DoubleValue(tan(doubleDefault(0, 0.0)))
+            0x183 -> Hsp3RuntimeValue.DoubleValue(
+                atan2(double(0), doubleDefault(1, 1.0))
+            )
+            0x184 -> {
+                val operand = doubleDefault(0, 0.0)
+                if (operand < 0.0) throw IOException("sqrt() cannot accept a negative value.")
+                Hsp3RuntimeValue.DoubleValue(sqrt(operand))
+            }
+            0x185 -> Hsp3RuntimeValue.DoubleValue(value(0).asDouble())
+            0x186 -> Hsp3RuntimeValue.DoubleValue(abs(double(0)))
+            0x187 -> Hsp3RuntimeValue.DoubleValue(exp(double(0)))
+            0x188 -> {
+                val operand = double(0)
+                if (operand <= 0.0) throw IOException("logf() requires a positive value.")
+                Hsp3RuntimeValue.DoubleValue(ln(operand))
+            }
+            0x189 -> {
+                val source = double(0)
+                Hsp3RuntimeValue.DoubleValue(
+                    source.coerceIn(doubleDefault(1, Double.NEGATIVE_INFINITY),
+                        doubleDefault(2, Double.POSITIVE_INFINITY))
+                )
+            }
+            0x18A -> Hsp3RuntimeValue.DoubleValue(double(0).pow(double(1)))
+            else -> throw IOException("Unsupported HSP built-in function ID $functionId.")
+        }
+    }
+
+    private fun readTimePart(index: Int): Int {
+        val now = Calendar.getInstance()
+        return when (index) {
+            0 -> now.get(Calendar.YEAR)
+            1 -> now.get(Calendar.MONTH) + 1
+            2 -> now.get(Calendar.DAY_OF_WEEK) - 1
+            3 -> now.get(Calendar.DAY_OF_MONTH)
+            4 -> now.get(Calendar.HOUR_OF_DAY)
+            5 -> now.get(Calendar.MINUTE)
+            6 -> now.get(Calendar.SECOND)
+            7 -> now.get(Calendar.MILLISECOND)
+            else -> throw IOException("gettime() type must be between 0 and 7.")
+        }
+    }
 
     private fun valueOf(index: Int): Hsp3RuntimeValue =
         variables[index] ?: Hsp3RuntimeValue.IntegerValue(0)
