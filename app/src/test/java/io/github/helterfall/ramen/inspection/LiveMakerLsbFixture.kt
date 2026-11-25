@@ -107,6 +107,43 @@ internal object LiveMakerLsbFixture {
             }
         }.toByteArray())
 
+    fun flip(
+        version: Int,
+        effect: String,
+        milliseconds: Int,
+        reverse: Boolean,
+        action: String,
+        targets: List<String>,
+        deleteAfter: Boolean,
+        param1: Int = 0,
+        param2: Int = 0,
+        source: String = "",
+        stopEventProcessing: Boolean = false,
+        differenceOnly: Boolean = false
+    ): ByteArray = command(13, ByteArrayOutputStream().also { output ->
+        output.write(expression(operation(0, "____arg", listOf(paramString(effect)))))
+        output.write(expression(operation(0, "____arg", listOf(paramInt(milliseconds)))))
+        output.write(expression(operation(0, "____arg", listOf(paramFlag(reverse)))))
+        output.write(expression(operation(0, "____arg", listOf(paramString(action)))))
+        writeU32(output, targets.size.toLong())
+        targets.forEach { target ->
+            output.write(expression(operation(0, "____arg", listOf(paramString(target)))))
+        }
+        output.write(expression(operation(0, "____arg", listOf(paramFlag(deleteAfter)))))
+        // Flip's Param array has exactly two unprefixed LiveParser entries.
+        output.write(expression(operation(0, "____arg", listOf(paramInt(param1)))))
+        output.write(expression(operation(0, "____arg", listOf(paramInt(param2)))))
+        if (version > 100) {
+            output.write(expression(operation(0, "____arg", listOf(paramString(source)))))
+        }
+        if (version > 106) {
+            output.write(expression(operation(0, "____arg", listOf(paramFlag(stopEventProcessing)))))
+        }
+        if (version > 116) {
+            output.write(expression(operation(0, "____arg", listOf(paramFlag(differenceOnly)))))
+        }
+    }.toByteArray())
+
     fun emptyString(): ByteArray = byteArrayOf(0, 0, 0, 0)
 
     fun callPage(
