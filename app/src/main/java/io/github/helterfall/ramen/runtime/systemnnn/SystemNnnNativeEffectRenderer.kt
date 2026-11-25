@@ -448,7 +448,7 @@ internal object SystemNnnNativeEffectRenderer {
                 for (x in tx * tileSize until min(width, (tx + 1) * tileSize)) {
                     val pixel = source[row + x]
                     result[row + x] = (pixel and 0x00FFFFFF) or
-                        (((pixel ushr 24) * (ratio * 1.0f).toInt()) shl 24)
+                        (((pixel ushr 24) * ratio).roundToInt().coerceIn(0, 255) shl 24)
                 }
             }
         }
