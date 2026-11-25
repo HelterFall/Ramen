@@ -32,6 +32,8 @@ import androidx.compose.material3.Text
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.remember
@@ -43,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
@@ -53,6 +56,9 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.graphics.rememberGraphicsLayer
+import androidx.compose.ui.graphics.drawscope.drawLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -71,6 +77,8 @@ fun SystemNnnPlayerScreen(
     state: SystemNnnPlayerUiState,
     onScreenTap: () -> Unit,
     onDrawFrameCompleted: () -> Unit,
+    onScreenCaptureReady: (Long, Bitmap?) -> Unit,
+    onOverrapTransitionFinished: (Long) -> Unit,
     onChoiceSelected: (String) -> Unit,
     onTypewriterProgress: (Int) -> Unit,
     onTypewriterFinished: () -> Unit,
@@ -81,8 +89,51 @@ fun SystemNnnPlayerScreen(
 ) {
     var autoMode by remember { mutableStateOf(false) }
     var skipMode by remember { mutableStateOf(false) }
-    val screenEffectKey = listOf(state.screenEffectId, state.screenEffectParameters, state.screenEffectCommandOffset)
+    val viewportCaptureLayer = rememberGraphicsLayer()
+    var screenEffectSourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val screenEffectKey = listOf(
+        state.screenEffectId, state.screenEffectParameters, state.screenEffectCommandOffset,
+        state.drawEventId, state.frameId
+    )
     var screenEffectFrame by remember(screenEffectKey) { mutableIntStateOf(0) }
+    var overrapProgress by remember(state.overrapTransitionId) { mutableFloatStateOf(0f) }
+
+    LaunchedEffect(state.screenCaptureRequestId) {
+        val requestId = state.screenCaptureRequestId
+        if (requestId == 0L) return@LaunchedEffect
+        withFrameNanos { }
+        val captured = runCatching {
+            viewportCaptureLayer.toImageBitmap().asAndroidBitmap()
+                .copy(Bitmap.Config.ARGB_8888, true)
+        }.getOrNull()
+        onScreenCaptureReady(requestId, captured)
+    }
+
+    LaunchedEffect(screenEffectKey) {
+        val effectId = state.screenEffectId
+        if (effectId !in NATIVE_SCREEN_BUFFER_RENDER_EFFECTS) {
+            screenEffectSourceBitmap = null
+            return@LaunchedEffect
+        }
+        withFrameNanos { }
+        screenEffectSourceBitmap = runCatching {
+            viewportCaptureLayer.toImageBitmap().asAndroidBitmap()
+                .copy(Bitmap.Config.ARGB_8888, true)
+        }.getOrNull()
+    }
+
+    LaunchedEffect(state.overrapTransitionId, state.overrapFromBitmap, state.overrapToBitmap) {
+        val from = state.overrapFromBitmap ?: return@LaunchedEffect
+        val to = state.overrapToBitmap ?: return@LaunchedEffect
+        if (from.isRecycled || to.isRecycled) return@LaunchedEffect
+        val transitionId = state.overrapTransitionId
+        val duration = state.overrapTransitionDurationFrames.coerceIn(1, 9_999)
+        for (frame in 0..duration) {
+            overrapProgress = frame.toFloat() / duration.toFloat()
+            if (frame < duration) delay(16L)
+        }
+        onOverrapTransitionFinished(transitionId)
+    }
 
     LaunchedEffect(screenEffectKey) {
         val effectId = state.screenEffectId ?: return@LaunchedEffect
@@ -197,10 +248,17 @@ fun SystemNnnPlayerScreen(
                 val hiddenPartnerLayers = changePartners.values.map { it.layerIndex }.toSet()
 
                 Box(
-                    modifier = Modifier.fillMaxSize().graphicsLayer {
-                        translationX = viewportDpWidth.toPx() * (screenShake.x / referenceWidth.coerceAtLeast(1f))
-                        translationY = viewportDpHeight.toPx() * (screenShake.y / referenceHeight.coerceAtLeast(1f))
-                    }
+                    modifier = Modifier.fillMaxSize()
+                        .drawWithContent {
+                            viewportCaptureLayer.record {
+                                this@drawWithContent.drawContent()
+                            }
+                            drawLayer(viewportCaptureLayer)
+                        }
+                        .graphicsLayer {
+                            translationX = viewportDpWidth.toPx() * (screenShake.x / referenceWidth.coerceAtLeast(1f))
+                            translationY = viewportDpHeight.toPx() * (screenShake.y / referenceHeight.coerceAtLeast(1f))
+                        }
                 ) {
                     state.backgroundBitmap?.let { background ->
                         DisposableEffect(background) {
@@ -237,9 +295,36 @@ fun SystemNnnPlayerScreen(
                         frame = screenEffectFrame,
                         referenceWidth = referenceWidth,
                         referenceHeight = referenceHeight,
+                        sourceBitmap = screenEffectSourceBitmap,
+                        savedGetBufferBitmap = state.savedGetScreenBufferBitmap,
                         modifier = Modifier.fillMaxSize()
                     )
                 }
+            }
+        }
+
+        if (state.overrapFromBitmap != null && state.overrapToBitmap != null &&
+            !state.overrapFromBitmap.isRecycled && !state.overrapToBitmap.isRecycled
+        ) {
+            Canvas(
+                Modifier.fillMaxSize().graphicsLayer {
+                    compositingStrategy = CompositingStrategy.Offscreen
+                }
+            ) {
+                drawRect(Color.Transparent, blendMode = BlendMode.Clear)
+                val targetSize = IntSize(size.width.roundToInt(), size.height.roundToInt())
+                drawImage(
+                    image = state.overrapFromBitmap.asImageBitmap(),
+                    dstSize = targetSize,
+                    alpha = 1f - overrapProgress,
+                    blendMode = BlendMode.Plus
+                )
+                drawImage(
+                    image = state.overrapToBitmap.asImageBitmap(),
+                    dstSize = targetSize,
+                    alpha = overrapProgress,
+                    blendMode = BlendMode.Plus
+                )
             }
         }
 
