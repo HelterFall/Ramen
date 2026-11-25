@@ -413,10 +413,13 @@ class LiveMakerVirtualMachine(
                             (command.expressions.getOrNull(2)
                                 ?.let { truthy(evaluate(it)) } ?: false)
                         programCounter += 1
-                        if (shouldWait && duration > 0L) {
+                        if (shouldWait) {
+                            // LiveMaker defines Time=0 as an unbounded wait, not as
+                            // "do not wait". Yield to the Android host so it can wait for
+                            // user input instead of spinning through the script.
                             waitingForHost = true
                             return LiveMakerVmEvent.Delay(
-                                duration,
+                                duration.coerceAtLeast(0L),
                                 stopEventProcessing,
                                 command.index
                             )
