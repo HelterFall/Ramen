@@ -593,7 +593,10 @@ class Hsp3Expression internal constructor(
         function: (Int, List<Hsp3RuntimeValue?>) -> Hsp3RuntimeValue = { id, _ ->
             throw IOException("Unsupported HSP built-in function ID $id.")
         }
-    ): Hsp3RuntimeValue = evaluateNode(root, variable, systemVariable, function)
+        arrayVariable: (Int, List<Int>) -> Hsp3RuntimeValue = { index, _ ->
+            throw IOException("HSP array variable $index was evaluated without an array runtime.")
+        }
+    ): Hsp3RuntimeValue = evaluateNode(root, variable, systemVariable, function, arrayVariable)
 
     fun singleVariableReference(): Int? =
         (root as? Hsp3ExpressionNode.Variable)?.takeIf { it.indices.isEmpty() }?.index
@@ -613,21 +616,33 @@ class Hsp3Expression internal constructor(
         node: Hsp3ExpressionNode,
         variable: (Int) -> Hsp3RuntimeValue,
         systemVariable: (Int) -> Hsp3RuntimeValue,
-        function: (Int, List<Hsp3RuntimeValue?>) -> Hsp3RuntimeValue
+        function: (Int, List<Hsp3RuntimeValue?>) -> Hsp3RuntimeValue,
+        arrayVariable: (Int, List<Int>) -> Hsp3RuntimeValue
     ): Hsp3RuntimeValue = when (node) {
         is Hsp3ExpressionNode.Literal -> node.value
-        is Hsp3ExpressionNode.Variable -> variable(node.index)
+        is Hsp3ExpressionNode.Variable -> {
+            if (node.indices.isEmpty()) {
+                variable(node.index)
+            } else {
+                arrayVariable(
+                    node.index,
+                    node.indices.map { indexExpression ->
+                        indexExpression.evaluate(variable, systemVariable, function, arrayVariable).asInt()
+                    }
+                )
+            }
+        }
         is Hsp3ExpressionNode.SystemVariable -> systemVariable(node.index)
         is Hsp3ExpressionNode.Function -> function(
             node.id,
             node.arguments.map { argument ->
-                argument?.evaluate(variable, systemVariable, function)
+                argument?.evaluate(variable, systemVariable, function, arrayVariable)
             }
         )
         is Hsp3ExpressionNode.Binary -> applyBinary(
             node.operator,
-            evaluateNode(node.left, variable, systemVariable, function),
-            evaluateNode(node.right, variable, systemVariable, function)
+            evaluateNode(node.left, variable, systemVariable, function, arrayVariable),
+            evaluateNode(node.right, variable, systemVariable, function, arrayVariable)
         )
     }
 
