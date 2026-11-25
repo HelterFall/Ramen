@@ -212,18 +212,22 @@ class Hsp3VirtualMachineTest {
                 Hsp3Instruction.SetInt(1, 7),
                 Hsp3Instruction.Repeat(
                     count = -1,
-                    exitInstruction = 4,
+                    exitInstruction = 5,
                     countExpression = variable,
                     initialValueExpression = initial
                 ),
-                Hsp3Instruction.AddInt(2, 1),
+                Hsp3Instruction.Assign(
+                    variable = 2,
+                    operator = Hsp3BytecodeDecoder.CALCCODE_ADD,
+                    expression = Hsp3Expression(Hsp3ExpressionNode.SystemVariable(4))
+                ),
                 Hsp3Instruction.Loop,
                 Hsp3Instruction.End
             )
         )
 
         assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
-        assertEquals(3, snapshot.variables[2])
+        assertEquals(24, snapshot.variables[2])
     }
 
     @Test
