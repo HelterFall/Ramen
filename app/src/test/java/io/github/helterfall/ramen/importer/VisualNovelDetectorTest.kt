@@ -4,6 +4,7 @@ import java.io.File
 import java.nio.charset.Charset
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class VisualNovelDetectorTest {
