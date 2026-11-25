@@ -435,9 +435,9 @@ class LiveMakerPlayerActivity : ComponentActivity() {
     }
 
     /**
-     * Consumes state-only TextIns blocks and VM delays internally. Only a real text
-     * run, an explicit TpWord pause/page break, or a user-actionable VM event is
-     * surfaced to Compose. Event-only TextIns blocks must not become fake dialogue.
+     * Consumes non-blocking state-only TextIns blocks and VM delays internally.
+     * A TextIns whose LSB Wait flag is set is surfaced as an input boundary even when
+     * its TpWord contains no visible characters; event-only blocks must not become dialogue.
      */
     private fun nextPresentation(
         session: LiveMakerGameSession
