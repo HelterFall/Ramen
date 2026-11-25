@@ -267,6 +267,75 @@ class Hsp3BytecodeDecoderTest {
         return createAx(code)
     }
 
+    @Test
+    fun decodesTwoDimensionalArrayAssignmentAcrossSeparateParameterGroups() {
+        withProgram(createTwoDimensionalArrayAssignment()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+            val dimension = instructions[0] as Hsp3Instruction.Dimension
+            assertEquals(2, dimension.dimensions.size)
+            val assignment = instructions[1] as Hsp3Instruction.Assign
+            assertEquals(2, assignment.arrayIndices.size)
+            assertEquals(5, assignment.expression.constantIntOrNull())
+
+            val result = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+            assertEquals(Hsp3VmStatus.ENDED, result.status)
+            assertEquals(
+                Hsp3RuntimeValue.IntegerValue(5),
+                result.arrayValues[4 to listOf(1, 2)]
+            )
+        }
+    }
+
+    @Test
+    fun decoderRecognizesAllSuppliedStartAxExtCommandIds() {
+        val ids = listOf(
+            0x0F, 0x10, 0x11, 0x14, 0x17, 0x18, 0x1B, 0x1C, 0x1D,
+            0x1E, 0x20, 0x23, 0x29, 0x2A, 0x31, 0x34, 0x36
+        )
+        ids.forEach { id ->
+            withProgram(createNativeCommandProgram(id)) { program ->
+                val decoded = Hsp3BytecodeDecoder().decode(program).first()
+                assertTrue("EXTCMD 0x${id.toString(16)} should decode", decoded is Hsp3Instruction.NativeCommand)
+                assertEquals(id, (decoded as Hsp3Instruction.NativeCommand).commandId)
+            }
+        }
+    }
+
+    @Test
+    fun parameterBoundaryCommandShapedTokenIsNotScannedAsACommandHead() {
+        val words = listOf(
+            0x2009, Hsp3CommandIds.MES,
+            0x400F, 0x4004,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        withProgram(createAx(words)) { program ->
+            val decoder = Hsp3BytecodeDecoder()
+            val instructions = decoder.decode(program)
+            assertEquals(2, instructions.size)
+            assertTrue(instructions[0] is Hsp3Instruction.NativeCommand)
+            assertEquals(Hsp3Instruction.End, instructions[1])
+            assertTrue(decoder.diagnostics.none { it.message.contains("unsupported") })
+        }
+    }
+
+    private fun createTwoDimensionalArrayAssignment(): ByteArray {
+        val words = listOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM,
+            0x0001, 4,
+            0x4004, 3,
+            0x4004, 3,
+            0x2001, 4,
+            0x0000, '('.code,
+            0x0004, 1,
+            0x4004, 2,
+            0x0000, ')'.code,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x4004, 5,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(words)
+    }
+
     private fun createIfProgram(): ByteArray {
         val code = listOf(
             0x200B, Hsp3BytecodeDecoder.CMP_CMD_IF, // TYPE_CMPCMD + EXFLG_1

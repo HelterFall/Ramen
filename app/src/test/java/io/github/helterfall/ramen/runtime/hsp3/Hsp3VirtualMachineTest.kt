@@ -253,6 +253,195 @@ class Hsp3VirtualMachineTest {
         assertEquals(25L, await.yieldDelayMillis)
     }
 
+    @Test
+    fun loopWithoutRepeatIsSkippedWithDiagnosticInsteadOfFailingVm() {
+        val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
+            listOf(Hsp3Instruction.Loop, Hsp3Instruction.End)
+        )
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertTrue(snapshot.diagnostics.any { it.contains("no active repeat") })
+    }
+
+    @Test
+    fun breakUsesOtExitAndContinueUsesOtLoopAddress() {
+        val broken = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
+            listOf(
+                Hsp3Instruction.Repeat(10, exitInstruction = 5),
+                Hsp3Instruction.AddInt(0, 1),
+                Hsp3Instruction.Break(5),
+                Hsp3Instruction.AddInt(0, 100),
+                Hsp3Instruction.Loop,
+                Hsp3Instruction.End
+            )
+        )
+        assertEquals(Hsp3VmStatus.ENDED, broken.status)
+        assertEquals(1, broken.variables[0])
+
+        val continued = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
+            listOf(
+                Hsp3Instruction.Repeat(3, exitInstruction = 5),
+                Hsp3Instruction.AddInt(1, 1),
+                Hsp3Instruction.Continue(4),
+                Hsp3Instruction.AddInt(1, 100),
+                Hsp3Instruction.Loop,
+                Hsp3Instruction.End
+            )
+        )
+        assertEquals(Hsp3VmStatus.ENDED, continued.status)
+        assertEquals(3, continued.variables[1])
+    }
+
+    @Test
+    fun repeatWithoutExplicitOtAddressSupportsHandAuthoredInstructions() {
+        val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
+            listOf(
+                Hsp3Instruction.Repeat(2),
+                Hsp3Instruction.AddInt(0, 1),
+                Hsp3Instruction.Loop,
+                Hsp3Instruction.End
+            )
+        )
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(2, snapshot.variables[0])
+    }
+
+    @Test
+    fun existStoresFileLengthOrMinusOneInStrsize() {
+        val storage = MemoryFileStorage(
+            mutableMapOf("save.dat" to byteArrayOf(1, 2, 3, 4))
+        )
+        fun string(value: String) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.StringValue(value))
+        )
+        fun sysvar(index: Int) = Hsp3Expression(Hsp3ExpressionNode.SystemVariable(index))
+        val snapshot = Hsp3VirtualMachine(RecordingGraphics(), fileStorage = storage).runSlice(
+            listOf(
+                Hsp3Instruction.FileExists(string("save.dat")),
+                Hsp3Instruction.Assign(0, Hsp3BytecodeDecoder.CALCCODE_EQ, sysvar(6)),
+                Hsp3Instruction.FileExists(string("missing.dat")),
+                Hsp3Instruction.Assign(1, Hsp3BytecodeDecoder.CALCCODE_EQ, sysvar(6)),
+                Hsp3Instruction.End
+            )
+        )
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(4, snapshot.variables[0])
+        assertEquals(-1, snapshot.variables[1])
+    }
+
+    @Test
+    fun instrStrlenAndStrmidUseShiftJisByteOffsets() {
+        val source = "A日本B"
+        val japanese = "日本語"
+        fun string(value: String) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.StringValue(value))
+        )
+        fun integer(value: Int) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.IntegerValue(value))
+        )
+        fun function(id: Int, vararg args: Hsp3Expression?) =
+            Hsp3Expression(Hsp3ExpressionNode.Function(id, args.toList()))
+        val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
+            listOf(
+                Hsp3Instruction.Assign(0, Hsp3BytecodeDecoder.CALCCODE_EQ,
+                    function(0x002, string(japanese))),
+                Hsp3Instruction.Assign(1, Hsp3BytecodeDecoder.CALCCODE_EQ,
+                    function(0x00F, string(source), integer(1), string("日本"))),
+                Hsp3Instruction.Assign(2, Hsp3BytecodeDecoder.CALCCODE_EQ,
+                    function(0x101, string(source), integer(1), integer(4))),
+                Hsp3Instruction.End
+            )
+        )
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(
+            japanese.toByteArray(java.nio.charset.Charset.forName("Shift_JIS")).size,
+            snapshot.variables[0]
+        )
+        assertEquals(1, snapshot.variables[1])
+        assertEquals(Hsp3RuntimeValue.StringValue("日本"), snapshot.values[2])
+    }
+
+    @Test
+    fun cntMouseXAndMouseYAreReadableSystemVariables() {
+        val input = object : Hsp3InputProvider {
+            override fun stickMask(): Int = 0
+            override fun mousePosition(): Pair<Int, Int> = 123 to 456
+        }
+        fun sysvar(index: Int, external: Boolean = false) =
+            Hsp3Expression(Hsp3ExpressionNode.SystemVariable(index, external))
+        val snapshot = Hsp3VirtualMachine(RecordingGraphics(), input).runSlice(
+            listOf(
+                Hsp3Instruction.Repeat(1, exitInstruction = 5, initialValue = 9),
+                Hsp3Instruction.Assign(0, Hsp3BytecodeDecoder.CALCCODE_EQ, sysvar(4)),
+                Hsp3Instruction.Assign(1, Hsp3BytecodeDecoder.CALCCODE_EQ, sysvar(0, true)),
+                Hsp3Instruction.Assign(2, Hsp3BytecodeDecoder.CALCCODE_EQ, sysvar(1, true)),
+                Hsp3Instruction.Loop,
+                Hsp3Instruction.End
+            )
+        )
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(9, snapshot.variables[0])
+        assertEquals(123, snapshot.variables[1])
+        assertEquals(456, snapshot.variables[2])
+    }
+
+    @Test
+    fun allStartAxGraphicsOpcodeAliasesReachVmHandlers() {
+        fun int(value: Int) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.IntegerValue(value))
+        )
+        fun double(value: Double) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.DoubleValue(value))
+        )
+        fun string(value: String) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.StringValue(value))
+        )
+        fun variable(value: Int) = Hsp3Expression(Hsp3ExpressionNode.Variable(value))
+        fun native(id: Int, vararg args: Hsp3Expression?) =
+            Hsp3Instruction.NativeCommand(Hsp3BytecodeDecoder.TYPE_EXTCMD, id, args.toList())
+
+        val graphics = RecordingGraphics()
+        val snapshot = Hsp3VirtualMachine(graphics).runSlice(
+            listOf(
+                native(0x0F, string("hello")),
+                native(0x10, string("title")),
+                native(0x11, int(4), int(5)),
+                native(0x14, int(0)),
+                native(0x17, int(1), int(2), int(3)),
+                native(0x18, int(1)),
+                native(0x1B, int(1)),
+                native(0x1C, int(800), int(600)),
+                native(0x1D, int(0)),
+                native(0x1E, int(0), int(0), int(0), int(8), int(8)),
+                native(0x20, string("background.bmp")),
+                native(0x23, int(3), int(32), int(32), int(128)),
+                native(0x29, variable(4), int(0), int(1)),
+                native(0x2A, int(10), int(20), int(40), int(30)),
+                native(0x31, int(0), int(0), int(20), int(20)),
+                native(0x34, int(1), int(800), int(600)),
+                native(0x36, int(1), int(0), double(1.0), double(1.0), double(0.0)),
+                Hsp3Instruction.End
+            )
+        )
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertTrue(graphics.calls.contains("mes:hello:0"))
+        assertTrue(graphics.calls.contains("title:title"))
+        assertTrue(graphics.calls.contains("pos:4,5"))
+        assertTrue(graphics.calls.contains("cls:0"))
+        assertTrue(graphics.calls.contains("color:1,2,3"))
+        assertTrue(graphics.calls.contains("palette"))
+        assertTrue(graphics.calls.contains("redraw:true"))
+        assertTrue(graphics.calls.contains("width:800x600"))
+        assertTrue(graphics.calls.contains("gsel:0"))
+        assertTrue(graphics.calls.any { it.startsWith("gcopy:0:") })
+        assertTrue(graphics.calls.contains("picload:background.bmp:0"))
+        assertTrue(graphics.calls.contains("gmode:3:32x32:128"))
+        assertTrue(graphics.calls.contains("stick:4"))
+        assertTrue(graphics.calls.any { it.startsWith("grect:") })
+        assertTrue(graphics.calls.any { it.startsWith("boxf:") })
+        assertTrue(graphics.calls.contains("buffer:1:800x600"))
+        assertTrue(graphics.calls.any { it.startsWith("celput:1:0:") })
+    }
+
     private class MemoryFileStorage(
         val files: MutableMap<String, ByteArray>
     ) : Hsp3FileStorage {
@@ -279,6 +468,26 @@ class Hsp3VirtualMachineTest {
 
         override fun gsel(id: Int) {
             calls += "gsel:$id"
+        }
+
+        override fun cls(mode: Int) {
+            calls += "cls:$mode"
+        }
+
+        override fun title(value: String) {
+            calls += "title:$value"
+        }
+
+        override fun width(width: Int, height: Int) {
+            calls += "width:${width}x$height"
+        }
+
+        override fun palette(arguments: List<Hsp3RuntimeValue?>) {
+            calls += "palette"
+        }
+
+        override fun grect(centerX: Int, centerY: Int, angleRadians: Double, width: Int, height: Int) {
+            calls += "grect:$centerX,$centerY,$angleRadians,$width,$height"
         }
 
         override fun picload(name: String) {
