@@ -117,7 +117,9 @@ class SystemNnnScript internal constructor(
     val textPool: List<SystemNnnTextEntry>,
     private val commandBytes: ByteArray,
     val secondaryTextPool: List<SystemNnnTextEntry> = emptyList(),
-    val stringPools: List<SystemNnnStringPool> = emptyList()
+    val stringPools: List<SystemNnnStringPool> = emptyList(),
+    /** Physical header size selected from the SPT revision DWORD. */
+    val headerSizeBytes: Int = 0x40
 ) {
     val commandByteCount: Int
         get() = commandBytes.size
@@ -373,6 +375,14 @@ class SystemNnnScriptLoader(
         validateSignature(decoded)
 
         val firstWord = readUInt32LE(decoded, FIRST_HEADER_WORD_OFFSET)
+        val headerSize = when (firstWord) {
+            LEGACY_HEADER_REVISION -> FIXED_HEADER_SIZE
+            NNN_CONFIG2_HEADER_REVISION -> EXTENDED_HEADER_SIZE
+            else -> FIXED_HEADER_SIZE
+        }
+        if (sourceSize < headerSize.toLong()) {
+            throw IOException("The SPT file is shorter than the selected revision header.")
+        }
         val descriptors = listOf(
             readTable(decoded, "main", MAIN_TABLE_COUNT_OFFSET, MAIN_TABLE_BASE_OFFSET),
             readTable(decoded, "secondary", SECONDARY_TABLE_COUNT_OFFSET, SECONDARY_TABLE_BASE_OFFSET),
@@ -380,8 +390,8 @@ class SystemNnnScriptLoader(
             readTable(decoded, "auxiliary", AUXILIARY_TABLE_COUNT_OFFSET, AUXILIARY_TABLE_BASE_OFFSET)
         )
 
-        val primaryPool = locatePool(decoded, descriptors[0])
-        val secondaryPool = locatePool(decoded, descriptors[1])
+        val primaryPool = locatePool(decoded, descriptors[0], headerSize)
+        val secondaryPool = locatePool(decoded, descriptors[1], headerSize)
 
         if (secondaryPool.endOffset != sourceSize) {
             throw IOException("The secondary SPT string pool does not end at the file boundary.")
@@ -396,11 +406,11 @@ class SystemNnnScriptLoader(
             secondaryPool.addressTableOffset
         ).minOrNull() ?: sourceSize
 
-        if (firstPhysicalTable < FIXED_HEADER_SIZE.toLong()) {
-            throw IOException("An SPT address table overlaps the fixed header.")
+        if (firstPhysicalTable < headerSize.toLong()) {
+            throw IOException("An SPT address table overlaps the selected revision header.")
         }
 
-        val commandStart = FIXED_HEADER_SIZE.toLong()
+        val commandStart = headerSize.toLong()
         val commandEnd = firstPhysicalTable
         val commandBytes = decoded.copyOfRange(commandStart.toInt(), commandEnd.toInt())
         val compatibleTextPoolOffset = primaryPool.dataOffset
@@ -417,13 +427,15 @@ class SystemNnnScriptLoader(
             textPool = primaryPool.entries,
             commandBytes = commandBytes,
             secondaryTextPool = secondaryPool.entries,
-            stringPools = listOf(primaryPool, secondaryPool)
+            stringPools = listOf(primaryPool, secondaryPool),
+            headerSizeBytes = headerSize
         )
     }
 
     private fun locatePool(
         decoded: ByteArray,
-        descriptor: SystemNnnOffsetTable
+        descriptor: SystemNnnOffsetTable,
+        headerSize: Int
     ): SystemNnnStringPool {
         val countLong = descriptor.entryCount.toLong()
         if (countLong == 0L) {
@@ -441,7 +453,7 @@ class SystemNnnScriptLoader(
         }
 
         val candidates = ArrayList<SystemNnnStringPool>()
-        var tableOffset = FIXED_HEADER_SIZE.toLong()
+        var tableOffset = headerSize.toLong()
         val lastPossibleStart = decoded.size.toLong() - tableByteCount
 
         while (tableOffset <= lastPossibleStart) {
@@ -669,7 +681,10 @@ class SystemNnnScriptLoader(
     companion object {
         const val SIGNATURE_OFFSET = 0x30
         const val FIXED_HEADER_SIZE = 0x40
+        const val EXTENDED_HEADER_SIZE = 0x80
 
+        private const val LEGACY_HEADER_REVISION = 0x14u
+        private const val NNN_CONFIG2_HEADER_REVISION = 0x20u
         private const val FIRST_HEADER_WORD_OFFSET = 0x00
         private const val MAIN_TABLE_COUNT_OFFSET = 0x10
         private const val MAIN_TABLE_BASE_OFFSET = 0x14
