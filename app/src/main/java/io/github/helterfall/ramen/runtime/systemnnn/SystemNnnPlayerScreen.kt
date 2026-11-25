@@ -939,6 +939,8 @@ private fun visualEffectRandom(value: Int): Int {
     return mixed and Int.MAX_VALUE
 }
 
+private val NATIVE_SCREEN_BUFFER_RENDER_EFFECTS = setOf(2, 20, 22, 31, 43, 50, 69, 71, 74)
+
 @Composable
 private fun SystemNnnScreenEffectOverlay(
     effectId: Int,
@@ -946,8 +948,59 @@ private fun SystemNnnScreenEffectOverlay(
     frame: Int,
     referenceWidth: Float,
     referenceHeight: Float,
+    sourceBitmap: Bitmap?,
+    savedGetBufferBitmap: Bitmap?,
     modifier: Modifier = Modifier
 ) {
+    val source = sourceBitmap ?: savedGetBufferBitmap
+    val renderedBitmap = remember(effectId, parameters, frame, source, savedGetBufferBitmap) {
+        if (effectId !in NATIVE_SCREEN_BUFFER_RENDER_EFFECTS || source == null ||
+            source.isRecycled || source.width <= 0 || source.height <= 0
+        ) {
+            null
+        } else {
+            runCatching {
+                val sourcePixels = IntArray(source.width * source.height)
+                source.getPixels(sourcePixels, 0, source.width, 0, 0, source.width, source.height)
+                val savedPixels = savedGetBufferBitmap?.takeIf { !it.isRecycled }?.let { bitmap ->
+                    IntArray(bitmap.width * bitmap.height).also { pixels ->
+                        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                    }
+                }
+                val pixels = SystemNnnNativeEffectRenderer.renderScreenBufferEffect(
+                    effectId = effectId,
+                    frame = frame,
+                    parameters = parameters,
+                    source = sourcePixels,
+                    width = source.width,
+                    height = source.height,
+                    savedGetBuffer = savedPixels,
+                    transitionSource = savedPixels
+                ) ?: return@runCatching null
+                Bitmap.createBitmap(pixels, source.width, source.height, Bitmap.Config.ARGB_8888)
+            }.getOrNull()
+        }
+    }
+    DisposableEffect(renderedBitmap) {
+        onDispose {
+            if (renderedBitmap != null && renderedBitmap !== sourceBitmap &&
+                renderedBitmap !== savedGetBufferBitmap && !renderedBitmap.isRecycled
+            ) {
+                renderedBitmap.recycle()
+            }
+        }
+    }
+    if (renderedBitmap != null) {
+        Image(
+            bitmap = renderedBitmap.asImageBitmap(),
+            contentDescription = "System-NNN screen-buffer effect",
+            modifier = modifier,
+            contentScale = ContentScale.FillBounds,
+            alignment = Alignment.TopStart
+        )
+        return
+    }
+
     when (effectId) {
         10, 11 -> {
             val fade = checkNotNull(SystemNnnVisualEffectMath.screenFade(effectId, frame, parameters))
