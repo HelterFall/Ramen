@@ -188,11 +188,17 @@ class Hsp3VirtualMachineTest {
     }
 
     @Test
-    fun rejectsUnsupportedHspCommandWithoutCrashingHost() {
+    fun skipsUnsupportedHspCommandWithoutFailingTheModule() {
         val vm = Hsp3VirtualMachine(RecordingGraphics())
-        val snapshot = vm.runSlice(listOf(Hsp3Instruction.Unsupported(9, 0x77)))
-        assertEquals(Hsp3VmStatus.FAILED, snapshot.status)
-        assertTrue(snapshot.errorMessage!!.contains("Unsupported HSP command"))
+        val snapshot = vm.runSlice(
+            listOf(
+                Hsp3Instruction.Unsupported(9, 0x77, codeOffset = 0x24, tokenType = 9),
+                Hsp3Instruction.End
+            )
+        )
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(2, snapshot.executedInstructions)
+        assertEquals(null, snapshot.errorMessage)
     }
 
     private class MemoryFileStorage(
