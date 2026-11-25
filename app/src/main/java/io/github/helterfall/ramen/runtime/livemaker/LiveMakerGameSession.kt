@@ -220,6 +220,11 @@ class LiveMakerGameSession(
 
     fun currentCommandIndex(): Int = vm.currentCommandIndex()
 
+    fun currentCommandDescription(): String =
+        vm.currentCommand()?.let { command ->
+            "${command.typeName}(type=${command.typeId}, line=${command.lineNo}, indent=${command.indent})"
+        } ?: "end-of-page"
+
     fun setVariable(name: String, value: Any?) = vm.setVariable(name, value)
 
     fun updateScreenSize(widthPx: Int, heightPx: Int) =
