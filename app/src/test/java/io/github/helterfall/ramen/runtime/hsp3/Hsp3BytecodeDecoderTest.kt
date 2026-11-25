@@ -397,4 +397,37 @@ class Hsp3BytecodeDecoderTest {
         override fun redraw(enabled: Boolean) = Unit
         override fun close() = Unit
     }
+
+    @Test
+    fun decodesSingleTokenFastPathAsItsOwnArgument() {
+        withProgram(createFastPathColorProgram()) { program ->
+            val command = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.NativeCommand
+            assertEquals(3, command.arguments.size)
+            val values = command.arguments.map { argument ->
+                argument!!.evaluate(
+                    variable = { Hsp3RuntimeValue.IntegerValue(0) },
+                    systemVariable = { Hsp3RuntimeValue.IntegerValue(0) }
+                )
+            }
+            assertEquals(
+                listOf(
+                    Hsp3RuntimeValue.IntegerValue(3),
+                    Hsp3RuntimeValue.IntegerValue(128),
+                    Hsp3RuntimeValue.IntegerValue(64)
+                ),
+                values
+            )
+        }
+    }
+
+    private fun createFastPathColorProgram(): ByteArray = createAx(
+        listOf(
+            0x2009, 0x18,  // TYPE_EXTCMD + EXFLG_1; COLOR
+            0x1004, 3,     // EXFLG_0 + TYPE_INUM; one-token first argument
+            0x4004, 128,   // EXFLG_2 + TYPE_INUM; second argument
+            0x4004, 64,    // EXFLG_2 + TYPE_INUM; third argument
+            0x200F, 0x10   // TYPE_PROGCMD + EXFLG_1; END
+        )
+    )
+
 }

@@ -104,7 +104,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             val close=t.type==TYPE_MARK && t.value==')'.code.toLong()
             if(t.extensionFlags and EXFLG_2!=0 && depth==0) {
                 if(current.isNotEmpty()) finish()
-                else if(groups.isEmpty() || !previousFast) groups+=emptyList()
+                else if(groups.isEmpty() || !previousFast) groups.add(emptyList())
             }
             if(t.extensionFlags and EXFLG_0!=0 && depth==0) {
                 finish()
