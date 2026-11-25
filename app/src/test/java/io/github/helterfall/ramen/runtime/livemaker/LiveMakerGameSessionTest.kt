@@ -74,19 +74,32 @@ class LiveMakerGameSessionTest {
             objectStore = objects
         )
 
-        assertTrue(
-            session.invokeObjectCallback(
-                name = "message-box",
-                propertyId = LiveMakerObjectStore.PR_ONNOTIFY,
-                arguments = listOf("MESEND"),
-                senderName = "message-box"
-            )
-        )
+        assertTrue(dispatchLiveMakerMessageEnd(session, "message-box"))
         val finished = session.runUntilEvent() as LiveMakerSessionEvent.EngineEvent
 
         assertTrue(finished.event is LiveMakerVmEvent.Completed)
         assertEquals("MESEND", session.variablesSnapshot()["receivedEvent"])
         assertEquals("message-box", session.variablesSnapshot()["receivedSender"])
+    }
+
+    @Test
+    fun messageEndFallsBackToCompletionFlagWhenNotifyCallbackIsMissing() {
+        val mainBytes = LiveMakerLsbFixture.build(
+            commands = listOf(LiveMakerLsbFixture.exitWhenTrue())
+        )
+        val repository = object : LiveMakerScriptRepository {
+            override fun loadPage(pageReference: String): io.github.helterfall.ramen.inspection.LiveMakerLsb {
+                throw LiveMakerPageNotFoundException(pageReference)
+            }
+        }
+        val session = LiveMakerGameSession(
+            initialScript = parse(mainBytes),
+            initialPageReference = "main.lsb",
+            pageRepository = repository
+        )
+
+        assertFalse(dispatchLiveMakerMessageEnd(session, "message-box"))
+        assertEquals(1, session.variablesSnapshot()["__メッセージ終了"])
     }
 
     @Test
