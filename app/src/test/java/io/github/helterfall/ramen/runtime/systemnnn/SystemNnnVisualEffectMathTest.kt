@@ -96,6 +96,7 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(SystemNnnVisualColor(0, 0, 0),
             SystemNnnVisualEffectMath.stretchBltColorOffset(5, alphaParameters))
         val colorParameters = alphaParameters.toMutableList().apply {
+            while (size <= 20) add(0)
             this[14] = 1
             this[15] = 30; this[16] = 20; this[17] = 10
             this[18] = 0; this[19] = 0; this[20] = 0

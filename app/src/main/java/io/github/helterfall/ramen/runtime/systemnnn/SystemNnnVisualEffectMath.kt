@@ -68,7 +68,48 @@ internal class SystemNnnVisualLayerConfigurationStore {
  * Pure calculations mirrored from the pinned System-NNN family compositor.
  * Time is expressed in native effect frames, not wall-clock milliseconds.
  */
+internal data class SystemNnnNativeEffectSignature(val effectId: Int, val nativeName: String, val parameterCount: Int)
+
 internal object SystemNnnVisualEffectMath {
+    val observedGameEffectSignatures = listOf(
+        SystemNnnNativeEffectSignature(0, "NOP", 0),
+        SystemNnnNativeEffectSignature(1, "MAE", 0),
+        SystemNnnNativeEffectSignature(2, "PUT", 5),
+        SystemNnnNativeEffectSignature(8, "TRANS", 2),
+        SystemNnnNativeEffectSignature(9, "CTRANS", 13),
+        SystemNnnNativeEffectSignature(10, "FADEIN", 5),
+        SystemNnnNativeEffectSignature(11, "FADEOUT", 4),
+        SystemNnnNativeEffectSignature(17, "FLASH", 6),
+        SystemNnnNativeEffectSignature(20, "LIGHT", 6),
+        SystemNnnNativeEffectSignature(22, "KAGEROU", 16),
+        SystemNnnNativeEffectSignature(27, "KE", 12),
+        SystemNnnNativeEffectSignature(29, "SUNA", 9),
+        SystemNnnNativeEffectSignature(31, "NEGA", 5),
+        SystemNnnNativeEffectSignature(39, "SCROLL", 4),
+        SystemNnnNativeEffectSignature(40, "CHANGE", 8),
+        SystemNnnNativeEffectSignature(43, "MOZAIC", 7),
+        SystemNnnNativeEffectSignature(50, "GRADATION", 15),
+        SystemNnnNativeEffectSignature(52, "MOVE", 1),
+        SystemNnnNativeEffectSignature(54, "FILL", 0),
+        SystemNnnNativeEffectSignature(55, "OLDFILM", 13),
+        SystemNnnNativeEffectSignature(56, "RAIN2", 8),
+        SystemNnnNativeEffectSignature(63, "KOMAANIME", 15),
+        SystemNnnNativeEffectSignature(64, "TURN", 16),
+        SystemNnnNativeEffectSignature(65, "STRETCHBLT", 14),
+        SystemNnnNativeEffectSignature(66, "BUFFER", 0),
+        SystemNnnNativeEffectSignature(69, "HAMON", 13),
+        SystemNnnNativeEffectSignature(71, "HOTARU", 18),
+        SystemNnnNativeEffectSignature(73, "GET", 1),
+        SystemNnnNativeEffectSignature(74, "BURA", 13),
+        SystemNnnNativeEffectSignature(82, "CLOUD", 14),
+        SystemNnnNativeEffectSignature(99, "COLORADDSUB", 10),
+        SystemNnnNativeEffectSignature(100, "HAIKEIYURE", 13),
+        SystemNnnNativeEffectSignature(102, "RAIN4", 9)
+    )
+
+    fun observedParameterCount(effectId: Int): Int? =
+        observedGameEffectSignatures.firstOrNull { it.effectId == effectId }?.parameterCount
+
     private val shakePattern = intArrayOf(-16, -12, 16, 12)
 
     fun nativeScreenColor(parameters: List<Int>): SystemNnnVisualColor {
