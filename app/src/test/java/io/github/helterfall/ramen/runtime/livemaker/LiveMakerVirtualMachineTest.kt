@@ -484,6 +484,48 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun pausedAlphaPropMotionBlocksUntilAnimationCompletes() {
+        val bytes = LiveMakerLsbFixture.build(
+            version = 108,
+            commands = listOf(
+                LiveMakerLsbFixture.propMotion(
+                    version = 108,
+                    name = "logo-fade",
+                    objectName = "title-logo",
+                    propertyId = LiveMakerObjectStore.PR_ALPHA,
+                    value = 0,
+                    milliseconds = 720,
+                    moveType = "D",
+                    paused = true
+                ),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+        val objects = LiveMakerObjectStore().apply {
+            create(
+                "title-logo",
+                LiveMakerSceneComponent.COMPONENT_IMG_NEW,
+                mapOf(LiveMakerObjectStore.PR_ALPHA to 255)
+            )
+        }
+
+        withSource(bytes) { source ->
+            val vm = LiveMakerVirtualMachine(
+                script = LiveMakerLsbParser().parse(source),
+                objectStore = objects
+            )
+            val motion = vm.runUntilEvent() as LiveMakerVmEvent.PropertyMotion
+
+            assertEquals(true, motion.paused)
+            assertEquals("D", motion.moveType)
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.AwaitingHost)
+
+            vm.resume()
+            assertTrue(vm.runUntilEvent() is LiveMakerVmEvent.Completed)
+        }
+    }
+
+    @Test
     fun doEventYieldsToTheHostEventLoopInsteadOfSpinningInTheVm() {
         val bytes = LiveMakerLsbFixture.build(
             commands = listOf(
