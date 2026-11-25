@@ -291,6 +291,9 @@ private fun Hsp3PlayerScreen(
 
             Box(modifier = Modifier.fillMaxSize()) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
+                    // Capture the host frame token in the draw lambda so each
+                    // bounded VM slice invalidates this Canvas after bitmap updates.
+                    if (frameCounter == Int.MIN_VALUE) drawRect(Color.Transparent)
                     drawIntoCanvas { canvas ->
                         session?.renderer?.draw(canvas.nativeCanvas)
                             ?: canvas.nativeCanvas.drawColor(android.graphics.Color.BLACK)
