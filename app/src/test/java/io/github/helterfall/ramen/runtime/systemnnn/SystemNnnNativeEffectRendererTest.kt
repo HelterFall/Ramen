@@ -104,19 +104,23 @@ class SystemNnnNativeEffectRendererTest {
     }
 
     @Test
-    fun mosaicUsesAStableRepresentativePixelForEachBlock() {
+    fun mosaicFillsEachBlockWithOnePixelSampleFromThatBlock() {
         val source = intArrayOf(
             0xFF010101.toInt(), 0xFF020202.toInt(), 0xFF030303.toInt(), 0xFF040404.toInt(),
             0xFF111111.toInt(), 0xFF121212.toInt(), 0xFF131313.toInt(), 0xFF141414.toInt()
         )
         val result = SystemNnnNativeEffectRenderer.mosaic(source, 4, 2, 1, listOf(1, 2, 2, 0, 0, 4, 2))
-        assertArrayEquals(
-            intArrayOf(
-                0xFF010101.toInt(), 0xFF010101.toInt(), 0xFF030303.toInt(), 0xFF030303.toInt(),
-                0xFF111111.toInt(), 0xFF111111.toInt(), 0xFF131313.toInt(), 0xFF131313.toInt()
-            ),
-            result
-        )
+        assertEquals(source.size, result.size)
+        // Native PrintMozaicMain chooses a random source pixel inside each block;
+        // it must not be assumed to always sample the centre or top-left corner.
+        assertEquals(result[0], result[1])
+        assertEquals(result[2], result[3])
+        assertEquals(result[4], result[5])
+        assertEquals(result[6], result[7])
+        assertTrue(result[0] == source[0] || result[0] == source[1] || result[0] == source[4] || result[0] == source[5])
+        assertTrue(result[2] == source[2] || result[2] == source[3] || result[2] == source[6] || result[2] == source[7])
+        assertTrue(result[4] == source[0] || result[4] == source[1] || result[4] == source[4] || result[4] == source[5])
+        assertTrue(result[6] == source[2] || result[6] == source[3] || result[6] == source[6] || result[6] == source[7])
     }
 
     @Test
