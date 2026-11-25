@@ -193,36 +193,19 @@ class Hsp3BytecodeDecoderTest {
     }
 
     private fun createMesWithNestedStringFunctions(): ByteArray {
+        // A valid nested expression: mes str(int(42)).
         val code = listOf(
             0x2009, Hsp3CommandIds.MES,
             0x000D, 0x0100, // str(
             0x0000, '('.code,
-            0x000D, 0x0101, // strmid(
+            0x000D, 0x0000, // int(
             0x0000, '('.code,
-            0x0002, 0,      // "abcdef" in DS
-            0x4004, 1,      // start index
-            0x4004, 3,      // character count
+            0x0004, 42,
             0x0000, ')'.code,
             0x0000, ')'.code,
             0x200F, 0x10
         )
-        val codeSize = code.size * 2
-        val data = "abcdef\u0000".toByteArray(Charsets.US_ASCII)
-        val dataOffset = 0x60 + codeSize
-        val bytes = ByteArray(dataOffset + data.size)
-        "HSP3".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0)
-        putUInt32(bytes, 4, 0x301L)
-        putUInt32(bytes, 8, 64L)
-        putUInt32(bytes, 12, bytes.size.toLong())
-        putUInt32(bytes, 16, 0x60L)
-        putUInt32(bytes, 20, codeSize.toLong())
-        putUInt32(bytes, 24, dataOffset.toLong())
-        putUInt32(bytes, 28, data.size.toLong())
-        code.forEachIndexed { index, value ->
-            putUInt16(bytes, 0x60 + index * 2, value)
-        }
-        data.copyInto(bytes, dataOffset)
-        return bytes
+        return createAx(code)
     }
 
     private fun createMesWithStringFunction(): ByteArray {
@@ -316,7 +299,9 @@ class Hsp3BytecodeDecoderTest {
             sourceId: Int, sourceX: Int, sourceY: Int, width: Int, height: Int, destX: Int, destY: Int
         ) = Unit
         override fun boxf(x1: Int, y1: Int, x2: Int, y2: Int) = Unit
-        override fun mes(value: String) = Unit
+        override fun mes(value: String) {
+            calls += "mes:$value"
+        }
         override fun pos(x: Int, y: Int) = Unit
         override fun color(red: Int, green: Int, blue: Int) {
             calls += "color:$red:$green:$blue"
