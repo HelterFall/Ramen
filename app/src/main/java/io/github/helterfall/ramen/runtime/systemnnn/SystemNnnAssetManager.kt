@@ -395,6 +395,18 @@ class SystemNnnAssetManager private constructor(
         private const val MAX_NAME_LIST_ENTRIES = 100_000
         private const val MAX_MML_BYTES = 4L * 1024L * 1024L
         private const val ALTERNATE_PROJECT_DIRECTORY = "!eng files"
+        private val IGNORED_RESOURCE_DIRECTORY_NAMES = setOf(
+            ALTERNATE_PROJECT_DIRECTORY,
+            "test",
+            "tests",
+            "testdata",
+            "__tests__",
+            "fixtures",
+            "local-test",
+            "local-tests",
+            "local_test",
+            "local_tests"
+        )
 
         private fun normalizeNativeResourceToken(value: String, kind: String): String {
             val token = value.trim().replace('\\', '/')
@@ -649,8 +661,8 @@ class SystemNnnAssetManager private constructor(
                     !Files.isSymbolicLink(directory.toPath()) &&
                         (
                             directory == root ||
-                                directory.name.equals(ALTERNATE_PROJECT_DIRECTORY, ignoreCase = true) ||
-                                !hasDirectSystemNnnProject(directory)
+                                (!isIgnoredResourceDirectory(directory) &&
+                                    !hasDirectSystemNnnProject(directory))
                             )
                 }
                 .filter { file ->
@@ -666,6 +678,20 @@ class SystemNnnAssetManager private constructor(
                 warnings += "Asset discovery for .$extension was truncated at $MAX_DISCOVERED_FILES files."
             }
             return discovered.take(MAX_DISCOVERED_FILES)
+        }
+
+        /**
+         * Backup and developer fixture folders are adjacent to some imported game
+         * roots. They are not part of the selected installation's resource banks.
+         * Prune them before walking so same-stem indexes cannot cross-contaminate.
+         */
+        private fun isIgnoredResourceDirectory(directory: File): Boolean {
+            val name = directory.name.lowercase(Locale.ROOT)
+            if (name in IGNORED_RESOURCE_DIRECTORY_NAMES) return true
+            return name.startsWith("test_") ||
+                name.startsWith("test-") ||
+                name.endsWith("_test") ||
+                name.endsWith("-test")
         }
 
         /**
