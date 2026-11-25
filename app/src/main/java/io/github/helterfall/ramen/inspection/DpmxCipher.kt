@@ -7,6 +7,7 @@ import java.nio.ByteBuffer
 import java.nio.charset.CharacterCodingException
 import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
+import java.util.concurrent.ConcurrentHashMap
 
 data class DpmxCipherKey(
     val al: Int,
@@ -165,6 +166,7 @@ private val SUPPORTED_BMP_BITS_PER_PIXEL = setOf(1, 4, 8, 24, 32)
 class DpmxKeyResolver(
     private val dataKeyDeriver: DpmxDataKeyDeriver? = null
 ) {
+    private val resolvedByFileKey = ConcurrentHashMap<Long, DpmxKeyResolution>()
     @Throws(IOException::class)
     fun resolve(
         source: ReadOnlyRandomAccessSource,
@@ -172,6 +174,11 @@ class DpmxKeyResolver(
         entry: DpmxFileEntry
     ): DpmxKeyResolution? {
         require(entry in container.entries) { "Entry does not belong to this DPMX container." }
+
+        resolvedByFileKey[entry.fileKey]?.let { cached ->
+            if (validates(source, entry, cached.key)) return cached
+            resolvedByFileKey.remove(entry.fileKey, cached)
+        }
 
         val constants = container.readVirtualAddress(
             source,
@@ -182,16 +189,19 @@ class DpmxKeyResolver(
             val derived = dataKeyDeriver?.derive(entry.fileKey, constants)
             if (derived != null && validates(source, entry, derived)) {
                 return DpmxKeyResolution(derived, DpmxKeyResolution.Method.PE_DATA_DERIVER)
+                    .also { resolvedByFileKey[entry.fileKey] = it }
             }
         }
 
         val known = KNOWN_SAMPLE_KEYS[entry.fileKey]
         if (known != null && validates(source, entry, known)) {
             return DpmxKeyResolution(known, DpmxKeyResolution.Method.VERIFIED_SAMPLE_VECTOR)
+                .also { resolvedByFileKey[entry.fileKey] = it }
         }
 
         val detected = autoDetect(source, entry) ?: return null
         return DpmxKeyResolution(detected, DpmxKeyResolution.Method.SIGNATURE_AUTODETECT)
+            .also { resolvedByFileKey[entry.fileKey] = it }
     }
 
     private fun validates(
@@ -216,27 +226,43 @@ class DpmxKeyResolver(
 
         var candidate: DpmxCipherKey? = null
         var candidatePlaintext: ByteArray? = null
-        for (al in 0..0xFF) {
-            for (cl in 0..0xFF) {
-                // BMP candidates are evaluated with the format's required initial DL=0.
-                val testedKey = DpmxCipherKey(al, cl, initialDl = 0)
-                val plaintext = DpmxDecryptor.decryptBytes(encrypted, testedKey)
-                if (!isPlausible(entry, plaintext)) continue
+        var ambiguous = false
 
-                val canonical = canonicalizeSymmetricKey(testedKey)
-                if (candidate == null) {
-                    candidate = canonical
-                    candidatePlaintext = plaintext
-                } else if (!candidatePlaintext!!.contentEquals(plaintext)) {
-                    // More than one distinct plausible plaintext means the signature
-                    // is insufficient to identify a key safely.
-                    return null
-                } else if (compareKeys(canonical, candidate) < 0) {
-                    candidate = canonical
-                }
+        fun consider(al: Int, cl: Int) {
+            if (ambiguous) return
+            // BMP candidates are evaluated with the format's required initial DL=0.
+            val testedKey = DpmxCipherKey(al, cl, initialDl = 0)
+            val plaintext = DpmxDecryptor.decryptBytes(encrypted, testedKey)
+            if (!isPlausible(entry, plaintext)) return
+
+            val canonical = canonicalizeSymmetricKey(testedKey)
+            if (candidate == null) {
+                candidate = canonical
+                candidatePlaintext = plaintext
+            } else if (!candidatePlaintext!!.contentEquals(plaintext)) {
+                // More than one distinct plausible plaintext means the signature
+                // is insufficient to identify a key safely.
+                ambiguous = true
+            } else if (compareKeys(canonical, candidate!!) < 0) {
+                candidate = canonical
             }
         }
-        return candidate
+
+        if (entry.name.substringAfterLast('.', "").equals("bmp", ignoreCase = true)) {
+            // The first plaintext byte must be 'B'. For every AL there is only one
+            // CL that can produce it, reducing BMP key search from 65,536 candidates
+            // to 256 without dropping any possible (AL, CL) pair.
+            val firstEncrypted = encrypted[0].toInt() and 0xFF
+            for (al in 0..0xFF) {
+                val cl = (((firstEncrypted - al) and 0xFF) xor 'B'.code)
+                consider(al, cl)
+            }
+        } else {
+            for (al in 0..0xFF) {
+                for (cl in 0..0xFF) consider(al, cl)
+            }
+        }
+        return if (ambiguous) null else candidate
     }
 
     private fun prefixLengthFor(entry: DpmxFileEntry): Int =

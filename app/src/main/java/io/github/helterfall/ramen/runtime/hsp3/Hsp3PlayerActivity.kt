@@ -49,23 +49,39 @@ class Hsp3PlayerActivity : ComponentActivity() {
     private val frameCounter = mutableStateOf(0)
     private val inputController = Hsp3TouchInputController()
     private lateinit var startupExecutor: java.util.concurrent.ExecutorService
+    private var activityResumed = false
+    private var frameGeneration = 0
 
     private val frameRunner = object : Runnable {
         override fun run() {
             val session = sessionState.value ?: return
-            if (isFinishing || isDestroyed) return
-            val result = session.runSlice(instructionBudget = VM_FRAME_BUDGET)
-            frameCounter.value += 1
-            when (result.status) {
-                Hsp3VmStatus.ENDED -> mainHandler.removeCallbacks(this)
-                Hsp3VmStatus.FAILED -> {
-                    errorState.value = result.errorMessage ?: "Ошибка выполнения HSP3."
-                    mainHandler.removeCallbacks(this)
+            if (!activityResumed || isFinishing || isDestroyed) return
+            val generation = frameGeneration
+            try {
+                startupExecutor.execute {
+                    val result = session.runSlice(instructionBudget = VM_FRAME_BUDGET)
+                    mainHandler.post {
+                        if (generation != frameGeneration ||
+                            sessionState.value !== session ||
+                            !activityResumed || isFinishing || isDestroyed
+                        ) return@post
+
+                        frameCounter.value += 1
+                        when (result.status) {
+                            Hsp3VmStatus.ENDED -> mainHandler.removeCallbacks(this)
+                            Hsp3VmStatus.FAILED -> {
+                                errorState.value = result.errorMessage ?: "Ошибка выполнения HSP3."
+                                mainHandler.removeCallbacks(this)
+                            }
+                            Hsp3VmStatus.READY, Hsp3VmStatus.YIELDED -> {
+                                val delay = result.yieldDelayMillis.takeIf { it > 0L } ?: FRAME_INTERVAL_MS
+                                mainHandler.postDelayed(this, delay.coerceAtMost(MAX_HOST_DELAY_MS))
+                            }
+                        }
+                    }
                 }
-                Hsp3VmStatus.READY, Hsp3VmStatus.YIELDED -> {
-                    val delay = result.yieldDelayMillis.takeIf { it > 0L } ?: FRAME_INTERVAL_MS
-                    mainHandler.postDelayed(this, delay.coerceAtMost(MAX_HOST_DELAY_MS))
-                }
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                // Activity is shutting down; no more VM work should be queued.
             }
         }
     }
@@ -106,7 +122,7 @@ class Hsp3PlayerActivity : ComponentActivity() {
                         sessionState.value?.close()
                         sessionState.value = session
                         mainHandler.removeCallbacks(frameRunner)
-                        mainHandler.post(frameRunner)
+                        if (activityResumed) mainHandler.post(frameRunner)
                     }
                 }
             } catch (error: Exception) {
@@ -154,7 +170,10 @@ class Hsp3PlayerActivity : ComponentActivity() {
             try {
                 val decoder=Hsp3BytecodeDecoder()
                 val session=Hsp3RuntimeAdapter().createSession(
-                    executable=executable,instructionDecoder=decoder,input=inputController
+                    executable = executable,
+                    instructionDecoder = decoder,
+                    input = inputController,
+                    assetRoot = gameDirectory
                 )
                 decoder.diagnostics.forEach { Log.w("RamenHsp3Decoder",it.asLogMessage()) }
                 return session
@@ -166,12 +185,15 @@ class Hsp3PlayerActivity : ComponentActivity() {
     }
 
     override fun onPause() {
+        activityResumed = false
+        frameGeneration += 1
         mainHandler.removeCallbacks(frameRunner)
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
+        activityResumed = true
         if (sessionState.value != null && errorState.value == null) {
             mainHandler.removeCallbacks(frameRunner)
             mainHandler.post(frameRunner)
@@ -179,10 +201,21 @@ class Hsp3PlayerActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        activityResumed = false
+        frameGeneration += 1
         mainHandler.removeCallbacks(frameRunner)
-        if (::startupExecutor.isInitialized) startupExecutor.shutdownNow()
-        sessionState.value?.close()
+        val session = sessionState.value
         sessionState.value = null
+        if (::startupExecutor.isInitialized) {
+            if (session != null) {
+                runCatching { startupExecutor.execute { session.close() } }
+            }
+            // Let an in-flight slice finish before closing its renderer; no next slice
+            // can be queued because the generation was invalidated above.
+            startupExecutor.shutdown()
+        } else {
+            session?.close()
+        }
         super.onDestroy()
     }
 

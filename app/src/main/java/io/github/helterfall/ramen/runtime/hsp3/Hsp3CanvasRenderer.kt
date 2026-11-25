@@ -13,6 +13,7 @@ import io.github.helterfall.ramen.runtime.MutableArgbBitmapDecoder
 import java.io.Closeable
 import java.io.IOException
 import java.io.InputStream
+import java.util.Locale
 import kotlin.math.min
 
 interface Hsp3Graphics : Closeable {
@@ -104,6 +105,7 @@ class Hsp3CanvasRenderer(
         createSurface(0, logicalWidth, logicalHeight)
     }
 
+    @Synchronized
     override fun screen(id: Int, width: Int, height: Int) {
         checkOpen()
         require(id == 0) { "HSP screen must use window ID 0." }
@@ -111,12 +113,14 @@ class Hsp3CanvasRenderer(
         activeId = id
     }
 
+    @Synchronized
     override fun buffer(id: Int, width: Int, height: Int) {
         checkOpen()
         require(id > 0) { "HSP buffer IDs must be greater than zero." }
         createSurface(id, width, height)
     }
 
+    @Synchronized
     override fun gsel(id: Int) {
         checkOpen()
         if (!surfaces.containsKey(id)) throw IOException("HSP window/buffer $id has not been created.")
@@ -126,68 +130,102 @@ class Hsp3CanvasRenderer(
     override fun picload(name: String) = picload(name, 0)
 
     override fun picload(name: String, mode: Int) {
-        checkOpen()
-        if (name.isBlank() || name.startsWith("/") || name.contains(':') || name.indexOf(0.toChar()) >= 0) {
-            throw IOException("Invalid HSP asset name.")
+        validateAssetName(name, "picload")
+        val targetId = synchronized(this) {
+            checkOpen()
+            activeId
         }
         val stream = openAsset(name) ?: throw IOException("HSP asset '" + name + "' was not found.")
-        val bitmap = stream.use { MutableArgbBitmapDecoder.decodeByteArray(it.readBytes()) }
+        val bitmap = stream.use { MutableArgbBitmapDecoder.decodeByteArray(readBoundedAsset(it)) }
             ?: throw IOException("HSP asset '" + name + "' could not be decoded as a bitmap.")
-        when (mode) {
-            0 -> {
-                val old = surfaces.put(activeId, Surface(bitmap, Canvas(bitmap)))
-                old?.bitmap?.recycle()
-                cellGrids.remove(activeId)
-                cursorX = 0
-                cursorY = 0
-            }
-            1 -> {
-                val destination = activeSurface()
-                destination.canvas.drawBitmap(bitmap, cursorX.toFloat(), cursorY.toFloat(), null)
-                bitmap.recycle()
-            }
-            2 -> {
-                val resized = MutableArgbBitmapDecoder.create(bitmap.width, bitmap.height)
-                val resizedCanvas = Canvas(resized)
-                resizedCanvas.drawColor(Color.BLACK)
-                resizedCanvas.drawBitmap(bitmap, 0f, 0f, null)
-                bitmap.recycle()
-                val old = surfaces.put(activeId, Surface(resized, resizedCanvas))
-                old?.bitmap?.recycle()
-                cellGrids.remove(activeId)
-                cursorX = 0
-                cursorY = 0
-            }
-            else -> {
-                bitmap.recycle()
+
+        var resized: Bitmap? = null
+        try {
+            if (mode == 2) {
+                resized = MutableArgbBitmapDecoder.create(bitmap.width, bitmap.height)
+                Canvas(resized!!).apply {
+                    drawColor(Color.BLACK)
+                    drawBitmap(bitmap, 0f, 0f, null)
+                }
+            } else if (mode !in 0..1) {
                 throw IOException("Unsupported HSP picload mode " + mode + ".")
             }
+
+            synchronized(this) {
+                checkOpen()
+                if (activeId != targetId) {
+                    throw IOException("The selected HSP surface changed while picload was reading its asset.")
+                }
+                when (mode) {
+                    0 -> {
+                        val old = surfaces.put(targetId, Surface(bitmap, Canvas(bitmap)))
+                        old?.bitmap?.recycle()
+                        cellGrids.remove(targetId)
+                        cursorX = 0
+                        cursorY = 0
+                    }
+                    1 -> {
+                        val destination = activeSurface()
+                        destination.canvas.drawBitmap(bitmap, cursorX.toFloat(), cursorY.toFloat(), null)
+                    }
+                    2 -> {
+                        val replacement = resized!!
+                        val old = surfaces.put(targetId, Surface(replacement, Canvas(replacement)))
+                        old?.bitmap?.recycle()
+                        cellGrids.remove(targetId)
+                        cursorX = 0
+                        cursorY = 0
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            if (!bitmap.isRecycled) bitmap.recycle()
+            resized?.let { if (!it.isRecycled) it.recycle() }
+            throw error
+        } finally {
+            if (mode != 0 && !bitmap.isRecycled) bitmap.recycle()
+            if (mode != 2) resized?.let { if (!it.isRecycled) it.recycle() }
         }
     }
 
     override fun celload(name: String, id: Int): Int = celload(name, id, 0)
 
     override fun celload(name: String, id: Int, mode: Int): Int {
-        checkOpen()
-        if (name.isBlank() || name.startsWith("/") || name.contains(':') || name.indexOf(0.toChar()) >= 0) {
-            throw IOException("Invalid HSP celload asset name.")
-        }
+        validateAssetName(name, "celload")
         if (mode != 0) throw IOException("HSP Canvas renderer only supports full-color celload mode 0.")
-        val cacheKey = name.lowercase()
-        if (id == -2) preloadedCellIds[cacheKey]?.let { cached ->
-            if (surfaces.containsKey(cached)) return cached
+        val cacheKey = name.lowercase(Locale.ROOT)
+        synchronized(this) {
+            checkOpen()
+            if (id == -2) preloadedCellIds[cacheKey]?.let { cached ->
+                if (surfaces.containsKey(cached)) return cached
+            }
         }
+
         val stream = openAsset(name) ?: throw IOException("HSP celload asset was not found: " + name)
-        val bitmap = stream.use { MutableArgbBitmapDecoder.decodeByteArray(it.readBytes()) }
+        val bitmap = stream.use { MutableArgbBitmapDecoder.decodeByteArray(readBoundedAsset(it)) }
             ?: throw IOException("HSP celload asset could not be decoded: " + name)
-        val targetId = if (id >= 0) id else generateSequence(1) { it + 1 }
-            .first { !surfaces.containsKey(it) }
-        val old = surfaces.put(targetId, Surface(bitmap, Canvas(bitmap)))
-        old?.bitmap?.recycle()
-        cellGrids.remove(targetId)
-        preloadedCellIds.entries.removeAll { it.value == targetId }
-        if (id == -2) preloadedCellIds[cacheKey] = targetId
-        return targetId
+        try {
+            return synchronized(this) {
+                checkOpen()
+                if (id == -2) preloadedCellIds[cacheKey]?.let { cached ->
+                    if (surfaces.containsKey(cached)) {
+                        bitmap.recycle()
+                        return@synchronized cached
+                    }
+                }
+                val targetId = if (id >= 0) id else generateSequence(1) { it + 1 }
+                    .first { !surfaces.containsKey(it) }
+                val old = surfaces.put(targetId, Surface(bitmap, Canvas(bitmap)))
+                old?.bitmap?.recycle()
+                cellGrids.remove(targetId)
+                preloadedCellIds.entries.removeAll { it.value == targetId }
+                if (id == -2) preloadedCellIds[cacheKey] = targetId
+                targetId
+            }
+        } catch (error: Exception) {
+            if (!bitmap.isRecycled) bitmap.recycle()
+            throw error
+        }
     }
 
     override fun celdiv(id: Int, cellWidth: Int, cellHeight: Int, baseX: Int, baseY: Int) {
@@ -200,6 +238,7 @@ class Hsp3CanvasRenderer(
         cellGrids[id] = CellGrid(cellWidth, cellHeight, baseX, baseY)
     }
 
+    @Synchronized
     override fun celput(
         id: Int,
         cellIndex: Int,
@@ -239,6 +278,7 @@ class Hsp3CanvasRenderer(
         cursorX += destWidth.toInt()
     }
 
+    @Synchronized
     override fun gcopy(
         sourceId: Int,
         sourceX: Int,
@@ -263,6 +303,7 @@ class Hsp3CanvasRenderer(
         )
     }
 
+    @Synchronized
     override fun gzoom(
         destWidth: Int,
         destHeight: Int,
@@ -288,6 +329,7 @@ class Hsp3CanvasRenderer(
         )
     }
 
+    @Synchronized
     override fun grotate(
         sourceId: Int,
         sourceX: Int,
@@ -313,6 +355,7 @@ class Hsp3CanvasRenderer(
         )
     }
 
+    @Synchronized
     override fun boxf(x1: Int, y1: Int, x2: Int, y2: Int) {
         checkOpen()
         shapePaint.color = currentColor
@@ -327,8 +370,10 @@ class Hsp3CanvasRenderer(
         )
     }
 
+    @Synchronized
     override fun mes(value: String) = mes(value, 0)
 
+    @Synchronized
     override fun mes(value: String, flags: Int) {
         checkOpen()
         val canvas = activeSurface().canvas
@@ -365,13 +410,16 @@ class Hsp3CanvasRenderer(
         textPaint.color = foreground
     }
 
+    @Synchronized
     override fun pos(x: Int, y: Int) {
         cursorX = x
         cursorY = y
     }
 
+    @Synchronized
     override fun currentPosition(): Pair<Int, Int> = cursorX to cursorY
 
+    @Synchronized
     override fun surfaceSize(id: Int): Pair<Int, Int> {
         val bitmap = surfaces[id]?.bitmap
             ?: throw IOException("HSP surface " + id + " does not exist.")
@@ -379,6 +427,7 @@ class Hsp3CanvasRenderer(
     }
 
     /** Independent mutable snapshot used by renderer-level bitmap tests. */
+    @Synchronized
     internal fun copySurfaceBitmap(id: Int): Bitmap {
         val bitmap = surfaces[id]?.bitmap
             ?: throw IOException("HSP surface " + id + " does not exist.")
@@ -386,15 +435,18 @@ class Hsp3CanvasRenderer(
             ?: throw IOException("Could not copy HSP surface " + id + ".")
     }
 
+    @Synchronized
     override fun boxf() {
         val bitmap = activeSurface().bitmap
         boxf(0, 0, bitmap.width - 1, bitmap.height - 1)
     }
 
+    @Synchronized
     override fun color(red: Int, green: Int, blue: Int) {
         currentColor = Color.rgb(red.coerceIn(0, 255), green.coerceIn(0, 255), blue.coerceIn(0, 255))
     }
 
+    @Synchronized
     override fun font(name: String, size: Int, style: Int) {
         require(size > 0) { "HSP font size must be positive." }
         val typefaceStyle = when (style and FONT_STYLE_MASK) {
@@ -407,8 +459,10 @@ class Hsp3CanvasRenderer(
         textPaint.textSize = size.toFloat()
     }
 
+    @Synchronized
     override fun gmode(mode: Int, alpha: Int) = gmode(mode, 32, 32, alpha)
 
+    @Synchronized
     override fun gmode(mode: Int, copyWidth: Int, copyHeight: Int, alpha: Int) {
         require(mode in SUPPORTED_GMODE) {
             "HSP gmode " + mode + " is not supported by the Canvas renderer."
@@ -420,20 +474,24 @@ class Hsp3CanvasRenderer(
         gmodeCopyHeight = copyHeight
     }
 
+    @Synchronized
     override fun copySize(): Pair<Int, Int> = gmodeCopyWidth to gmodeCopyHeight
 
+    @Synchronized
     override fun currentSurfaceSize(): Pair<Int, Int> {
         val bitmap = activeSurface().bitmap
         return bitmap.width to bitmap.height
     }
 
+    @Synchronized
     override fun redraw(enabled: Boolean) {
         shouldPresent = enabled
     }
 
     /** Draws the selected HSP target with aspect-preserving letterboxing. */
+    @Synchronized
     fun draw(target: Canvas) {
-        checkOpen()
+        if (closed) return
         if (!shouldPresent) return
         val bitmap = activeSurface().bitmap
         val width = target.width.toFloat()
@@ -512,6 +570,29 @@ class Hsp3CanvasRenderer(
         }
     }
 
+    private fun validateAssetName(name: String, command: String) {
+        if (name.isBlank() || name.startsWith("/") || name.contains(':') || name.indexOf(0.toChar()) >= 0) {
+            throw IOException("Invalid HSP " + command + " asset name.")
+        }
+    }
+
+    private fun readBoundedAsset(input: InputStream): ByteArray {
+        val output = java.io.ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        var total = 0L
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            if (count == 0) continue
+            total += count.toLong()
+            if (total > MAX_ASSET_BYTES) {
+                throw IOException("HSP bitmap exceeds the configured asset-size limit.")
+            }
+            output.write(buffer, 0, count)
+        }
+        return output.toByteArray()
+    }
+
     private fun createSurface(id: Int, width: Int, height: Int) {
         validateDimensions(width, height)
         val bitmap = MutableArgbBitmapDecoder.create(width, height)
@@ -546,6 +627,7 @@ class Hsp3CanvasRenderer(
         check(!closed) { "The HSP Canvas renderer is closed." }
     }
 
+    @Synchronized
     override fun close() {
         if (closed) return
         closed = true
@@ -561,6 +643,7 @@ class Hsp3CanvasRenderer(
         private const val DEFAULT_FONT_SIZE = 16
         private const val MAX_SURFACE_DIMENSION = 8192
         private const val MAX_SURFACE_PIXELS = 16L * 1024L * 1024L
+        private const val MAX_ASSET_BYTES = 32L * 1024L * 1024L
         private const val FONT_STYLE_MASK = 0x03
         private const val FONT_STYLE_BOLD = 0x01
         private const val FONT_STYLE_ITALIC = 0x02

@@ -18,6 +18,8 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.FileInputStream
+import java.io.FilterInputStream
+import java.util.Locale
 import java.io.RandomAccessFile
 
 fun interface Hsp3InstructionDecoder {
@@ -41,27 +43,44 @@ data class Hsp3PreparedGame(
 class DpmxAssetRepository(
     private val executable: File,
     private val container: DpmxContainer,
-    private val keyResolver: DpmxKeyResolver
+    private val keyResolver: DpmxKeyResolver,
+    assetRoot: File? = null
 ) : Closeable, Hsp3FileStorage {
-    private val gameRoot: File = executable.canonicalFile.parentFile
-        ?: throw IOException("The HSP game directory is unavailable.")
+    private val executableDirectory: File = executable.canonicalFile.parentFile
+        ?: throw IOException("The HSP executable directory is unavailable.")
+    private val gameRoot: File = (assetRoot ?: executableDirectory).canonicalFile
+    private val localSearchRoots: List<File> = listOf(gameRoot, executableDirectory)
+        .distinctBy { it.path }
+
+    init {
+        if (!gameRoot.isDirectory) throw IOException("The imported HSP game directory is unavailable.")
+        if (!gameRoot.toPath().startsWith(executableDirectory.toPath()) &&
+            !executableDirectory.toPath().startsWith(gameRoot.toPath())
+        ) {
+            throw IOException("The executable and HSP resource directory are outside the same imported game.")
+        }
+    }
 
     fun open(name: String): InputStream? {
         val normalized = normalizeRelativeName(name)
-        val local = resolvePrivateFile(normalized)
-        if (local.isFile) return FileInputStream(local)
+        for (root in localSearchRoots) {
+            val local = resolveExistingFile(root, normalized)
+            if (local?.isFile == true) {
+                return BoundedInputStream(FileInputStream(local), MAX_FILE_BYTES)
+            }
+        }
+
         val entry = container.entries.firstOrNull {
             normalizeArchiveName(it.name).equals(normalized, ignoreCase = true)
         } ?: return null
         val source = FileRandomAccessSource(executable)
         return try {
             val resolution = keyResolver.resolve(source, container, entry)
-            if (resolution == null) {
-                source.close()
-                null
-            } else {
-                DpmxDecryptingInputStream(source, entry, resolution.key)
-            }
+                ?: throw IOException("DPMX key resolution failed for HSP asset '" + entry.name + "'.")
+            BoundedInputStream(
+                DpmxDecryptingInputStream(source, entry, resolution.key),
+                MAX_FILE_BYTES
+            )
         } catch (error: Exception) {
             source.close()
             throw error
@@ -94,7 +113,7 @@ class DpmxAssetRepository(
             throw IOException("HSP bsave request exceeds the configured file bounds.")
         }
         val normalized = normalizeRelativeName(name)
-        val target = resolvePrivateFile(normalized)
+        val target = resolveWritableFile(normalized)
         val parent = target.parentFile ?: throw IOException("HSP save path has no parent directory.")
         if (!parent.exists() && !parent.mkdirs()) {
             throw IOException("Could not create the HSP save directory.")
@@ -116,10 +135,34 @@ class DpmxAssetRepository(
         }
     }
 
-    private fun resolvePrivateFile(normalized: String): File {
+    private fun resolveExistingFile(root: File, normalized: String): File? {
+        var current = root
+        for (segment in normalized.split('/')) {
+            val exact = File(current, segment)
+            val child = if (exact.exists()) {
+                exact
+            } else {
+                current.listFiles()
+                    ?.asSequence()
+                    ?.filter { it.name.equals(segment, ignoreCase = true) }
+                    ?.sortedBy { it.name.lowercase(Locale.ROOT) }
+                    ?.firstOrNull()
+                    ?: return null
+            }
+            val canonical = child.canonicalFile
+            if (!canonical.toPath().startsWith(root.toPath())) {
+                throw IOException("HSP file path escapes the imported game directory.")
+            }
+            current = canonical
+        }
+        if (current == root) throw IOException("An HSP asset path resolved to the game directory.")
+        return current
+    }
+
+    private fun resolveWritableFile(normalized: String): File {
         val target = File(gameRoot, normalized.replace('/', File.separatorChar)).canonicalFile
         if (target == gameRoot || !target.toPath().startsWith(gameRoot.toPath())) {
-            throw IOException("HSP file path escapes the imported game directory.")
+            throw IOException("HSP save path escapes the imported game directory.")
         }
         return target
     }
@@ -144,8 +187,37 @@ class DpmxAssetRepository(
 
     override fun close() = Unit
 
+    private class BoundedInputStream(
+        input: InputStream,
+        private val maximumBytes: Long
+    ) : FilterInputStream(input) {
+        private var consumedBytes = 0L
+
+        override fun read(): Int {
+            val value = super.read()
+            if (value >= 0) account(1)
+            return value
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            val count = super.read(buffer, offset, length)
+            if (count > 0) account(count.toLong())
+            return count
+        }
+
+        private fun account(count: Long) {
+            if (count > maximumBytes - consumedBytes) {
+                throw IOException(
+                    "HSP asset exceeds the configured read limit of " +
+                        (maximumBytes / (1024 * 1024)) + " MiB."
+                )
+            }
+            consumedBytes += count
+        }
+    }
+
     companion object {
-        private const val MAX_FILE_BYTES = 32 * 1024 * 1024
+        private const val MAX_FILE_BYTES = 32L * 1024L * 1024L
     }
 }
 
@@ -224,10 +296,11 @@ class Hsp3RuntimeAdapter(
     fun createSession(
         executable: File,
         instructionDecoder: Hsp3InstructionDecoder = Hsp3BytecodeDecoder(),
-        input: Hsp3InputProvider = Hsp3InputProvider { 0 }
+        input: Hsp3InputProvider = Hsp3InputProvider { 0 },
+        assetRoot: File? = null
     ): Hsp3RuntimeSession {
         val prepared = prepare(executable)
-        val assets = DpmxAssetRepository(prepared.executable, prepared.container, keyResolver)
+        val assets = DpmxAssetRepository(prepared.executable, prepared.container, keyResolver, assetRoot)
         try {
             val decodedInstructions = instructionDecoder.decode(prepared.program)
             val renderer = Hsp3CanvasRenderer(openAsset = assets::open)
