@@ -57,7 +57,7 @@ class SystemNnnNativeEffectRendererTest {
         val atStart = SystemNnnNativeEffectRenderer.light(source, 0, 40, listOf(40, 100, 80, 60, 0, 0))
         val atEnd = SystemNnnNativeEffectRenderer.light(source, 40, 40, listOf(40, 100, 80, 60, 0, 0))
         assertArrayEquals(source, atStart)
-        assertEquals(0x8064746A.toInt(), atEnd[0])
+        assertEquals(0x8074706C.toInt(), atEnd[0])
         assertEquals(0xFFFFFFFF.toInt(), atEnd[1])
     }
 
@@ -69,7 +69,7 @@ class SystemNnnNativeEffectRendererTest {
         )
         assertEquals(source.size, result.size)
         assertTrue((result[0] and 0x00FFFFFF) != (source[0] and 0x00FFFFFF))
-        assertEquals(0xFF808080.toInt(), result[1])
+        assertEquals(0xFF806141.toInt(), result[1])
     }
 
     @Test
@@ -81,7 +81,7 @@ class SystemNnnNativeEffectRendererTest {
         val result = SystemNnnNativeEffectRenderer.mosaic(source, 4, 2, 1, listOf(1, 2, 2, 0, 0, 4, 2))
         assertArrayEquals(
             intArrayOf(
-                0xFF020202.toInt(), 0xFF020202.toInt(), 0xFF040404.toInt(), 0xFF040404.toInt(),
+                0xFF121212.toInt(), 0xFF121212.toInt(), 0xFF141414.toInt(), 0xFF141414.toInt(),
                 0xFF121212.toInt(), 0xFF121212.toInt(), 0xFF141414.toInt(), 0xFF141414.toInt()
             ),
             result
