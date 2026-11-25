@@ -125,6 +125,17 @@ class Hsp3BytecodeDecoderTest {
         }
     }
 
+    @Test
+    fun conditionalCommandSkipsRawBranchWordAndResolvesOtStylePc() {
+        withProgram(createIfProgram()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+            val branch = instructions.first() as Hsp3Instruction.JumpIfFalse
+            assertEquals(2, branch.targetInstruction)
+            assertEquals(Hsp3Instruction.End, instructions[1])
+            assertEquals(Hsp3Instruction.End, instructions[2])
+        }
+    }
+
     private fun withProgram(bytes: ByteArray, block: (io.github.helterfall.ramen.parser.Hsp3Program) -> Unit) {
         val directory = Files.createTempDirectory("ramen-hsp3-decoder").toFile()
         try {
@@ -134,6 +145,17 @@ class Hsp3BytecodeDecoderTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    private fun createIfProgram(): ByteArray {
+        val code = listOf(
+            0x200B, Hsp3BytecodeDecoder.CMP_CMD_IF, // TYPE_CMPCMD + EXFLG_1
+            4,                                     // raw skip: four CS words after this field
+            0x0004, 1,                             // condition expression
+            0x200F, 0x10,                          // true branch: end
+            0x200F, 0x10                           // false branch target: end
+        )
+        return createAx(code)
     }
 
     private fun createMesWithNestedStringFunctions(): ByteArray {
