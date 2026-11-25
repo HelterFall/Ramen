@@ -29,6 +29,43 @@ class SystemNnnNativeEffectRendererTest {
     }
 
     @Test
+    fun addWipeUsesTwoPhaseSaturatingBlend() {
+        val start = intArrayOf(0xFF101010.toInt())
+        val end = intArrayOf(0xFF202020.toInt())
+
+        val firstHalf = SystemNnnNativeEffectRenderer.renderOverrapFrame(
+            start, end, transitionType = 40, frame = 2, length = 8, width = 1, height = 1
+        )
+        val secondHalf = SystemNnnNativeEffectRenderer.renderOverrapFrame(
+            start, end, transitionType = 40, frame = 6, length = 8, width = 1, height = 1
+        )
+
+        assertEquals(0xFF202020.toInt(), firstHalf?.single())
+        assertEquals(0xFF282828.toInt(), secondHalf?.single())
+        assertArrayEquals(start, SystemNnnNativeEffectRenderer.renderOverrapFrame(
+            start, end, 40, 0, 8, 1, 1
+        ))
+        assertArrayEquals(end, SystemNnnNativeEffectRenderer.renderOverrapFrame(
+            start, end, 40, 8, 8, 1, 1
+        ))
+    }
+
+    @Test
+    fun kagerouUsesThreeIndependentNativeWavePhases() {
+        val source = IntArray(8 * 8) { index ->
+            val x = index % 8
+            val y = index / 8
+            (0xFF000000L or (x * 0x000101L) or (y * 0x010000L)).toInt()
+        }
+        val result = SystemNnnNativeEffectRenderer.kagerou(
+            source, 8, 8, 16,
+            listOf(20, 0, 8, 0, 100, 100, 100, 3, 8, 1, 2, 13, 2, 1, 3, 3)
+        )
+        assertEquals(source.size, result.size)
+        assertTrue(!source.contentEquals(result))
+    }
+
+    @Test
     fun overrapTypeZeroIsTheExactNativeCrossDissolve() {
         val start = IntArray(16) { 0xFF102030.toInt() }
         val end = IntArray(16) { 0xFF304050.toInt() }
