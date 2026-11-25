@@ -20,6 +20,11 @@ interface Hsp3Graphics : Closeable {
     fun screen(id: Int, width: Int, height: Int)
     fun buffer(id: Int, width: Int, height: Int)
     fun gsel(id: Int)
+    fun cls(mode: Int = 0) = Unit
+    fun title(value: String) = Unit
+    fun width(width: Int, height: Int) = screen(0, width, height)
+    fun palette(arguments: List<Hsp3RuntimeValue?>) = Unit
+    fun grect(centerX: Int, centerY: Int, angleRadians: Double, width: Int, height: Int) = Unit
     fun picload(name: String)
     fun picload(name: String, mode: Int) = picload(name)
     fun gcopy(sourceId: Int, sourceX: Int, sourceY: Int, width: Int, height: Int, destX: Int, destY: Int)
@@ -93,6 +98,7 @@ class Hsp3CanvasRenderer(
     private var cursorX = 0
     private var cursorY = 0
     private var currentColor = Color.WHITE
+    private var currentTitle = ""
     private var blendMode = 0
     private var blendAlpha = 0
     private var gmodeCopyWidth = 32
@@ -118,6 +124,67 @@ class Hsp3CanvasRenderer(
         checkOpen()
         require(id > 0) { "HSP buffer IDs must be greater than zero." }
         createSurface(id, width, height)
+    }
+
+    @Synchronized
+    override fun cls(mode: Int) {
+        checkOpen()
+        activeSurface().canvas.drawColor(Color.BLACK, PorterDuff.Mode.SRC)
+        cursorX = 0
+        cursorY = 0
+    }
+
+    @Synchronized
+    override fun title(value: String) {
+        checkOpen()
+        currentTitle = value
+    }
+
+    @Synchronized
+    override fun width(width: Int, height: Int) {
+        checkOpen()
+        screen(0, width, height)
+    }
+
+    @Synchronized
+    override fun palette(arguments: List<Hsp3RuntimeValue?>) {
+        // ARGB_8888 targets are true-colour. Accept legacy palette commands safely.
+        checkOpen()
+    }
+
+    @Synchronized
+    override fun grect(
+        centerX: Int,
+        centerY: Int,
+        angleRadians: Double,
+        width: Int,
+        height: Int
+    ) {
+        checkOpen()
+        if (width <= 0 || height <= 0) return
+        val canvas = activeSurface().canvas
+        shapePaint.color = currentColor
+        val saved = canvas.save()
+        try {
+            if (angleRadians != 0.0) {
+                canvas.rotate(
+                    Math.toDegrees(angleRadians).toFloat(),
+                    centerX.toFloat(),
+                    centerY.toFloat()
+                )
+            }
+            canvas.drawRect(
+                RectF(
+                    centerX - width / 2f,
+                    centerY - height / 2f,
+                    centerX + width / 2f,
+                    centerY + height / 2f
+                ),
+                shapePaint
+            )
+        } finally {
+            canvas.restoreToCount(saved)
+        }
     }
 
     @Synchronized
@@ -542,12 +609,11 @@ class Hsp3CanvasRenderer(
         bitmapPaint.color = Color.WHITE
         bitmapPaint.isFilterBitmap = filter
         bitmapPaint.alpha = when (effectiveMode) {
-            ALPHA_BLEND, COLOR_KEY_ALPHA, ADDITIVE_BLEND, SUBTRACTIVE_BLEND ->
+            ALPHA_BLEND, COLOR_KEY_ALPHA, 5, SUBTRACTIVE_BLEND ->
                 ((blendAlpha * 255) / 256).coerceIn(0, 255)
             else -> 255
         }
         bitmapPaint.xfermode = when (effectiveMode) {
-            ADDITIVE_BLEND -> PorterDuffXfermode(PorterDuff.Mode.ADD)
             SUBTRACTIVE_BLEND -> PorterDuffXfermode(PorterDuff.Mode.DARKEN)
             else -> null
         }
@@ -656,7 +722,6 @@ class Hsp3CanvasRenderer(
         private const val ALPHA_BLEND = 3
         private const val COLOR_KEY_ALPHA = 4
         private const val COLOR_KEY_CURRENT = 4
-        private const val ADDITIVE_BLEND = 5
         private const val SUBTRACTIVE_BLEND = 6
         private val SUPPORTED_GMODE = 0..6
     }

@@ -40,6 +40,7 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.min
 
 /** Native Android host for imported PE32/DPMX HSP3 games. */
 class Hsp3PlayerActivity : ComponentActivity() {
@@ -237,8 +238,17 @@ class Hsp3PlayerActivity : ComponentActivity() {
 
 private class Hsp3TouchInputController : Hsp3InputProvider {
     private val mask = AtomicInteger(0)
+    private val mouseX = AtomicInteger(0)
+    private val mouseY = AtomicInteger(0)
 
     override fun stickMask(): Int = mask.get()
+
+    override fun mousePosition(): Pair<Int, Int> = mouseX.get() to mouseY.get()
+
+    fun setMousePosition(x: Int, y: Int) {
+        mouseX.set(x.coerceIn(0, Hsp3CanvasRenderer.DEFAULT_WIDTH - 1))
+        mouseY.set(y.coerceIn(0, Hsp3CanvasRenderer.DEFAULT_HEIGHT - 1))
+    }
 
     fun setPressed(bits: Int, pressed: Boolean) {
         while (true) {
@@ -325,9 +335,33 @@ private fun Hsp3PlayerScreen(
             }
 
             Box(modifier = Modifier.fillMaxSize()) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    // Capture the host frame token in the draw lambda so each
-                    // bounded VM slice invalidates this Canvas after bitmap updates.
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(input) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val point = event.changes.firstOrNull()?.position ?: continue
+                                    val scale = min(
+                                        size.width.toFloat() / Hsp3CanvasRenderer.DEFAULT_WIDTH,
+                                        size.height.toFloat() / Hsp3CanvasRenderer.DEFAULT_HEIGHT
+                                    )
+                                    if (scale > 0f) {
+                                        val left = (size.width -
+                                            Hsp3CanvasRenderer.DEFAULT_WIDTH * scale) / 2f
+                                        val top = (size.height -
+                                            Hsp3CanvasRenderer.DEFAULT_HEIGHT * scale) / 2f
+                                        input.setMousePosition(
+                                            ((point.x - left) / scale).toInt(),
+                                            ((point.y - top) / scale).toInt()
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                ) {
+                    // Capture the host frame token so each bounded VM slice invalidates the Canvas.
                     if (frameCounter == Int.MIN_VALUE) drawRect(Color.Transparent)
                     drawIntoCanvas { canvas ->
                         session?.renderer?.draw(canvas.nativeCanvas)
