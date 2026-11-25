@@ -175,3 +175,13 @@ The current decoder uses PACKTYPE metadata rather than guessing from payload byt
 ## Validation boundary
 
 The earlier visual-effects branch has an APK-only Actions run that succeeded, but that workflow does not execute unit tests. This branch enables the Android unit-test workflow and APK workflow on push. Final green status must be taken from the new Actions runs for the resulting branch HEAD. No physical-device visual/audio acceptance is claimed by this source audit.
+
+
+## Follow-up compatibility status (audit branch)
+
+- DWQ PACKTYPE=7 now applies the trailing decoded alpha mask to JPEG RGB pixels and sets Android Bitmap.hasAlpha; unit coverage checks alpha 0, 127 and 255 while preserving RGB.
+- SETEFFECT id=1 is accepted as a title-specific reset. This differs from public upstream MAE continuation semantics, which retain the previous effect; the observed target diagnostic is used as the compatibility rule.
+- All 33 supplied effect IDs have catalog entries with upstream native names and operand counts. Regression tests check the catalog and preserve every provided signed parameter vector. This is not equivalent to implementing all 33 visual algorithms.
+- Existing compositor paths cover TRANS/CTRANS, fades, FLASH, SCROLL, CHANGE, MOVE, FILL, OLDFILM, TURN, STRETCHBLT, BUFFER, the observed CLOUD mode, COLORADDSUB and HAIKEIYURE. PUT, LIGHT, KAGEROU, KE, SUNA, NEGA, MOZAIC, GRADATION, RAIN2, KOMAANIME, HAMON, HOTARU, GET, BURA and RAIN4 still lack native-equivalent compositor algorithms.
+- OVERRAP preserves arguments and creates a visible scene-commit boundary; PREPAREOVERRAP is decoded and tracked for diagnostics. Capturing/blending native m_overrapPic0/m_overrapPic1 snapshots remains unimplemented.
+- SETCG, STARTMESSAGE, STARTKOMA, SETDEMOFLAG, FILMNAME, STORYNAME, FILMTYPETIME, AUTOMESSAGE, CANNOTCLICK, CANNOTSKIP and OPTIONOFF are decoded into typed events. FILMNAME/STORYNAME resolve Pool-2 strings. Title callbacks still require state/UI integration.
