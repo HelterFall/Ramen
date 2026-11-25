@@ -363,11 +363,17 @@ class SystemNnnCommandDecoderImpl(
             CODE_SYSTEMFUNCTION_STARTMESSAGE,
             CODE_SYSTEMFUNCTION_STARTKOMA,
             CODE_SYSTEMFUNCTION_SETDEMOFLAG,
-            CODE_SYSTEMFUNCTION_FILMTYPETIME,
             CODE_SYSTEMFUNCTION_AUTOMESSAGE,
             CODE_SYSTEMFUNCTION_CANNOTCLICK,
             CODE_SYSTEMFUNCTION_CANNOTSKIP,
             CODE_SYSTEMFUNCTION_OPTIONOFF -> decodeCountedNativeSystemFunction(script, record)
+            CODE_SYSTEMFUNCTION_FILMTYPETIME -> {
+                if (isDescriptorThreeContinuation(script, stream, record)) {
+                    SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+                } else {
+                    decodeCountedNativeSystemFunction(script, record)
+                }
+            }
             CODE_SYSTEMFUNCTION_FILMNAME,
             CODE_SYSTEMFUNCTION_STORYNAME -> {
                 val hasDescriptorThreeTargets =
@@ -869,6 +875,18 @@ class SystemNnnCommandDecoderImpl(
         return SystemNnnDecodedCommand.Jump(frame.returnCommandOffset)
     }
 
+    private fun isDescriptorThreeContinuation(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
+        record: SystemNnnCommandRecord
+    ): Boolean {
+        val table = script.offsetTables.getOrNull(2) ?: return false
+        if (table.entryCount == 0u) return false
+        return filmTableEntriesFor(script, stream).any { entry ->
+            val targetIndex = stream.records.binarySearchBy(entry.targetCommandOffset) { it.offset }
+            targetIndex >= 0 && stream.records.getOrNull(targetIndex + 1)?.offset == record.offset
+        }
+    }
     private fun filmTableEntriesFor(
         script: SystemNnnScript,
         stream: SystemNnnCommandStream
