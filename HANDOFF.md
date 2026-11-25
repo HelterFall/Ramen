@@ -520,17 +520,19 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 
 
 
-## 14. HSP3.1 / DPMX parser and runtime foundation
+## 14. HSP3.1 / DPMX development branch (PR #31)
 
-A separate work branch, `feat/hsp3-dpmx-runtime`, was created from the verified main head `56534a43c76f3567ea46d0dbeb7e8ad5f8e88975`.
+A separate work branch, `feat/hsp3-dpmx-runtime`, was created from the verified main head `56534a43c76f3567ea46d0dbeb7e8ad5f8e88975`; it is tracked in [PR #31](https://github.com/HelterFall/Ramen/pull/31).
 
 Implementation notes and boundaries are recorded in [docs/HSP3_DPMX_STATUS.md](docs/HSP3_DPMX_STATUS.md). The branch adds:
 - a streaming PE32/DPMX overlay parser and DPMX key/decryption layer under `inspection/`;
-- an HSPHED + CS/DS/OT/DI loader and token-envelope iterator under `parser/`;
-- an Android Canvas renderer, bounded IR VM and `Hsp3RuntimeAdapter` under `runtime/hsp3/`;
-- DPMX/HSP3 validation in `VisualNovelDetector` and a DPMX entry in `ContainerFormatRegistry`;
+- an HSPHED + CS/DS/OT/DI loader with OpenHSP token flags, conditional-command branch words and word-based OT offsets;
+- a CS decoder for command heads, argument boundaries, postfix scalar expressions, core control flow and a limited graphics/input command profile;
+- a typed bounded VM with scalar int/double/string values, expression evaluation, assignments, branches, loops, wait yields, `stick` and `getkey`;
+- an Android `Hsp3PlayerActivity` with an 800x600 Canvas viewport, bounded host loop and touchscreen D-pad / Enter-Z / Esc-X / Space controls;
+- DPMX/HSP3 validation in `VisualNovelDetector`, a DPMX entry in `ContainerFormatRegistry`, and a user-visible HSP3 Launch route;
 - generated binary unit-test fixtures only; no Demonophobia executable or commercial assets are stored in Git.
 
-**Readiness boundary:** container parsing, start.ax decryption/loading and the initial typed graphics/input VM foundation are implemented. The full HSP3 expression/argument decoder that maps raw token streams into VM instructions is not complete, and no HSP3 playback Activity is wired. The detector reports parser availability but the current UI does not expose a Launch action for this engine. The exact `.data` key schedule is also still an injected strategy because its arithmetic was not included in the supplied specification.
+**Readiness boundary:** the native launch path is connected, but this is a partial HSP3.1 runtime, not proven full Demonophobia compatibility. The exact PE `.data` key schedule still requires independent validation; array/function/module/DLL expression forms and many platform/graphics commands remain unsupported; there is no real-game end-to-end Android test yet. The library exposes Launch only after HSP3 command decoding succeeds, but unsupported commands can still stop execution at runtime.
 
-Do not describe this branch as full Demonophobia compatibility until the raw command decoder, missing VM semantics, Android host and real-device end-to-end checks are complete.
+CI build/unit-test/lint success proves source/build correctness only. It is not a physical-device test or a guarantee that the target game's full script will play.
