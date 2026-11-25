@@ -225,8 +225,13 @@ class LiveMakerVirtualMachine(
                         val candidateIndexes = listOf(startIndex, startIndex + 1L)
                         val whileHeader = candidateIndexes
                             .asSequence()
-                            .filter { it in script.commands.indices.map(Int::toLong) }
-                            .map { script.commands[it.toInt()] }
+                            .mapNotNull { index ->
+                                if (index >= 0L && index < script.commands.size.toLong()) {
+                                    script.commands[index.toInt()]
+                                } else {
+                                    null
+                                }
+                            }
                             .firstOrNull { it.typeId == 31 }
 
                         if (whileHeader == null) {
