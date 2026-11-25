@@ -380,9 +380,10 @@ internal object SystemNnnVisualEffectMath {
         (parameters.getOrNull(3) ?: 0) != 0
 
     /**
-     * Native CAllEffect::SetEffectScript treats MAE as a continuation marker.
-     * IDs 4..7 have no registered native effect object and are rejected without
-     * replacing the layer's previous effect.
+     * Public upstream treats MAE (id=1) as a continuation marker. The observed
+     * title diagnostic requires id=1 to clear the current layer effect, so this
+     * runner deliberately applies it as a plain-layer reset. IDs 4..7 remain
+     * unregistered native effect IDs and are rejected without replacing state.
      */
     fun shouldApplyNativeLayerEffectCommand(effectId: Int): Boolean =
         effectId !in setOf(-1, 4, 5, 6, 7)
