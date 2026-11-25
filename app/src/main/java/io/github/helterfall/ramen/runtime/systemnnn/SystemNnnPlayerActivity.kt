@@ -152,6 +152,10 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     commandStreamReader = commandStreamReader
                 )
                 val initialSceneRoute = resolveRequestedSceneRoute(launch)
+                val overrapConfig = runCatching {
+                    SystemNnnOverrapConfig.load(launch.assetRootDirectory)
+                }.onFailure { diagnosticLog.recordException("overrap_setup", it) }
+                    .getOrDefault(SystemNnnOverrapConfig())
                 val assetManagerToTransfer = SystemNnnAssetManager.forGameDirectory(
                     gameDirectory = launch.assetRootDirectory,
                     cacheDirectory = File(cacheDir, "systemnnn-audio")
@@ -162,6 +166,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     if (isFinishing || isDestroyed) {
                         assetManagerToTransfer.close()
                     } else {
+                        playerViewModel.setOverrapConfig(overrapConfig)
                         val projectVariables = launch.initialVariables.toMutableMap()
                         val decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder = {
                             SystemNnnCommandDecoderImpl(
