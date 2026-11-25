@@ -819,6 +819,90 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun decodesMusicVoiceAndSoundSystemFunctions() {
+        val music = testScript(
+            records = listOf(record(5, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_MUSIC, 1u, 1u)),
+            textCount = 0
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Music(RECORD_START + 20L, musicNumber = 1, loopCount = 0),
+            decoder().decodeNext(music, RECORD_START)
+        )
+
+        val voice = testScript(
+            records = listOf(record(6, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_VOICE, 2u, 0u, 3u)),
+            textCount = 0,
+            secondaryTexts = listOf("voice001")
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Voice(RECORD_START + 24L, resourceId = "voice001", channel = 3),
+            decoder().decodeNext(voice, RECORD_START)
+        )
+
+        val sound = testScript(
+            records = listOf(record(6, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SOUND, 2u, 1u, 2u)),
+            textCount = 0
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Sound(RECORD_START + 24L, soundNumber = 1, channel = 2),
+            decoder().decodeNext(sound, RECORD_START)
+        )
+    }
+
+    @Test
+    fun logsUnsupportedSystemFunctionCodesWithoutCorruptingTheRecordCursor() {
+        val logFile = File.createTempFile("ramen-system-function-audit-", ".log").apply { delete() }
+        try {
+            val unsupported = listOf(
+                0x33330011u, 0x33330017u, 0x33330018u,
+                0x3333001Bu, 0x3333001Cu, 0x3333001Eu, 0x33330028u,
+                0x33330050u, 0x33330051u, 0x33330052u, 0x33330053u,
+                0x33330057u, 0x33330058u, 0x33330059u, 0x3333005Au
+            )
+            val records = unsupported.map { code -> record(3, SYSTEM_FUNCTION, code) }
+            val script = testScript(records, textCount = 0)
+            val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8, debugLogFile = logFile)
+            unsupported.forEachIndexed { index, code ->
+                val offset = RECORD_START + index * 12L
+                assertEquals(
+                    SystemNnnDecodedCommand.Skip(offset + 12L),
+                    decoder.decodeNext(script, offset)
+                )
+            }
+            val log = logFile.readText()
+            unsupported.forEach { code ->
+                assertTrue(log.contains("code=0x" + code.toString(16)))
+            }
+        } finally {
+            logFile.delete()
+        }
+    }
+
+    @Test
+    fun decodesAllThreeNativeModuleTransferControlCodes() {
+        val transfers = listOf(
+            0x5556000Au to SystemNnnModuleTransferKind.SCRIPT,
+            0x55560016u to SystemNnnModuleTransferKind.SUBSCRIPT,
+            0x55560015u to SystemNnnModuleTransferKind.SCRIPTJUMP
+        )
+        transfers.forEach { (code, kind) ->
+            val script = testScript(
+                records = listOf(record(4, CONTROL, code, 0u)),
+                textCount = 0,
+                secondaryTexts = listOf("day")
+            )
+            assertEquals(
+                SystemNnnDecodedCommand.ModuleTransfer(
+                    nextCommandOffset = RECORD_START + 16L,
+                    targetModuleName = "day",
+                    kind = kind
+                ),
+                decoder().decodeNext(script, RECORD_START)
+            )
+        }
+    }
+
+    @Test
     fun gotoUsesAbsoluteDwordTargetAndRejectsPayloadOffsets() {
         val targetOffset = RECORD_START + 16L
         val validScript = testScript(
@@ -1061,6 +1145,9 @@ class SystemNnnCommandDecoderImplTest {
         const val CODE_CONTROL_CASE = 0x55560008u
         const val CODE_CONTROL_RETURN = 0x55560007u
         const val CODE_CONTROL_GOTO = 0x55560020u
+        const val CODE_SYSTEMFUNCTION_MUSIC = 0x33330007u
+        const val CODE_SYSTEMFUNCTION_VOICE = 0x33330008u
+        const val CODE_SYSTEMFUNCTION_SOUND = 0x33330009u
         const val CODE_CONTROL_SUB = 0x55560009u
         const val CODE_OPEN_BRACE = 0xA000007Bu
         const val CODE_CLOSE_BRACE = 0xA000007Du
