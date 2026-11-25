@@ -55,7 +55,7 @@ class SystemNnnVisualEffectMathTest {
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(100, listOf(20, 20, 0, 25, 25, 1)))
 
         val fallbackEffects = listOf(
-            8, 9, 19, 27, 40, 54, 61, 90,
+            8, 9, 19, 40, 54, 61, 90,
             93, 94, 95, 107, 110, 113, 124, 125, 126, 127, 131, 132
         )
         for (effectId in fallbackEffects) {
@@ -68,7 +68,7 @@ class SystemNnnVisualEffectMathTest {
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(null, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(0, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(17, emptyList()))
-        assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(29, emptyList()))
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(29, listOf(90, 1, 20, 20, 0, 0, 0, 800, 600)))
     }
 
 
