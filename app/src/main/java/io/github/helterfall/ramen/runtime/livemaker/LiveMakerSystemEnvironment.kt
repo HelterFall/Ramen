@@ -48,7 +48,8 @@ class LiveMakerSystemEnvironment(
     var pcTickCountResolver: () -> Long = { elapsedMilliseconds() }
 
     private val startedAtNanos = System.nanoTime()
-    private val arguments = commandLineArguments.toList()
+    @Volatile
+    private var arguments = commandLineArguments.toList()
     private val midiPorts = availableMidiPorts.toList()
     private val fonts = fontNames.joinToString("\n")
     private val fixedFonts = fixedFontNames.joinToString("\n")
@@ -81,6 +82,12 @@ class LiveMakerSystemEnvironment(
     )
 
     fun now(): LocalDateTime = LocalDateTime.now(clock)
+
+    fun commandLineArgumentsSnapshot(): List<String> = arguments.toList()
+
+    fun setCommandLineArguments(values: List<Any?>) {
+        arguments = values.map { it?.toString().orEmpty() }
+    }
 
     @Synchronized
     fun updatePointer(
