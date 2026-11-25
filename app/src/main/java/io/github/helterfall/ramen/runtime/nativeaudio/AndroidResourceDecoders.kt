@@ -404,8 +404,12 @@ class AndroidGpkImageDecoder(
                 resource.heightPixels
             )
             for (index in pixels.indices) {
-                pixels[index] = (pixels[index] and 0x00FFFFFF) or (alphaValues[index] shl 24)
+                pixels[index] = compositeDwqAlphaMaskPixel(pixels[index], alphaValues[index])
             }
+            // JPEG decoding produces an opaque bitmap. The native DWQ path sets
+            // per-pixel alpha from the trailing packed mask, so Android must be
+            // told that this bitmap now contains meaningful alpha values.
+            bitmap.setHasAlpha(true)
             bitmap.setPixels(
                 pixels,
                 0,
@@ -621,3 +625,8 @@ class AndroidGpkImageDecoder(
         private val RAW_BITS_PER_PIXEL = setOf(24, 32)
     }
 }
+
+
+/** Combines one decoded JPEG RGB pixel with the native DWQ 8-bit alpha sample. */
+internal fun compositeDwqAlphaMaskPixel(rgbPixel: Int, alphaValue: Int): Int =
+    (rgbPixel and 0x00FFFFFF) or ((alphaValue and 0xFF) shl 24)

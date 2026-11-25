@@ -10,7 +10,21 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
-class AndroidGpkImageDecoderTest {
+class AndroidGpkImageDecoderTest {\n
+    @Test
+    fun dwqJpegAlphaMaskReplacesOnlyTheAlphaChannel() {
+        val source = intArrayOf(0xFF112233.toInt(), 0xFFABCDEF.toInt(), 0xFF010203.toInt())
+        val alpha = intArrayOf(0, 127, 255)
+
+        val pixels = source.indices.map { index ->
+            compositeDwqAlphaMaskPixel(source[index], alpha[index])
+        }
+
+        assertEquals(0x00112233, pixels[0])
+        assertEquals(0x7FABCDEF, pixels[1])
+        assertEquals(0xFF010203.toInt(), pixels[2])
+    }
+
     @Test
     fun packtypeOneUsesDwqDecoderEvenWhenConvenienceFlagIsMissing() {
         val bmp = ByteArray(0x36 + 3)

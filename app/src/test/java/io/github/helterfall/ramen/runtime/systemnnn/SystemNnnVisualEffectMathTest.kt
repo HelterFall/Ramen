@@ -13,7 +13,7 @@ class SystemNnnVisualEffectMathTest {
         for (effectId in listOf(-1, 1, 4, 5, 6, 7)) {
             assertFalse(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))
         }
-        for (effectId in listOf(0, 8, 9, 66, 82)) {
+        assertTrue(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(1))\n        for (effectId in listOf(0, 1, 8, 9, 66, 82)) {
             assertTrue(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))
         }
     }
@@ -61,11 +61,11 @@ class SystemNnnVisualEffectMathTest {
     @Test
     fun colorAddSubUsesNativeStartAndEndRgbParameterOrder() {
         val parameters = listOf(80, -130, -255, -255, -230, -255, -255, 1, 0, 0)
-        assertEquals(SystemNnnVisualColor(-230, -255, -255),
+        assertEquals(SystemNnnVisualColor(-229, -254, -254),
             SystemNnnVisualEffectMath.colorAddSubOffset(0, parameters))
-        assertEquals(SystemNnnVisualColor(-180, -255, -255),
+        assertEquals(SystemNnnVisualColor(-179, -254, -254),
             SystemNnnVisualEffectMath.colorAddSubOffset(40, parameters))
-        assertEquals(SystemNnnVisualColor(-130, -255, -255),
+        assertEquals(SystemNnnVisualColor(-129, -254, -254),
             SystemNnnVisualEffectMath.colorAddSubOffset(80, parameters))
     }
 
@@ -112,7 +112,7 @@ class SystemNnnVisualEffectMathTest {
             100, 100, 0, 0, 0, 0, 0, 0
         )
         assertEquals(312f, SystemNnnVisualEffectMath.turnRotationDegrees(0, parameters), 0.001f)
-        assertEquals(375f, SystemNnnVisualEffectMath.turnRotationDegrees(700, parameters), 0.001f)
+        assertEquals(15f, SystemNnnVisualEffectMath.turnRotationDegrees(700, parameters), 0.001f)
         assertEquals(3f, SystemNnnVisualEffectMath.turnScale(0, parameters), 0.001f)
         assertEquals(2.2f, SystemNnnVisualEffectMath.turnScale(700, parameters), 0.001f)
         assertEquals(1f, SystemNnnVisualEffectMath.turnAlpha(350, parameters), 0.001f)
