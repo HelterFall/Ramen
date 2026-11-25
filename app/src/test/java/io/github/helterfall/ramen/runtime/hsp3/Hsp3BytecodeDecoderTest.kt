@@ -82,6 +82,18 @@ class Hsp3BytecodeDecoderTest {
     }
 
     @Test
+    fun nestedFunctionArgumentsDoNotSplitTheirOuterParameterGroup() {
+        withProgram(createMesWithNestedStringFunctions()) { program ->
+            val graphics = RecordingGraphics()
+            val snapshot = Hsp3VirtualMachine(graphics)
+                .runSlice(Hsp3BytecodeDecoder().decode(program))
+
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertTrue(graphics.calls.contains("mes:bcd"))
+        }
+    }
+
+    @Test
     fun preservesAnOmittedLeadingOptionalParameter() {
         withProgram(createGmodeWithOmittedFirstArgument()) { program ->
             val command = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.NativeCommand
@@ -122,6 +134,39 @@ class Hsp3BytecodeDecoderTest {
         } finally {
             directory.deleteRecursively()
         }
+    }
+
+    private fun createMesWithNestedStringFunctions(): ByteArray {
+        val code = listOf(
+            0x2009, Hsp3CommandIds.MES,
+            0x000D, 0x0100, // str(
+            0x0000, '('.code,
+            0x000D, 0x0101, // strmid(
+            0x0000, '('.code,
+            0x0002, 0,      // "abcdef" in DS
+            0x4004, 1,      // start index
+            0x4004, 3,      // character count
+            0x0000, ')'.code,
+            0x0000, ')'.code,
+            0x200F, 0x10
+        )
+        val codeSize = code.size * 2
+        val data = "abcdef\u0000".toByteArray(Charsets.US_ASCII)
+        val dataOffset = 0x60 + codeSize
+        val bytes = ByteArray(dataOffset + data.size)
+        "HSP3".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0)
+        putUInt32(bytes, 4, 0x301L)
+        putUInt32(bytes, 8, 64L)
+        putUInt32(bytes, 12, bytes.size.toLong())
+        putUInt32(bytes, 16, 0x60L)
+        putUInt32(bytes, 20, codeSize.toLong())
+        putUInt32(bytes, 24, dataOffset.toLong())
+        putUInt32(bytes, 28, data.size.toLong())
+        code.forEachIndexed { index, value ->
+            putUInt16(bytes, 0x60 + index * 2, value)
+        }
+        data.copyInto(bytes, dataOffset)
+        return bytes
     }
 
     private fun createMesWithStringFunction(): ByteArray {
