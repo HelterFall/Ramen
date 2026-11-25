@@ -49,7 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.github.helterfall.ramen.importer.HtmlFileImporter
+import io.github.helterfall.ramen.importer.SingleFileImporter
 import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
@@ -79,7 +79,7 @@ fun RamenApp() {
     }
     var isImporting by remember { mutableStateOf(false) }
     var statusMessage by remember {
-        mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
+        mutableStateOf("Добавь ZIP, отдельный файл или выбери папку с визуальной новеллой.")
     }
 
     val executor = remember { Executors.newSingleThreadExecutor() }
@@ -157,17 +157,17 @@ fun RamenApp() {
         }
     }
 
-    val htmlFilePicker = rememberLauncherForActivityResult(
+    val filePicker = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri ->
         if (uri == null) {
-            statusMessage = "Импорт HTML отменён."
+            statusMessage = "Импорт файла отменён."
         } else {
             enqueueImport(
                 uri = uri,
-                progressMessage = "Копирую выбранный HTML-файл…"
+                progressMessage = "Копирую выбранный файл…"
             ) { selectedUri ->
-                HtmlFileImporter(context.applicationContext).import(selectedUri)
+                SingleFileImporter(context.applicationContext).import(selectedUri)
             }
         }
     }
@@ -220,11 +220,11 @@ fun RamenApp() {
         }
     }
 
-    val onImportHtmlClick: () -> Unit = {
+    val onImportFileClick: () -> Unit = {
         if (!isImporting) {
-            // Some providers label .html as text/plain or octet-stream,
-            // so accept the selection broadly and validate it in HtmlFileImporter.
-            htmlFilePicker.launch(arrayOf("*/*"))
+            // Accept any MIME type: standalone files may be HTML, EXE or binary resources.
+            // The importer preserves the original bytes and the detector identifies known engines.
+            filePicker.launch(arrayOf("*/*"))
         }
     }
 
@@ -270,7 +270,7 @@ fun RamenApp() {
                             isImporting = isImporting,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
-                            onImportHtmlClick = onImportHtmlClick
+                            onImportFileClick = onImportFileClick
                         )
                     }
                 } else {
@@ -280,7 +280,7 @@ fun RamenApp() {
                             isImporting = isImporting,
                             onImportClick = onImportClick,
                             onImportFolderClick = onImportFolderClick,
-                            onImportHtmlClick = onImportHtmlClick
+                            onImportFileClick = onImportFileClick
                         )
                     }
                     item { SectionHeading("ТВОЯ БИБЛИОТЕКА") }
@@ -434,7 +434,7 @@ private fun EmptyLibraryCard(
     isImporting: Boolean,
     onImportClick: () -> Unit,
     onImportFolderClick: () -> Unit,
-    onImportHtmlClick: () -> Unit
+    onImportFileClick: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -463,7 +463,7 @@ private fun EmptyLibraryCard(
             )
 
             Text(
-                text = "Добавь ZIP, отдельный HTML-файл или выбери папку целиком. Для игры с CSS, JavaScript, изображениями и звуком лучше импортировать всю папку.",
+                text = "Добавь ZIP, отдельный файл (например, EXE или HTML) или выбери папку целиком. Для игр с CSS, JavaScript, изображениями и звуком лучше импортировать всю папку.",
                 color = RamenMuted,
                 fontSize = 14.sp,
                 lineHeight = 21.sp
@@ -533,12 +533,12 @@ private fun EmptyLibraryCard(
             }
 
             OutlinedButton(
-                onClick = onImportHtmlClick,
+                onClick = onImportFileClick,
                 enabled = !isImporting,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp)
             ) {
-                Text("HTML-файл (только одна страница)")
+                Text("Файл")
             }
         }
     }
@@ -550,7 +550,7 @@ private fun LibrarySummaryCard(
     isImporting: Boolean,
     onImportClick: () -> Unit,
     onImportFolderClick: () -> Unit,
-    onImportHtmlClick: () -> Unit
+    onImportFileClick: () -> Unit
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -604,12 +604,12 @@ private fun LibrarySummaryCard(
             }
 
             OutlinedButton(
-                onClick = onImportHtmlClick,
+                onClick = onImportFileClick,
                 enabled = !isImporting,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(13.dp)
             ) {
-                Text("HTML-файл")
+                Text("Файл")
             }
         }
     }
