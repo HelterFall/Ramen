@@ -14,11 +14,11 @@ This note separates implemented code from format observations and unfinished wor
 | DPMX decryptor and key resolver | `inspection/DpmxCipher.kt` | Stateful streaming decryption, known sample vectors, injectable PE/.data key derivation and bounded signature search |
 | DPMX decrypted asset stream | `inspection/DpmxDecryptingInputStream.kt` | Decrypts one entry as an InputStream and owns/closes its dedicated positional source |
 | HSP3 bytecode loader | `parser/Hsp3BytecodeLoader.kt` | HSPHED 96-byte base header, bounded CS/DS/OT/DI, 16/32-bit tokens, EXFLG flags, raw if/else branch word, Shift-JIS DS strings, little-endian doubles and word-based OT offsets |
-| CS expression/argument decoder | `runtime/hsp3/Hsp3BytecodeDecoder.kt` | EXFLG_1 command heads, EXFLG_2 parameter boundaries/defaults, EXFLG_3 wide values, postfix integer/double/string/variable/sysvar/label expressions, core branch/loop commands and basic assignment/getkey decoding |
+| CS expression/argument decoder | `runtime/hsp3/Hsp3BytecodeDecoder.kt` | EXFLG command heads/parameter boundaries/defaults, nested function argument lists, postfix integer/double/string/scalar/array/sysvar/label expressions, common TYPE_INTFUNC calls, if/else and core loop/control commands, assignment, dim/sdim, getkey decoding |
 | Android player host | `runtime/hsp3/Hsp3PlayerActivity.kt` | Private-library executable lookup, background DPMX/start.ax preparation, Canvas presentation, bounded VM slices and Activity lifecycle |
 | Touch gamepad | `runtime/hsp3/Hsp3PlayerActivity.kt` | OpenHSP stick bits for D-pad, Enter/Z, Esc/X and Space, held-key state exposed to stick/getkey |
 | Canvas renderer | `runtime/hsp3/Hsp3CanvasRenderer.kt` | 800x600 default coordinate surface, screen/buffer IDs, gsel, picload, gcopy, boxf, mes, pos, color, font, gmode 0/2/3/5 and redraw presentation gate |
-| VM intermediate instruction loop | `runtime/hsp3/Hsp3VirtualMachine.kt` | Typed scalar int/double/string values, postfix evaluation, arithmetic/comparison/bitwise operators, assignments, branches, gosub/return, repeat/loop, wait/yield, getkey/stick and graphics dispatch |
+| VM intermediate instruction loop | `runtime/hsp3/Hsp3VirtualMachine.kt` | Typed scalar int/double/string values and bounded sparse arrays, postfix evaluation, common builtin functions, arithmetic/comparison/bitwise operators, assignments, branches, gosub/return, repeat/loop, wait/yield, getkey/stick and graphics dispatch |
 | Runtime adapter | `runtime/hsp3/Hsp3RuntimeAdapter.kt` | PE/DPMX preparation, start.ax key resolution/decryption, HSP3 load, on-demand decrypted assets and default OpenHSP decoder → VM wiring |
 | Engine detection | `importer/VisualNovelDetector.kt` | Requires DPMX/start.ax/HSPHED validation plus successful CS command decoding before exposing the HSP3 launch status |
 
@@ -82,7 +82,7 @@ The screen is initially 800x600 and is letterboxed without changing its aspect r
 
 The VM consumes a typed IR (`Hsp3Instruction`). `Hsp3BytecodeDecoder` is now the default decoder in `Hsp3RuntimeAdapter.createSession`. It reads command heads and argument groups from CS, builds postfix expression trees, and resolves OT labels to command boundaries. Implemented command coverage includes basic assignments, goto/gosub/return, repeat/loop/break/continue, wait/await, if/else branches, getkey, and the initial graphics/input command subset (mes, pos, font, picload, color, redraw, gsel, gcopy, gmode, screen, buffer, boxf, stick).
 
-The decoder is intentionally strict. Unknown command types/IDs are preserved as unsupported VM instructions or rejected rather than guessed. Expressions currently cover scalar integer/double/string literals, scalar variable references, selected system variables and the OpenHSP postfix binary operators. Array indexing, function-call expressions, module/DLL tokens, dynamic repeat expressions, and the full HSP variable model are not implemented. The Android host schedules bounded VM slices and wait delays; it does not emulate every platform service offered by Windows OpenHSP.
+The decoder is intentionally strict. Unknown command types/IDs are preserved as unsupported VM instructions or rejected rather than guessed. Expressions cover integer/double/string literals, scalar and indexed array references, selected system variables, nested calls to a common subset of TYPE_INTFUNC functions, and the OpenHSP postfix binary operators. The VM implements dim/sdim-style bounded sparse arrays and indexed reads/writes. It does not yet implement the full HSP variable type system, all built-in function IDs, array-object/misc-type semantics, dynamic array reallocation, module/DLL token forms, dynamic repeat expressions, or all command parameter structures. The Android host schedules bounded VM slices and wait delays; it does not emulate every platform service offered by Windows OpenHSP.
 
 ## Detection and user-facing behavior
 
@@ -98,9 +98,9 @@ Synthetic fixtures cover:
 - stateful decryption across very small read buffers;
 - known `start.ax` vector and BMP signature auto-detection;
 - HSPHED fields, CS/DS/OT/DI reads, narrow/wide tokens, EXFLG command heads, Shift-JIS strings, double literals and word-based OT label offsets;
-- postfix arithmetic/bitwise/comparison expression decoding, argument boundaries, getkey and decoded command-to-VM dispatch;
+- postfix arithmetic/bitwise/comparison and nested TYPE_INTFUNC decoding, argument boundaries, scalar/array assignment, dim, getkey and decoded command-to-VM dispatch;
 - malformed HSP header/segment/token rejection;
-- VM graphics dispatch, typed expression evaluation, assignments, repeat/gosub, stick rising-edge behavior, wait yields and unsupported-command failure;
+- VM graphics dispatch, typed expression evaluation, scalar/sparse-array assignments and reads, repeat/gosub, stick/getkey, wait yields and unsupported-command failure;
 - DPMX-to-HSP preparation and detector status.
 
 The fixtures are generated by unit tests; they do not contain or redistribute Demonophobia assets.
