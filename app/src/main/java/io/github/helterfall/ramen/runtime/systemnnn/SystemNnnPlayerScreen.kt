@@ -58,7 +58,6 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.rememberGraphicsLayer
-import androidx.compose.ui.graphics.drawscope.drawLayer
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
@@ -253,7 +252,7 @@ fun SystemNnnPlayerScreen(
                             viewportCaptureLayer.record {
                                 this@drawWithContent.drawContent()
                             }
-                            drawLayer(viewportCaptureLayer)
+                            drawContent()
                         }
                         .graphicsLayer {
                             translationX = viewportDpWidth.toPx() * (screenShake.x / referenceWidth.coerceAtLeast(1f))
