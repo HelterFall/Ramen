@@ -419,6 +419,31 @@ class SystemNnnScriptLoaderTest {
     }
 
     @Test
+    fun uses128ByteHeaderForNnnConfig2Revision() {
+        val directory = Files.createTempDirectory("ramen-system-nnn-config2-header").toFile()
+        try {
+            val file = File(directory, "sys.spt")
+            file.writeBytes(
+                createFixture(
+                    primaryRecords = listOf("primary".toByteArray(Charsets.US_ASCII)),
+                    secondaryRecords = listOf("secondary".toByteArray(Charsets.US_ASCII)),
+                    firstHeaderWord = 0x20
+                )
+            )
+
+            val script = SystemNnnScriptLoader().load(file)
+
+            assertEquals(0x20u, script.firstHeaderWord)
+            assertEquals(0x80, script.headerSizeBytes)
+            assertEquals(0x80L, script.commandStartOffset)
+            assertEquals(0x100L, script.commandEndOffset)
+            assertEquals(0x80, script.commandByteCount)
+            assertTrue(SystemNnnScriptLoader.hasValidHeader(file))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+    @Test
     fun signatureProbeChecksDemaskedBytesAtOffsetThirty() {
         val directory = Files.createTempDirectory("ramen-system-nnn-probe").toFile()
         try {
@@ -460,12 +485,13 @@ class SystemNnnScriptLoaderTest {
         primaryRecords: List<ByteArray>,
         secondaryRecords: List<ByteArray>,
         primaryBase: Int = 0xC5BA,
-        secondaryBase: Int = 0x167F2
+        secondaryBase: Int = 0x167F2,
+        firstHeaderWord: Int = 20
     ): ByteArray {
         require(secondaryRecords.isNotEmpty())
 
         val header = ByteArray(0x100)
-        putUInt32(header, 0x00, 20)
+        putUInt32(header, 0x00, firstHeaderWord)
         putUInt32(header, 0x10, primaryRecords.size)
         putUInt32(header, 0x14, primaryBase)
         putUInt32(header, 0x18, secondaryRecords.size)
