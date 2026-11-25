@@ -217,7 +217,16 @@ sealed interface SystemNnnDecodedCommand {
     data class Draw(
         val nextCommandOffset: Long,
         /** Native DRAW count: zero continues immediately; a nonzero value yields a draw boundary. */
-        val frameCount: Int
+        val frameCount: Int,
+        /** Present when ExecScript returns an OVERRAP transition boundary. */
+        val overrapParameters: List<Int>? = null
+    ) : SystemNnnDecodedCommand
+
+    data class NativeSystemFunction(
+        val nextCommandOffset: Long,
+        val functionId: Int,
+        val parameters: List<Int> = emptyList(),
+        val textValue: String? = null
     ) : SystemNnnDecodedCommand
 
     data class Skip(
@@ -294,6 +303,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var nextCommandOffset: Long = 0L
     private var frameCounter: Long = 0L
     private var drawEventCounter: Long = 0L
+    private var overrapPrepared: Boolean = false
     private var currentModuleName: String? = null
     private var currentFilmNumber: Int? = null
     private var projectModules: Map<String, SystemNnnPlayerModuleProgram> = emptyMap()
@@ -1267,6 +1277,19 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         commandsWithoutVisibleOutput += 1
                     }
 
+                    is SystemNnnDecodedCommand.NativeSystemFunction -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        nextCommandOffset = command.nextCommandOffset
+                        if (command.functionId == 0x0011) overrapPrepared = true
+                        diagnosticLog?.record(
+                            "native_system_function",
+                            "module=" + (currentModuleName ?: "standalone") + " film=" + (currentFilmNumber ?: "none") +
+                                " offset=0x" + commandOffset.toString(16) + " code=0x" + command.functionId.toString(16) +
+                                " params=" + command.parameters.joinToString(";") + " text=" + (command.textValue ?: "none")
+                        )
+                        commandsWithoutVisibleOutput += 1
+                    }
+
                     is SystemNnnDecodedCommand.Skip -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
@@ -1383,7 +1406,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
                                 "offset=0x${commandOffset.toString(16)} frames=$drawFrames"
                         )
-                        updateDiagnosticSnapshot(command.nextCommandOffset, "DrawFrame")
+                        if (command.overrapParameters != null) overrapPrepared = false
+                        updateDiagnosticSnapshot(command.nextCommandOffset, if (command.overrapParameters == null) "DrawFrame" else "OverrapBoundary")
                         uiState = uiState.copy(
                             drawEventId = drawEventId,
                             isLoading = false,

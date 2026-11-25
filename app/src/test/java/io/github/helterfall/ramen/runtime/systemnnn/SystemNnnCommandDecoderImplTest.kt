@@ -338,6 +338,45 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun decodesOverrapAsAVisibleBoundaryAndPreservesItsArguments() {
+        val script = testScript(listOf(record(6, SYSTEM_COMMAND, 0x22220005u, 2u, 40u, 5u)), 0)
+        assertEquals(
+            SystemNnnDecodedCommand.Draw(RECORD_START + 24L, 1, overrapParameters = listOf(40, 5)),
+            decoder().decodeNext(script, RECORD_START)
+        )
+    }
+
+    @Test
+    fun decodesAllRequestedNativeSystemFunctionsAndResolvesNameStrings() {
+        val records = mutableListOf<List<UInt>>()
+        records += record(3, SYSTEM_FUNCTION, 0x33330011u)
+        for (code in listOf(0x18u, 0x1Bu, 0x1Cu, 0x1Eu, 0x52u, 0x57u, 0x58u, 0x59u, 0x5Au)) {
+            records += record(5, SYSTEM_FUNCTION, 0x33330000u or code, 1u, 77u)
+        }
+        records += record(5, SYSTEM_FUNCTION, 0x33330050u, 1u, 0u)
+        records += record(5, SYSTEM_FUNCTION, 0x33330051u, 1u, 1u)
+        val script = testScript(records, 0, listOf("Film title", "Story title"))
+        val expected = listOf(
+            0x11 to (emptyList<Int>() to null),
+            0x18 to (listOf(77) to null), 0x1B to (listOf(77) to null), 0x1C to (listOf(77) to null),
+            0x1E to (listOf(77) to null), 0x52 to (listOf(77) to null), 0x57 to (listOf(77) to null),
+            0x58 to (listOf(77) to null), 0x59 to (listOf(77) to null), 0x5A to (listOf(77) to null),
+            0x50 to (listOf(0) to "Film title"), 0x51 to (listOf(1) to "Story title")
+        )
+        var offset = RECORD_START
+        records.zip(expected).forEach { pair ->
+            val rec = pair.first
+            val exp = pair.second
+            assertEquals(
+                SystemNnnDecodedCommand.NativeSystemFunction(
+                    offset + rec.size * DWORD_BYTES, exp.first, exp.second.first, exp.second.second
+                ),
+                decoder().decodeNext(script, offset)
+            )
+            offset += rec.size * DWORD_BYTES
+        }
+    }
+    @Test
     fun skipsEndKomaAndEndIfControlRecords() {
         for (code in listOf(CODE_CONTROL_ENDKOMA, CODE_CONTROL_ENDIF, CODE_CONTROL_NOP)) {
             val script = testScript(
