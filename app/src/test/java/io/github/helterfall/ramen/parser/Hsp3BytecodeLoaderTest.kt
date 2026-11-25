@@ -28,7 +28,7 @@ class Hsp3BytecodeLoaderTest {
 
     @Test
     fun decodesNarrowAndWideTokenValues() {
-        withProgramBytes(createProgramBytes()) { program ->
+        withProgramBytes { program ->
             val tokens = program.tokens().toList()
             assertEquals(4, tokens[0].type)
             assertEquals(42L, tokens[0].value)
