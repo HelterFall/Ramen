@@ -3,9 +3,11 @@ package io.github.helterfall.ramen.runtime.nativeaudio
 import io.github.helterfall.ramen.inspection.GpkImageFormat
 import io.github.helterfall.ramen.inspection.GpkImageResource
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
+import io.github.helterfall.ramen.inspection.ResourceArchiveParsers
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Test
@@ -26,6 +28,22 @@ class AndroidGpkImageDecoderTest {
         assertEquals(0xFF010203.toInt(), pixels[2])
     }
 
+    @Test
+    fun packtypeSevenAlphaMaskDecodesPackedBmpAndCompositesOntoJpegRgb() {
+        // A 1x1 8-bit packed BMP: palette entry 1 carries alpha=127 in red.
+        val mask = ByteArray(0x3F)
+        putU32(mask, 10, 0x3E)
+        putU32(mask, 18, 1)
+        putU32(mask, 22, 1)
+        putU16(mask, 28, 8)
+        putU32(mask, 46, 2)
+        mask[60] = 127
+        mask[62] = 1
+
+        val alpha = ResourceArchiveParsers.decodeBlackCycDwqAlphaMask(mask, 1, 1)
+        assertArrayEquals(intArrayOf(127), alpha)
+        assertEquals(0x7F123456, compositeDwqAlphaMaskPixel(0xFF123456.toInt(), alpha.single()))
+    }
     @Test
     fun packtypeOneUsesDwqDecoderEvenWhenConvenienceFlagIsMissing() {
         val bmp = ByteArray(0x36 + 3)
