@@ -26,6 +26,7 @@ interface Hsp3Graphics : Closeable {
     fun font(name: String, size: Int, style: Int)
     fun gmode(mode: Int, alpha: Int = 255)
     fun redraw(enabled: Boolean)
+    fun currentPosition(): Pair<Int, Int> = 0 to 0
 }
 
 /** Android Canvas renderer for the first HSP3 2D drawing subset. */
@@ -149,6 +150,8 @@ class Hsp3CanvasRenderer(
         cursorX = x
         cursorY = y
     }
+
+    override fun currentPosition(): Pair<Int, Int> = cursorX to cursorY
 
     override fun color(red: Int, green: Int, blue: Int) {
         currentColor = Color.rgb(red.coerceIn(0, 255), green.coerceIn(0, 255), blue.coerceIn(0, 255))
