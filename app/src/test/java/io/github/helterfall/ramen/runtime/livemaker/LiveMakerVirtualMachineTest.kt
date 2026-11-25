@@ -41,6 +41,33 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
+    fun emptyTpWordTextInsStillHonorsItsWaitFlag() {
+        // Valid empty TpWord v105: signature/version, decorators, conditions, links, body count.
+        val emptyTpWord = byteArrayOf(
+            0x54, 0x70, 0x57, 0x6F, 0x72, 0x64, // TpWord
+            0x31, 0x30, 0x35, // 105
+            0, 0, 0, 0, // decorators
+            0, 0, 0, 0, // conditions
+            0, 0, 0, 0, // links
+            0, 0, 0, 0  // glyph count
+        )
+        val scriptBytes = LiveMakerLsbFixture.build(
+            commands = listOf(
+                LiveMakerLsbFixture.textInsert(emptyTpWord),
+                LiveMakerLsbFixture.exitWhenTrue()
+            )
+        )
+
+        withSource(scriptBytes) { source ->
+            val vm = LiveMakerVirtualMachine(LiveMakerLsbParser().parse(source))
+            val event = vm.runUntilEvent() as LiveMakerVmEvent.TextBlock
+
+            assertTrue(event.shouldWait)
+            assertTrue(event.tpWordBytes.contentEquals(emptyTpWord))
+        }
+    }
+
+    @Test
     fun evaluatesGetPropAndSetPropAgainstMessageBoxPropertyDefaults() {
         val messageBox = "メッセージボックス"
         val bytes = LiveMakerLsbFixture.build(
