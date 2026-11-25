@@ -234,7 +234,7 @@ class DpmxKeyResolver(
         const val GAME_KEY_CONSTANTS_LENGTH = 0x1C
         private const val HSP3_VERSION_31 = 0x00000301L
         private const val AX_PREFIX_LENGTH = 8
-        private const val BMP_PREFIX_LENGTH = 64
+        private const val BMP_PREFIX_LENGTH = 54
         private const val TEXT_PREFIX_LENGTH = 32
         private const val MIN_SAMPLE_LENGTH = 6
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")

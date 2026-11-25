@@ -117,7 +117,7 @@ class Hsp3BytecodeDecoderTest {
                 .runSlice(Hsp3BytecodeDecoder().decode(program))
 
             assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
-            assertTrue(graphics.calls.contains("mes:bcd"))
+            assertTrue(graphics.calls.contains("mes:42"))
         }
     }
 
