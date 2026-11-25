@@ -477,7 +477,7 @@ internal object SystemNnnNativeEffectRenderer {
             val active = age < lifeOn
             val cell = floorMod(index + frame / (parameters.getOrNull(7) ?: 1).coerceAtLeast(1), columns * rows)
             val x = floorMod(seed, bitmapWidth)
-            val y = floorMod(randomMix(seed xor 0xB5297A4D), bitmapHeight)
+            val y = floorMod(randomMix(seed xor 0xB5297A4D.toInt()), bitmapHeight)
             ParticleStamp(
                 x.toFloat(), y.toFloat(),
                 RectI((cell % columns) * cellWidth, (cell / columns) * cellHeight,
