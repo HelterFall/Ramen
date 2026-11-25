@@ -82,7 +82,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
 
     private fun isUnsupportedCommand(t:Hsp3Token):Boolean = when(t.type) {
         TYPE_EXTCMD -> t.value.toInt() !in SUPPORTED_EXT_COMMANDS
-        TYPE_INTCMD -> t.value.toInt() !in setOf(INTCMD_BLOAD,INTCMD_BSAVE,INTCMD_GETKEY)
+        TYPE_INTCMD -> t.value.toInt() !in setOf(INTCMD_EXIST,INTCMD_BLOAD,INTCMD_BSAVE,INTCMD_GETKEY)
         TYPE_PROGCMD -> t.value.toInt() !in setOf(
             PROGCMD_GOTO,PROGCMD_GOSUB,PROGCMD_RETURN,PROGCMD_BREAK,PROGCMD_REPEAT,
             PROGCMD_LOOP,PROGCMD_CONTINUE,PROGCMD_DIM,PROGCMD_SDIM,PROGCMD_WAIT,
@@ -112,7 +112,8 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 previousFast=true
                 continue
             }
-            current+=t.copy(extensionFlags=t.extensionFlags and EXFLG_2.inv())
+            // Keep nested EXFLG_2 separators until parenthesized arguments are parsed.
+            current+=t.copy(extensionFlags=t.extensionFlags and EXFLG_0.inv())
             previousFast=false
             if(open) depth++
             if(close) {
@@ -168,7 +169,11 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                                 "Indexed system-variable callback retained as one opaque value."
                             )
                             stack.addLast(Hsp3ExpressionNode.Opaque(t.type,t.value.toInt()))
-                        } else stack.addLast(Hsp3ExpressionNode.SystemVariable(t.value.toInt()))
+                        } else stack.addLast(
+                            Hsp3ExpressionNode.SystemVariable(
+                                t.value.toInt(), external = t.type == TYPE_EXTSYSVAR
+                            )
+                        )
                     }
                     TYPE_XLABEL -> {
                         val next=tokens.getOrNull(i+1)
@@ -304,21 +309,39 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                             )
                         }
                     }
-                    INTCMD_BLOAD, INTCMD_BSAVE -> {
-                        val fileName = args.getOrNull(0)
-                            ?: throw IOException("HSP bload/bsave requires a filename expression.")
-                        val destination = requiredVariable(args.getOrNull(1), "bload/bsave buffer")
-                        if (destination.indices.isNotEmpty()) {
-                            throw IOException("HSP bload/bsave requires a plain variable buffer.")
+                    INTCMD_EXIST -> {
+                        val fileName = args.firstOrNull()
+                            ?: throw IOException("HSP exist requires a filename expression.")
+                        if (args.getOrNull(1) == null) {
+                            PendingInstruction(pc) { _, _ -> Hsp3Instruction.FileExists(fileName) }
+                        } else {
+                            val destination = requiredVariable(args.getOrNull(1), "bload buffer")
+                            PendingInstruction(pc) { _, _ ->
+                                Hsp3Instruction.FileTransfer(
+                                    commandId = INTCMD_BLOAD, fileName = fileName,
+                                    destinationVariable = destination.index,
+                                    size = args.getOrNull(2), fileOffset = args.getOrNull(3)
+                                )
+                            }
                         }
-                        PendingInstruction(pc) { _, _ ->
-                            Hsp3Instruction.FileTransfer(
-                                commandId = commandId,
-                                fileName = fileName,
-                                destinationVariable = destination.index,
-                                size = args.getOrNull(2),
-                                fileOffset = args.getOrNull(3)
-                            )
+                    }
+                    INTCMD_BLOAD, INTCMD_BSAVE -> {
+                        val fileName = args.firstOrNull()
+                            ?: throw IOException("HSP bload/bsave requires a filename expression.")
+                        if (commandId == INTCMD_BSAVE && args.getOrNull(1) == null) {
+                            PendingInstruction(pc) { _, _ -> Hsp3Instruction.FileExists(fileName) }
+                        } else {
+                            val destination = requiredVariable(args.getOrNull(1), "bload/bsave buffer")
+                            if (destination.indices.isNotEmpty()) {
+                                throw IOException("HSP bload/bsave requires a plain variable buffer.")
+                            }
+                            PendingInstruction(pc) { _, _ ->
+                                Hsp3Instruction.FileTransfer(
+                                    commandId = commandId, fileName = fileName,
+                                    destinationVariable = destination.index,
+                                    size = args.getOrNull(2), fileOffset = args.getOrNull(3)
+                                )
+                            }
                         }
                     }
                     else -> PendingInstruction(pc) { _, _ ->
@@ -351,7 +374,14 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 }
             }
             PROGCMD_RETURN -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.Return }
-            PROGCMD_BREAK -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.Break }
+            PROGCMD_BREAK -> {
+                val target = requiredLabelOffset(program, args.firstOrNull(), "break")
+                PendingInstruction(pc) { addressMap, count ->
+                    Hsp3Instruction.Break(
+                        resolveTarget(target, addressMap, count, program.codeSegment.sizeBytes)
+                    )
+                }
+            }
             PROGCMD_REPEAT -> {
                 val target = requiredLabelOffset(program, args.firstOrNull(), "repeat")
                 val countExpression = args.getOrNull(1)
@@ -371,7 +401,18 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 }
             }
             PROGCMD_LOOP -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.Loop }
-            PROGCMD_CONTINUE -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.Continue }
+            PROGCMD_CONTINUE -> {
+                val target = requiredLabelOffset(program, args.firstOrNull(), "continue")
+                val countExpression = args.getOrNull(1)
+                PendingInstruction(pc) { addressMap, count ->
+                    Hsp3Instruction.Continue(
+                        targetInstruction = resolveTarget(
+                            target, addressMap, count, program.codeSegment.sizeBytes
+                        ),
+                        countExpression = countExpression
+                    )
+                }
+            }
             PROGCMD_DIM, PROGCMD_SDIM -> {
                 val destination = requiredVariable(args.firstOrNull(), "dim destination")
                 if (destination.indices.isNotEmpty()) {
@@ -406,7 +447,14 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                     )
                 }
             }
-            PROGCMD_END, PROGCMD_STOP -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.End }
+            PROGCMD_RANDOMIZE -> PendingInstruction(pc) { _, _ ->
+                Hsp3Instruction.Randomize(args.firstOrNull())
+            }
+            PROGCMD_END -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.End }
+            PROGCMD_STOP -> PendingInstruction(pc) { _, _ ->
+                val seed = args.firstOrNull()
+                if (seed == null) Hsp3Instruction.End else Hsp3Instruction.Randomize(seed)
+            }
             else -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.Unsupported(TYPE_PROGCMD, id) }
         }
     }
@@ -453,12 +501,16 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         argumentGroups: List<List<Hsp3Token>>
     ): PendingInstruction {
         val variable = checkedIndex(command.value, program.header.maxValueCount, "assignment variable")
-        val firstGroup = argumentGroups.firstOrNull().orEmpty()
+        // arr(i,j) and the RHS can be split into separate EXFLG_2 groups.
+        // Reconstruct the assignment token stream instead of rejecting group 2.
+        val assignmentTokens = argumentGroups.flatten()
         var cursor = 0
         val arrayIndices = if (
-            firstGroup.getOrNull(cursor)?.let { it.type == TYPE_MARK && it.value == '('.code.toLong() } == true
+            assignmentTokens.getOrNull(cursor)?.let {
+                it.type == TYPE_MARK && it.value == '('.code.toLong()
+            } == true
         ) {
-            val (indices, nextCursor) = readParenthesizedArguments(firstGroup, cursor, program)
+            val (indices, nextCursor) = readParenthesizedArguments(assignmentTokens, cursor, program)
             cursor = nextCursor
             indices.map { expression ->
                 expression ?: throw IOException("An HSP array assignment index cannot be omitted.")
@@ -466,7 +518,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         } else {
             emptyList()
         }
-        val operatorToken = firstGroup.getOrNull(cursor)
+        val operatorToken = assignmentTokens.getOrNull(cursor)
             ?: throw IOException("An HSP variable assignment is missing its operator token.")
         if (operatorToken.type != TYPE_MARK) {
             throw IOException("An HSP variable assignment is missing its TYPE_MARK operator.")
@@ -475,15 +527,12 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         if (operator !in CALCCODE_ADD..CALCCODE_LR) {
             throw IOException("Unsupported HSP assignment operator $operator.")
         }
-        val expressionTokens = firstGroup.drop(cursor + 1)
+        val expressionTokens = assignmentTokens.drop(cursor + 1)
         val expression = if (expressionTokens.isEmpty()) {
             constantExpression(Hsp3RuntimeValue.IntegerValue(1))
         } else {
             decodeExpression(expressionTokens, program)
                 ?: constantExpression(Hsp3RuntimeValue.IntegerValue(1))
-        }
-        if (argumentGroups.size > 1) {
-            throw IOException("An HSP assignment contains an unexpected extra argument.")
         }
         return PendingInstruction(command.codeOffset) { _, _ ->
             Hsp3Instruction.Assign(variable, operator, expression, arrayIndices)
@@ -501,7 +550,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
     ): Int {
         val target = expression?.constantValueOrNull() as? Hsp3RuntimeValue.LabelValue
             ?: throw IOException("The HSP $label command requires an OT label operand.")
-        if (target.codeOffsetBytes !in 0 until program.codeSegment.sizeBytes) {
+        if (target.codeOffsetBytes !in 0..program.codeSegment.sizeBytes) {
             throw IOException("The HSP $label target is outside CS.")
         }
         return target.codeOffsetBytes
@@ -576,6 +625,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         const val CALCCODE_RR = 14
         const val CALCCODE_LR = 15
 
+        const val INTCMD_EXIST = 0x11
         const val INTCMD_BLOAD = 0x16
         const val INTCMD_BSAVE = 0x17
         const val INTCMD_GETKEY = 0x23
@@ -594,20 +644,26 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         const val PROGCMD_AWAIT = 0x08
         const val PROGCMD_END = 0x10
         const val PROGCMD_STOP = 0x11
+        const val PROGCMD_RANDOMIZE = 0x11
 
         private const val TOKEN_TYPE_MASK = 0x0FFF
         private const val OMITTED_ARGUMENT_MARK = 63
         private const val MAX_WAIT_MS = 60_000L
         private val COMMAND_TYPES = setOf(
-            TYPE_VAR,TYPE_INTCMD,TYPE_EXTCMD,TYPE_CMPCMD,TYPE_MODCMD,TYPE_PROGCMD,TYPE_DLLFUNC,TYPE_DLLCTRL,TYPE_USERDEF
+            TYPE_VAR,TYPE_INTCMD,TYPE_EXTCMD,TYPE_CMPCMD,TYPE_PROGCMD
         )
         private val SUPPORTED_EXT_COMMANDS = setOf(
             Hsp3CommandIds.MES,
+            Hsp3CommandIds.TITLE,
             Hsp3CommandIds.POS,
+            Hsp3CommandIds.CLS,
             Hsp3CommandIds.FONT,
             Hsp3CommandIds.PICLOAD,
             Hsp3CommandIds.COLOR,
+            Hsp3CommandIds.PALCOLOR,
+            Hsp3CommandIds.PALETTE,
             Hsp3CommandIds.REDRAW,
+            Hsp3CommandIds.WIDTH,
             Hsp3CommandIds.GSEL,
             Hsp3CommandIds.GCOPY,
             Hsp3CommandIds.GZOOM,
@@ -619,7 +675,8 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             Hsp3CommandIds.BUFFER,
             Hsp3CommandIds.SCREEN,
             Hsp3CommandIds.BOXF,
-            Hsp3CommandIds.STICK
+            Hsp3CommandIds.STICK,
+            Hsp3CommandIds.GRECT
         )
 
         private fun constantExpression(value: Hsp3RuntimeValue) =
@@ -638,7 +695,7 @@ sealed class Hsp3ExpressionNode {
         val index: Int,
         val indices: List<Hsp3Expression> = emptyList()
     ) : Hsp3ExpressionNode()
-    data class SystemVariable(val index: Int) : Hsp3ExpressionNode()
+    data class SystemVariable(val index: Int, val external: Boolean = false) : Hsp3ExpressionNode()
     data class Opaque(val tokenType:Int,val tokenValue:Int) : Hsp3ExpressionNode()
     data class Function(val id: Int, val arguments: List<Hsp3Expression?>) : Hsp3ExpressionNode()
     data class Binary(
@@ -687,8 +744,11 @@ class Hsp3Expression internal constructor(
         },
         arrayVariable: (Int, List<Int>) -> Hsp3RuntimeValue = { index, _ ->
             throw IOException("HSP array variable $index was evaluated without an array runtime.")
-        }
-    ): Hsp3RuntimeValue = evaluateNode(root, variable, systemVariable, function, arrayVariable)
+        },
+        externalSystemVariable: (Int) -> Hsp3RuntimeValue = systemVariable
+    ): Hsp3RuntimeValue = evaluateNode(
+        root, variable, systemVariable, function, arrayVariable, externalSystemVariable
+    )
 
     fun singleVariableReference(): Int? =
         (root as? Hsp3ExpressionNode.Variable)?.takeIf { it.indices.isEmpty() }?.index
@@ -709,7 +769,8 @@ class Hsp3Expression internal constructor(
         variable: (Int) -> Hsp3RuntimeValue,
         systemVariable: (Int) -> Hsp3RuntimeValue,
         function: (Int, List<Hsp3RuntimeValue?>) -> Hsp3RuntimeValue,
-        arrayVariable: (Int, List<Int>) -> Hsp3RuntimeValue
+        arrayVariable: (Int, List<Int>) -> Hsp3RuntimeValue,
+        externalSystemVariable: (Int) -> Hsp3RuntimeValue
     ): Hsp3RuntimeValue = when (node) {
         is Hsp3ExpressionNode.Literal -> node.value
         is Hsp3ExpressionNode.Variable -> {
@@ -719,23 +780,29 @@ class Hsp3Expression internal constructor(
                 arrayVariable(
                     node.index,
                     node.indices.map { indexExpression ->
-                        indexExpression.evaluate(variable, systemVariable, function, arrayVariable).asInt()
+                        indexExpression.evaluate(
+                            variable, systemVariable, function, arrayVariable, externalSystemVariable
+                        ).asInt()
                     }
                 )
             }
         }
-        is Hsp3ExpressionNode.SystemVariable -> systemVariable(node.index)
+        is Hsp3ExpressionNode.SystemVariable -> if (node.external) {
+            externalSystemVariable(node.index)
+        } else systemVariable(node.index)
         is Hsp3ExpressionNode.Opaque -> Hsp3RuntimeValue.IntegerValue(0)
         is Hsp3ExpressionNode.Function -> function(
             node.id,
             node.arguments.map { argument ->
-                argument?.evaluate(variable, systemVariable, function, arrayVariable)
+                argument?.evaluate(
+                    variable, systemVariable, function, arrayVariable, externalSystemVariable
+                )
             }
         )
         is Hsp3ExpressionNode.Binary -> applyBinary(
             node.operator,
-            evaluateNode(node.left, variable, systemVariable, function, arrayVariable),
-            evaluateNode(node.right, variable, systemVariable, function, arrayVariable)
+            evaluateNode(node.left, variable, systemVariable, function, arrayVariable, externalSystemVariable),
+            evaluateNode(node.right, variable, systemVariable, function, arrayVariable, externalSystemVariable)
         )
     }
 
