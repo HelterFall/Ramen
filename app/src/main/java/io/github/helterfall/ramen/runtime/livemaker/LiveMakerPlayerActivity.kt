@@ -402,7 +402,8 @@ class LiveMakerPlayerActivity : ComponentActivity() {
                     is LiveMakerVmEvent.TextBlock,
                     is LiveMakerVmEvent.Delay,
                     is LiveMakerVmEvent.ProcessEvents,
-                    is LiveMakerVmEvent.FlipTransition -> session.resume()
+                    is LiveMakerVmEvent.FlipTransition,
+                    is LiveMakerVmEvent.PropertyMotion -> session.resume()
                     LiveMakerVmEvent.Running -> Unit
                     else -> return
                 }
@@ -564,6 +565,13 @@ class LiveMakerPlayerActivity : ComponentActivity() {
             }
 
             if (engineEvent is LiveMakerVmEvent.PropertyMotion) {
+                if (engineEvent.paused == true) {
+                    return event to LiveMakerEventPresentation(
+                        description = "",
+                        canContinue = false,
+                        autoAdvanceDelayMs = engineEvent.durationMillis
+                    )
+                }
                 // Non-blocking alpha motions run on the Compose renderer while the VM continues.
                 session.resume()
                 return@repeat
