@@ -110,7 +110,9 @@ class LiveMakerVirtualMachine(
         val script: LiveMakerLsb,
         val returnCommandIndex: Int,
         val resultVariable: String?,
-        val scriptIdentifier: String?
+        val scriptIdentifier: String?,
+        val commandLineArguments: List<String>,
+        val senderName: String
     )
 
     private data class IndexedArrayTarget(
@@ -581,7 +583,9 @@ class LiveMakerVirtualMachine(
         entryCommandIndex: Int = 0,
         isCall: Boolean,
         returnVariable: String? = null,
-        scriptIdentifier: String? = null
+        scriptIdentifier: String? = null,
+        commandLineArguments: List<Any?> = emptyList(),
+        senderName: String? = null
     ) {
         require(waitingForHost) { "The VM is not waiting for a script transfer." }
         require(newScript.isComplete) { "Cannot execute a partially parsed LiveMaker script." }
@@ -594,15 +598,50 @@ class LiveMakerVirtualMachine(
                     script = script,
                     returnCommandIndex = programCounter,
                     resultVariable = returnVariable,
-                    scriptIdentifier = this.scriptIdentifier
+                    scriptIdentifier = this.scriptIdentifier,
+                    commandLineArguments = systemEnvironment.commandLineArgumentsSnapshot(),
+                    senderName = systemEnvironment.senderName
                 )
             )
+            systemEnvironment.setCommandLineArguments(commandLineArguments)
+            if (senderName != null) systemEnvironment.senderName = senderName
         }
         script = newScript
         this.scriptIdentifier = scriptIdentifier
         programCounter = entryCommandIndex
         completed = false
         waitingForHost = false
+    }
+
+    /** Starts an external component notification as a nested LiveMaker callback. */
+    fun invokeCallbackScript(
+        newScript: LiveMakerLsb,
+        entryCommandIndex: Int = 0,
+        scriptIdentifier: String,
+        commandLineArguments: List<Any?> = emptyList(),
+        senderName: String
+    ) {
+        require(newScript.isComplete) { "Cannot execute a partial callback script." }
+        require(entryCommandIndex in 0..newScript.commands.size) {
+            "Callback entry command index is outside the script."
+        }
+        callStack.addLast(
+            CallFrame(
+                script = script,
+                returnCommandIndex = programCounter,
+                resultVariable = null,
+                scriptIdentifier = this.scriptIdentifier,
+                commandLineArguments = systemEnvironment.commandLineArgumentsSnapshot(),
+                senderName = systemEnvironment.senderName
+            )
+        )
+        script = newScript
+        this.scriptIdentifier = scriptIdentifier
+        programCounter = entryCommandIndex
+        completed = false
+        waitingForHost = false
+        systemEnvironment.setCommandLineArguments(commandLineArguments)
+        systemEnvironment.senderName = senderName
     }
 
     /** Returns from a called page and optionally writes its result into the caller variable. */
@@ -613,6 +652,8 @@ class LiveMakerVirtualMachine(
         scriptIdentifier = frame.scriptIdentifier
         programCounter = frame.returnCommandIndex
         frame.resultVariable?.let { variables[it] = returnValue }
+        systemEnvironment.setCommandLineArguments(frame.commandLineArguments)
+        systemEnvironment.senderName = frame.senderName
         completed = false
         waitingForHost = false
         return true
@@ -676,6 +717,9 @@ class LiveMakerVirtualMachine(
 
     /** Evaluates an expression in the current caller state for a host-side Call adapter. */
     fun evaluateExpression(expression: LiveMakerExpression): Any? = evaluate(expression)
+
+    fun evaluateExpressions(expressions: List<LiveMakerExpression>): List<Any?> =
+        expressions.map(::evaluate)
 
 
     /**
