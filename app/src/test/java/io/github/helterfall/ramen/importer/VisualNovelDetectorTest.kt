@@ -109,6 +109,61 @@ class VisualNovelDetectorTest {
     }
 
     @Test
+    fun reportsDpmxStageFailureInsteadOfReturningGenericUnknown() {
+        val root = Files.createTempDirectory("ramen-dpmx-diagnostic").toFile()
+        try {
+            File(root, "broken.exe").writeBytes(minimalPeWithOverlay("DPMX".toByteArray(Charsets.US_ASCII)))
+            val result = VisualNovelDetector().detect(root)
+            assertEquals("hsp3-dpmx", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+            org.junit.Assert.assertTrue(result.evidence.contains("DPMX overlay signature"))
+            org.junit.Assert.assertTrue(result.evidence.contains("PE32/DPMX parsing failed"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun reportsNullsoftInstallerMarkerWhenNoGameEngineCanBeLoaded() {
+        val root = Files.createTempDirectory("ramen-nsis-diagnostic").toFile()
+        try {
+            val marker = byteArrayOf(0xEF.toByte(), 0xBE.toByte(), 0xAD.toByte(), 0xDE.toByte()) +
+                "NullsoftInst".toByteArray(Charsets.US_ASCII)
+            File(root, "setup.exe").writeBytes(minimalPeWithOverlay(marker))
+            val result = VisualNovelDetector().detect(root)
+            assertEquals("nsis-installer", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+            org.junit.Assert.assertTrue(result.evidence.contains("NullsoftInst"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    private fun minimalPeWithOverlay(marker: ByteArray): ByteArray {
+        val result = ByteArray(0x400 + marker.size)
+        result[0] = 'M'.code.toByte()
+        result[1] = 'Z'.code.toByte()
+        putUInt32(result, 0x3C, 0x80)
+        result[0x80] = 'P'.code.toByte()
+        result[0x81] = 'E'.code.toByte()
+        putUInt16(result, 0x86, 1)
+        putUInt16(result, 0x94, 0xE0)
+        putUInt16(result, 0x98, 0x10B)
+        val section = 0x178
+        putUInt32(result, section + 8, 0x200)
+        putUInt32(result, section + 12, 0x1000)
+        putUInt32(result, section + 16, 0x200)
+        putUInt32(result, section + 20, 0x200)
+        marker.copyInto(result, 0x400)
+        return result
+    }
+
+    private fun putUInt16(target: ByteArray, offset: Int, value: Int) {
+        target[offset] = value.toByte()
+        target[offset + 1] = (value ushr 8).toByte()
+    }
+
+    @Test
     fun unknownContentStaysUnknown() {
         val root = Files.createTempDirectory("ramen-unknown-detect").toFile()
 

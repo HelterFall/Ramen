@@ -31,6 +31,31 @@ class DpmxContainerParserTest {
     }
 
     @Test
+    fun findsDpmxAtAnAlignedOffsetWithinTheOverlaySearchWindow() {
+        val payload = byteArrayOf(7, 8, 9)
+        val fixture = createPeDpmxFixture(
+            "aligned.bin",
+            payload,
+            0x12345678L,
+            overlayOffset = 0x2B000,
+            sectionRawSize = 0x2A200
+        )
+        fixture.bytes[0x2A400] = 'D'.code.toByte()
+        fixture.bytes[0x2A401] = 'P'.code.toByte()
+        fixture.bytes[0x2A402] = 'M'.code.toByte()
+        fixture.bytes[0x2A403] = 'X'.code.toByte()
+        withSource(fixture.bytes) { source ->
+            val container = DpmxContainerParser().parse(source)
+            assertEquals(0x2B000L, container.overlayOffset)
+            assertEquals(0x2B080L, container.dataAbsoluteOffset)
+            assertArrayEquals(
+                payload,
+                container.openEntryStream(source, container.entries.single()).readBytes()
+            )
+        }
+    }
+
+    @Test
     fun mapsPeVirtualAddressBackToSectionRawBytes() {
         val fixture = createPeDpmxFixture("asset.bin", byteArrayOf(1), 9L)
         fixture.bytes[0x200] = 0x31
@@ -77,7 +102,7 @@ class DpmxContainerParserTest {
 
     @Test
     fun resolvesSuppliedStartAxSampleKeyVector() {
-        val plainAx = ByteArray(96)
+        val plainAx = validHspHeader()
         "HSP3".toByteArray(Charsets.US_ASCII).copyInto(plainAx)
         putUInt32(plainAx, 4, 0x301L)
         val key = DpmxCipherKey(al = 0xB2, cl = 0x53)
@@ -88,6 +113,45 @@ class DpmxContainerParserTest {
             assertNotNull(resolution)
             assertEquals(DpmxKeyResolution.Method.VERIFIED_SAMPLE_VECTOR, resolution!!.method)
             assertEquals(key, resolution.key)
+        }
+    }
+
+    @Test
+    fun autodetectsStartAxAndChoosesCanonicalSymmetricKey() {
+        val plainAx = validHspHeader(version = 0x0300L)
+        val actualKey = DpmxCipherKey(al = 0x32, cl = 0x17)
+        val fixture = createPeDpmxFixture("start.ax", encrypt(plainAx, actualKey), 0x01020304L)
+        withSource(fixture.bytes) { source ->
+            val container = DpmxContainerParser().parse(source)
+            val resolution = DpmxKeyResolver().resolve(source, container, container.entries.single())
+            assertNotNull(resolution)
+            assertEquals(DpmxCipherKey(al = 0x32, cl = 0x17), resolution!!.key)
+        }
+    }
+
+    @Test
+    fun rejectsStartAxWithOverlappingSegmentOffsets() {
+        val plainAx = validHspHeader()
+        putUInt32(plainAx, 24, 0x62L) // DS overlaps the CS range.
+        val actualKey = DpmxCipherKey(al = 0x32, cl = 0x17)
+        val fixture = createPeDpmxFixture("start.ax", encrypt(plainAx, actualKey), 0x01020304L)
+        withSource(fixture.bytes) { source ->
+            val container = DpmxContainerParser().parse(source)
+            assertNull(DpmxKeyResolver().resolve(source, container, container.entries.single()))
+        }
+    }
+
+    @Test
+    fun rejectsBmpWhenDeclaredSizeDoesNotMatchEntrySize() {
+        val invalidBmp = ByteArray(58)
+        invalidBmp[0] = 'B'.code.toByte()
+        invalidBmp[1] = 'M'.code.toByte()
+        putUInt32(invalidBmp, 2, 57L)
+        val key = DpmxCipherKey(al = 0x38, cl = 0x8D)
+        val fixture = createPeDpmxFixture("invalid.bmp", encrypt(invalidBmp, key), 0x01020304L)
+        withSource(fixture.bytes) { source ->
+            val container = DpmxContainerParser().parse(source)
+            assertNull(DpmxKeyResolver().resolve(source, container, container.entries.single()))
         }
     }
 
@@ -119,14 +183,30 @@ class DpmxContainerParserTest {
         }
     }
 
+    private fun validHspHeader(version: Long = 0x0301L): ByteArray {
+        val bytes = ByteArray(0x6C)
+        "HSP3".toByteArray(Charsets.US_ASCII).copyInto(bytes)
+        putUInt32(bytes, 4, version)
+        putUInt32(bytes, 8, 64L)
+        putUInt32(bytes, 12, bytes.size.toLong())
+        putUInt32(bytes, 16, 0x60L)
+        putUInt32(bytes, 20, 4L)
+        putUInt32(bytes, 24, 0x64L)
+        putUInt32(bytes, 28, 4L)
+        putUInt32(bytes, 32, 0x68L)
+        putUInt32(bytes, 36, 4L)
+        return bytes
+    }
+
     private data class Fixture(val bytes: ByteArray)
 
     private fun createPeDpmxFixture(
         name: String,
         payload: ByteArray,
-        fileKey: Long
+        fileKey: Long,
+        overlayOffset: Int = 0x400,
+        sectionRawSize: Int = 0x200
     ): Fixture {
-        val overlayOffset = 0x400
         val dataOffset = 0x80
         val dataBlockOffset = overlayOffset + dataOffset
         val bytes = ByteArray(dataBlockOffset + payload.size)
@@ -143,9 +223,9 @@ class DpmxContainerParserTest {
 
         val sectionHeader = optionalHeader + 0xE0
         ".data".toByteArray(Charsets.US_ASCII).copyInto(bytes, sectionHeader)
-        putUInt32(bytes, sectionHeader + 8, 0x200L)
+        putUInt32(bytes, sectionHeader + 8, sectionRawSize.toLong())
         putUInt32(bytes, sectionHeader + 12, 0x1000L)
-        putUInt32(bytes, sectionHeader + 16, 0x200L)
+        putUInt32(bytes, sectionHeader + 16, sectionRawSize.toLong())
         putUInt32(bytes, sectionHeader + 20, 0x200L)
 
         "DPMX".toByteArray(Charsets.US_ASCII).copyInto(bytes, overlayOffset)

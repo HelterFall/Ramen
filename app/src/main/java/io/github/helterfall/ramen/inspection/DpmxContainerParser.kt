@@ -148,11 +148,19 @@ class DpmxContainerParser(
             sections += DpmxPeSection(sectionName, virtualSize, virtualAddress, rawSize, rawPointer)
         }
 
+        val lastSectionRawEnd = overlayOffset
+        overlayOffset = PeOverlayScanner.findSignature(
+            source = source,
+            overlayStart = lastSectionRawEnd,
+            signature = DPMX_MAGIC,
+            maxSearchBytes = MAX_OVERLAY_SEARCH_BYTES,
+            acceptCandidate = { candidate -> isPlausibleDpmxCandidate(source, candidate) }
+        ) ?: throw IOException(
+            "A structurally valid DPMX overlay was not found within the first " +
+                MAX_OVERLAY_SEARCH_BYTES + " bytes after the last PE raw section."
+        )
         requireRange(source.sizeBytes, overlayOffset, DPMX_HEADER_SIZE.toLong(), "DPMX header")
         val header = readBytes(source, overlayOffset, DPMX_HEADER_SIZE)
-        if (!header.copyOfRange(0, 4).contentEquals(DPMX_MAGIC)) {
-            throw IOException("A DPMX overlay was not found at the end of the last PE raw section.")
-        }
         val dataOffset = readUInt32(header, 4)
         val fileCountLong = readUInt32(header, 8)
         val optionalNameLengthLong = readUInt32(header, 12)
@@ -209,6 +217,52 @@ class DpmxContainerParser(
         )
     }
 
+    /** Validates enough of a candidate header/table to skip incidental DPMX byte strings. */
+    private fun isPlausibleDpmxCandidate(
+        source: ReadOnlyRandomAccessSource,
+        candidateOffset: Long
+    ): Boolean {
+        return try {
+            requireRange(source.sizeBytes, candidateOffset, DPMX_HEADER_SIZE.toLong(), "DPMX candidate header")
+        val header = readBytes(source, candidateOffset, DPMX_HEADER_SIZE)
+        if (!header.copyOfRange(0, 4).contentEquals(DPMX_MAGIC)) return false
+        val dataOffset = readUInt32(header, 4)
+        val fileCount = readUInt32(header, 8)
+        val optionalNameLength = readUInt32(header, 12)
+        if (fileCount > maxEntries.toLong() || optionalNameLength > maxOptionalNameLength.toLong()) {
+            return false
+        }
+        val tableOffset = checkedAdd(
+            checkedAdd(candidateOffset, DPMX_HEADER_SIZE.toLong()),
+            optionalNameLength
+        )
+        val tableLength = checkedMultiply(fileCount, DPMX_ENTRY_SIZE.toLong())
+        val tableEnd = checkedAdd(tableOffset, tableLength)
+        val dataAbsoluteOffset = checkedAdd(candidateOffset, dataOffset)
+        if (dataOffset < DPMX_HEADER_SIZE.toLong() ||
+            tableEnd > dataAbsoluteOffset ||
+            dataAbsoluteOffset > source.sizeBytes
+        ) return false
+        requireRange(source.sizeBytes, tableOffset, tableLength, "DPMX candidate file table")
+        repeat(fileCount.toInt()) { index ->
+            val recordOffset = checkedAdd(
+                tableOffset,
+                checkedMultiply(index.toLong(), DPMX_ENTRY_SIZE.toLong())
+            )
+            val record = readBytes(source, recordOffset, DPMX_ENTRY_SIZE)
+            if (readUInt32(record, 16) != DPMX_ENTRY_MARKER) return false
+            decodeEntryName(record.copyOfRange(0, ENTRY_NAME_SIZE))
+            val absoluteOffset = checkedAdd(dataAbsoluteOffset, readUInt32(record, 24))
+            requireRange(source.sizeBytes, absoluteOffset, readUInt32(record, 28), "DPMX candidate entry")
+        }
+        true
+        } catch (_: IOException) {
+            false
+        } catch (_: RuntimeException) {
+            false
+        }
+    }
+
     private fun decodeEntryName(bytes: ByteArray): String {
         val terminator = bytes.indexOf(0)
         val length = if (terminator >= 0) terminator else bytes.size
@@ -247,6 +301,7 @@ class DpmxContainerParser(
         private const val PE32_IMAGE_BASE_OFFSET = 28
         private const val PE_SECTION_SIZE = 40
         private const val SECTION_NAME_SIZE = 8
+        private const val MAX_OVERLAY_SEARCH_BYTES = 64 * 1024
         private const val DPMX_HEADER_SIZE = 16
         private const val DPMX_ENTRY_SIZE = 32
         private const val ENTRY_NAME_SIZE = 16

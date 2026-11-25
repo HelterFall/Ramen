@@ -161,17 +161,20 @@ class DpmxKeyResolver(
         var candidatePlaintext: ByteArray? = null
         for (al in 0..0xFF) {
             for (cl in 0..0xFF) {
-                val key = DpmxCipherKey(al, cl)
-                val plaintext = DpmxDecryptor.decryptBytes(encrypted, key)
-                if (isPlausible(entry, plaintext)) {
-                    if (candidate == null) {
-                        candidate = key
-                        candidatePlaintext = plaintext
-                    } else if (!candidatePlaintext!!.contentEquals(plaintext)) {
-                        // Reject genuinely different candidate plaintexts. Equivalent
-                        // key pairs can produce identical output due to the cipher symmetry.
-                        return null
-                    }
+                val testedKey = DpmxCipherKey(al, cl)
+                val plaintext = DpmxDecryptor.decryptBytes(encrypted, testedKey)
+                if (!isPlausible(entry, plaintext)) continue
+
+                val canonical = canonicalizeSymmetricKey(testedKey)
+                if (candidate == null) {
+                    candidate = canonical
+                    candidatePlaintext = plaintext
+                } else if (!candidatePlaintext!!.contentEquals(plaintext)) {
+                    // More than one distinct plausible plaintext means the signature
+                    // is insufficient to identify a key safely.
+                    return null
+                } else if (compareKeys(canonical, candidate) < 0) {
+                    candidate = canonical
                 }
             }
         }
@@ -180,7 +183,7 @@ class DpmxKeyResolver(
 
     private fun prefixLengthFor(entry: DpmxFileEntry): Int =
         when (entry.name.substringAfterLast('.', "").lowercase()) {
-            "ax" -> AX_PREFIX_LENGTH
+            "ax" -> HSPHED_SIZE_BYTES
             "bmp" -> BMP_PREFIX_LENGTH
             "txt", "ini", "as", "hsp", "cfg" -> TEXT_PREFIX_LENGTH
             else -> MIN_SAMPLE_LENGTH
@@ -188,20 +191,79 @@ class DpmxKeyResolver(
 
     private fun isPlausible(entry: DpmxFileEntry, bytes: ByteArray): Boolean {
         return when (entry.name.substringAfterLast('.', "").lowercase()) {
-            "ax" -> bytes.size >= AX_PREFIX_LENGTH &&
-                bytes[0] == 'H'.code.toByte() &&
-                bytes[1] == 'S'.code.toByte() &&
-                bytes[2] == 'P'.code.toByte() &&
-                bytes[3] == '3'.code.toByte() &&
-                readUInt32(bytes, 4) == HSP3_VERSION_31
+            "ax" -> isValidHspHeader(entry, bytes)
             "bmp" -> bytes.size >= BMP_PREFIX_LENGTH &&
                 bytes[0] == 'B'.code.toByte() &&
                 bytes[1] == 'M'.code.toByte() &&
-                readUInt32(bytes, 2) == entry.sizeBytes &&
-                readUInt32(bytes, 10) < entry.sizeBytes
+                readUInt32(bytes, 2) == entry.sizeBytes
             "txt", "ini", "as", "hsp", "cfg" -> isPrintableShiftJis(bytes)
             else -> false
         }
+    }
+
+    private fun isValidHspHeader(entry: DpmxFileEntry, bytes: ByteArray): Boolean {
+        if (bytes.size < HSPHED_SIZE_BYTES ||
+            bytes[0] != 'H'.code.toByte() ||
+            bytes[1] != 'S'.code.toByte() ||
+            bytes[2] != 'P'.code.toByte() ||
+            bytes[3] != '3'.code.toByte()
+        ) return false
+
+        val version = readUInt32(bytes, 4)
+        if (version !in HSP3_VERSION_MIN..HSP3_VERSION_MAX) return false
+
+        val allSize = readUInt32(bytes, 12)
+        if (allSize < HSPHED_SIZE_BYTES.toLong() || allSize > entry.sizeBytes) return false
+
+        val code = SegmentRange(readUInt32(bytes, 16), readUInt32(bytes, 20))
+        val data = SegmentRange(readUInt32(bytes, 24), readUInt32(bytes, 28))
+        val objectTemp = SegmentRange(readUInt32(bytes, 32), readUInt32(bytes, 36))
+        val debug = SegmentRange(readUInt32(bytes, 40), readUInt32(bytes, 44))
+        if (code.size == 0L) return false
+
+        val ranges = listOf(code, data, objectTemp, debug)
+        if (ranges.any { segment ->
+                segment.size < 0L ||
+                    (segment.size == 0L && segment.offset > allSize) ||
+                    (segment.size > 0L &&
+                        (segment.offset < HSPHED_SIZE_BYTES.toLong() ||
+                            segment.offset > allSize ||
+                            segment.size > allSize - segment.offset))
+            }
+        ) return false
+
+        // Segment tables in HSPHED describe disjoint byte ranges. Overlap can
+        // make a random decryption candidate look superficially plausible.
+        for (leftIndex in ranges.indices) {
+            val left = ranges[leftIndex]
+            if (left.size == 0L) continue
+            for (rightIndex in leftIndex + 1 until ranges.size) {
+                val right = ranges[rightIndex]
+                if (right.size == 0L) continue
+                if (left.offset < right.offset + right.size &&
+                    right.offset < left.offset + left.size
+                ) return false
+            }
+        }
+        return true
+    }
+
+    private data class SegmentRange(val offset: Long, val size: Long)
+
+    /** The cipher has a 128-step key symmetry; always expose the lower-al form. */
+    private fun canonicalizeSymmetricKey(key: DpmxCipherKey): DpmxCipherKey =
+        if (key.al >= 0x80) {
+            DpmxCipherKey(key.al xor 0x80, key.cl xor 0x80, key.initialDl)
+        } else {
+            key
+        }
+
+    private fun compareKeys(left: DpmxCipherKey, right: DpmxCipherKey): Int {
+        val alOrder = left.al.compareTo(right.al)
+        if (alOrder != 0) return alOrder
+        val clOrder = left.cl.compareTo(right.cl)
+        if (clOrder != 0) return clOrder
+        return left.initialDl.compareTo(right.initialDl)
     }
 
     private fun isPrintableShiftJis(bytes: ByteArray): Boolean {
@@ -232,9 +294,10 @@ class DpmxKeyResolver(
     companion object {
         const val GAME_KEY_CONSTANTS_VA = 0x00429E40L
         const val GAME_KEY_CONSTANTS_LENGTH = 0x1C
-        private const val HSP3_VERSION_31 = 0x00000301L
-        private const val AX_PREFIX_LENGTH = 8
-        private const val BMP_PREFIX_LENGTH = 54
+        private const val HSP3_VERSION_MIN = 0x00000300L
+        private const val HSP3_VERSION_MAX = 0x00000399L
+        private const val HSPHED_SIZE_BYTES = 0x60
+        private const val BMP_PREFIX_LENGTH = 6
         private const val TEXT_PREFIX_LENGTH = 32
         private const val MIN_SAMPLE_LENGTH = 6
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")

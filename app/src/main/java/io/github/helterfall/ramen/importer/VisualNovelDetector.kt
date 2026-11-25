@@ -1,10 +1,12 @@
 package io.github.helterfall.ramen.importer
 
+import io.github.helterfall.ramen.inspection.PeOverlayScanner
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
 import io.github.helterfall.ramen.runtime.hsp3.Hsp3RuntimeAdapter
 import io.github.helterfall.ramen.runtime.hsp3.Hsp3BytecodeDecoder
 import io.github.helterfall.ramen.runtime.hsp3.Hsp3Instruction
 import java.io.File
+import java.io.IOException
 
 data class GameDetection(
     val engineId: String,
@@ -30,8 +32,6 @@ class VisualNovelDetector {
             file.relativeTo(gameDirectory).invariantSeparatorsPath.lowercase()
         }
 
-        // Parse valid SPT candidates before assigning a parser-available status.
-        // A signature alone is used for fast filtering; load() validates bounds.
         val sptScript = scannedFiles.asSequence()
             .filter { file ->
                 file.extension.equals("spt", ignoreCase = true) &&
@@ -55,24 +55,49 @@ class VisualNovelDetector {
             )
         }
 
-        // HSP is launchable only after the PE32/DPMX container, start.ax key,
-        // HSPHED segments and current OpenHSP command-decoder profile validate.
-        // Runtime command coverage is still a subset; unsupported VM commands
-        // are counted in the evidence shown on the library card.
-        val hsp3Program = scannedFiles.asSequence()
-            .filter { file -> file.extension.equals("exe", ignoreCase = true) }
-            .mapNotNull { file ->
-                runCatching {
-                    val prepared = Hsp3RuntimeAdapter().prepare(file)
-                    val instructions = Hsp3BytecodeDecoder().decode(prepared.program)
-                    prepared to instructions
-                }.getOrNull()
-            }
-            .firstOrNull()
+        val executables = scannedFiles.filter { it.extension.equals("exe", ignoreCase = true) }
+        var successfulHsp: Pair<io.github.helterfall.ramen.runtime.hsp3.Hsp3PreparedGame, List<Hsp3Instruction>>? = null
+        var dpmxFailure: GameDetection? = null
+        var nsisMarker: Pair<File, Long>? = null
 
-        if (hsp3Program != null) {
-            val prepared = hsp3Program.first
-            val decodedInstructions = hsp3Program.second
+        for (executable in executables) {
+            val dpmxOffset = findOverlayMarker(executable, DPMX_SIGNATURE)
+            val nsisOffset = findOverlayMarker(executable, NSIS_SIGNATURE)
+            val attempt = runCatching {
+                val prepared = Hsp3RuntimeAdapter().prepare(executable)
+                val instructions = try {
+                    Hsp3BytecodeDecoder().decode(prepared.program)
+                } catch (error: Exception) {
+                    throw IOException(
+                        "CS command decoding failed: ${error.message ?: error.javaClass.simpleName}",
+                        error
+                    )
+                }
+                prepared to instructions
+            }
+            val loaded = attempt.getOrNull()
+            if (loaded != null) {
+                successfulHsp = loaded
+                break
+            }
+
+            if (dpmxOffset != null && dpmxFailure == null) {
+                val reason = attempt.exceptionOrNull()?.let(::formatFailure)
+                    ?: "The HSP3 preparation pipeline did not return a program."
+                dpmxFailure = GameDetection(
+                    engineId = Hsp3RuntimeAdapter.ENGINE_ID,
+                    engineLabel = Hsp3RuntimeAdapter.ENGINE_LABEL,
+                    compatibilityStatus = "DETECTED_UNSUPPORTED",
+                    evidence = "DPMX overlay signature at 0x${dpmxOffset.toString(16)}; " +
+                        "HSP3 validation stage failed: $reason"
+                )
+            }
+            if (nsisOffset != null && nsisMarker == null) {
+                nsisMarker = executable to nsisOffset
+            }
+        }
+
+        successfulHsp?.let { (prepared, decodedInstructions) ->
             val unsupportedCount = decodedInstructions.count { it is Hsp3Instruction.Unsupported }
             return GameDetection(
                 engineId = Hsp3RuntimeAdapter.ENGINE_ID,
@@ -85,6 +110,17 @@ class VisualNovelDetector {
                     decodedInstructions.size + " CS commands decoded, " +
                     unsupportedCount + " command IDs retained as runtime-unsupported markers. " +
                     "Android Canvas player and touch controls are connected."
+            )
+        }
+
+        if (dpmxFailure != null) return dpmxFailure
+        nsisMarker?.let { (file, offset) ->
+            return GameDetection(
+                engineId = NSIS_ENGINE_ID,
+                engineLabel = "NSIS installer",
+                compatibilityStatus = "DETECTED_UNSUPPORTED",
+                evidence = "NullsoftInst overlay signature at 0x${offset.toString(16)} " +
+                    "in ${file.name}; installer payload extraction is required before engine detection."
             )
         }
 
@@ -142,6 +178,20 @@ class VisualNovelDetector {
         return unknown("No known visual-novel engine markers were found.")
     }
 
+    private fun findOverlayMarker(file: File, signature: ByteArray): Long? =
+        runCatching {
+            PeOverlayScanner.findSignature(file, signature)
+        }.getOrNull()
+
+    private fun formatFailure(error: Throwable): String {
+        var root = error
+        while (root.cause != null && root.cause !== root) root = root.cause!!
+        val message = error.message?.takeIf { it.isNotBlank() }
+            ?: root.message?.takeIf { it.isNotBlank() }
+            ?: error.javaClass.simpleName
+        return message.replace('\n', ' ').take(MAX_DIAGNOSTIC_LENGTH)
+    }
+
     private fun unsupported(
         engineId: String,
         engineLabel: String,
@@ -163,5 +213,11 @@ class VisualNovelDetector {
     companion object {
         private const val MAX_SCAN_DEPTH = 4
         private const val MAX_SCANNED_FILES = 10_000
+        private const val MAX_DIAGNOSTIC_LENGTH = 240
+        private const val NSIS_ENGINE_ID = "nsis-installer"
+        private val DPMX_SIGNATURE = "DPMX".toByteArray(Charsets.US_ASCII)
+        private val NSIS_SIGNATURE = byteArrayOf(
+            0xEF.toByte(), 0xBE.toByte(), 0xAD.toByte(), 0xDE.toByte()
+        ) + "NullsoftInst".toByteArray(Charsets.US_ASCII)
     }
 }

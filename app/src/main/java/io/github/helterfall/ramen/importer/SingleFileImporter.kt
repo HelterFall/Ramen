@@ -3,6 +3,7 @@ package io.github.helterfall.ramen.importer
 import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
+import io.github.helterfall.ramen.inspection.PeOverlayScanner
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.storage.StorageGuardedOutputStream
 import io.github.helterfall.ramen.storage.StorageSpaceGuard
@@ -18,7 +19,8 @@ class SingleFileImporter(
     private val context: Context,
     private val detector: VisualNovelDetector = VisualNovelDetector(),
     private val streamCopier: SafeSingleFileStreamCopier = SafeSingleFileStreamCopier(),
-    private val inlineResourceExtractor: HtmlInlineResourceExtractor = HtmlInlineResourceExtractor()
+    private val inlineResourceExtractor: HtmlInlineResourceExtractor = HtmlInlineResourceExtractor(),
+    private val nsisArchiveExtractor: NsisArchiveExtractor = NsisArchiveExtractor()
 ) {
     fun import(uri: Uri): GameRecord {
         val metadata = readMetadata(uri)
@@ -38,6 +40,7 @@ class SingleFileImporter(
         val stagingDirectory = File(gamesDirectory, ".$id.importing")
         val finalDirectory = File(gamesDirectory, id)
 
+        var preservedInstallerForCleanup: File? = null
         try {
             if (!stagingDirectory.mkdirs()) throw IOException("Could not create the temporary game directory.")
             val input = context.contentResolver.openInputStream(uri)
@@ -55,6 +58,48 @@ class SingleFileImporter(
                 }
             }
             if (copiedBytes == 0L) throw IOException("The selected file is empty.")
+
+            var nsisSummary: ExtractionSummary? = null
+            var nsisFailure: String? = null
+            var nsisMarkerOffset: Long? = null
+            if (!isHtml && fileName.endsWith(".exe", ignoreCase = true)) {
+                nsisMarkerOffset = runCatching {
+                    PeOverlayScanner.findSignature(outputFile, NSIS_SIGNATURE)
+                }.getOrNull()
+            }
+            if (nsisMarkerOffset != null) {
+                val preservedInstaller = File(gamesDirectory, ".$id-nsis-source.exe")
+                preservedInstallerForCleanup = preservedInstaller
+                if (!outputFile.renameTo(preservedInstaller)) {
+                    throw IOException("Could not stage the detected NSIS installer for safe extraction.")
+                }
+                try {
+                    nsisSummary = nsisArchiveExtractor.extract(preservedInstaller, stagingDirectory)
+                    if (nsisSummary!!.fileCount <= 0) {
+                        throw IOException("The NSIS extraction stage produced no files.")
+                    }
+                    if (preservedInstaller.exists() && !preservedInstaller.delete()) {
+                        throw IOException("Could not remove the temporary NSIS installer copy.")
+                    }
+                    preservedInstallerForCleanup = null
+                } catch (error: Exception) {
+                    nsisSummary = null
+                    stagingDirectory.deleteRecursively()
+                    if (!stagingDirectory.mkdirs()) {
+                        throw IOException("NSIS extraction failed and the original installer could not be restored.", error)
+                    }
+                    val restoredInstaller = File(stagingDirectory, fileName)
+                    try {
+                        preservedInstaller.copyTo(restoredInstaller, overwrite = true)
+                    } catch (restoreError: Exception) {
+                        throw IOException("NSIS extraction failed and the original installer could not be restored.", restoreError)
+                    } finally {
+                        preservedInstaller.delete()
+                        preservedInstallerForCleanup = null
+                    }
+                    nsisFailure = error.message ?: error.javaClass.simpleName
+                }
+            }
 
             val record = if (isHtml) {
                 val extracted = inlineResourceExtractor.extract(outputFile, stagingDirectory)
@@ -79,7 +124,22 @@ class SingleFileImporter(
                     importedAtEpochMillis = System.currentTimeMillis()
                 )
             } else {
-                val detection = detector.detect(stagingDirectory)
+                val detection = if (nsisFailure != null) {
+                    GameDetection(
+                        engineId = "nsis-installer",
+                        engineLabel = "NSIS installer (ошибка распаковки)",
+                        compatibilityStatus = "DETECTED_UNSUPPORTED",
+                        evidence = "NullsoftInst overlay marker at 0x" +
+                            nsisMarkerOffset!!.toString(16) +
+                            "; NSIS extraction stage failed: " + nsisFailure
+                    )
+                } else {
+                    detector.detect(stagingDirectory)
+                }
+                val extractionEvidence = nsisSummary?.let { summary ->
+                    "Автоматически распакован NSIS-инсталлятор: ${summary.fileCount} файлов, " +
+                        "${summary.totalBytes} байт. "
+                }.orEmpty()
                 GameRecord(
                     id = id,
                     title = titleFrom(fileName),
@@ -87,7 +147,8 @@ class SingleFileImporter(
                     engineId = detection.engineId,
                     engineLabel = detection.engineLabel,
                     compatibilityStatus = detection.compatibilityStatus,
-                    evidence = "Импортирован одиночный файл «" + fileName + "». " + detection.evidence,
+                    evidence = extractionEvidence +
+                        "Импортирован одиночный файл «" + fileName + "». " + detection.evidence,
                     importedAtEpochMillis = System.currentTimeMillis()
                 )
             }
@@ -100,6 +161,8 @@ class SingleFileImporter(
             stagingDirectory.deleteRecursively()
             finalDirectory.deleteRecursively()
             throw error
+        } finally {
+            preservedInstallerForCleanup?.delete()
         }
     }
 
@@ -140,6 +203,9 @@ class SingleFileImporter(
         private const val HTML_ENTRY_FILE_NAME = "index.html"
         private const val MAX_FILE_NAME_LENGTH = 255
         private const val MAX_TITLE_LENGTH = 100
+        private val NSIS_SIGNATURE = byteArrayOf(
+            0xEF.toByte(), 0xBE.toByte(), 0xAD.toByte(), 0xDE.toByte()
+        ) + "NullsoftInst".toByteArray(Charsets.US_ASCII)
     }
 }
 

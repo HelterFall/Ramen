@@ -172,19 +172,34 @@ class Hsp3RuntimeAdapter(
     fun prepare(executable: File): Hsp3PreparedGame {
         if (!executable.isFile) throw IOException("The HSP3 executable is not a regular file.")
         FileRandomAccessSource(executable).use { source ->
-            val container = containerParser.parse(source)
-            val entry = container.findEntry(START_SCRIPT_NAME)
-                ?: throw IOException("The DPMX container does not contain start.ax.")
-            if (entry.sizeBytes > maxScriptSizeBytes) {
-                throw IOException("start.ax exceeds the configured decoded-script size limit.")
+            val container = try {
+                containerParser.parse(source)
+            } catch (error: Exception) {
+                throw IOException("PE32/DPMX parsing failed: ${error.message ?: error.javaClass.simpleName}", error)
             }
-            val resolution = keyResolver.resolve(source, container, entry)
-                ?: throw IOException("A verified DPMX decryption key for start.ax was not found.")
+            val entry = try {
+                container.findEntry(START_SCRIPT_NAME)
+                    ?: throw IOException("The DPMX container does not contain start.ax.")
+            } catch (error: Exception) {
+                throw IOException("DPMX start.ax lookup failed: ${error.message ?: error.javaClass.simpleName}", error)
+            }
+            if (entry.sizeBytes > maxScriptSizeBytes) {
+                throw IOException("DPMX start.ax size validation failed: the decoded script exceeds the configured limit.")
+            }
+            val resolution = try {
+                keyResolver.resolve(source, container, entry)
+                    ?: throw IOException("A verified DPMX decryption key was not found.")
+            } catch (error: Exception) {
+                throw IOException("DPMX start.ax key resolution failed: ${error.message ?: error.javaClass.simpleName}", error)
+            }
 
-            val output = ByteArrayOutputStream(entry.sizeBytes.toInt())
-            DpmxDecryptor.decrypt(source, entry, resolution.key, output)
-            val plainBytes = output.toByteArray()
-            val program = bytecodeLoader.load(ByteArrayRandomAccessSource(plainBytes))
+            val program = try {
+                val output = ByteArrayOutputStream(entry.sizeBytes.toInt())
+                DpmxDecryptor.decrypt(source, entry, resolution.key, output)
+                bytecodeLoader.load(ByteArrayRandomAccessSource(output.toByteArray()))
+            } catch (error: Exception) {
+                throw IOException("HSPHED/CS/DS/OT/DI loading failed: ${error.message ?: error.javaClass.simpleName}", error)
+            }
 
             if (program.header.libraryInfoSizeBytes != 0L ||
                 program.header.functionInfoSizeBytes != 0L ||
@@ -192,7 +207,7 @@ class Hsp3RuntimeAdapter(
                 program.header.functionInfo2SizeBytes != 0L ||
                 program.header.hasExternalPluginData
             ) {
-                throw IOException("This HSP3 runtime profile does not load external DLL/HPI plugin segments.")
+                throw IOException("HSP3 external-library validation failed: this runtime profile does not load DLL/HPI plugin segments.")
             }
 
             return Hsp3PreparedGame(
