@@ -310,7 +310,7 @@ class LiveMakerVirtualMachineTest {
     }
 
     @Test
-    fun flipCommandDoesNotRequireAnAndroidHostAdapter() {
+    fun emptyFlipCommandIsSkippedWithoutHostAdapter() {
         val bytes = LiveMakerLsbFixture.build(
             commands = listOf(
                 LiveMakerLsbFixture.flipCommand(),
