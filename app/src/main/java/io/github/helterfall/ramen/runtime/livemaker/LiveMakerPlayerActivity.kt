@@ -337,7 +337,7 @@ class LiveMakerPlayerActivity : ComponentActivity() {
 
                     // If we were parked at DoEvent/Running, resume the VM with the
                     // touch pulse still asserted so helper-page While loops can observe it.
-                    when (val pending = (currentEvent as? LiveMakerSessionEvent.EngineEvent)?.event) {
+                    when ((currentEvent as? LiveMakerSessionEvent.EngineEvent)?.event) {
                         is LiveMakerVmEvent.ProcessEvents -> session.resume()
                         LiveMakerVmEvent.Running -> Unit
                         else -> Unit
@@ -397,7 +397,9 @@ class LiveMakerPlayerActivity : ComponentActivity() {
         }
 
         val (next, presentation) = nextPresentation(session)
-        if (pointerPulsePendingRelease) releasePointerPulse(session)
+        if (pointerPulsePendingRelease && !presentation.autoAdvanceOnFrame) {
+            releasePointerPulse(session)
+        }
         publishPresentation(session, next, presentation)
     }
 
