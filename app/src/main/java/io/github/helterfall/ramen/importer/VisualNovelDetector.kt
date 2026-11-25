@@ -55,10 +55,10 @@ class VisualNovelDetector {
             )
         }
 
-        // HSP is parser-available only after the PE32/DPMX container, start.ax
-        // key and HSPHED segments have all been validated. The UI deliberately
-        // does not expose Launch for this engine until the AX command decoder
-        // and playback Activity are connected.
+        // HSP is launchable only after the PE32/DPMX container, start.ax key,
+        // HSPHED segments and current OpenHSP command-decoder profile validate.
+        // Runtime command coverage is still a subset; unsupported VM commands
+        // are counted in the evidence shown on the library card.
         val hsp3Program = scannedFiles.asSequence()
             .filter { file -> file.extension.equals("exe", ignoreCase = true) }
             .mapNotNull { file ->
