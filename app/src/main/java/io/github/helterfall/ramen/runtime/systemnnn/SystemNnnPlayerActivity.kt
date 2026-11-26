@@ -14,8 +14,10 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.compose.material3.MaterialTheme
 import java.io.File
 import java.io.IOException
+import java.nio.charset.StandardCharsets
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
 import io.github.helterfall.ramen.parser.SystemNnnProjectCatalog
 import io.github.helterfall.ramen.parser.SystemNnnScript
@@ -51,6 +53,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     private lateinit var startupExecutor: ExecutorService
     private lateinit var diagnosticLog: SystemNnnDiagnosticLog
     private var crashHandlerRegistration: AutoCloseable? = null
+    @Volatile private var activeGameDirectory: File? = null
+    private val fullAuditRunning = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val diagnosticsExportLauncher = registerForActivityResult(
@@ -66,6 +70,103 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     ) { uri ->
         if (uri != null && ::diagnosticLog.isInitialized) {
             exportSceneTrace(uri)
+        }
+    }
+
+    private val fullGameAuditExportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri != null) {
+            runFullGameAudit(uri)
+        }
+    }
+
+    private fun launchFullGameAuditExport() {
+        if (activeGameDirectory == null) {
+            android.widget.Toast.makeText(
+                this,
+                "Сначала дождись загрузки проекта, затем запускай полный аудит.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        fullGameAuditExportLauncher.launch("ramen_full_game_audit.json")
+    }
+
+    private fun runFullGameAudit(destination: Uri) {
+        val root = activeGameDirectory
+        if (root == null || !::startupExecutor.isInitialized) {
+            android.widget.Toast.makeText(
+                this,
+                "Каталог игры ещё не готов для аудита.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        if (!fullAuditRunning.compareAndSet(false, true)) {
+            android.widget.Toast.makeText(
+                this,
+                "Полный аудит уже выполняется.",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        android.widget.Toast.makeText(
+            this,
+            "Полный аудит запущен на устройстве. Тексты и файлы игры не экспортируются.",
+            android.widget.Toast.LENGTH_LONG
+        ).show()
+
+        try {
+            startupExecutor.execute {
+                try {
+                    val report = SystemNnnFullGameAuditor(
+                        File(cacheDir, "ramen-full-game-audit")
+                    ).audit(root)
+                    val output = contentResolver.openOutputStream(destination)
+                        ?: throw IOException("Android did not provide an output stream for the audit report.")
+                    output.writer(StandardCharsets.UTF_8).use { writer ->
+                        writer.write(SystemNnnTraceJson.encode(report))
+                        writer.write("\n")
+                    }
+                    val scope = report["scope"] as? Map<*, *>
+                    val issues = report["issues"] as? List<*>
+                    val message = "Аудит завершён: модулей " +
+                        (scope?.get("allValidSptModules") ?: "?") +
+                        ", физических команд " + (scope?.get("totalPhysicalRecords") ?: "?") +
+                        ", типов проблем " + (issues?.size ?: "?") +
+                        ". JSON сохранён."
+                    mainHandler.post {
+                        android.widget.Toast.makeText(
+                            this,
+                            message,
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } catch (failure: Exception) {
+                    val safeMessage = failure.message ?: failure.javaClass.simpleName
+                    if (::diagnosticLog.isInitialized) {
+                        diagnosticLog.recordException("full_game_audit_failure", failure)
+                    }
+                    mainHandler.post {
+                        android.widget.Toast.makeText(
+                            this,
+                            "Полный аудит не завершён: " + safeMessage.take(220),
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                } finally {
+                    fullAuditRunning.set(false)
+                }
+            }
+        } catch (failure: Exception) {
+            fullAuditRunning.set(false)
+            android.widget.Toast.makeText(
+                this,
+                "Не удалось запустить аудит: " + (failure.message ?: "ошибка потока."),
+                android.widget.Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -148,6 +249,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     onExportTrace = {
                         traceExportLauncher.launch("ramen_scene_trace.jsonl")
                     },
+                    onFullGameAudit = ::launchFullGameAuditExport,
                     onQuickAction = { action ->
                         val message = when (action) {
                             SystemNnnPlayerQuickAction.SAVE ->
@@ -176,6 +278,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             var assetResolver: SystemNnnAssetManager? = null
             try {
                 val gameDirectory = resolvePrivateGameDirectory(gameId)
+                activeGameDirectory = gameDirectory
                 val commandStreamReader = SystemNnnCommandStreamReader()
                 val launch = prepareScriptLaunch(
                     gameDirectory = gameDirectory,

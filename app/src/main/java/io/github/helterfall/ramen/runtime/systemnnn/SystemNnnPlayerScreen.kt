@@ -87,6 +87,7 @@ fun SystemNnnPlayerScreen(
     onBitmapDisposed: (Bitmap) -> Unit,
     onExportDiagnostics: () -> Unit,
     onExportTrace: () -> Unit,
+    onFullGameAudit: () -> Unit,
     onQuickAction: (SystemNnnPlayerQuickAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -721,6 +722,7 @@ fun SystemNnnPlayerScreen(
             },
             onExportDiagnostics = onExportDiagnostics,
             onExportTrace = onExportTrace,
+            onFullGameAudit = onFullGameAudit,
             debugVisible = debugOverlayVisible,
             onDebugToggle = { debugOverlayVisible = !debugOverlayVisible },
             modifier = Modifier
@@ -736,7 +738,7 @@ fun SystemNnnPlayerScreen(
                 border = BorderStroke(1.dp, Color(0x885C718C)),
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(top = 82.dp, end = 14.dp)
+                    .padding(top = 132.dp, end = 14.dp)
                     .width(340.dp)
                     .height(220.dp)
             ) {
@@ -1777,6 +1779,7 @@ private fun QuickMenu(
     onSkipToggle: () -> Unit,
     onExportDiagnostics: () -> Unit,
     onExportTrace: () -> Unit,
+    onFullGameAudit: () -> Unit,
     debugVisible: Boolean,
     onDebugToggle: () -> Unit,
     modifier: Modifier = Modifier
@@ -1788,17 +1791,22 @@ private fun QuickMenu(
         border = BorderStroke(1.dp, Color(0x665F6875)),
         modifier = modifier
     ) {
-        Row(
+        Column(
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            QuickMenuButton(label = "SAVE", selected = false, onClick = onSave)
-            QuickMenuButton(label = "LOAD", selected = false, onClick = onLoad)
-            QuickMenuButton(label = "AUTO", selected = autoEnabled, onClick = onAutoToggle)
-            QuickMenuButton(label = "SKIP", selected = skipEnabled, onClick = onSkipToggle)
-            QuickMenuButton(label = "LOG", selected = false, onClick = onExportDiagnostics)
-            QuickMenuButton(label = "TRACE", selected = false, onClick = onExportTrace)
-            QuickMenuButton(label = "DBG", selected = debugVisible, onClick = onDebugToggle)
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                QuickMenuButton(label = "SAVE", selected = false, onClick = onSave)
+                QuickMenuButton(label = "LOAD", selected = false, onClick = onLoad)
+                QuickMenuButton(label = "AUTO", selected = autoEnabled, onClick = onAutoToggle)
+                QuickMenuButton(label = "SKIP", selected = skipEnabled, onClick = onSkipToggle)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                QuickMenuButton(label = "LOG", selected = false, onClick = onExportDiagnostics)
+                QuickMenuButton(label = "TRACE", selected = false, onClick = onExportTrace)
+                QuickMenuButton(label = "SCAN", selected = false, onClick = onFullGameAudit)
+                QuickMenuButton(label = "DBG", selected = debugVisible, onClick = onDebugToggle)
+            }
         }
     }
 }
