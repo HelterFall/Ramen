@@ -69,12 +69,17 @@ enum class SystemNnnScreenCapturePurpose {
 data class SystemNnnPlayerUiState(
     /** Changes only when a dialogue/choice frame is published. */
     val frameId: Long = 0L,
+    /** Monotonic SPT command execution counter, independent of visible dialogue frames. */
+    val sceneStepNumber: Long = 0L,
+    val lastCommandOffset: Long? = null,
     /** Monotonic identifier for native DRAW events; never restarts typewriter text. */
     val drawEventId: Long = 0L,
     val isLoading: Boolean = false,
     /** One-based module-local film number from the latest validated SETFILM record. */
     val currentFilmNumber: Int? = null,
     val backgroundBitmap: Bitmap? = null,
+    val backgroundResourceId: String? = null,
+    val backgroundMetadata: SystemNnnImageResourceMetadata? = null,
     val sprites: List<SystemNnnSpriteBitmap> = emptyList(),
     val speakerName: String? = null,
     val dialogueText: String = "",
@@ -359,6 +364,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private val bitmapOwners = IdentityHashMap<Bitmap, SystemNnnSceneAssetResolver>()
     private var nextCommandOffset: Long = 0L
     private var frameCounter: Long = 0L
+    private var traceStepCounter: Long = 0L
     private var drawEventCounter: Long = 0L
     private var screenCaptureRequestCounter: Long = 0L
     private var savedGetScreenBufferBitmap: Bitmap? = null
@@ -402,6 +408,336 @@ class SystemNnnPlayerViewModel : ViewModel() {
     fun setDiagnosticLog(log: SystemNnnDiagnosticLog) {
         diagnosticLog = log
         diagnosticLog?.record("player", "diagnostic recorder attached")
+    }
+
+    private fun traceParameters16(parameters: List<Int>): List<Int?> =
+        (0 until 16).map { index -> parameters.getOrNull(index) }
+
+    private fun traceRect(rect: SystemNnnNativeRect?): Map<String, Int>? = rect?.let {
+        linkedMapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height)
+    }
+
+    private fun traceEffect(
+        effectId: Int,
+        parameters: List<Int>,
+        frame: Int? = null,
+        layer: Int? = null
+    ): Map<String, Any?> = linkedMapOf(
+        "layer" to layer,
+        "effect_id" to effectId,
+        "name" to SystemNnnVisualEffectMath.observedEffectName(effectId),
+        "parameters_raw" to parameters,
+        "para_0_to_15" to traceParameters16(parameters),
+        "currentFrame" to frame
+    )
+
+    private fun traceCommandDetails(command: SystemNnnDecodedCommand): Map<String, Any?> =
+        when (command) {
+            is SystemNnnDecodedCommand.SetImageLayerEffect -> linkedMapOf(
+                "layer" to command.layerIndex,
+                "effect_id" to command.effectId,
+                "effect_name" to SystemNnnVisualEffectMath.observedEffectName(command.effectId),
+                "parameters_raw" to command.parameters,
+                "para_0_to_15" to traceParameters16(command.parameters),
+                "knownEffect" to (SystemNnnVisualEffectMath.observedParameterCount(command.effectId) != null),
+                "nativeCommandAccepted" to SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId),
+                "rendererPath" to SystemNnnVisualEffectMath.hasNativeLayerEffectPath(command.effectId, command.parameters)
+            )
+            is SystemNnnDecodedCommand.NativeSystemFunction -> linkedMapOf(
+                "function_id" to command.functionId,
+                "function_id_hex" to "0x" + command.functionId.toString(16),
+                "parameters_raw" to command.parameters,
+                "para_0_to_15" to traceParameters16(command.parameters),
+                "textValue" to command.textValue
+            )
+            is SystemNnnDecodedCommand.Skip -> linkedMapOf(
+                "reason" to command.reason,
+                "unsupported" to command.unsupported,
+                "rawRecordIdentifier" to command.rawRecordIdentifier,
+                "rawCode" to command.rawCode,
+                "recordKind" to command.recordKind
+            )
+            is SystemNnnDecodedCommand.Draw -> linkedMapOf(
+                "frameCount" to command.frameCount,
+                "overrapParameters" to command.overrapParameters
+            )
+            is SystemNnnDecodedCommand.Dialogue -> linkedMapOf(
+                "textEntryOffset" to command.textEntryOffset,
+                "speaker" to command.speakerName,
+                "voiceResourceId" to command.voiceResourceId,
+                "dialogueStepIndex" to command.dialogueStepIndex
+            )
+            is SystemNnnDecodedCommand.Choice -> linkedMapOf(
+                "promptTextEntryOffset" to command.promptTextEntryOffset,
+                "optionCount" to command.options.size,
+                "options" to command.options.map {
+                    mapOf("id" to it.id, "targetCommandOffset" to it.targetCommandOffset, "label" to it.label)
+                }
+            )
+            is SystemNnnDecodedCommand.LoadImageLayer -> linkedMapOf(
+                "layer" to command.layerIndex, "resourceName" to command.resourceId
+            )
+            is SystemNnnDecodedCommand.ClearImageLayer -> mapOf("layer" to command.layerIndex)
+            is SystemNnnDecodedCommand.SetImageLayerRect -> mapOf(
+                "layer" to command.layerIndex,
+                "srcRect" to traceRect(command.fromRect),
+                "dstRect" to traceRect(command.toRect)
+            )
+            is SystemNnnDecodedCommand.SceneUpdate -> mapOf(
+                "backgroundResourceId" to command.backgroundResourceId,
+                "backgroundResourceIndex" to command.backgroundResourceIndex,
+                "spriteCount" to command.sprites.size
+            )
+            is SystemNnnDecodedCommand.Music -> mapOf(
+                "musicNumber" to command.musicNumber, "loopCount" to command.loopCount
+            )
+            is SystemNnnDecodedCommand.Voice -> mapOf(
+                "resourceId" to command.resourceId, "channel" to command.channel
+            )
+            is SystemNnnDecodedCommand.Sound -> mapOf(
+                "soundNumber" to command.soundNumber, "channel" to command.channel
+            )
+            is SystemNnnDecodedCommand.Jump -> mapOf("targetCommandOffset" to command.targetCommandOffset)
+            is SystemNnnDecodedCommand.SetFilm -> mapOf("filmNumber" to command.filmNumber)
+            is SystemNnnDecodedCommand.EndFilm -> mapOf("nextCommandOffset" to command.nextCommandOffset)
+            is SystemNnnDecodedCommand.ModuleTransfer -> mapOf(
+                "targetModuleName" to command.targetModuleName, "kind" to command.kind.name
+            )
+            else -> emptyMap()
+        }
+
+    private fun traceLayer(
+        sprite: SystemNnnSpriteBitmap,
+        logicalWidth: Int,
+        logicalHeight: Int
+    ): Map<String, Any?> {
+        val bitmap = sprite.bitmap
+        val fallbackWidth = (logicalWidth * sprite.widthFraction).toInt().coerceAtLeast(1)
+        val fallbackHeight = (logicalHeight * sprite.heightFraction).toInt().coerceAtLeast(1)
+        val dst = sprite.nativeRect ?: SystemNnnNativeRect(
+            x = (logicalWidth * sprite.centerXFraction - fallbackWidth / 2f).toInt(),
+            y = (logicalHeight - fallbackHeight) / 2,
+            width = fallbackWidth,
+            height = fallbackHeight
+        )
+        val metadata = sprite.sourceMetadata
+        return linkedMapOf(
+            "layerIndex" to sprite.layerIndex,
+            "resourceName" to sprite.resourceId,
+            "bankNamespace" to sprite.nativeBankNamespace,
+            "bankSlot" to sprite.nativeBankSlot,
+            "sourceSize" to mapOf("width" to bitmap.width, "height" to bitmap.height),
+            "declaredSize" to metadata?.let {
+                mapOf("width" to it.widthPixels, "height" to it.heightPixels)
+            },
+            "dstRect" to traceRect(dst),
+            "srcRect" to traceRect(sprite.nativeRectFrom),
+            "nativeRectWasExplicit" to (sprite.nativeRect != null),
+            "packType" to metadata?.packType,
+            "format" to metadata?.format,
+            "hasAlphaMask" to metadata?.hasAlphaMask,
+            "hasPerPixelAlpha" to bitmap.hasAlpha(),
+            "alphaPremultiplied" to bitmap.isPremultiplied,
+            "blendMode" to "SRC_OVER",
+            "globalOpacity" to 1.0,
+            "effect" to sprite.nativeEffectId?.let {
+                traceEffect(it, sprite.nativeEffectParameters, frame = null, layer = sprite.layerIndex)
+            },
+            "effectCommandOffset" to sprite.nativeEffectCommandOffset
+        )
+    }
+
+    private fun queryImageMetadata(
+        resolver: SystemNnnSceneAssetResolver,
+        resourceId: String?,
+        resourceIndex: Long?,
+        namespace: String?,
+        slot: Int?
+    ): SystemNnnImageResourceMetadata? {
+        return runCatching {
+            when {
+                namespace != null && slot != null && resourceId != null ->
+                    resolver.imageMetadata(namespace, slot, resourceId)
+                namespace != null && slot != null && resourceIndex != null ->
+                    resolver.imageMetadataByNativeBankIndex(namespace, slot, resourceIndex)
+                resourceId != null -> resolver.imageMetadata(resourceId)
+                resourceIndex != null -> resolver.imageMetadataByIndex(resourceIndex)
+                else -> null
+            }
+        }.onFailure { failure ->
+            diagnosticLog?.recordException(
+                "image_metadata_lookup_failure",
+                failure,
+                "resource=${resourceId ?: "none"} index=${resourceIndex ?: "none"} " +
+                    "bank=${namespace ?: "none"} slot=${slot ?: "none"}"
+            )
+        }.getOrNull()
+    }
+
+    private fun recordSceneTrace(
+        event: String,
+        commandOffset: Long? = null,
+        commandName: String? = null,
+        commandDetails: Map<String, Any?> = emptyMap(),
+        backgroundBitmap: Bitmap? = uiState.backgroundBitmap,
+        backgroundResourceId: String? = uiState.backgroundResourceId,
+        backgroundMetadata: SystemNnnImageResourceMetadata? = uiState.backgroundMetadata,
+        sprites: List<SystemNnnSpriteBitmap> = uiState.sprites,
+        screenEffectId: Int? = uiState.screenEffectId,
+        screenEffectParameters: List<Int> = uiState.screenEffectParameters
+    ) {
+        val logicalWidth = (backgroundBitmap?.width ?: backgroundMetadata?.widthPixels
+            ?: sprites.firstOrNull()?.bitmap?.width ?: 800).coerceAtLeast(1)
+        val logicalHeight = (backgroundBitmap?.height ?: backgroundMetadata?.heightPixels
+            ?: sprites.firstOrNull()?.bitmap?.height ?: 600).coerceAtLeast(1)
+        val anomalies = ArrayList<Map<String, Any?>>()
+        if (backgroundBitmap != null && backgroundMetadata != null &&
+            (backgroundBitmap.width != backgroundMetadata.widthPixels ||
+                backgroundBitmap.height != backgroundMetadata.heightPixels)
+        ) {
+            anomalies += mapOf(
+                "type" to "background_declared_size_mismatch",
+                "resourceName" to backgroundResourceId,
+                "bitmap" to "${backgroundBitmap.width}x${backgroundBitmap.height}",
+                "declared" to "${backgroundMetadata.widthPixels}x${backgroundMetadata.heightPixels}"
+            )
+        }
+        sprites.forEach { sprite ->
+            val bitmap = sprite.bitmap
+            val metadata = sprite.sourceMetadata
+            if (metadata != null &&
+                (metadata.widthPixels != bitmap.width || metadata.heightPixels != bitmap.height)
+            ) {
+                anomalies += mapOf(
+                    "type" to "layer_declared_size_mismatch",
+                    "layerIndex" to sprite.layerIndex,
+                    "resourceName" to sprite.resourceId,
+                    "bitmap" to "${bitmap.width}x${bitmap.height}",
+                    "declared" to "${metadata.widthPixels}x${metadata.heightPixels}"
+                )
+            }
+            val destination = sprite.nativeRect
+            if (destination != null) {
+                if (destination.width <= 0 || destination.height <= 0) {
+                    anomalies += mapOf(
+                        "type" to "invalid_dst_rect",
+                        "layerIndex" to sprite.layerIndex,
+                        "dstRect" to traceRect(destination)
+                    )
+                }
+                if (destination.x < 0 || destination.y < 0 ||
+                    destination.x.toLong() + destination.width.toLong() > logicalWidth.toLong() ||
+                    destination.y.toLong() + destination.height.toLong() > logicalHeight.toLong()
+                ) {
+                    anomalies += mapOf(
+                        "type" to "dst_rect_out_of_bounds",
+                        "layerIndex" to sprite.layerIndex,
+                        "dstRect" to traceRect(destination),
+                        "logicalResolution" to mapOf("width" to logicalWidth, "height" to logicalHeight)
+                    )
+                }
+            }
+            val sourceRect = sprite.nativeRectFrom
+            if (sourceRect != null && (
+                sourceRect.x < 0 || sourceRect.y < 0 || sourceRect.width <= 0 || sourceRect.height <= 0 ||
+                    sourceRect.x.toLong() + sourceRect.width.toLong() > bitmap.width.toLong() ||
+                    sourceRect.y.toLong() + sourceRect.height.toLong() > bitmap.height.toLong()
+                )
+            ) {
+                anomalies += mapOf(
+                    "type" to "src_rect_out_of_bounds",
+                    "layerIndex" to sprite.layerIndex,
+                    "srcRect" to traceRect(sourceRect),
+                    "sourceSize" to "${bitmap.width}x${bitmap.height}"
+                )
+            }
+        }
+        val effectList = sprites.mapNotNull { sprite ->
+            sprite.nativeEffectId?.let {
+                traceEffect(it, sprite.nativeEffectParameters, frame = null, layer = sprite.layerIndex)
+            }
+        }.toMutableList()
+        if (screenEffectId != null) {
+            effectList += traceEffect(screenEffectId, screenEffectParameters, frame = null, layer = SCREEN_EFFECT_LAYER_INDEX)
+            if (SystemNnnVisualEffectMath.observedParameterCount(screenEffectId) == null) {
+                anomalies += mapOf("type" to "unknown_screen_effect", "effect_id" to screenEffectId)
+            }
+        }
+        val savedBuffer = uiState.savedGetScreenBufferBitmap
+        val from = uiState.overrapFromBitmap
+        val to = uiState.overrapToBitmap
+        diagnosticLog?.recordTrace(
+            event,
+            linkedMapOf(
+                "step" to traceStepCounter,
+                "frameId" to uiState.frameId,
+                "drawEventId" to uiState.drawEventId,
+                "commandOffset" to commandOffset,
+                "commandName" to commandName,
+                "module" to currentModuleName,
+                "film" to currentFilmNumber,
+                "command" to commandDetails,
+                "dialogue" to linkedMapOf(
+                    "speaker" to uiState.speakerName,
+                    "text" to uiState.dialogueText,
+                    "visibleCharacters" to uiState.visibleCharacterCount,
+                    "isComplete" to uiState.isTextComplete
+                ),
+                "logicalResolution" to mapOf("width" to logicalWidth, "height" to logicalHeight),
+                "canvas" to null,
+                "viewport" to null,
+                "scaleMatrix" to null,
+                "background" to backgroundBitmap?.let {
+                    mapOf(
+                        "resourceName" to backgroundResourceId,
+                        "sourceSize" to mapOf("width" to it.width, "height" to it.height),
+                        "packType" to backgroundMetadata?.packType,
+                        "format" to backgroundMetadata?.format,
+                        "hasAlphaMask" to backgroundMetadata?.hasAlphaMask,
+                        "hasPerPixelAlpha" to it.hasAlpha(),
+                        "alphaPremultiplied" to it.isPremultiplied
+                    )
+                },
+                "layers" to sprites.map { traceLayer(it, logicalWidth, logicalHeight) },
+                "activeEffects" to effectList,
+                "screenBuffer" to linkedMapOf(
+                    "screenEffectId" to screenEffectId,
+                    "screenEffectParameters" to traceParameters16(screenEffectParameters),
+                    "screenEffectRawParameters" to screenEffectParameters,
+                    "screenEffectFrame" to null,
+                    "savedGetBuffer" to savedBuffer?.let {
+                        mapOf("width" to it.width, "height" to it.height, "recycled" to it.isRecycled)
+                    }
+                ),
+                "overrap" to linkedMapOf(
+                    "transitionId" to uiState.overrapTransitionId,
+                    "transitionType" to uiState.overrapTransitionType,
+                    "durationFrames" to uiState.overrapTransitionDurationFrames,
+                    "fromBitmap" to from?.let { "${it.width}x${it.height}" },
+                    "toBitmap" to to?.let { "${it.width}x${it.height}" },
+                    "progress" to null,
+                    "prepared" to overrapPrepared,
+                    "optionButtonPrintFlag" to uiState.overrapOptionButtonPrintFlag,
+                    "sceneButtonPrintFlag" to uiState.overrapSceneButtonPrintFlag
+                ),
+                "pendingDrawFrameCount" to uiState.pendingDrawFrameCount,
+                "anomalies" to anomalies
+            ),
+            summary = "step=$traceStepCounter module=${currentModuleName ?: "standalone"} " +
+                "film=${currentFilmNumber ?: "none"} offset=${commandOffset?.let { "0x" + it.toString(16) } ?: "none"} " +
+                "command=${commandName ?: event} layers=${sprites.size} effects=${effectList.size} anomalies=${anomalies.size}"
+        )
+        anomalies.forEach { anomaly ->
+            diagnosticLog?.recordTrace(
+                "scene_anomaly",
+                mapOf(
+                    "step" to traceStepCounter,
+                    "commandOffset" to commandOffset,
+                    "anomaly" to anomaly
+                ),
+                summary = anomaly.toString()
+            )
+        }
     }
 
     private fun updateDiagnosticSnapshot(commandOffset: Long, commandName: String) {
@@ -522,6 +858,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
             initialCommandOffset
         }
         this.frameCounter = 0L
+        this.traceStepCounter = 0L
         this.audioRequestId += 1L
 
         uiState = SystemNnnPlayerUiState(isLoading = true)
@@ -1149,6 +1486,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
         try {
             var sceneBackground = uiState.backgroundBitmap
+            var sceneBackgroundResourceId = uiState.backgroundResourceId
+            var sceneBackgroundMetadata = uiState.backgroundMetadata
             var sceneSprites = uiState.sprites
             var pendingBackgroundResourceId: String? = null
             var pendingBackgroundResourceIndex: Long? = null
@@ -1181,6 +1520,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
             fun clearPendingSceneVisuals() {
                 sceneBackground = null
+                sceneBackgroundResourceId = null
+                sceneBackgroundMetadata = null
                 pendingBackgroundResourceId = null
                 pendingBackgroundResourceIndex = null
                 pendingBackgroundBankNamespace = null
@@ -1195,6 +1536,19 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
             fun appendImageStatusMessage(message: String?) {
                 if (message.isNullOrBlank()) return
+                message.lines().filter { it.isNotBlank() }.forEach { warning ->
+                    diagnosticLog?.recordTrace(
+                        "scene_warning",
+                        mapOf(
+                            "step" to traceStepCounter,
+                            "module" to currentModuleName,
+                            "film" to currentFilmNumber,
+                            "commandOffset" to nextCommandOffset,
+                            "message" to warning
+                        ),
+                        summary = warning
+                    )
+                }
                 imageStatusMessage = listOfNotNull(imageStatusMessage, message)
                     .joinToString(separator = "\n")
             }
@@ -1210,10 +1564,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 }
 
                 val command = currentDecoder.decodeNext(currentScript, commandOffset)
+                traceStepCounter += 1L
                 diagnosticLog?.record(
                     "command",
                     "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
-                        "offset=0x${commandOffset.toString(16)} type=${command.javaClass.simpleName}"
+                        "step=$traceStepCounter offset=0x${commandOffset.toString(16)} type=${command.javaClass.simpleName}"
+                )
+                recordSceneTrace(
+                    event = "script_step",
+                    commandOffset = commandOffset,
+                    commandName = command.javaClass.simpleName,
+                    commandDetails = traceCommandDetails(command)
                 )
                 updateDiagnosticSnapshot(commandOffset, command.javaClass.simpleName)
                 when (command) {
@@ -1356,6 +1717,23 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 "previous=${previousEffect ?: "none"} accepted=" +
                                 SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)
                         )
+                        val effectKnown = SystemNnnVisualEffectMath.observedParameterCount(command.effectId) != null
+                        val effectCommandAccepted = SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)
+                        val effectRendererPath = SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+                            command.effectId, command.parameters
+                        )
+                        if (!effectKnown || !effectCommandAccepted) {
+                            appendImageStatusMessage(
+                                "UNSUPPORTED EFFECT id=${command.effectId} name=${SystemNnnVisualEffectMath.observedEffectName(command.effectId)} " +
+                                    "layer=${command.layerIndex} parameters=${command.parameters}"
+                            )
+                        } else if (!effectRendererPath) {
+                            appendImageStatusMessage(
+                                "FALLBACK EFFECT id=${command.effectId} name=${SystemNnnVisualEffectMath.observedEffectName(command.effectId)} " +
+                                    "layer=${command.layerIndex}: no complete native renderer path"
+                            )
+                        }
+
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
 
@@ -1407,14 +1785,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                     "CHARABURE (132) uses repeatable jitter; its random sequence does not match the original runtime."
                                 )
                             }
-                            if (!SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
-                                    command.effectId, command.parameters
-                                )
-                            ) {
-                                appendImageStatusMessage(
-                                    "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока не поддерживается полностью."
-                                )
-                            }
+
                         }
                         commandsWithoutVisibleOutput += 1
                     }
@@ -1483,16 +1854,74 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 " offset=0x" + commandOffset.toString(16) + " code=0x" + command.functionId.toString(16) +
                                 " params=" + command.parameters.joinToString(";") + " text=" + (command.textValue ?: "none")
                         )
-                        commandsWithoutVisibleOutput += 1
                         if (command.functionId == 0x0011) {
                             requestScreenCapture(SystemNnnScreenCapturePurpose.PREPARE_OVERRAP)
                             return
+                        } else {
+                            val functionName = when (command.functionId) {
+                                0x0018 -> "SETCG"
+                                0x001B -> "STARTMESSAGE"
+                                0x001C -> "STARTKOMA"
+                                0x001E -> "SETDEMOFLAG"
+                                0x0050 -> "FILMNAME"
+                                0x0051 -> "STORYNAME"
+                                0x0052 -> "FILMTYPETIME"
+                                0x0057 -> "AUTOMESSAGE"
+                                0x0058 -> "CANNOTCLICK"
+                                0x0059 -> "CANNOTSKIP"
+                                0x005A -> "OPTIONOFF"
+                                else -> "UNKNOWN"
+                            }
+                            diagnosticLog?.recordTrace(
+                                "fallback_system_function",
+                                mapOf(
+                                    "step" to traceStepCounter,
+                                    "commandOffset" to commandOffset,
+                                    "functionId" to command.functionId,
+                                    "functionIdHex" to "0x" + command.functionId.toString(16),
+                                    "functionName" to functionName,
+                                    "parameters" to command.parameters,
+                                    "textValue" to command.textValue,
+                                    "reason" to "Decoded but not applied by the player runtime"
+                                ),
+                                summary = "System function fallback " + functionName +
+                                    " (0x" + command.functionId.toString(16) + ")"
+                            )
+                            appendImageStatusMessage(
+                                "FALLBACK SYSTEM FUNCTION " + functionName +
+                                    " (0x" + command.functionId.toString(16) + ") is decoded but not applied."
+                            )
                         }
+                        commandsWithoutVisibleOutput += 1
                     }
 
                     is SystemNnnDecodedCommand.Skip -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
+                        if (command.unsupported) {
+                            diagnosticLog?.recordTrace(
+                                "unsupported_command",
+                                mapOf(
+                                    "step" to traceStepCounter,
+                                    "commandOffset" to commandOffset,
+                                    "reason" to command.reason,
+                                    "rawRecordIdentifier" to command.rawRecordIdentifier,
+                                    "rawCode" to command.rawCode,
+                                    "recordKind" to command.recordKind
+                                ),
+                                summary = "Unsupported SPT record at 0x" + commandOffset.toString(16) +
+                                    ": " + (command.reason ?: "unknown reason")
+                            )
+                            appendImageStatusMessage(
+                                "UNSUPPORTED COMMAND at 0x" + commandOffset.toString(16) +
+                                    ": " + (command.reason ?: "unknown record")
+                            )
+                        } else if (!command.reason.isNullOrBlank()) {
+                            diagnosticLog?.recordTrace(
+                                "skipped_command",
+                                mapOf("step" to traceStepCounter, "commandOffset" to commandOffset, "reason" to command.reason)
+                            )
+                        }
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -1566,6 +1995,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             pendingBackgroundBankSlot
                         )
                         if (pendingBackgroundResourceId != null) {
+                            sceneBackgroundResourceId = pendingBackgroundResourceId
+                            sceneBackgroundMetadata = queryImageMetadata(
+                                resolver, pendingBackgroundResourceId, null,
+                                pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                            )
                             sceneBackground = resolveBackground(
                                 pendingBackgroundResourceId!!,
                                 pendingBackgroundBankNamespace,
@@ -1573,6 +2007,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 resolver
                             )
                         } else if (pendingBackgroundResourceIndex != null) {
+                            sceneBackgroundResourceId = "index:" + pendingBackgroundResourceIndex
+                            sceneBackgroundMetadata = queryImageMetadata(
+                                resolver, null, pendingBackgroundResourceIndex,
+                                pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                            )
                             sceneBackground = resolveBackgroundIndex(
                                 pendingBackgroundResourceIndex!!,
                                 pendingBackgroundBankNamespace,
@@ -1608,9 +2047,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         )
                         updateDiagnosticSnapshot(command.nextCommandOffset, if (command.overrapParameters == null) "DrawFrame" else "OverrapBoundary")
                         uiState = uiState.copy(
+                            sceneStepNumber = traceStepCounter,
+                            lastCommandOffset = commandOffset,
                             drawEventId = drawEventId,
                             isLoading = false,
                             backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
                             sprites = sceneSprites,
                             currentFilmNumber = currentFilmNumber,
                             statusMessage = imageStatusMessage ?: uiState.statusMessage,
@@ -1622,6 +2065,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             } else {
                                 drawFrames
                             }
+                        )
+                        recordSceneTrace(
+                            event = "scene_frame",
+                            commandOffset = commandOffset,
+                            commandName = if (command.overrapParameters == null) "Draw" else "DrawOverrap",
+                            commandDetails = traceCommandDetails(command),
+                            backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
+                            sprites = sceneSprites,
+                            screenEffectId = pendingScreenEffectId,
+                            screenEffectParameters = pendingScreenEffectParameters
                         )
                         if (command.overrapParameters != null && overrapPrepared) {
                             requestScreenCapture(
@@ -1661,6 +2116,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             throw IOException("A native image bank identity requires a background resource.")
                         }
                         if (pendingBackgroundResourceId != null) {
+                            sceneBackgroundResourceId = pendingBackgroundResourceId
+                            sceneBackgroundMetadata = queryImageMetadata(
+                                resolver, pendingBackgroundResourceId, null,
+                                pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                            )
                             sceneBackground = resolveBackground(
                                 pendingBackgroundResourceId!!,
                                 pendingBackgroundBankNamespace,
@@ -1671,6 +2131,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             val backgroundIndex =
                                 pendingBackgroundResourceIndex ?: command.backgroundResourceIndex
                             if (backgroundIndex != null) {
+                                sceneBackgroundResourceId = "index:" + backgroundIndex
+                                sceneBackgroundMetadata = queryImageMetadata(
+                                    resolver, null, backgroundIndex,
+                                    pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                                )
                                 sceneBackground = resolveBackgroundIndex(
                                     backgroundIndex,
                                     pendingBackgroundBankNamespace,
@@ -1708,8 +2173,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         frameCounter += 1L
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter,
+                            sceneStepNumber = traceStepCounter,
+                            lastCommandOffset = commandOffset,
                             isLoading = false,
                             backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
                             sprites = sceneSprites,
                             speakerName = command.speakerName,
                             dialogueText = text,
@@ -1721,6 +2190,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset
+                        )
+                        recordSceneTrace(
+                            event = "dialogue_frame",
+                            commandOffset = commandOffset,
+                            commandName = "Dialogue",
+                            commandDetails = traceCommandDetails(command),
+                            backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
+                            sprites = sceneSprites,
+                            screenEffectId = pendingScreenEffectId,
+                            screenEffectParameters = pendingScreenEffectParameters
                         )
                         playVoice(dialogueStepIndex, command.voiceResourceId)
                         return
@@ -1746,6 +2227,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         }
 
                         if (pendingBackgroundResourceIndex != null) {
+                            sceneBackgroundResourceId = "index:" + pendingBackgroundResourceIndex
+                            sceneBackgroundMetadata = queryImageMetadata(
+                                resolver, null, pendingBackgroundResourceIndex,
+                                pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                            )
                             sceneBackground = resolveBackgroundIndex(
                                 pendingBackgroundResourceIndex!!,
                                 pendingBackgroundBankNamespace,
@@ -1753,6 +2239,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 resolver
                             )
                         } else if (pendingBackgroundResourceId != null) {
+                            sceneBackgroundResourceId = pendingBackgroundResourceId
+                            sceneBackgroundMetadata = queryImageMetadata(
+                                resolver, pendingBackgroundResourceId, null,
+                                pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                            )
                             sceneBackground = resolveBackground(
                                 pendingBackgroundResourceId!!,
                                 pendingBackgroundBankNamespace,
@@ -1774,8 +2265,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         frameCounter += 1L
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter,
+                            sceneStepNumber = traceStepCounter,
+                            lastCommandOffset = commandOffset,
                             isLoading = false,
                             backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
                             sprites = sceneSprites,
                             speakerName = command.speakerName,
                             dialogueText = promptText,
@@ -1789,6 +2284,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             screenEffectParameters = pendingScreenEffectParameters,
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset
                         )
+                        recordSceneTrace(
+                            event = "choice_frame",
+                            commandOffset = commandOffset,
+                            commandName = "Choice",
+                            commandDetails = traceCommandDetails(command),
+                            backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
+                            sprites = sceneSprites,
+                            screenEffectId = pendingScreenEffectId,
+                            screenEffectParameters = pendingScreenEffectParameters
+                        )
                         return
                     }
 
@@ -1796,8 +2303,16 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         stopAllAudio()
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter + 1L,
+                            sceneStepNumber = traceStepCounter,
+                            lastCommandOffset = commandOffset,
                             isEnded = true,
                             currentFilmNumber = currentFilmNumber
+                        )
+                        recordSceneTrace(
+                            event = "scene_end",
+                            commandOffset = commandOffset,
+                            commandName = "End",
+                            commandDetails = traceCommandDetails(command)
                         )
                         return
                     }
@@ -2120,7 +2635,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
         return SpriteResolution(
             sprites = resolved.sortedBy { it.layerIndex },
-            statusMessage = warnings.take(MAX_IMAGE_WARNING_COUNT).takeIf { it.isNotEmpty() }
+            statusMessage = warnings.takeIf { it.isNotEmpty() }
                 ?.joinToString(separator = "\n")
         )
     }
