@@ -116,7 +116,7 @@ class SystemNnnCommandDecoderImplTest {
         try {
             val script = testScript(
                 records = listOf(
-                    record(6, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SETEFFECT, 4u, 0u, 54u, 20u)
+                    record(7, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SETEFFECT, 4u, 0u, 54u, 20u)
                 ),
                 textCount = 0
             )
@@ -124,7 +124,7 @@ class SystemNnnCommandDecoderImplTest {
 
             assertEquals(
                 SystemNnnDecodedCommand.SetImageLayerEffect(
-                    nextCommandOffset = RECORD_START + 24L,
+                    nextCommandOffset = RECORD_START + 28L,
                     layerIndex = 0,
                     effectId = 54,
                     parameters = listOf(20)
