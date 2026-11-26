@@ -116,7 +116,7 @@ class SystemNnnCommandDecoderImplTest {
         try {
             val script = testScript(
                 records = listOf(
-                    record(7, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SETEFFECT, 4u, 0u, 54u, 20u)
+                    record(7, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SETEFFECT, 3u, 0u, 54u, 20u)
                 ),
                 textCount = 0
             )

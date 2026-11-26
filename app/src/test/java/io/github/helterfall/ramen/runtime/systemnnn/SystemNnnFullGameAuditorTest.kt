@@ -26,7 +26,7 @@ class SystemNnnFullGameAuditorTest {
             ).audit(root)
 
             val scope = report["scope"] as Map<*, *>
-            assertEquals(1, scope["allValidSptModules"])
+            assertEquals("Full audit report: " + report, 1, scope["allValidSptModules"])
             assertEquals(1, scope["totalPhysicalRecords"])
             assertEquals(0, scope["failedModules"])
 
