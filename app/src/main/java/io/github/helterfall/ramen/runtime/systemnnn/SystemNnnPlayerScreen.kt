@@ -412,10 +412,14 @@ fun SystemNnnPlayerScreen(
 
     LaunchedEffect(state.overrapTransitionId, state.overrapFromBitmap, state.overrapToBitmap) {
         val transitionId = state.overrapTransitionId
+        // Zero is the sentinel for "no active OVERRAP". The initial UI state
+        // intentionally has no snapshot bitmaps, so never run the transition
+        // body or checkNotNull() until a real transition ID has been assigned.
+        if (transitionId == 0L) return@LaunchedEffect
+
         val from = state.overrapFromBitmap
         val to = state.overrapToBitmap
         val skipReason = when {
-            transitionId == 0L -> null
             from == null -> "OVERRAP source bitmap is missing"
             to == null -> "OVERRAP destination bitmap is missing"
             from.isRecycled -> "OVERRAP source bitmap was recycled"
