@@ -2759,16 +2759,26 @@ class SystemNnnPlayerViewModel : ViewModel() {
         musicRequestId += 1L
         val player = audioPlayer
         audioPlayer = null
-        runCatching { player?.close() }
-        channelAudioPlayers.values.forEach { channelPlayer -> runCatching { channelPlayer.close() } }
+        runCatching { player?.close() }.onFailure { failure ->
+            diagnosticLog?.recordException("audio_player_close_failure", failure)
+        }
+        channelAudioPlayers.values.forEach { channelPlayer ->
+            runCatching { channelPlayer.close() }.onFailure { failure ->
+                diagnosticLog?.recordException("channel_audio_player_close_failure", failure)
+            }
+        }
         channelAudioPlayers.clear()
         channelAudioRequestIds.clear()
 
         val audio = audioRepository
         audioRepository = null
-        runCatching { audio?.close() }
+        runCatching { audio?.close() }.onFailure { failure ->
+            diagnosticLog?.recordException("audio_repository_close_failure", failure)
+        }
 
-        runCatching { assets?.close() }
+        runCatching { assets?.close() }.onFailure { failure ->
+            diagnosticLog?.recordException("asset_resolver_close_failure", failure)
+        }
         assets = null
     }
 

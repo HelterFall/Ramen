@@ -311,12 +311,46 @@ fun SystemNnnPlayerScreen(
     }
 
     LaunchedEffect(state.overrapTransitionId, state.overrapFromBitmap, state.overrapToBitmap) {
-        val from = state.overrapFromBitmap ?: return@LaunchedEffect
-        val to = state.overrapToBitmap ?: return@LaunchedEffect
-        if (from.isRecycled || to.isRecycled) return@LaunchedEffect
         val transitionId = state.overrapTransitionId
+        val from = state.overrapFromBitmap
+        val to = state.overrapToBitmap
+        val skipReason = when {
+            transitionId == 0L -> null
+            from == null -> "OVERRAP source bitmap is missing"
+            to == null -> "OVERRAP destination bitmap is missing"
+            from.isRecycled -> "OVERRAP source bitmap was recycled"
+            to.isRecycled -> "OVERRAP destination bitmap was recycled"
+            from.width != to.width || from.height != to.height ->
+                "OVERRAP bitmap dimensions differ: ${from.width}x${from.height} vs ${to.width}x${to.height}"
+            else -> null
+        }
+        if (skipReason != null) {
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "overrap_transition_fallback",
+                mapOf(
+                    "transitionId" to transitionId,
+                    "transitionType" to state.overrapTransitionType,
+                    "fromSize" to from?.let { "${it.width}x${it.height}" },
+                    "toSize" to to?.let { "${it.width}x${it.height}" },
+                    "fromRecycled" to from?.isRecycled,
+                    "toRecycled" to to?.isRecycled,
+                    "reason" to skipReason
+                ),
+                summary = skipReason
+            )
+            return@LaunchedEffect
+        }
+        val validFrom = checkNotNull(from)
+        val validTo = checkNotNull(to)
         val duration = state.overrapTransitionDurationFrames.coerceIn(1, 9_999)
         for (frame in 0..duration) {
+            if (validFrom.isRecycled || validTo.isRecycled) {
+                SystemNnnDiagnosticLog.active?.recordTrace(
+                    "overrap_transition_interrupted",
+                    mapOf("transitionId" to transitionId, "frame" to frame, "reason" to "Bitmap recycled during transition")
+                )
+                return@LaunchedEffect
+            }
             overrapProgress = frame.toFloat() / duration.toFloat()
             if (frame < duration) delay(16L)
         }
