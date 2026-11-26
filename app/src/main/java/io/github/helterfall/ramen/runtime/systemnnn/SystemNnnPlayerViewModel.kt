@@ -25,6 +25,16 @@ data class SystemNnnNativeRect(
     val height: Int
 )
 
+data class SystemNnnImageResourceMetadata(
+    val resourceName: String,
+    val widthPixels: Int,
+    val heightPixels: Int,
+    val packType: Int?,
+    val format: String?,
+    val hasAlphaMask: Boolean,
+    val blockOffset: Long? = null
+)
+
 data class SystemNnnSpriteBitmap(
     val resourceId: String,
     val bitmap: Bitmap,
@@ -40,7 +50,8 @@ data class SystemNnnSpriteBitmap(
     val nativeRectFrom: SystemNnnNativeRect? = null,
     val nativeEffectId: Int? = null,
     val nativeEffectParameters: List<Int> = emptyList(),
-    val nativeEffectCommandOffset: Long? = null
+    val nativeEffectCommandOffset: Long? = null,
+    val sourceMetadata: SystemNnnImageResourceMetadata? = null
 )
 
 data class SystemNnnChoiceOption(
@@ -111,6 +122,17 @@ fun interface SystemNnnSceneAssetResolver : Closeable {
     /** Resolves a named image in one explicit native DWQ namespace/slot. */
     @Throws(IOException::class)
     fun loadBitmapFromNativeBank(namespace: String, slot: Int, resourceId: String): Bitmap? = null
+
+    /** Metadata for the same resource lookup, without decoding or allocating its bitmap. */
+    @Throws(IOException::class)
+    fun imageMetadata(resourceId: String): SystemNnnImageResourceMetadata? = null
+
+    @Throws(IOException::class)
+    fun imageMetadata(
+        namespace: String,
+        slot: Int,
+        resourceId: String
+    ): SystemNnnImageResourceMetadata? = imageMetadata(resourceId)
 
     /** Resolves a row in one explicit native DWQ namespace/slot. */
     @Throws(IOException::class)

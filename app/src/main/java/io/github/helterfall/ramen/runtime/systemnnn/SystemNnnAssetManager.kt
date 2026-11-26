@@ -183,6 +183,45 @@ class SystemNnnAssetManager private constructor(
         }
     }
 
+    override fun imageMetadata(resourceId: String): SystemNnnImageResourceMetadata? {
+        checkOpen()
+        val matchingBanks = imageBanks.filter { it.repository.hasResourceName(resourceId) }
+        if (matchingBanks.size > 1) {
+            throw IOException(
+                "Image metadata name '" + resourceId +
+                    "' exists in multiple banks; use a bank-qualified lookup."
+            )
+        }
+        return when {
+            matchingBanks.size == 1 -> matchingBanks.single().repository.imageMetadata(resourceId)
+            imageBanks.size == 1 -> imageBanks.single().repository.imageMetadata(resourceId)
+            else -> null
+        }
+    }
+
+    override fun imageMetadata(
+        namespace: String,
+        slot: Int,
+        resourceId: String
+    ): SystemNnnImageResourceMetadata? {
+        checkOpen()
+        if (namespace.isBlank() || slot < 0) {
+            throw IOException("A native image namespace and non-negative slot are required.")
+        }
+        val matches = imageBanks.filter {
+            it.info.nativeNamespace.equals(namespace.trim(), ignoreCase = true) &&
+                it.info.bankSlot == slot
+        }
+        return when (matches.size) {
+            0 -> null
+            1 -> matches.single().repository.imageMetadata(resourceId)
+            else -> throw IOException(
+                "Native image bank " + namespace + slot +
+                    " is ambiguous while reading image metadata."
+            )
+        }
+    }
+
     /** Resolves a zero-based resource row in an explicitly selected native bank. */
     @Throws(IOException::class)
     override fun loadBitmapByNativeBankIndex(namespace: String, slot: Int, index: Long): Bitmap? {

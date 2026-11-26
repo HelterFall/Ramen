@@ -134,6 +134,21 @@ class SystemNnnGpkBitmapRepository private constructor(
         }
     }
 
+    /** Returns validated DWQ metadata for the resource token without decoding pixels. */
+    fun imageMetadata(resourceId: String): SystemNnnImageResourceMetadata? {
+        if (wgqFiles.isNotEmpty()) return null
+        val entry = findEntry(resourceId) ?: return null
+        return SystemNnnImageResourceMetadata(
+            resourceName = entry.name,
+            widthPixels = entry.widthPixels,
+            heightPixels = entry.heightPixels,
+            packType = entry.packType.takeIf { it >= 0 },
+            format = entry.format.name,
+            hasAlphaMask = entry.hasAlpha,
+            blockOffset = entry.blockOffset
+        )
+    }
+
     private fun decode(entry: GpkImageResource): Bitmap {
         if (!entry.isValid) {
             throw IOException(
