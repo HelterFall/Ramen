@@ -956,9 +956,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         cycleFrame,
         layerAlpha,
         movedRect,
-        stretchAlpha,
-        characterJitter,
-        pathOffset
+        stretchAlpha
     ) {
         if (effectId != null) {
             SystemNnnDiagnosticLog.active?.recordTrace(
