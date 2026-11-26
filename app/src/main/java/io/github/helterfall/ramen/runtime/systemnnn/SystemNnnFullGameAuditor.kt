@@ -495,6 +495,17 @@ internal class SystemNnnFullGameAuditor(
                         command = command,
                         assetManager = assetManager
                     )
+                    if (command is SystemNnnDecodedCommand.NativeSystemFunction &&
+                        command.functionId != PREPARE_OVERRAP
+                    ) {
+                        val gap = systemFunctionName(command.functionId) +
+                            " (0x" + command.functionId.toString(16) +
+                            ") is decoded but currently has no state-changing handler in the player."
+                        stats.runtimeGaps += 1
+                        moduleRuntimeGaps += 1
+                        globalRuntimeCoverage[gap] = (globalRuntimeCoverage[gap] ?: 0) + 1
+                        addIssue("decoded_but_not_applied", gap, relative, record.offset)
+                    }
                 }
 
                 if (record.recordKind == io.github.helterfall.ramen.parser.SystemNnnRecordKind.CONTROL &&
@@ -826,13 +837,6 @@ internal class SystemNnnFullGameAuditor(
                 }
             }
             is SystemNnnDecodedCommand.NativeSystemFunction -> {
-                val functionName = systemFunctionName(command.functionId)
-                val runtimeGap = if (command.functionId == PREPARE_OVERRAP) null
-                    else "$functionName (0x" + command.functionId.toString(16) +
-                        ") is decoded but currently has no state-changing handler in the player."
-                if (runtimeGap != null) {
-                    addIssue("decoded_but_not_applied", runtimeGap, location, record.offset)
-                }
                 if (command.functionId == SET_CG && command.parameters.size >= 2) {
                     val cgNumber = command.parameters[1]
                     val manager = assetManager
