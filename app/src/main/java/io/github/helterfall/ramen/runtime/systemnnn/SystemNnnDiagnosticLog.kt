@@ -14,6 +14,8 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 /**
  * Bounded on-device diagnostic recorder. The JSONL trace is deliberately
@@ -25,6 +27,9 @@ class SystemNnnDiagnosticLog(
     private val decoderLogFile: File? = null
 ) {
     private val lock = Any()
+    private val writer: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
+        Thread(runnable, "RamenSceneTraceIO").apply { isDaemon = true }
+    }
     private val logFile = File(directory, LOG_FILE_NAME)
     private val previousLogFile = File(directory, PREVIOUS_LOG_FILE_NAME)
     private val traceFile = File(directory, TRACE_FILE_NAME)
@@ -43,21 +48,16 @@ class SystemNnnDiagnosticLog(
         val safeEvent = sanitize(event).take(MAX_EVENT_CHARS)
         val safeDetails = sanitize(details).take(MAX_DETAILS_CHARS)
         val line = "${timestamp()} [$safeEvent] $safeDetails"
-        synchronized(lock) {
-            try {
-                ensureDirectory()
-                appendBoundedLog(line)
-                appendTraceLocked(
-                    mapOf(
-                        "event" to "log",
-                        "sourceEvent" to safeEvent,
-                        "details" to safeDetails
-                    )
+        rememberEntry(line)
+        enqueueWrite("record") {
+            appendBoundedLog(line)
+            appendTraceLocked(
+                mapOf(
+                    "event" to "log",
+                    "sourceEvent" to safeEvent,
+                    "details" to safeDetails
                 )
-                rememberEntry(line)
-            } catch (failure: Exception) {
-                reportRecorderFailure("record", failure)
-            }
+            )
         }
     }
 
@@ -73,31 +73,22 @@ class SystemNnnDiagnosticLog(
         val safeEvent = sanitize(event).take(MAX_EVENT_CHARS)
         val safeSummary = sanitize(summary).take(MAX_DETAILS_CHARS)
         val line = "${timestamp()} [TRACE:$safeEvent] $safeSummary"
-        synchronized(lock) {
-            try {
-                ensureDirectory()
-                appendTraceLocked(
-                    linkedMapOf(
-                        "event" to safeEvent,
-                        "data" to data
-                    )
+        rememberEntry(line)
+        enqueueWrite("recordTrace") {
+            appendTraceLocked(
+                linkedMapOf(
+                    "event" to safeEvent,
+                    "data" to data
                 )
-                appendBoundedLog(line)
-                rememberEntry(line)
-            } catch (failure: Exception) {
-                reportRecorderFailure("recordTrace", failure)
-            }
+            )
+            appendBoundedLog(line)
         }
     }
 
     fun updateRuntimeSnapshot(snapshot: String) {
-        synchronized(lock) {
-            try {
-                ensureDirectory()
-                snapshotFile.writeText(sanitize(snapshot).take(MAX_SNAPSHOT_CHARS), Charsets.UTF_8)
-            } catch (failure: Exception) {
-                reportRecorderFailure("updateRuntimeSnapshot", failure)
-            }
+        val safeSnapshot = sanitize(snapshot).take(MAX_SNAPSHOT_CHARS)
+        enqueueWrite("updateRuntimeSnapshot") {
+            snapshotFile.writeText(safeSnapshot, Charsets.UTF_8)
         }
     }
 
@@ -109,26 +100,23 @@ class SystemNnnDiagnosticLog(
         val trace = StringWriter().also { writer ->
             failure.printStackTrace(PrintWriter(writer))
         }.toString()
-        synchronized(lock) {
-            try {
-                ensureDirectory()
-                if (crashFile.exists() && crashFile.length() > MAX_CRASH_BYTES) {
-                    crashFile.writeText("", Charsets.UTF_8)
-                }
-                crashFile.appendText(
-                    timestamp() + " [" + sanitize(event) + "]\n" +
-                        sanitize(trace).take(MAX_CRASH_TRACE_CHARS) + "\n",
-                    Charsets.UTF_8
-                )
-            } catch (recorderFailure: Exception) {
-                reportRecorderFailure("recordException", recorderFailure)
+        val safeEvent = sanitize(event)
+        val safeTrace = sanitize(trace).take(MAX_CRASH_TRACE_CHARS)
+        enqueueWrite("recordException") {
+            if (crashFile.exists() && crashFile.length() > MAX_CRASH_BYTES) {
+                crashFile.writeText("", Charsets.UTF_8)
             }
+            crashFile.appendText(
+                timestamp() + " [" + safeEvent + "]\n" + safeTrace + "\n",
+                Charsets.UTF_8
+            )
         }
     }
 
     /** Writes the complete retained JSONL trace to a user-selected SAF document. */
     @Throws(IOException::class)
     fun writeTraceTo(destination: OutputStream) {
+        flushPendingWrites()
         synchronized(lock) {
             if (previousTraceFile.isFile) {
                 previousTraceFile.inputStream().buffered().use { it.copyTo(destination) }
@@ -157,6 +145,7 @@ class SystemNnnDiagnosticLog(
 
     @Throws(IOException::class)
     fun createArchive(destination: File): File {
+        flushPendingWrites()
         synchronized(lock) {
             destination.parentFile?.let { parent ->
                 if (!parent.exists() && !parent.mkdirs()) {
@@ -183,6 +172,31 @@ class SystemNnnDiagnosticLog(
             }
         }
         return destination
+    }
+
+    private fun enqueueWrite(operation: String, action: () -> Unit) {
+        try {
+            writer.execute {
+                synchronized(lock) {
+                    try {
+                        ensureDirectory()
+                        action()
+                    } catch (failure: Exception) {
+                        reportRecorderFailure(operation, failure)
+                    }
+                }
+            }
+        } catch (failure: Exception) {
+            reportRecorderFailure(operation + "_queue", failure)
+        }
+    }
+
+    private fun flushPendingWrites() {
+        try {
+            writer.submit {}.get()
+        } catch (failure: Exception) {
+            throw IOException("Could not flush pending scene trace writes.", failure)
+        }
     }
 
     private fun appendTraceLocked(data: Map<String, Any?>) {
