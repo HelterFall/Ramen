@@ -26,7 +26,8 @@ class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int,
     private val streamReader: SystemNnnCommandStreamReader = SystemNnnCommandStreamReader(),
     private val variables: MutableMap<Int, Int> = HashMap(),
-    private val debugLogFile: File? = null
+    private val debugLogFile: File? = null,
+    private val diagnosticsEnabled: Boolean = true
 ) : SystemNnnCommandDecoder {
 
     private var cachedScript: SystemNnnScript? = null
@@ -543,18 +544,20 @@ class SystemNnnCommandDecoderImpl(
         // This record was successfully decoded. It must never be routed
         // through appendDebugLog(), which deliberately classifies records as
         // unsupported and writes them to ramen_debug.log.
-        SystemNnnDiagnosticLog.active?.recordTrace(
-            "decoded_system_function",
-            mapOf(
-                "commandOffset" to record.offset,
-                "functionId" to record.codeId,
-                "functionName" to "SETEFFECT",
-                "layer" to layer,
-                "effectId" to effect,
-                "parameters" to parameters
-            ),
-            summary = "Decoded SETEFFECT layer=$layer effect=$effect"
-        )
+        if (diagnosticsEnabled) {
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "decoded_system_function",
+                mapOf(
+                    "commandOffset" to record.offset,
+                    "functionId" to record.codeId,
+                    "functionName" to "SETEFFECT",
+                    "layer" to layer,
+                    "effectId" to effect,
+                    "parameters" to parameters
+                ),
+                summary = "Decoded SETEFFECT layer=$layer effect=$effect"
+            )
+        }
         return SystemNnnDecodedCommand.SetImageLayerEffect(
             nextCommandOffset = record.endOffsetExclusive,
             layerIndex = layer.toInt(),
@@ -1215,6 +1218,7 @@ class SystemNnnCommandDecoderImpl(
      * a visible runtime failure.
      */
     private fun appendDebugLog(record: SystemNnnCommandRecord, reason: String) {
+        if (!diagnosticsEnabled) return
         val safeReason = reason.replace('\n', ' ').replace('\r', ' ')
         SystemNnnDiagnosticLog.active?.recordTrace(
             "unsupported_command",
