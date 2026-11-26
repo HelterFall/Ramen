@@ -1204,16 +1204,35 @@ class SystemNnnCommandDecoderImpl(
             "code=0x${record.code.toString(16)} " +
             "kind=${record.recordKind?.name ?: "UNKNOWN"} reason=$safeReason\n"
 
+        SystemNnnDiagnosticLog.active?.recordTrace(
+            "unsupported_command",
+            mapOf(
+                "commandOffset" to record.offset,
+                "recordIdentifier" to record.identifier,
+                "rawCode" to record.code,
+                "recordKind" to record.recordKind?.name,
+                "reason" to safeReason
+            ),
+            summary = "unsupported SPT record at 0x" + record.offset.toString(16) + ": " + safeReason
+        )
         runCatching {
             synchronized(DEBUG_LOG_LOCK) {
                 destination.parentFile?.let { parent ->
-                    if (!parent.exists()) parent.mkdirs()
+                    if (!parent.exists() && !parent.mkdirs()) {
+                        throw IOException("Could not create decoder debug log directory.")
+                    }
                 }
                 if (destination.exists() && destination.length() >= MAX_DEBUG_LOG_BYTES) {
-                    destination.writeText("ramen_debug.log rotated after reaching the size limit.\n", Charsets.UTF_8)
+                    destination.writeText("ramen_debug.log rotated after reaching the size limit.\\n", Charsets.UTF_8)
                 }
                 destination.appendText(line, Charsets.UTF_8)
             }
+        }.onFailure { failure ->
+            SystemNnnDiagnosticLog.active?.recordException(
+                "decoder_debug_log_failure",
+                failure,
+                "offset=0x" + record.offset.toString(16)
+            )
         }
     }
 

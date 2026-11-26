@@ -119,6 +119,10 @@ fun interface SystemNnnSceneAssetResolver : Closeable {
     @Throws(IOException::class)
     fun loadBitmapByIndex(index: Long): Bitmap? = null
 
+    @Throws(IOException::class)
+    fun imageMetadataByIndex(index: Long): SystemNnnImageResourceMetadata? = null
+
+
     /** Resolves a named image in one explicit native DWQ namespace/slot. */
     @Throws(IOException::class)
     fun loadBitmapFromNativeBank(namespace: String, slot: Int, resourceId: String): Bitmap? = null
@@ -133,6 +137,13 @@ fun interface SystemNnnSceneAssetResolver : Closeable {
         slot: Int,
         resourceId: String
     ): SystemNnnImageResourceMetadata? = imageMetadata(resourceId)
+
+    @Throws(IOException::class)
+    fun imageMetadataByNativeBankIndex(
+        namespace: String,
+        slot: Int,
+        index: Long
+    ): SystemNnnImageResourceMetadata? = imageMetadataByIndex(index)
 
     /** Resolves a row in one explicit native DWQ namespace/slot. */
     @Throws(IOException::class)
@@ -271,7 +282,12 @@ sealed interface SystemNnnDecodedCommand {
     ) : SystemNnnDecodedCommand
 
     data class Skip(
-        val nextCommandOffset: Long
+        val nextCommandOffset: Long,
+        val reason: String? = null,
+        val unsupported: Boolean = false,
+        val rawRecordIdentifier: Int? = null,
+        val rawCode: Int? = null,
+        val recordKind: String? = null
     ) : SystemNnnDecodedCommand
 
     /** A validated non-sequential local control transfer within the current SPT. */

@@ -110,6 +110,11 @@ internal object SystemNnnVisualEffectMath {
     fun observedParameterCount(effectId: Int): Int? =
         observedGameEffectSignatures.firstOrNull { it.effectId == effectId }?.parameterCount
 
+    fun observedEffectName(effectId: Int): String =
+        observedGameEffectSignatures.firstOrNull { it.effectId == effectId }?.nativeName
+            ?: "UNKNOWN"
+
+
     private val shakePattern = intArrayOf(-16, -12, 16, 12)
 
     fun nativeScreenColor(parameters: List<Int>): SystemNnnVisualColor {
