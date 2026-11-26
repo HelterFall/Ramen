@@ -33,14 +33,20 @@ class SystemNnnCommandDecoderImplTest {
             val unknownIdentifierEnd = RECORD_START + 12L
             val unsupportedCommandEnd = unknownIdentifierEnd + 12L
 
-            assertEquals(
-                SystemNnnDecodedCommand.Skip(unknownIdentifierEnd),
-                decoder.decodeNext(script, RECORD_START)
-            )
-            assertEquals(
-                SystemNnnDecodedCommand.Skip(unsupportedCommandEnd),
-                decoder.decodeNext(script, unknownIdentifierEnd)
-            )
+            val unknownIdentifier = decoder.decodeNext(script, RECORD_START)
+                as SystemNnnDecodedCommand.Skip
+            assertEquals(unknownIdentifierEnd, unknownIdentifier.nextCommandOffset)
+            assertTrue(unknownIdentifier.unsupported)
+            assertTrue(unknownIdentifier.reason.orEmpty().isNotBlank())
+            assertEquals(0x66660008L, unknownIdentifier.rawRecordIdentifier)
+            assertEquals(0x55560005L, unknownIdentifier.rawCode)
+
+            val unsupportedCommand = decoder.decodeNext(script, unknownIdentifierEnd)
+                as SystemNnnDecodedCommand.Skip
+            assertEquals(unsupportedCommandEnd, unsupportedCommand.nextCommandOffset)
+            assertTrue(unsupportedCommand.unsupported)
+            assertTrue(unsupportedCommand.reason.orEmpty().isNotBlank())
+            assertEquals(0x22220099L, unsupportedCommand.rawCode)
             assertEquals(
                 SystemNnnDecodedCommand.Dialogue(
                     nextCommandOffset = unsupportedCommandEnd + 20L,
@@ -149,10 +155,10 @@ class SystemNnnCommandDecoderImplTest {
             textCount = 0
         )
 
-        assertEquals(
-            SystemNnnDecodedCommand.Skip(RECORD_START + 52L),
-            decoder().decodeNext(script, RECORD_START)
-        )
+        val skipped = decoder().decodeNext(script, RECORD_START) as SystemNnnDecodedCommand.Skip
+        assertEquals(RECORD_START + 52L, skipped.nextCommandOffset)
+        assertTrue(skipped.unsupported)
+        assertTrue(skipped.reason.orEmpty().isNotBlank())
     }
 
     @Test
@@ -271,8 +277,11 @@ class SystemNnnCommandDecoderImplTest {
         val second = decoder.decodeNext(script, RECORD_START + 16L)
         val third = decoder.decodeNext(script, RECORD_START + 36L)
 
-        assertEquals(SystemNnnDecodedCommand.Skip(RECORD_START + 16L), first)
-        assertEquals(SystemNnnDecodedCommand.Skip(RECORD_START + 36L), second)
+        assertEquals(RECORD_START + 16L, (first as SystemNnnDecodedCommand.Skip).nextCommandOffset)
+        val unsupportedFunction = second as SystemNnnDecodedCommand.Skip
+        assertEquals(RECORD_START + 36L, unsupportedFunction.nextCommandOffset)
+        assertTrue(unsupportedFunction.unsupported)
+        assertTrue(unsupportedFunction.reason.orEmpty().isNotBlank())
         assertEquals(script.textPool[0].offset, (third as SystemNnnDecodedCommand.Dialogue).textEntryOffset)
     }
 
@@ -951,10 +960,11 @@ class SystemNnnCommandDecoderImplTest {
             val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8, debugLogFile = logFile)
             unsupported.forEachIndexed { index, code ->
                 val offset = RECORD_START + index * 12L
-                assertEquals(
-                    SystemNnnDecodedCommand.Skip(offset + 12L),
-                    decoder.decodeNext(script, offset)
-                )
+                val skipped = decoder.decodeNext(script, offset) as SystemNnnDecodedCommand.Skip
+                assertEquals(offset + 12L, skipped.nextCommandOffset)
+                assertTrue(skipped.unsupported)
+                assertTrue(skipped.reason.orEmpty().isNotBlank())
+                assertEquals(code.toLong(), skipped.rawCode)
             }
             val log = logFile.readText()
             unsupported.forEach { code ->

@@ -93,6 +93,7 @@ fun SystemNnnPlayerScreen(
     var autoMode by remember { mutableStateOf(false) }
     var skipMode by remember { mutableStateOf(false) }
     var debugOverlayVisible by remember { mutableStateOf(true) }
+    var diagnosticTail by remember { mutableStateOf(emptyList<String>()) }
     var canvasSizePx by remember { mutableStateOf(IntSize.Zero) }
     var viewportSizePx by remember { mutableStateOf(IntSize.Zero) }
     val viewportCaptureLayer = rememberGraphicsLayer()
@@ -103,6 +104,16 @@ fun SystemNnnPlayerScreen(
     )
     var screenEffectFrame by remember(screenEffectKey) { mutableIntStateOf(0) }
     var overrapProgress by remember(state.overrapTransitionId) { mutableFloatStateOf(0f) }
+
+    // The recorder writes on its own thread. Poll the immutable tail slowly so
+    // per-animation-frame trace events cannot trigger a recomposition storm.
+    LaunchedEffect(debugOverlayVisible) {
+        if (!debugOverlayVisible) return@LaunchedEffect
+        while (true) {
+            diagnosticTail = SystemNnnDiagnosticLog.active?.recentEntries.orEmpty()
+            delay(DEBUG_OVERLAY_REFRESH_MILLIS)
+        }
+    }
 
     LaunchedEffect(state.errorMessage, state.audioWarning, state.statusMessage) {
         state.errorMessage?.takeIf { it.isNotBlank() }?.let { message ->
@@ -714,7 +725,6 @@ fun SystemNnnPlayerScreen(
         )
 
         if (debugOverlayVisible) {
-            val diagnosticTail = SystemNnnDiagnosticLog.active?.recentEntries.orEmpty()
             Surface(
                 color = Color(0xEE101216),
                 contentColor = Color(0xFFE8EDF4),
@@ -1851,6 +1861,7 @@ private fun ChoiceOverlay(
     }
 }
 
+private const val DEBUG_OVERLAY_REFRESH_MILLIS = 500L
 private const val TYPEWRITER_DELAY_MILLIS = 24L
 private const val AUTO_ADVANCE_DELAY_MILLIS = 1_350L
 private const val SKIP_ADVANCE_DELAY_MILLIS = 160L

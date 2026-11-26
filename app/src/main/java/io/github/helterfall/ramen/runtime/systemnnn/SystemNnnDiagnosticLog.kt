@@ -14,8 +14,11 @@ import java.util.Locale
 import java.util.TimeZone
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
+import java.util.concurrent.ArrayBlockingQueue
+import java.util.concurrent.RejectedExecutionException
+import java.util.concurrent.ThreadPoolExecutor
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 /**
  * Bounded on-device diagnostic recorder. The JSONL trace is deliberately
@@ -27,9 +30,17 @@ class SystemNnnDiagnosticLog(
     private val decoderLogFile: File? = null
 ) {
     private val lock = Any()
-    private val writer: ExecutorService = Executors.newSingleThreadExecutor { runnable ->
-        Thread(runnable, "RamenSceneTraceIO").apply { isDaemon = true }
-    }
+    private val recentEntriesLock = Any()
+    private val rejectedWriteCount = AtomicLong(0L)
+    private val writer = ThreadPoolExecutor(
+        1,
+        1,
+        0L,
+        TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue<Runnable>(MAX_PENDING_WRITES),
+        { runnable -> Thread(runnable, "RamenSceneTraceIO").apply { isDaemon = true } },
+        ThreadPoolExecutor.AbortPolicy()
+    )
     private val logFile = File(directory, LOG_FILE_NAME)
     private val previousLogFile = File(directory, PREVIOUS_LOG_FILE_NAME)
     private val traceFile = File(directory, TRACE_FILE_NAME)
@@ -38,11 +49,12 @@ class SystemNnnDiagnosticLog(
     private val crashFile = File(directory, CRASH_FILE_NAME)
     private var traceSequence = 0L
 
-    private var recentEntriesState by mutableStateOf<List<String>>(emptyList())
+    @Volatile
+    private var recentEntriesSnapshot: List<String> = emptyList()
 
-    /** Snapshot-state-backed tail consumed by the in-game debug overlay. */
+    /** Immutable, thread-safe tail. The UI polls it at a low rate; writers never trigger recomposition. */
     val recentEntries: List<String>
-        get() = recentEntriesState
+        get() = recentEntriesSnapshot
 
     fun record(event: String, details: String = "") {
         val safeEvent = sanitize(event).take(MAX_EVENT_CHARS)
@@ -189,6 +201,17 @@ class SystemNnnDiagnosticLog(
                     }
                 }
             }
+        } catch (failure: RejectedExecutionException) {
+            val count = rejectedWriteCount.incrementAndGet()
+            val warning = "${timestamp()} [TRACE_QUEUE_OVERFLOW] rejectedWriteCount=$count operation=$operation"
+            rememberEntry(warning)
+            reportRecorderFailure(
+                operation + "_queue_overflow",
+                IOException(
+                    "Diagnostic writer queue reached $MAX_PENDING_WRITES entries; rejected writes=$count.",
+                    failure
+                )
+            )
         } catch (failure: Exception) {
             reportRecorderFailure(operation + "_queue", failure)
         }
@@ -249,7 +272,9 @@ class SystemNnnDiagnosticLog(
     }
 
     private fun rememberEntry(line: String) {
-        recentEntriesState = (recentEntriesState + line).takeLast(MAX_RECENT_ENTRIES)
+        synchronized(recentEntriesLock) {
+            recentEntriesSnapshot = (recentEntriesSnapshot + line).takeLast(MAX_RECENT_ENTRIES)
+        }
     }
 
     private fun ensureDirectory() {
@@ -302,5 +327,6 @@ class SystemNnnDiagnosticLog(
         private const val MAX_CRASH_TRACE_CHARS = 64_000
         private const val MAX_TRACE_LINE_CHARS = 128_000
         private const val MAX_RECENT_ENTRIES = 28
+        private const val MAX_PENDING_WRITES = 1_024
     }
 }
