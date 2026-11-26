@@ -386,31 +386,42 @@ class AndroidGpkImageDecoder(
             maxDecodedPixels
         )
 
-        val bitmap = if (sourceBitmap.isMutable) {
-            sourceBitmap
-        } else {
-            sourceBitmap.copy(Bitmap.Config.ARGB_8888, true)
-                ?: throw IOException("Could not create a mutable bitmap for the DWQ alpha mask.")
+        val pixels = try {
+            IntArray(resource.widthPixels * resource.heightPixels).also { destination ->
+                sourceBitmap.getPixels(
+                    destination,
+                    0,
+                    resource.widthPixels,
+                    0,
+                    0,
+                    resource.widthPixels,
+                    resource.heightPixels
+                )
+                for (index in destination.indices) {
+                    destination[index] = compositeDwqAlphaMaskPixel(destination[index], alphaValues[index])
+                }
+            }
+        } catch (failure: Exception) {
+            throw IOException("Could not read JPEG pixels for the DWQ alpha mask.", failure)
+        }
+
+        // Decode JPEG RGB into a fresh ARGB_8888 bitmap. JPEG decoders commonly
+        // return an opaque bitmap; reusing/copying that bitmap can preserve opaque
+        // surface metadata on some Android implementations. Mark the destination
+        // as alpha-bearing and premultiplied before writing the masked pixels.
+        val alphaBitmap = try {
+            Bitmap.createBitmap(
+                resource.widthPixels,
+                resource.heightPixels,
+                Bitmap.Config.ARGB_8888
+            )
+        } catch (failure: RuntimeException) {
+            throw IOException("Could not allocate the ARGB_8888 DWQ alpha bitmap.", failure)
         }
         try {
-            val pixels = IntArray(resource.widthPixels * resource.heightPixels)
-            bitmap.getPixels(
-                pixels,
-                0,
-                resource.widthPixels,
-                0,
-                0,
-                resource.widthPixels,
-                resource.heightPixels
-            )
-            for (index in pixels.indices) {
-                pixels[index] = compositeDwqAlphaMaskPixel(pixels[index], alphaValues[index])
-            }
-            // JPEG decoding produces an opaque bitmap. The native DWQ path sets
-            // per-pixel alpha from the trailing packed mask, so Android must be
-            // told that this bitmap now contains meaningful alpha values.
-            bitmap.setHasAlpha(true)
-            bitmap.setPixels(
+            alphaBitmap.setHasAlpha(true)
+            alphaBitmap.setPremultiplied(true)
+            alphaBitmap.setPixels(
                 pixels,
                 0,
                 resource.widthPixels,
@@ -420,11 +431,12 @@ class AndroidGpkImageDecoder(
                 resource.heightPixels
             )
         } catch (failure: Exception) {
-            if (bitmap !== sourceBitmap && !bitmap.isRecycled) bitmap.recycle()
+            if (!alphaBitmap.isRecycled) alphaBitmap.recycle()
             throw IOException("Could not apply DWQ alpha values to the decoded bitmap.", failure)
+        } finally {
+            if (!sourceBitmap.isRecycled) sourceBitmap.recycle()
         }
-        if (bitmap !== sourceBitmap && !sourceBitmap.isRecycled) sourceBitmap.recycle()
-        return bitmap
+        return alphaBitmap
     }
 
     private fun decodeRawBmpPixels(

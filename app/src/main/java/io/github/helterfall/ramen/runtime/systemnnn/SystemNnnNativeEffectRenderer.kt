@@ -68,9 +68,47 @@ internal object SystemNnnNativeEffectRenderer {
             )
             71 -> hotaru(source, width, height, currentFrame, parameters)
             74 -> bura(source, width, height, currentFrame, duration, parameters)
+            100 -> haikeiYureScreenBuffer(source, width, height, currentFrame, parameters)
             73 -> source.copyOf() // GET is captured by the player at the draw boundary.
             else -> null
         }
+    }
+
+    /**
+     * Native HAIKEIYURE (100), screen mode. MoveScreen() mutates the shared
+     * framebuffer in place; pixels in the newly exposed strips are left intact.
+     */
+    fun haikeiYureScreenBuffer(
+        source: IntArray,
+        width: Int,
+        height: Int,
+        frame: Int,
+        parameters: List<Int>
+    ): IntArray {
+        if (!validFrame(source, width, height)) return source.copyOf()
+        val offset = SystemNnnVisualEffectMath.haikeiYureOffset(frame, parameters)
+        val dx = offset.x.roundToInt()
+        val dy = offset.y.roundToInt()
+        if ((dx == 0 && dy == 0) || dx <= -width || dx >= width ||
+            dy <= -height || dy >= height
+        ) return source.copyOf()
+
+        val result = source.copyOf()
+        val destinationLeft = max(0, dx)
+        val destinationTop = max(0, dy)
+        val destinationRight = min(width, width + dx)
+        val destinationBottom = min(height, height + dy)
+        val copyWidth = (destinationRight - destinationLeft).coerceAtLeast(0)
+        if (copyWidth == 0) return result
+
+        for (destinationY in destinationTop until destinationBottom) {
+            val sourceY = destinationY - dy
+            val sourceX = destinationLeft - dx
+            val sourceStart = sourceY * width + sourceX
+            val destinationStart = destinationY * width + destinationLeft
+            source.copyInto(result, destinationStart, sourceStart, sourceStart + copyWidth)
+        }
+        return result
     }
 
     /** Native OverrapBlt: channel-wise weighted sum using 8-bit fixed-point weights. */

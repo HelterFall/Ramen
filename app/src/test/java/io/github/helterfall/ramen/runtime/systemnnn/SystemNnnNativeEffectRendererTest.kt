@@ -10,6 +10,22 @@ import org.junit.Test
 class SystemNnnNativeEffectRendererTest {
 
     @Test
+    fun haikeiYureScreenModeMovesTheSharedBufferAndLeavesExposedPixelsUntouched() {
+        val source = intArrayOf(1, 2, 3, 4, 5, 6)
+        val result = SystemNnnNativeEffectRenderer.renderScreenBufferEffect(
+            effectId = 100,
+            frame = 0,
+            parameters = listOf(4, 1, 0, 0, 0, 1),
+            source = source,
+            width = 3,
+            height = 2
+        )
+
+        assertArrayEquals(intArrayOf(1, 1, 2, 4, 4, 5), result)
+        assertArrayEquals(intArrayOf(1, 2, 3, 4, 5, 6), source)
+    }
+
+    @Test
     fun overrapUsesNativeEightBitFixedPointWeights() {
         val start = intArrayOf(0xFF000000.toInt(), 0xFF102030.toInt())
         val end = intArrayOf(0xFFFFFFFF.toInt(), 0xFF304050.toInt())

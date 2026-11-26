@@ -110,7 +110,9 @@ fun SystemNnnPlayerScreen(
 
     LaunchedEffect(screenEffectKey) {
         val effectId = state.screenEffectId
-        if (effectId !in NATIVE_SCREEN_BUFFER_RENDER_EFFECTS) {
+        val needsCapturedScreen = effectId in NATIVE_SCREEN_BUFFER_RENDER_EFFECTS &&
+            (effectId != 100 || (state.screenEffectParameters.getOrNull(5) ?: 0) != 0)
+        if (!needsCapturedScreen) {
             screenEffectSourceBitmap = null
             return@LaunchedEffect
         }
@@ -208,7 +210,14 @@ fun SystemNnnPlayerScreen(
             )
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+            val fullFrameLayer = state.sprites.firstOrNull { sprite ->
+                val rect = sprite.nativeRect
+                rect != null && rect.x == 0 && rect.y == 0 &&
+                    rect.width == sprite.bitmap.width && rect.height == sprite.bitmap.height
+            }
             val sceneAspectRatio = state.backgroundBitmap?.let { bitmap ->
+                bitmap.width.toFloat() / bitmap.height.toFloat()
+            } ?: fullFrameLayer?.bitmap?.let { bitmap ->
                 bitmap.width.toFloat() / bitmap.height.toFloat()
             } ?: (4f / 3f)
             val availableAspectRatio = maxWidth.value / maxHeight.value
@@ -543,13 +552,18 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val hasRectMotion = fromRect != null && nativeRect != null && effectId != null
     val defaultDurationFrames = if (effectId == 62 || effectId == 119) 1 else 20
     val durationFrames = (parameters.firstOrNull() ?: defaultDurationFrames).coerceIn(1, 9_999)
+    val isHaikeiYure = effectId == 100 && (parameters.getOrNull(5) ?: 0) == 0
     val animationKey = listOf(sprite.resourceId, sprite.layerIndex, sprite.nativeEffectCommandOffset,
         fromRect, nativeRect, effectId, parameters)
     val progress = remember(animationKey) {
-        Animatable(if (hasRectMotion || effectId in setOf(9, 17, 39, 40, 52, 62, 64, 65, 99, 100, 119)) 0f else 1f)
+        Animatable(if (hasRectMotion || isHaikeiYure ||
+            effectId in setOf(9, 17, 39, 40, 52, 62, 64, 65, 99, 100, 119)
+        ) 0f else 1f)
     }
     LaunchedEffect(animationKey) {
-        if (hasRectMotion || effectId in setOf(9, 39, 40, 52, 62, 64, 65, 99, 119)) {
+        if (hasRectMotion || isHaikeiYure ||
+            effectId in setOf(9, 39, 40, 52, 62, 64, 65, 99, 119)
+        ) {
             progress.animateTo(1f, tween((durationFrames * 16).coerceIn(16, 60_000), easing = LinearEasing))
         }
     }
@@ -602,7 +616,6 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val isRain2 = effectId == 56
     val isRain4 = effectId == 102
     val isFlash = effectId == 17
-    val isHaikeiYure = effectId == 100 && (parameters.getOrNull(5) ?: 0) == 0
     val isCloud = effectId == 82 &&
         (parameters.getOrNull(0) ?: 9_999) == 0 &&
         (parameters.getOrNull(8) ?: 0) == 0
@@ -756,6 +769,12 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
 
     Box(modifier = spriteModifier.graphicsLayer {
         this.alpha = layerAlpha
+        // Keep per-pixel DWQ alpha masks isolated before source-over composition.
+        this.compositingStrategy = if (sprite.bitmap.hasAlpha() || layerAlpha < 1f) {
+            CompositingStrategy.Offscreen
+        } else {
+            CompositingStrategy.Auto
+        }
         if (isTurn) {
             // The native pixel renderer maps destination coordinates back into source space.
             rotationZ = -turnRotation
@@ -1109,7 +1128,7 @@ private fun visualEffectRandom(value: Int): Int {
     return mixed and Int.MAX_VALUE
 }
 
-private val NATIVE_SCREEN_BUFFER_RENDER_EFFECTS = setOf(2, 20, 22, 29, 31, 43, 50, 69, 71, 74)
+private val NATIVE_SCREEN_BUFFER_RENDER_EFFECTS = setOf(2, 20, 22, 29, 31, 43, 50, 69, 71, 74, 100)
 
 @Composable
 private fun SystemNnnScreenEffectOverlay(
@@ -1123,20 +1142,33 @@ private fun SystemNnnScreenEffectOverlay(
     modifier: Modifier = Modifier
 ) {
     val source = sourceBitmap ?: savedGetBufferBitmap
-    val renderedBitmap = remember(effectId, parameters, frame, source, savedGetBufferBitmap) {
+    val sourcePixels = remember(source) {
+        source?.takeIf { !it.isRecycled && it.width > 0 && it.height > 0 }?.let { bitmap ->
+            runCatching {
+                IntArray(bitmap.width * bitmap.height).also { pixels ->
+                    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                }
+            }.getOrNull()
+        }
+    }
+    val savedPixels = remember(savedGetBufferBitmap) {
+        savedGetBufferBitmap?.takeIf { !it.isRecycled && it.width > 0 && it.height > 0 }?.let { bitmap ->
+            runCatching {
+                IntArray(bitmap.width * bitmap.height).also { pixels ->
+                    bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+                }
+            }.getOrNull()
+        }
+    }
+    val renderedBitmap = remember(
+        effectId, parameters, frame, source, sourcePixels, savedGetBufferBitmap, savedPixels
+    ) {
         if (effectId !in NATIVE_SCREEN_BUFFER_RENDER_EFFECTS || source == null ||
-            source.isRecycled || source.width <= 0 || source.height <= 0
+            source.isRecycled || sourcePixels == null
         ) {
             null
         } else {
             runCatching {
-                val sourcePixels = IntArray(source.width * source.height)
-                source.getPixels(sourcePixels, 0, source.width, 0, 0, source.width, source.height)
-                val savedPixels = savedGetBufferBitmap?.takeIf { !it.isRecycled }?.let { bitmap ->
-                    IntArray(bitmap.width * bitmap.height).also { pixels ->
-                        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
-                    }
-                }
                 val pixels = SystemNnnNativeEffectRenderer.renderScreenBufferEffect(
                     effectId = effectId,
                     frame = frame,

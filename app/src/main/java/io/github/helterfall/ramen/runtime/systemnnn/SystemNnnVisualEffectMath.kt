@@ -371,7 +371,9 @@ internal object SystemNnnVisualEffectMath {
         when (effectId) {
             82 -> (parameters.getOrNull(0) ?: 9_999) == 0 &&
                 (parameters.getOrNull(8) ?: 0) == 0
-            100 -> parameters.size >= 6 && (parameters[5] == 0)
+            // Native SetParam supplies defaults for omitted operands; both layer-local
+            // (0) and screen-buffer (1) modes are supported by the renderer.
+            100 -> (parameters.getOrNull(5) ?: 0) in 0..1
             27 -> parameters.size >= 12
             29 -> parameters.size >= 9
             56 -> parameters.size >= 8

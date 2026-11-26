@@ -1331,11 +1331,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         // These native effects operate on the shared screen buffer,
                         // rather than on the bitmap assigned to one image layer.
                         if (SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)) {
+                            val screenWideHaikeiYure = command.effectId == 100 &&
+                                (command.parameters.getOrNull(5) ?: 0) == 1
                             if (command.effectId == 1 && command.layerIndex == SCREEN_EFFECT_LAYER_INDEX) {
                                 pendingScreenEffectId = null
                                 pendingScreenEffectParameters = emptyList()
                                 pendingScreenEffectCommandOffset = null
-                            } else if (command.effectId in SCREEN_BUFFER_EFFECT_IDS) {
+                            } else if (command.effectId in SCREEN_BUFFER_EFFECT_IDS || screenWideHaikeiYure) {
                                 pendingScreenEffectId = command.effectId
                                 pendingScreenEffectParameters = command.parameters
                                 pendingScreenEffectCommandOffset = command.nextCommandOffset
@@ -1362,15 +1364,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 }
                                 pendingSpriteLayersChanged = true
                             }
-                            when {
-                                command.effectId == 55 ->
-                                    appendImageStatusMessage(
-                                        "OLDFILM (55) is a deterministic screen-scratch approximation; native randomized scratch timing is not exact."
-                                    )
-                                command.effectId == 132 ->
-                                    appendImageStatusMessage(
-                                        "CHARABURE (132) uses repeatable jitter; its random sequence does not match the original runtime."
-                                    )
+                            if (command.effectId == 132) {
+                                appendImageStatusMessage(
+                                    "CHARABURE (132) uses repeatable jitter; its random sequence does not match the original runtime."
+                                )
                             }
                             if (!SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
                                     command.effectId, command.parameters
