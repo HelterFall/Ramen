@@ -19,7 +19,19 @@ class SystemNnnFullGameAuditorTest {
             File(sptDirectory, "project.xtx").writeText("sample\n", Charsets.US_ASCII)
 
             val privateDialogueMarker = "PRIVATE_DIALOGUE_MARKER_DO_NOT_EXPORT"
-            File(sptDirectory, "sample.spt").writeBytes(createMinimalScript(privateDialogueMarker))
+            val scriptFile = File(sptDirectory, "sample.spt")
+            scriptFile.writeBytes(createMinimalScript(privateDialogueMarker))
+
+            val manifestFile = File(sptDirectory, "project.xtx")
+            val resolvedModules = io.github.helterfall.ramen.parser.SystemNnnProjectCatalog
+                .load(manifestFile).resolveModules(manifestFile)
+            assertEquals(1, resolvedModules.size)
+
+            val loadedScript = io.github.helterfall.ramen.parser.SystemNnnScriptLoader().load(scriptFile)
+            val streamReader = io.github.helterfall.ramen.parser.SystemNnnCommandStreamReader()
+            val commandStream = streamReader.read(loadedScript)
+            assertEquals(1, commandStream.records.size)
+            assertTrue(streamReader.filmTableEntries(loadedScript, commandStream).isEmpty())
 
             val report = SystemNnnFullGameAuditor(
                 cacheDirectory = File(root, "audit-cache")
