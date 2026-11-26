@@ -1189,7 +1189,14 @@ class SystemNnnCommandDecoderImpl(
         reason: String
     ): SystemNnnDecodedCommand.Skip {
         appendDebugLog(record, reason)
-        return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+        return SystemNnnDecodedCommand.Skip(
+            nextCommandOffset = record.endOffsetExclusive,
+            reason = reason,
+            unsupported = true,
+            rawRecordIdentifier = record.identifier,
+            rawCode = record.code,
+            recordKind = record.recordKind?.name
+        )
     }
 
     /**
@@ -1197,13 +1204,7 @@ class SystemNnnCommandDecoderImpl(
      * a visible runtime failure.
      */
     private fun appendDebugLog(record: SystemNnnCommandRecord, reason: String) {
-        val destination = debugLogFile ?: return
         val safeReason = reason.replace('\n', ' ').replace('\r', ' ')
-        val line = "unsupported_record address=0x${record.offset.toString(16)} " +
-            "identifier=0x${record.identifier.toString(16)} " +
-            "code=0x${record.code.toString(16)} " +
-            "kind=${record.recordKind?.name ?: "UNKNOWN"} reason=$safeReason\n"
-
         SystemNnnDiagnosticLog.active?.recordTrace(
             "unsupported_command",
             mapOf(
@@ -1215,6 +1216,12 @@ class SystemNnnCommandDecoderImpl(
             ),
             summary = "unsupported SPT record at 0x" + record.offset.toString(16) + ": " + safeReason
         )
+        val destination = debugLogFile ?: return
+        val line = "unsupported_record address=0x${record.offset.toString(16)} " +
+            "identifier=0x${record.identifier.toString(16)} " +
+            "code=0x${record.code.toString(16)} " +
+            "kind=${record.recordKind?.name ?: "UNKNOWN"} reason=$safeReason\n"
+
         runCatching {
             synchronized(DEBUG_LOG_LOCK) {
                 destination.parentFile?.let { parent ->

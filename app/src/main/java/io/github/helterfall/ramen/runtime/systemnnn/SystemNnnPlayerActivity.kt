@@ -61,6 +61,14 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         }
     }
 
+    private val traceExportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/x-ndjson")
+    ) { uri ->
+        if (uri != null && ::diagnosticLog.isInitialized) {
+            exportSceneTrace(uri)
+        }
+    }
+
     private fun exportDiagnostics(destination: Uri) {
         try {
             val archive = diagnosticLog.createArchive(File(cacheDir, "ramen-system-nnn-diagnostics.zip"))
@@ -79,6 +87,26 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             android.widget.Toast.makeText(
                 this,
                 "Не удалось сохранить отчёт: " + (failure.message ?: "ошибка файла."),
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun exportSceneTrace(destination: Uri) {
+        try {
+            val output = contentResolver.openOutputStream(destination)
+                ?: throw IOException("Android did not provide an output stream for the trace.")
+            output.use { stream -> diagnosticLog.writeTraceTo(stream) }
+            android.widget.Toast.makeText(
+                this,
+                "Трасса сохранена как ramen_scene_trace.jsonl.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        } catch (failure: Exception) {
+            diagnosticLog.recordException("scene_trace_export_failure", failure)
+            android.widget.Toast.makeText(
+                this,
+                "Не удалось сохранить трассу: " + (failure.message ?: "ошибка файла."),
                 android.widget.Toast.LENGTH_LONG
             ).show()
         }
@@ -116,6 +144,9 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     onBitmapDisposed = playerViewModel::onBitmapDisposed,
                     onExportDiagnostics = {
                         diagnosticsExportLauncher.launch("ramen-system-nnn-diagnostics.zip")
+                    },
+                    onExportTrace = {
+                        traceExportLauncher.launch("ramen_scene_trace.jsonl")
                     },
                     onQuickAction = { action ->
                         val message = when (action) {

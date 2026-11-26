@@ -966,6 +966,16 @@ class SystemNnnPlayerViewModel : ViewModel() {
      */
     fun onScreenTap() {
         val current = uiState
+        diagnosticLog?.recordTrace(
+            "screen_tap",
+            mapOf(
+                "step" to traceStepCounter,
+                "commandOffset" to nextCommandOffset,
+                "frameId" to current.frameId,
+                "dialogue" to current.dialogueText,
+                "visibleCharacters" to current.visibleCharacterCount
+            )
+        )
         if (current.isLoading || current.isEnded || current.choices.isNotEmpty() ||
             current.pendingDrawFrameCount != null
         ) return
@@ -988,6 +998,15 @@ class SystemNnnPlayerViewModel : ViewModel() {
      */
     fun onDrawFrameCompleted() {
         val current = uiState
+        diagnosticLog?.recordTrace(
+            "draw_frame_presented",
+            mapOf(
+                "step" to current.sceneStepNumber,
+                "commandOffset" to current.lastCommandOffset,
+                "drawEventId" to current.drawEventId,
+                "pendingFrames" to current.pendingDrawFrameCount
+            )
+        )
         if (current.pendingDrawFrameCount == null || current.isLoading || current.isEnded) return
         uiState = current.copy(pendingDrawFrameCount = null)
         advanceToVisibleEvent()
@@ -1034,6 +1053,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }
         val purpose = current.screenCapturePurpose
         if (bitmap == null || bitmap.isRecycled) {
+            diagnosticLog?.recordTrace(
+                "screen_capture_error",
+                mapOf("requestId" to requestId, "purpose" to purpose?.name),
+                summary = "Compose screen capture returned no bitmap"
+            )
             uiState = current.copy(
                 isLoading = false,
                 screenCaptureRequestId = 0L,
