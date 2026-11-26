@@ -502,18 +502,50 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     }
 
     override fun onPause() {
-        if (::diagnosticLog.isInitialized) diagnosticLog.record("lifecycle", "activity_paused")
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.recordTrace(
+                "android_lifecycle_pause_enter",
+                mapOf("sdk" to Build.VERSION.SDK_INT)
+            )
+        }
         if (::playerViewModel.isInitialized) {
-            playerViewModel.onHostPaused()
+            try {
+                playerViewModel.onHostPaused()
+            } catch (failure: Exception) {
+                if (::diagnosticLog.isInitialized) {
+                    diagnosticLog.recordException("activity_pause_failure", failure)
+                } else {
+                    System.err.println("Ramen pause failure: " + (failure.message ?: failure.javaClass.simpleName))
+                }
+            }
+        }
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.recordTrace("android_lifecycle_pause_complete", emptyMap())
         }
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
-        if (::diagnosticLog.isInitialized) diagnosticLog.record("lifecycle", "activity_resumed")
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.recordTrace(
+                "android_lifecycle_resume_enter",
+                mapOf("sdk" to Build.VERSION.SDK_INT)
+            )
+        }
         if (::playerViewModel.isInitialized) {
-            playerViewModel.onHostResumed()
+            try {
+                playerViewModel.onHostResumed()
+            } catch (failure: Exception) {
+                if (::diagnosticLog.isInitialized) {
+                    diagnosticLog.recordException("activity_resume_failure", failure)
+                } else {
+                    System.err.println("Ramen resume failure: " + (failure.message ?: failure.javaClass.simpleName))
+                }
+            }
+        }
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.recordTrace("android_lifecycle_resume_complete", emptyMap())
         }
     }
 
@@ -523,9 +555,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         }
         if (::diagnosticLog.isInitialized) {
             diagnosticLog.record("lifecycle", "activity_destroyed")
-            runCatching { diagnosticLog.flush() }.onFailure { failure ->
-                System.err.println("RamenSceneTrace final flush failed: " + (failure.message ?: failure.javaClass.simpleName))
-            }
+            // Let the bounded daemon writer drain without blocking Android's main thread.
+            diagnosticLog.shutdownAfterPendingWrites()
         }
         runCatching { crashHandlerRegistration?.close() }
         crashHandlerRegistration = null

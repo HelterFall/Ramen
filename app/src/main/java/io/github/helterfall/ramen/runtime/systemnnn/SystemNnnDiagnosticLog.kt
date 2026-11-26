@@ -221,6 +221,11 @@ class SystemNnnDiagnosticLog(
         flushPendingWrites()
     }
 
+    /** Stops accepting new writes and drains the bounded queue asynchronously. */
+    fun shutdownAfterPendingWrites() {
+        writer.shutdown()
+    }
+
     private fun flushPendingWrites() {
         try {
             writer.submit(Runnable { }).get()
