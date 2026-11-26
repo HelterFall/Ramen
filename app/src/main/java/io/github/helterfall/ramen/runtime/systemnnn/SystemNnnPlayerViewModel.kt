@@ -290,8 +290,8 @@ sealed interface SystemNnnDecodedCommand {
         val nextCommandOffset: Long,
         val reason: String? = null,
         val unsupported: Boolean = false,
-        val rawRecordIdentifier: Int? = null,
-        val rawCode: Int? = null,
+        val rawRecordIdentifier: Long? = null,
+        val rawCode: Long? = null,
         val recordKind: String? = null
     ) : SystemNnnDecodedCommand
 

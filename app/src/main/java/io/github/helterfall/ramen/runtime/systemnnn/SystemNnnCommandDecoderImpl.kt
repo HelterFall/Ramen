@@ -1193,8 +1193,8 @@ class SystemNnnCommandDecoderImpl(
             nextCommandOffset = record.endOffsetExclusive,
             reason = reason,
             unsupported = true,
-            rawRecordIdentifier = record.identifier,
-            rawCode = record.code,
+            rawRecordIdentifier = record.identifier.toLong(),
+            rawCode = record.code.toLong(),
             recordKind = record.recordKind?.name
         )
     }
