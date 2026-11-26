@@ -131,7 +131,7 @@ class SystemNnnFullGameAuditorTest {
     }
 
     private companion object {
-        const val LEGACY_HEADER_BYTES = 0x100
+        const val LEGACY_HEADER_BYTES = 0x40
         const val LEGACY_HEADER_REVISION = 20
         const val SIGNATURE_OFFSET = 0x30
         const val SECONDARY_POOL_BASE = 0x167F2
