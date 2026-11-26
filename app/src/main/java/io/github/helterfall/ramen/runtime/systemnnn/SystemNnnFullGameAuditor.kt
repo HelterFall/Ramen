@@ -1045,6 +1045,10 @@ internal class SystemNnnFullGameAuditor(
         manager: SystemNnnAssetManager
     ): Map<String, Any?> {
         val catalog = manager.catalog
+        val imageResources = manager.imageResourceInventory()
+        val audioResources = manager.audioResourceInventory()
+        val musicNames = manager.musicNameListInventory()
+        val soundNames = manager.soundNameListInventory()
         return linkedMapOf(
             "rootLabel" to root.name,
             "imageBanks" to catalog.imageBanks.map {
@@ -1071,6 +1075,66 @@ internal class SystemNnnFullGameAuditor(
             "totalIndexedAudioResources" to catalog.totalIndexedAudioResources,
             "looseValidatedAudioResources" to catalog.looseAudioResources.size,
             "looseAudioFormats" to catalog.looseAudioResources.groupingBy { it.mediaFormat }.eachCount(),
+            "looseAudioResourceInventory" to catalog.looseAudioResources.take(MAX_ASSET_INVENTORY_ENTRIES).map {
+                mapOf(
+                    "resourceName" to it.fileName,
+                    "relativeId" to it.id,
+                    "extension" to it.extension,
+                    "packType" to it.packType,
+                    "mediaFormat" to it.mediaFormat,
+                    "sourceSizeBytes" to it.sourceSizeBytes,
+                    "payloadOffsetBytes" to it.payloadOffsetBytes,
+                    "payloadSizeBytes" to it.payloadSizeBytes
+                )
+            },
+            "indexedImageResourceCount" to imageResources.size,
+            "indexedImageResourcesTruncated" to (imageResources.size > MAX_ASSET_INVENTORY_ENTRIES),
+            "indexedImageResources" to imageResources.take(MAX_ASSET_INVENTORY_ENTRIES).map {
+                mapOf(
+                    "bankId" to it.bankId,
+                    "rowIndex" to it.rowIndex,
+                    "resourceName" to it.resourceName,
+                    "format" to it.format,
+                    "blockOffsetBytes" to it.blockOffsetBytes,
+                    "blockSizeBytes" to it.blockSizeBytes,
+                    "payloadOffsetBytes" to it.payloadOffsetBytes,
+                    "payloadSizeBytes" to it.payloadSizeBytes,
+                    "widthPixels" to it.widthPixels,
+                    "heightPixels" to it.heightPixels,
+                    "packType" to it.packType,
+                    "hasAlphaMask" to it.hasAlphaMask,
+                    "isValid" to it.isValid,
+                    "validationError" to it.validationError
+                )
+            },
+            "indexedAudioResourceCount" to audioResources.size,
+            "indexedAudioResourcesTruncated" to (audioResources.size > MAX_ASSET_INVENTORY_ENTRIES),
+            "indexedAudioResources" to audioResources.take(MAX_ASSET_INVENTORY_ENTRIES).map {
+                mapOf(
+                    "bankId" to it.bankId,
+                    "rowIndex" to it.rowIndex,
+                    "resourceName" to it.resourceName,
+                    "blockOffsetBytes" to it.blockOffsetBytes,
+                    "blockSizeBytes" to it.blockSizeBytes,
+                    "oggPayloadOffsetBytes" to it.oggPayloadOffsetBytes,
+                    "oggPayloadSizeBytes" to it.oggPayloadSizeBytes,
+                    "sampleRateHz" to it.sampleRateHz,
+                    "channels" to it.channels,
+                    "bitsPerSample" to it.bitsPerSample,
+                    "decodedPcmSizeBytes" to it.decodedPcmSizeBytes,
+                    "oggPageCount" to it.oggPageCount
+                )
+            },
+            "musicNameListCount" to musicNames.size,
+            "musicNameListTruncated" to (musicNames.size > MAX_ASSET_INVENTORY_ENTRIES),
+            "musicNameList" to musicNames.take(MAX_ASSET_INVENTORY_ENTRIES).map {
+                mapOf("slot" to it.first, "resourceName" to it.second)
+            },
+            "soundNameListCount" to soundNames.size,
+            "soundNameListTruncated" to (soundNames.size > MAX_ASSET_INVENTORY_ENTRIES),
+            "soundNameList" to soundNames.take(MAX_ASSET_INVENTORY_ENTRIES).map {
+                mapOf("slot" to it.first, "resourceName" to it.second)
+            },
             "unindexedVawFiles" to catalog.unindexedVawFiles,
             "unindexedVpkFiles" to catalog.unindexedVpkFiles,
             "unindexedMmlFiles" to catalog.unindexedMmlFiles,
@@ -1293,6 +1357,7 @@ internal class SystemNnnFullGameAuditor(
         "0x" + value.toString(16).uppercase(Locale.ROOT)
 
     private companion object {
+        const val MAX_ASSET_INVENTORY_ENTRIES = 100_000
         const val MAX_SCAN_DEPTH = 12
         const val MAX_DISCOVERED_FILES = 10_000
         const val MAX_TOTAL_RECORDS = 2_000_000

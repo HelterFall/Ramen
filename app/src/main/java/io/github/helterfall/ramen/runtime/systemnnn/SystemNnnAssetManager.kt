@@ -28,6 +28,21 @@ data class SystemNnnAssetBankInfo(
     val bankSlot: Int? = null
 )
 
+data class SystemNnnAudioResourceInventoryEntry(
+    val bankId: String,
+    val rowIndex: Int,
+    val resourceName: String,
+    val blockOffsetBytes: Long,
+    val blockSizeBytes: Long,
+    val oggPayloadOffsetBytes: Long,
+    val oggPayloadSizeBytes: Long,
+    val sampleRateHz: Int,
+    val channels: Int,
+    val bitsPerSample: Int,
+    val decodedPcmSizeBytes: Long,
+    val oggPageCount: Int
+)
+
 data class SystemNnnAssetCatalog(
     val imageBanks: List<SystemNnnAssetBankInfo>,
     val audioBanks: List<SystemNnnAssetBankInfo>,
@@ -290,6 +305,44 @@ class SystemNnnAssetManager private constructor(
         // The ViewModel retains the manager as the bitmap owner and invokes
         // release only after the corresponding Compose Image leaves composition.
         if (!bitmap.isRecycled) bitmap.recycle()
+    }
+
+    /** Full index metadata without staging or decoding any image/audio payload. */
+    fun imageResourceInventory(): List<SystemNnnImageResourceInventoryEntry> {
+        checkOpen()
+        return imageBanks.flatMap { bank -> bank.repository.inventory(bank.info.id) }
+    }
+
+    fun audioResourceInventory(): List<SystemNnnAudioResourceInventoryEntry> {
+        checkOpen()
+        return audioBanks.flatMap { bank ->
+            bank.repository.entries.mapIndexed { index, entry ->
+                SystemNnnAudioResourceInventoryEntry(
+                    bankId = bank.info.id,
+                    rowIndex = index,
+                    resourceName = entry.name,
+                    blockOffsetBytes = entry.blockOffset,
+                    blockSizeBytes = entry.blockSizeBytes,
+                    oggPayloadOffsetBytes = entry.oggPayloadOffset,
+                    oggPayloadSizeBytes = entry.oggPayloadSizeBytes,
+                    sampleRateHz = entry.sampleRateHz,
+                    channels = entry.channels,
+                    bitsPerSample = entry.bitsPerSample,
+                    decodedPcmSizeBytes = entry.decodedPcmSizeBytes,
+                    oggPageCount = entry.oggPageCount
+                )
+            }
+        }
+    }
+
+    fun musicNameListInventory(): List<Pair<Int, String>> {
+        checkOpen()
+        return musicResourceNames.mapIndexed { index, name -> index to name }
+    }
+
+    fun soundNameListInventory(): List<Pair<Int, String>> {
+        checkOpen()
+        return soundResourceNames.mapIndexed { index, name -> index to name }
     }
 
     override fun findResource(resourceId: String): VpkAudioResource? {
