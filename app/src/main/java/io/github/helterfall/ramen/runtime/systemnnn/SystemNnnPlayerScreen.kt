@@ -104,6 +104,30 @@ fun SystemNnnPlayerScreen(
     var screenEffectFrame by remember(screenEffectKey) { mutableIntStateOf(0) }
     var overrapProgress by remember(state.overrapTransitionId) { mutableFloatStateOf(0f) }
 
+    LaunchedEffect(state.errorMessage, state.audioWarning, state.statusMessage) {
+        state.errorMessage?.takeIf { it.isNotBlank() }?.let { message ->
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "visible_runtime_error",
+                mapOf("step" to state.sceneStepNumber, "commandOffset" to state.lastCommandOffset, "message" to message),
+                summary = message
+            )
+        }
+        state.audioWarning?.takeIf { it.isNotBlank() }?.let { message ->
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "visible_audio_warning",
+                mapOf("step" to state.sceneStepNumber, "commandOffset" to state.lastCommandOffset, "message" to message),
+                summary = message
+            )
+        }
+        state.statusMessage?.takeIf { it.isNotBlank() }?.let { message ->
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "visible_status_warning",
+                mapOf("step" to state.sceneStepNumber, "commandOffset" to state.lastCommandOffset, "message" to message),
+                summary = message
+            )
+        }
+    }
+
     LaunchedEffect(state.screenCaptureRequestId) {
         val requestId = state.screenCaptureRequestId
         if (requestId == 0L) return@LaunchedEffect
@@ -1468,7 +1492,13 @@ private fun SystemNnnScreenEffectOverlay(
     }
     LaunchedEffect(effectId, parameters, frame, renderedBitmap, source) {
         if (renderedBitmap == null) {
-            val supportedPainterFallback = effectId in setOf(10, 11, 54, 55)
+            val composeImplementedEffect = effectId == 18
+            val supportedPainterFallback = effectId in setOf(10, 11, 54, 55) || composeImplementedEffect
+            val fallbackReason = if (composeImplementedEffect) {
+                "Rendered by the viewport shake transform, not by a bitmap overlay"
+            } else {
+                "No native bitmap renderer produced an output"
+            }
             SystemNnnDiagnosticLog.active?.recordTrace(
                 if (supportedPainterFallback) "screen_effect_fallback" else "screen_effect_unsupported",
                 mapOf(
@@ -1479,7 +1509,8 @@ private fun SystemNnnScreenEffectOverlay(
                     "currentFrame" to frame,
                     "sourceAvailable" to (source != null && !source.isRecycled),
                     "rendererAvailable" to (effectId in NATIVE_SCREEN_BUFFER_RENDER_EFFECTS),
-                    "fallbackPainterAvailable" to supportedPainterFallback
+                    "fallbackPainterAvailable" to supportedPainterFallback,
+                    "reason" to fallbackReason
                 ),
                 summary = "screen effect $effectId frame $frame has no rendered bitmap"
             )
