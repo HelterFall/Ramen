@@ -132,6 +132,9 @@ class SystemNnnDiagnosticLog(
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         val installed = Thread.UncaughtExceptionHandler { thread, failure ->
             recordException("uncaught_exception", failure, "thread=" + thread.name)
+            runCatching { flushPendingWrites() }.onFailure { flushFailure ->
+                reportRecorderFailure("uncaught_exception_flush", flushFailure)
+            }
             if (previous != null) previous.uncaughtException(thread, failure)
             else throw failure
         }
@@ -191,9 +194,13 @@ class SystemNnnDiagnosticLog(
         }
     }
 
+    fun flush() {
+        flushPendingWrites()
+    }
+
     private fun flushPendingWrites() {
         try {
-            writer.submit {}.get()
+            writer.submit(Runnable { }).get()
         } catch (failure: Exception) {
             throw IOException("Could not flush pending scene trace writes.", failure)
         }

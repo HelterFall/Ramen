@@ -521,9 +521,15 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         if (::startupExecutor.isInitialized) {
             startupExecutor.shutdownNow()
         }
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.record("lifecycle", "activity_destroyed")
+            runCatching { diagnosticLog.flush() }.onFailure { failure ->
+                System.err.println("RamenSceneTrace final flush failed: " + (failure.message ?: failure.javaClass.simpleName))
+            }
+        }
         runCatching { crashHandlerRegistration?.close() }
         crashHandlerRegistration = null
-        if (SystemNnnDiagnosticLog.active === diagnosticLog) {
+        if (::diagnosticLog.isInitialized && SystemNnnDiagnosticLog.active === diagnosticLog) {
             SystemNnnDiagnosticLog.active = null
         }
         super.onDestroy()
