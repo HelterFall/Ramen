@@ -2530,7 +2530,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 existing.nativeRectFrom == reference.nativeRectFrom &&
                 existing.nativeEffectId == reference.nativeEffectId &&
                 existing.nativeEffectParameters == reference.nativeEffectParameters &&
-                existing.nativeEffectCommandOffset == reference.nativeEffectCommandOffset
+                existing.nativeEffectCommandOffset == reference.nativeEffectCommandOffset &&
+                existing.sourceMetadata == queryImageMetadata(
+                    resolver,
+                    reference.resourceId,
+                    null,
+                    reference.nativeBankNamespace,
+                    reference.nativeBankSlot
+                )
             ) {
                 diagnosticLog?.record(
                     "layer_render_state",
@@ -2545,6 +2552,25 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 return@forEach
             }
 
+            val metadata = queryImageMetadata(
+                resolver,
+                reference.resourceId,
+                null,
+                reference.nativeBankNamespace,
+                reference.nativeBankSlot
+            )
+            if (metadata == null) {
+                diagnosticLog?.recordTrace(
+                    "image_metadata_unavailable",
+                    mapOf(
+                        "layerIndex" to layer,
+                        "resourceName" to reference.resourceId,
+                        "bankNamespace" to reference.nativeBankNamespace,
+                        "bankSlot" to reference.nativeBankSlot,
+                        "reason" to "Resolver supplied no indexed DWQ metadata; bitmap dimensions remain authoritative"
+                    )
+                )
+            }
             val bitmap = runCatching {
                 validateNativeBankIdentity(reference.nativeBankNamespace, reference.nativeBankSlot)
                 if (reference.nativeBankNamespace == null) {
@@ -2575,11 +2601,36 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 }
                 return@forEach
             }
+            if (metadata != null &&
+                (metadata.widthPixels != bitmap.width || metadata.heightPixels != bitmap.height)
+            ) {
+                diagnosticLog?.recordTrace(
+                    "scene_anomaly",
+                    mapOf(
+                        "type" to "decoded_image_size_mismatch",
+                        "layerIndex" to layer,
+                        "resourceName" to reference.resourceId,
+                        "declared" to "${metadata.widthPixels}x${metadata.heightPixels}",
+                        "decoded" to "${bitmap.width}x${bitmap.height}"
+                    )
+                )
+            }
             val bitmapPixels = bitmap.width.toLong() * bitmap.height.toLong()
             if (bitmapPixels > MAX_ACTIVE_SPRITE_PIXELS - activePixelCount) {
                 bitmapOwners.remove(bitmap)
-                runCatching { resolver.releaseBitmap(bitmap) }
-                warnings += "Layer " + layer + " ('" + reference.resourceId + "') was skipped: active sprite pixel budget exceeded."
+                runCatching { resolver.releaseBitmap(bitmap) }.onFailure { failure ->
+                    diagnosticLog?.recordException(
+                        "bitmap_release_failure",
+                        failure,
+                        "layer=$layer resource=${reference.resourceId}"
+                    )
+                }
+                val warning = "Layer " + layer + " ('" + reference.resourceId + "') was skipped: active sprite pixel budget exceeded."
+                diagnosticLog?.recordTrace(
+                    "scene_fallback",
+                    mapOf("kind" to "active_sprite_pixel_budget", "layerIndex" to layer, "resourceName" to reference.resourceId, "pixels" to bitmapPixels)
+                )
+                warnings += warning
                 return@forEach
             }
             activePixelCount += bitmapPixels
@@ -2606,7 +2657,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 nativeRectFrom = reference.nativeRectFrom,
                 nativeEffectId = reference.nativeEffectId,
                 nativeEffectParameters = reference.nativeEffectParameters,
-                nativeEffectCommandOffset = reference.nativeEffectCommandOffset
+                nativeEffectCommandOffset = reference.nativeEffectCommandOffset,
+                sourceMetadata = metadata
             )
         }
 
@@ -2632,6 +2684,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 ) -> warnings +=
                     "CHANGE (40) on layer ${reference.layerIndex} cannot run: both layer images must have the same dimensions."
             }
+        }
+        warnings.forEach { warning ->
+            diagnosticLog?.recordTrace(
+                "scene_fallback",
+                mapOf("step" to traceStepCounter, "warning" to warning),
+                summary = warning
+            )
         }
         return SpriteResolution(
             sprites = resolved.sortedBy { it.layerIndex },

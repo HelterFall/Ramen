@@ -222,6 +222,41 @@ class SystemNnnAssetManager private constructor(
         }
     }
 
+    override fun imageMetadataByIndex(index: Long): SystemNnnImageResourceMetadata? {
+        checkOpen()
+        return when (imageBanks.size) {
+            0 -> null
+            1 -> imageBanks.single().repository.imageMetadataByIndex(index)
+            else -> throw IOException(
+                "Image metadata index is ambiguous across " + imageBanks.size +
+                    " banks; use a bank-qualified lookup."
+            )
+        }
+    }
+
+    override fun imageMetadataByNativeBankIndex(
+        namespace: String,
+        slot: Int,
+        index: Long
+    ): SystemNnnImageResourceMetadata? {
+        checkOpen()
+        if (namespace.isBlank() || slot < 0) {
+            throw IOException("A native image namespace and non-negative slot are required.")
+        }
+        val matches = imageBanks.filter {
+            it.info.nativeNamespace.equals(namespace.trim(), ignoreCase = true) &&
+                it.info.bankSlot == slot
+        }
+        return when (matches.size) {
+            0 -> null
+            1 -> matches.single().repository.imageMetadataByIndex(index)
+            else -> throw IOException(
+                "Native image bank " + namespace + slot +
+                    " is ambiguous while reading image metadata."
+            )
+        }
+    }
+
     /** Resolves a zero-based resource row in an explicitly selected native bank. */
     @Throws(IOException::class)
     override fun loadBitmapByNativeBankIndex(namespace: String, slot: Int, index: Long): Bitmap? {
