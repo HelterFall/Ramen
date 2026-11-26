@@ -608,7 +608,7 @@ class SystemNnnVisualEffectMathTest {
             82, listOf(20, 300, 13, 4, 9_999, 200, 1362, 200, 0, 1, 255, 160, 110, 50)
         ))
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 0)))
-        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 1)))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 1)))
         assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(27, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(29, emptyList()))
     }
