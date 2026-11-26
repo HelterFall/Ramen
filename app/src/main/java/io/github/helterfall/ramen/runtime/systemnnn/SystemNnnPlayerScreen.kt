@@ -194,8 +194,13 @@ fun SystemNnnPlayerScreen(
             ?: state.sprites.firstOrNull()?.bitmap?.height ?: 600).coerceAtLeast(1)
         val viewportWidth = viewportSizePx.width
         val viewportHeight = viewportSizePx.height
-        val scaleX = if (viewportWidth > 0) viewportWidth.toFloat() / logicalWidth else null
-        val scaleY = if (viewportHeight > 0) viewportHeight.toFloat() / logicalHeight else null
+        // Match SystemNnnAnimatedSpriteLayer's reference dimensions exactly.
+        val rendererReferenceWidth = (state.backgroundBitmap?.width
+            ?: state.sprites.firstOrNull()?.bitmap?.width ?: 800).coerceAtLeast(1)
+        val rendererReferenceHeight = (state.backgroundBitmap?.height
+            ?: state.sprites.firstOrNull()?.bitmap?.height ?: 600).coerceAtLeast(1)
+        val scaleX = if (viewportWidth > 0) viewportWidth.toFloat() / rendererReferenceWidth else null
+        val scaleY = if (viewportHeight > 0) viewportHeight.toFloat() / rendererReferenceHeight else null
         val offsetX = if (canvasSizePx.width > 0 && viewportWidth > 0) {
             (canvasSizePx.width - viewportWidth) / 2f
         } else null
@@ -219,13 +224,43 @@ fun SystemNnnPlayerScreen(
             )
         } else null
         val layerStates = state.sprites.map { sprite ->
-            val rect = sprite.nativeRect
+            val effectId = sprite.nativeEffectId
+            val usesFullViewport = effectId in setOf(27, 39, 56, 63, 102)
+            val usesCenteredBitmap = effectId == 64 || effectId == 65
+            val defaultWidth = (rendererReferenceWidth * sprite.widthFraction.coerceIn(0.1f, 1f))
+                .roundToInt().coerceAtLeast(1)
+            val defaultHeight = (rendererReferenceHeight * sprite.heightFraction.coerceIn(0.1f, 1f))
+                .roundToInt().coerceAtLeast(1)
+            val dst = when {
+                usesFullViewport -> SystemNnnNativeRect(0, 0, rendererReferenceWidth, rendererReferenceHeight)
+                usesCenteredBitmap -> SystemNnnNativeRect(
+                    (rendererReferenceWidth - sprite.bitmap.width) / 2,
+                    (rendererReferenceHeight - sprite.bitmap.height) / 2,
+                    sprite.bitmap.width,
+                    sprite.bitmap.height
+                )
+                sprite.nativeRect != null -> sprite.nativeRect
+                else -> SystemNnnNativeRect(
+                    (rendererReferenceWidth * sprite.centerXFraction - defaultWidth / 2f).roundToInt(),
+                    rendererReferenceHeight - defaultHeight,
+                    defaultWidth,
+                    defaultHeight
+                )
+            }
             linkedMapOf<String, Any?>(
                 "layerIndex" to sprite.layerIndex,
                 "resourceName" to sprite.resourceId,
                 "sourceSize" to mapOf("width" to sprite.bitmap.width, "height" to sprite.bitmap.height),
-                "dstRect" to rect?.let {
-                    mapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height)
+                "declaredSize" to sprite.sourceMetadata?.let {
+                    mapOf("width" to it.widthPixels, "height" to it.heightPixels)
+                },
+                "dstRect" to mapOf("x" to dst.x, "y" to dst.y, "w" to dst.width, "h" to dst.height),
+                "dstRectEstimated" to (sprite.nativeRect == null),
+                "positioningMode" to when {
+                    usesFullViewport -> "full_viewport"
+                    usesCenteredBitmap -> "centered_bitmap"
+                    sprite.nativeRect != null -> "native_rect"
+                    else -> "bottom_center_default"
                 },
                 "srcRect" to sprite.nativeRectFrom?.let {
                     mapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height)
@@ -280,6 +315,10 @@ fun SystemNnnPlayerScreen(
                     "visibleCharacters" to state.visibleCharacterCount
                 ),
                 "logicalResolution" to mapOf("width" to logicalWidth, "height" to logicalHeight),
+                "rendererReferenceResolution" to mapOf(
+                    "width" to rendererReferenceWidth,
+                    "height" to rendererReferenceHeight
+                ),
                 "canvas" to mapOf("widthPx" to canvasSizePx.width, "heightPx" to canvasSizePx.height),
                 "viewport" to mapOf("widthPx" to viewportWidth, "heightPx" to viewportHeight),
                 "scale" to mapOf("x" to scaleX, "y" to scaleY),

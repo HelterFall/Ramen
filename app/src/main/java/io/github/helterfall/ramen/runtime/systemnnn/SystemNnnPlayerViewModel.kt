@@ -512,14 +512,29 @@ class SystemNnnPlayerViewModel : ViewModel() {
         logicalHeight: Int
     ): Map<String, Any?> {
         val bitmap = sprite.bitmap
-        val fallbackWidth = (logicalWidth * sprite.widthFraction).toInt().coerceAtLeast(1)
-        val fallbackHeight = (logicalHeight * sprite.heightFraction).toInt().coerceAtLeast(1)
-        val dst = sprite.nativeRect ?: SystemNnnNativeRect(
-            x = (logicalWidth * sprite.centerXFraction - fallbackWidth / 2f).toInt(),
-            y = (logicalHeight - fallbackHeight) / 2,
-            width = fallbackWidth,
-            height = fallbackHeight
-        )
+        val fallbackWidth = (logicalWidth * sprite.widthFraction.coerceIn(0.1f, 1f))
+            .roundToInt().coerceAtLeast(1)
+        val fallbackHeight = (logicalHeight * sprite.heightFraction.coerceIn(0.1f, 1f))
+            .roundToInt().coerceAtLeast(1)
+        val effectId = sprite.nativeEffectId
+        val dst = when {
+            effectId in setOf(27, 39, 56, 63, 102) ->
+                SystemNnnNativeRect(0, 0, logicalWidth, logicalHeight)
+            effectId == 64 || effectId == 65 ->
+                SystemNnnNativeRect(
+                    (logicalWidth - bitmap.width) / 2,
+                    (logicalHeight - bitmap.height) / 2,
+                    bitmap.width,
+                    bitmap.height
+                )
+            sprite.nativeRect != null -> sprite.nativeRect
+            else -> SystemNnnNativeRect(
+                x = (logicalWidth * sprite.centerXFraction - fallbackWidth / 2f).roundToInt(),
+                y = logicalHeight - fallbackHeight,
+                width = fallbackWidth,
+                height = fallbackHeight
+            )
+        }
         val metadata = sprite.sourceMetadata
         return linkedMapOf(
             "layerIndex" to sprite.layerIndex,
@@ -531,6 +546,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 mapOf("width" to it.widthPixels, "height" to it.heightPixels)
             },
             "dstRect" to traceRect(dst),
+            "dstRectEstimated" to (sprite.nativeRect == null),
+            "positioningMode" to when {
+                effectId in setOf(27, 39, 56, 63, 102) -> "full_viewport"
+                effectId == 64 || effectId == 65 -> "centered_bitmap"
+                sprite.nativeRect != null -> "native_rect"
+                else -> "bottom_center_default"
+            },
             "srcRect" to traceRect(sprite.nativeRectFrom),
             "nativeRectWasExplicit" to (sprite.nativeRect != null),
             "packType" to metadata?.packType,
