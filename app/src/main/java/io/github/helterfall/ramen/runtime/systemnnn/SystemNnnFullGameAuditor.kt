@@ -635,7 +635,7 @@ internal class SystemNnnFullGameAuditor(
                     "name" to it.name,
                     "entryCount" to it.entryCount.toLong(),
                     "logicalBase" to it.logicalBase.toLong(),
-                    "hasTable" to it.hasTable
+                    "hasPayload" to it.hasPayload
                 )
             }
             moduleReports += module
