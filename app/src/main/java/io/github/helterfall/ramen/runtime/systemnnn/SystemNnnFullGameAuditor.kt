@@ -89,7 +89,7 @@ internal class SystemNnnFullGameAuditor(
     private val referenceStats = linkedMapOf<ReferenceKey, ReferenceStats>()
     private val issueStats = linkedMapOf<String, IssueStats>()
     private val moduleReports = ArrayList<Map<String, Any?>>()
-    private val projectReports = ArrayList<Map<String, Any?>>()
+    private val projectReports = ArrayList<MutableMap<String, Any?>>()
     private val assetManagers = linkedMapOf<String, AssetManagerResult>()
     private val assetCatalogReports = linkedMapOf<String, Map<String, Any?>>()
     private val globalRecordKinds = TreeMap<String, Int>()
@@ -281,7 +281,12 @@ internal class SystemNnnFullGameAuditor(
                 "orphanSptModules" to plansByPath.values.count { it.isOrphan },
                 "invalidSptCandidates" to invalidSptCandidates,
                 "fileDiscoveryTruncated" to fileWalkTruncated,
-                "totalPhysicalRecords" to totalRecords
+                "totalPhysicalRecords" to totalRecords,
+                "totalSptCandidates" to totalSptCandidates,
+                "failedModules" to totalModulesFailed,
+                "sceneDatEntries" to totalScenes,
+                "sceneVoiceIds" to totalSceneVoiceIds,
+                "variableNames" to totalVariables
             ),
             "coverage" to linkedMapOf(
                 "projectManifests" to "all discovered spt/project.xtx files",
@@ -774,7 +779,11 @@ internal class SystemNnnFullGameAuditor(
                     addReference(
                         "music",
                         command.musicNumber.toString(),
-                        if (name == null) "name_list_entry_missing" else "name_list_entry_resolved",
+                        when {
+                            assetManager == null -> "asset_catalog_unavailable"
+                            name == null -> "name_list_entry_missing"
+                            else -> "name_list_entry_resolved"
+                        },
                         module,
                         location,
                         record.offset
@@ -796,7 +805,11 @@ internal class SystemNnnFullGameAuditor(
                     addReference(
                         "sound",
                         command.soundNumber.toString(),
-                        if (name == null) "name_list_entry_missing" else "name_list_entry_resolved",
+                        when {
+                            assetManager == null -> "asset_catalog_unavailable"
+                            name == null -> "name_list_entry_missing"
+                            else -> "name_list_entry_resolved"
+                        },
                         module,
                         location,
                         record.offset
@@ -930,6 +943,12 @@ internal class SystemNnnFullGameAuditor(
         plans: List<ModulePlan>,
         manifests: List<File>
     ) {
+        val filmCountsByPath = plans.associate { plan ->
+            plan.file.canonicalPath to runCatching {
+                val script = scriptLoader.load(plan.file)
+                streamReader.filmTableEntries(script).count { it.filmNumber != null }
+            }.getOrDefault(0)
+        }
         manifests.forEach { manifest ->
             val sptDirectory = manifest.parentFile ?: return@forEach
             val project = projectReports.firstOrNull {
@@ -962,11 +981,7 @@ internal class SystemNnnFullGameAuditor(
                             if (modulePlan == null) {
                                 missingModuleRoutes += 1
                             } else {
-                                // Film slots are validated by the same SPT loader and pointer table.
-                                val filmCount = runCatching {
-                                    val script = scriptLoader.load(modulePlan.file)
-                                    streamReader.filmTableEntries(script).count { it.filmNumber != null }
-                                }.getOrDefault(0)
+                                val filmCount = filmCountsByPath[modulePlan.file.canonicalPath] ?: 0
                                 if (scene.filmIndices.any { it !in 0 until filmCount }) {
                                     missingFilmRoutes += 1
                                 }
