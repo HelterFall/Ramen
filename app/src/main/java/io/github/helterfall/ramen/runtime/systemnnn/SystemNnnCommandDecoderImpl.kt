@@ -540,9 +540,20 @@ class SystemNnnCommandDecoderImpl(
         val parameters = List(argumentCount - 2) { index ->
             readPayloadWord(script, record, index + 3).toInt()
         }
-        appendDebugLog(
-            record,
-            "SETEFFECT layer=$layer effect=$effect parameters=${parameters.joinToString(",")}"
+        // This record was successfully decoded. It must never be routed
+        // through appendDebugLog(), which deliberately classifies records as
+        // unsupported and writes them to ramen_debug.log.
+        SystemNnnDiagnosticLog.active?.recordTrace(
+            "decoded_system_function",
+            mapOf(
+                "commandOffset" to record.offset,
+                "functionId" to record.codeId,
+                "functionName" to "SETEFFECT",
+                "layer" to layer,
+                "effectId" to effect,
+                "parameters" to parameters
+            ),
+            summary = "Decoded SETEFFECT layer=$layer effect=$effect"
         )
         return SystemNnnDecodedCommand.SetImageLayerEffect(
             nextCommandOffset = record.endOffsetExclusive,

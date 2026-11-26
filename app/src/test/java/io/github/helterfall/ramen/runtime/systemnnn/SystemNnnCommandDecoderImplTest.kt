@@ -111,6 +111,33 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun decodedSetEffectIsNotWrittenToTheUnsupportedCommandLog() {
+        val logFile = File.createTempFile("ramen-supported-effect-", ".log").apply { delete() }
+        try {
+            val script = testScript(
+                records = listOf(
+                    record(6, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SETEFFECT, 4u, 0u, 54u, 20u)
+                ),
+                textCount = 0
+            )
+            val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8, debugLogFile = logFile)
+
+            assertEquals(
+                SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = RECORD_START + 24L,
+                    layerIndex = 0,
+                    effectId = 54,
+                    parameters = listOf(20)
+                ),
+                decoder.decodeNext(script, RECORD_START)
+            )
+            assertTrue(!logFile.exists() || logFile.length() == 0L)
+        } finally {
+            logFile.delete()
+        }
+    }
+
+    @Test
     fun decodesSetEffectRectRightAndBottomAsAbsoluteEdges() {
         val script = testScript(
             records = listOf(
