@@ -183,6 +183,10 @@ fun SystemNnnPlayerScreen(
         state.sceneStepNumber,
         state.frameId,
         state.drawEventId,
+        state.visibleCharacterCount,
+        state.dialogueText,
+        state.screenEffectId,
+        state.screenEffectParameters,
         screenEffectFrame,
         overrapProgress,
         canvasSizePx,
@@ -302,6 +306,43 @@ fun SystemNnnPlayerScreen(
                 "currentFrame" to screenEffectFrame
             )
         }
+        val composeAnomalies = ArrayList<Map<String, Any?>>()
+        if (canvasSizePx.width <= 0 || canvasSizePx.height <= 0) {
+            composeAnomalies += mapOf("type" to "invalid_canvas_size", "width" to canvasSizePx.width, "height" to canvasSizePx.height)
+        }
+        if (viewportWidth <= 0 || viewportHeight <= 0) {
+            composeAnomalies += mapOf("type" to "invalid_viewport_size", "width" to viewportWidth, "height" to viewportHeight)
+        }
+        if (scaleX != null && scaleY != null && kotlin.math.abs(scaleX - scaleY) > 0.002f) {
+            composeAnomalies += mapOf("type" to "non_uniform_viewport_scale", "scaleX" to scaleX, "scaleY" to scaleY)
+        }
+        if ((canvasSizePx.width > 0 && viewportWidth > canvasSizePx.width) ||
+            (canvasSizePx.height > 0 && viewportHeight > canvasSizePx.height)
+        ) {
+            composeAnomalies += mapOf(
+                "type" to "viewport_exceeds_canvas",
+                "canvasWidth" to canvasSizePx.width,
+                "canvasHeight" to canvasSizePx.height,
+                "viewportWidth" to viewportWidth,
+                "viewportHeight" to viewportHeight
+            )
+        }
+        state.sprites.forEach { sprite ->
+            val dst = sprite.nativeRect
+            if (dst != null && (
+                dst.width <= 0 || dst.height <= 0 || dst.x < 0 || dst.y < 0 ||
+                    dst.x.toLong() + dst.width > rendererReferenceWidth.toLong() ||
+                    dst.y.toLong() + dst.height > rendererReferenceHeight.toLong()
+                )
+            ) {
+                composeAnomalies += mapOf(
+                    "type" to "compose_dst_rect_out_of_bounds",
+                    "layerIndex" to sprite.layerIndex,
+                    "resourceName" to sprite.resourceId,
+                    "dstRect" to mapOf("x" to dst.x, "y" to dst.y, "w" to dst.width, "h" to dst.height)
+                )
+            }
+        }
         SystemNnnDiagnosticLog.active?.recordTrace(
             "compose_frame",
             linkedMapOf(
@@ -325,6 +366,7 @@ fun SystemNnnPlayerScreen(
                 "viewportOffsetPx" to mapOf("x" to offsetX, "y" to offsetY),
                 "shakeOffsetPx" to mapOf("x" to shakePxX, "y" to shakePxY),
                 "scaleMatrix3x3" to matrix,
+                "anomalies" to composeAnomalies,
                 "layers" to layerStates,
                 "activeEffects" to effects,
                 "screenBuffer" to mapOf(
@@ -347,6 +389,14 @@ fun SystemNnnPlayerScreen(
             summary = "compose step=${state.sceneStepNumber} frame=${state.frameId} draw=${state.drawEventId} " +
                 "canvas=${canvasSizePx.width}x${canvasSizePx.height} viewport=${viewportWidth}x${viewportHeight}"
         )
+        composeAnomalies.forEach { anomaly ->
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "scene_anomaly",
+                mapOf("step" to state.sceneStepNumber, "frameId" to state.frameId,
+                    "commandOffset" to state.lastCommandOffset, "anomaly" to anomaly),
+                summary = anomaly.toString()
+            )
+        }
     }
 
     LaunchedEffect(state.overrapTransitionId, state.overrapFromBitmap, state.overrapToBitmap) {
