@@ -9,6 +9,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
@@ -62,6 +64,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
@@ -83,11 +86,15 @@ fun SystemNnnPlayerScreen(
     onTypewriterFinished: () -> Unit,
     onBitmapDisposed: (Bitmap) -> Unit,
     onExportDiagnostics: () -> Unit,
+    onExportTrace: () -> Unit,
     onQuickAction: (SystemNnnPlayerQuickAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
     var autoMode by remember { mutableStateOf(false) }
     var skipMode by remember { mutableStateOf(false) }
+    var debugOverlayVisible by remember { mutableStateOf(true) }
+    var canvasSizePx by remember { mutableStateOf(IntSize.Zero) }
+    var viewportSizePx by remember { mutableStateOf(IntSize.Zero) }
     val viewportCaptureLayer = rememberGraphicsLayer()
     var screenEffectSourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val screenEffectKey = listOf(
@@ -104,7 +111,20 @@ fun SystemNnnPlayerScreen(
         val captured = runCatching {
             viewportCaptureLayer.toImageBitmap().asAndroidBitmap()
                 .copy(Bitmap.Config.ARGB_8888, true)
+        }.onFailure { failure ->
+            SystemNnnDiagnosticLog.active?.recordException(
+                "viewport_capture_failure",
+                failure,
+                "purpose=${state.screenCapturePurpose} requestId=$requestId"
+            )
         }.getOrNull()
+        if (captured == null) {
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "viewport_capture_missing",
+                mapOf("requestId" to requestId, "purpose" to state.screenCapturePurpose?.name),
+                summary = "Compose did not produce a viewport capture"
+            )
+        }
         onScreenCaptureReady(requestId, captured)
     }
 
@@ -120,7 +140,150 @@ fun SystemNnnPlayerScreen(
         screenEffectSourceBitmap = runCatching {
             viewportCaptureLayer.toImageBitmap().asAndroidBitmap()
                 .copy(Bitmap.Config.ARGB_8888, true)
+        }.onFailure { failure ->
+            SystemNnnDiagnosticLog.active?.recordException(
+                "screen_effect_capture_failure",
+                failure,
+                "effectId=$effectId frame=$screenEffectFrame"
+            )
         }.getOrNull()
+        if (screenEffectSourceBitmap == null) {
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "screen_effect_capture_missing",
+                mapOf("effectId" to effectId, "frame" to screenEffectFrame)
+            )
+        }
+    }
+
+    LaunchedEffect(
+        state.sceneStepNumber,
+        state.frameId,
+        state.drawEventId,
+        screenEffectFrame,
+        overrapProgress,
+        canvasSizePx,
+        viewportSizePx
+    ) {
+        val logicalWidth = (state.backgroundBitmap?.width ?: state.backgroundMetadata?.widthPixels
+            ?: state.sprites.firstOrNull()?.bitmap?.width ?: 800).coerceAtLeast(1)
+        val logicalHeight = (state.backgroundBitmap?.height ?: state.backgroundMetadata?.heightPixels
+            ?: state.sprites.firstOrNull()?.bitmap?.height ?: 600).coerceAtLeast(1)
+        val viewportWidth = viewportSizePx.width
+        val viewportHeight = viewportSizePx.height
+        val scaleX = if (viewportWidth > 0) viewportWidth.toFloat() / logicalWidth else null
+        val scaleY = if (viewportHeight > 0) viewportHeight.toFloat() / logicalHeight else null
+        val offsetX = if (canvasSizePx.width > 0 && viewportWidth > 0) {
+            (canvasSizePx.width - viewportWidth) / 2f
+        } else null
+        val offsetY = if (canvasSizePx.height > 0 && viewportHeight > 0) {
+            (canvasSizePx.height - viewportHeight) / 2f
+        } else null
+        val shake = if (state.screenEffectId == 18) {
+            SystemNnnVisualEffectMath.shakeOffset(
+                frame = screenEffectFrame,
+                frameCount = (state.screenEffectParameters.firstOrNull() ?: 20).coerceAtLeast(1),
+                vertical = (state.screenEffectParameters.getOrNull(1) ?: 0) != 0
+            )
+        } else SystemNnnVisualOffset(0f, 0f)
+        val shakePxX = if (scaleX != null) shake.x * scaleX else 0f
+        val shakePxY = if (scaleY != null) shake.y * scaleY else 0f
+        val matrix = if (scaleX != null && scaleY != null && offsetX != null && offsetY != null) {
+            listOf(
+                scaleX, 0f, offsetX + shakePxX,
+                0f, scaleY, offsetY + shakePxY,
+                0f, 0f, 1f
+            )
+        } else null
+        val layerStates = state.sprites.map { sprite ->
+            val rect = sprite.nativeRect
+            linkedMapOf<String, Any?>(
+                "layerIndex" to sprite.layerIndex,
+                "resourceName" to sprite.resourceId,
+                "sourceSize" to mapOf("width" to sprite.bitmap.width, "height" to sprite.bitmap.height),
+                "dstRect" to rect?.let {
+                    mapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height)
+                },
+                "srcRect" to sprite.nativeRectFrom?.let {
+                    mapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height)
+                },
+                "packType" to sprite.sourceMetadata?.packType,
+                "blendMode" to "SRC_OVER",
+                "hasAlpha" to sprite.bitmap.hasAlpha(),
+                "alphaPremultiplied" to sprite.bitmap.isPremultiplied,
+                "effect" to sprite.nativeEffectId?.let { effectId ->
+                    mapOf(
+                        "effect_id" to effectId,
+                        "name" to SystemNnnVisualEffectMath.observedEffectName(effectId),
+                        "parameters_raw" to sprite.nativeEffectParameters,
+                        "para_0_to_15" to (0 until 16).map { sprite.nativeEffectParameters.getOrNull(it) },
+                        "currentFrame" to null
+                    )
+                }
+            )
+        }
+        val effects = state.sprites.mapNotNull { sprite ->
+            sprite.nativeEffectId?.let { effectId ->
+                mapOf(
+                    "layer" to sprite.layerIndex,
+                    "effect_id" to effectId,
+                    "name" to SystemNnnVisualEffectMath.observedEffectName(effectId),
+                    "parameters_raw" to sprite.nativeEffectParameters,
+                    "para_0_to_15" to (0 until 16).map { sprite.nativeEffectParameters.getOrNull(it) },
+                    "currentFrame" to null
+                )
+            }
+        }.toMutableList()
+        state.screenEffectId?.let { effectId ->
+            effects += mapOf(
+                "layer" to 31,
+                "effect_id" to effectId,
+                "name" to SystemNnnVisualEffectMath.observedEffectName(effectId),
+                "parameters_raw" to state.screenEffectParameters,
+                "para_0_to_15" to (0 until 16).map { state.screenEffectParameters.getOrNull(it) },
+                "currentFrame" to screenEffectFrame
+            )
+        }
+        SystemNnnDiagnosticLog.active?.recordTrace(
+            "compose_frame",
+            linkedMapOf(
+                "step" to state.sceneStepNumber,
+                "frameId" to state.frameId,
+                "drawEventId" to state.drawEventId,
+                "commandOffset" to state.lastCommandOffset,
+                "dialogue" to mapOf(
+                    "speaker" to state.speakerName,
+                    "text" to state.dialogueText,
+                    "visibleCharacters" to state.visibleCharacterCount
+                ),
+                "logicalResolution" to mapOf("width" to logicalWidth, "height" to logicalHeight),
+                "canvas" to mapOf("widthPx" to canvasSizePx.width, "heightPx" to canvasSizePx.height),
+                "viewport" to mapOf("widthPx" to viewportWidth, "heightPx" to viewportHeight),
+                "scale" to mapOf("x" to scaleX, "y" to scaleY),
+                "viewportOffsetPx" to mapOf("x" to offsetX, "y" to offsetY),
+                "shakeOffsetPx" to mapOf("x" to shakePxX, "y" to shakePxY),
+                "scaleMatrix3x3" to matrix,
+                "layers" to layerStates,
+                "activeEffects" to effects,
+                "screenBuffer" to mapOf(
+                    "screenEffectId" to state.screenEffectId,
+                    "screenEffectFrame" to if (state.screenEffectId == null) null else screenEffectFrame,
+                    "screenEffectParameters" to state.screenEffectParameters,
+                    "savedGetBufferSize" to state.savedGetScreenBufferBitmap?.let {
+                        mapOf("width" to it.width, "height" to it.height)
+                    }
+                ),
+                "overrap" to mapOf(
+                    "transitionId" to state.overrapTransitionId,
+                    "type" to state.overrapTransitionType,
+                    "durationFrames" to state.overrapTransitionDurationFrames,
+                    "progress" to overrapProgress,
+                    "fromSize" to state.overrapFromBitmap?.let { "${it.width}x${it.height}" },
+                    "toSize" to state.overrapToBitmap?.let { "${it.width}x${it.height}" }
+                )
+            ),
+            summary = "compose step=${state.sceneStepNumber} frame=${state.frameId} draw=${state.drawEventId} " +
+                "canvas=${canvasSizePx.width}x${canvasSizePx.height} viewport=${viewportWidth}x${viewportHeight}"
+        )
     }
 
     LaunchedEffect(state.overrapTransitionId, state.overrapFromBitmap, state.overrapToBitmap) {
@@ -200,6 +363,7 @@ fun SystemNnnPlayerScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
+            .onSizeChanged { canvasSizePx = it }
             .background(Color.Black)
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
@@ -229,6 +393,7 @@ fun SystemNnnPlayerScreen(
 
             BoxWithConstraints(
                 modifier = viewportModifier.align(Alignment.Center).clipToBounds()
+                    .onSizeChanged { viewportSizePx = it }
             ) {
                 val viewportDpWidth = maxWidth
                 val viewportDpHeight = maxHeight
@@ -286,6 +451,7 @@ fun SystemNnnPlayerScreen(
                             key(sprite.layerIndex) {
                                 SystemNnnAnimatedSpriteLayer(
                                     sprite = sprite,
+                                    stepNumber = state.sceneStepNumber,
                                     changePartner = changePartners[sprite.layerIndex],
                                     viewportWidth = viewportDpWidth,
                                     viewportHeight = viewportDpHeight,
@@ -344,6 +510,12 @@ fun SystemNnnPlayerScreen(
                         height = from.height
                     ) ?: return@runCatching null
                     Bitmap.createBitmap(mixed, from.width, from.height, Bitmap.Config.ARGB_8888)
+                }.onFailure { failure ->
+                    SystemNnnDiagnosticLog.active?.recordException(
+                        "overrap_frame_render_failure",
+                        failure,
+                        "transitionId=${state.overrapTransitionId} type=${state.overrapTransitionType}"
+                    )
                 }.getOrNull()
             }
         }
@@ -386,10 +558,48 @@ fun SystemNnnPlayerScreen(
                 if (skipMode) autoMode = false
             },
             onExportDiagnostics = onExportDiagnostics,
+            onExportTrace = onExportTrace,
+            debugVisible = debugOverlayVisible,
+            onDebugToggle = { debugOverlayVisible = !debugOverlayVisible },
             modifier = Modifier
                 .align(Alignment.TopEnd)
                 .padding(14.dp)
         )
+
+        if (debugOverlayVisible) {
+            val diagnosticTail = SystemNnnDiagnosticLog.active?.recentEntries.orEmpty()
+            Surface(
+                color = Color(0xEE101216),
+                contentColor = Color(0xFFE8EDF4),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(1.dp, Color(0x885C718C)),
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 82.dp, end = 14.dp)
+                    .width(340.dp)
+                    .height(220.dp)
+            ) {
+                Column(
+                    modifier = Modifier.verticalScroll(rememberScrollState()).padding(10.dp),
+                    verticalArrangement = Arrangement.spacedBy(3.dp)
+                ) {
+                    Text(
+                        text = "SCENE TRACE · step ${state.sceneStepNumber} · " +
+                            (state.lastCommandOffset?.let { "0x" + it.toString(16) } ?: "—"),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = "frame=${state.frameId} draw=${state.drawEventId} " +
+                            "layers=${state.sprites.size} effect=${state.screenEffectId ?: "none"}",
+                        style = MaterialTheme.typography.labelSmall
+                    )
+                    diagnosticTail.takeLast(18).forEach { entry ->
+                        Text(text = entry, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+            }
+        }
 
         if (!state.isEnded) {
             DialogueBox(
@@ -533,6 +743,7 @@ private fun DialogueBox(
 @Composable
 private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     sprite: SystemNnnSpriteBitmap,
+    stepNumber: Long,
     changePartner: SystemNnnSpriteBitmap?,
     viewportWidth: androidx.compose.ui.unit.Dp,
     viewportHeight: androidx.compose.ui.unit.Dp,
@@ -645,8 +856,28 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                 Bitmap.createBitmap(
                     warped.pixels, warped.width, warped.height, Bitmap.Config.ARGB_8888
                 )
+            }.onFailure { failure ->
+                SystemNnnDiagnosticLog.active?.recordException(
+                    "cloud_layer_render_failure",
+                    failure,
+                    "layer=${sprite.layerIndex} resource=${sprite.resourceId} params=$parameters"
+                )
             }.getOrNull()
         } else null
+    }
+    LaunchedEffect(isCloud, cloudBitmap) {
+        if (isCloud && cloudBitmap == null) {
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "scene_fallback",
+                mapOf(
+                    "kind" to "cloud_layer_bitmap_fallback",
+                    "layerIndex" to sprite.layerIndex,
+                    "resourceName" to sprite.resourceId,
+                    "parameters" to parameters
+                ),
+                summary = "CLOUD layer did not produce a warped bitmap"
+            )
+        }
     }
     val turnPivot = if (isTurn) SystemNnnVisualEffectMath.turnPivotOffset(parameters)
         else SystemNnnVisualOffset(0f, 0f)
@@ -694,6 +925,44 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
             forceOpaque = (parameters.getOrNull(9) ?: 0) == 0
         )
     } else null
+
+    LaunchedEffect(
+        animationKey,
+        frame,
+        cycleFrame,
+        layerAlpha,
+        movedRect,
+        stretchAlpha,
+        characterJitter,
+        pathOffset
+    ) {
+        if (effectId != null) {
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "layer_animation_frame",
+                mapOf(
+                    "step" to stepNumber,
+                    "layerIndex" to sprite.layerIndex,
+                    "resourceName" to sprite.resourceId,
+                    "effect_id" to effectId,
+                    "effectName" to SystemNnnVisualEffectMath.observedEffectName(effectId),
+                    "parameters_raw" to parameters,
+                    "para_0_to_15" to (0 until 16).map { parameters.getOrNull(it) },
+                    "currentFrame" to frame,
+                    "cycleFrame" to cycleFrame,
+                    "durationFrames" to durationFrames,
+                    "dstRect" to movedRect?.let { mapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height) },
+                    "srcRect" to fromRect?.let { mapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height) },
+                    "alpha" to layerAlpha,
+                    "stretchAlpha" to stretchAlpha,
+                    "blendMode" to "SRC_OVER",
+                    "bitmapHasAlpha" to sprite.bitmap.hasAlpha(),
+                    "alphaPremultiplied" to sprite.bitmap.isPremultiplied
+                ),
+                summary = "layer=${sprite.layerIndex} effect=$effectId frame=$frame cycle=$cycleFrame alpha=$layerAlpha"
+            )
+        }
+    }
+
     val ctransColor = if (effectId == 9) {
         SystemNnnVisualEffectMath.ctransColorOffset(frame, parameters)
     } else null
@@ -1148,6 +1417,10 @@ private fun SystemNnnScreenEffectOverlay(
                 IntArray(bitmap.width * bitmap.height).also { pixels ->
                     bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
                 }
+            }.onFailure { failure ->
+                SystemNnnDiagnosticLog.active?.recordException(
+                    "screen_effect_source_read_failure", failure, "effectId=$effectId frame=$frame"
+                )
             }.getOrNull()
         }
     }
@@ -1157,6 +1430,10 @@ private fun SystemNnnScreenEffectOverlay(
                 IntArray(bitmap.width * bitmap.height).also { pixels ->
                     bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
                 }
+            }.onFailure { failure ->
+                SystemNnnDiagnosticLog.active?.recordException(
+                    "screen_effect_saved_buffer_read_failure", failure, "effectId=$effectId frame=$frame"
+                )
             }.getOrNull()
         }
     }
@@ -1180,7 +1457,32 @@ private fun SystemNnnScreenEffectOverlay(
                     transitionSource = savedPixels
                 ) ?: return@runCatching null
                 Bitmap.createBitmap(pixels, source.width, source.height, Bitmap.Config.ARGB_8888)
+            }.onFailure { failure ->
+                SystemNnnDiagnosticLog.active?.recordException(
+                    "screen_effect_render_failure",
+                    failure,
+                    "effectId=$effectId frame=$frame params=$parameters"
+                )
             }.getOrNull()
+        }
+    }
+    LaunchedEffect(effectId, parameters, frame, renderedBitmap, source) {
+        if (renderedBitmap == null) {
+            val supportedPainterFallback = effectId in setOf(10, 11, 54, 55)
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                if (supportedPainterFallback) "screen_effect_fallback" else "screen_effect_unsupported",
+                mapOf(
+                    "effect_id" to effectId,
+                    "effectName" to SystemNnnVisualEffectMath.observedEffectName(effectId),
+                    "parameters_raw" to parameters,
+                    "para_0_to_15" to (0 until 16).map { parameters.getOrNull(it) },
+                    "currentFrame" to frame,
+                    "sourceAvailable" to (source != null && !source.isRecycled),
+                    "rendererAvailable" to (effectId in NATIVE_SCREEN_BUFFER_RENDER_EFFECTS),
+                    "fallbackPainterAvailable" to supportedPainterFallback
+                ),
+                summary = "screen effect $effectId frame $frame has no rendered bitmap"
+            )
         }
     }
     DisposableEffect(renderedBitmap) {
@@ -1308,6 +1610,9 @@ private fun QuickMenu(
     onAutoToggle: () -> Unit,
     onSkipToggle: () -> Unit,
     onExportDiagnostics: () -> Unit,
+    onExportTrace: () -> Unit,
+    debugVisible: Boolean,
+    onDebugToggle: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     Surface(
@@ -1326,6 +1631,8 @@ private fun QuickMenu(
             QuickMenuButton(label = "AUTO", selected = autoEnabled, onClick = onAutoToggle)
             QuickMenuButton(label = "SKIP", selected = skipEnabled, onClick = onSkipToggle)
             QuickMenuButton(label = "LOG", selected = false, onClick = onExportDiagnostics)
+            QuickMenuButton(label = "TRACE", selected = false, onClick = onExportTrace)
+            QuickMenuButton(label = "DBG", selected = debugVisible, onClick = onDebugToggle)
         }
     }
 }
