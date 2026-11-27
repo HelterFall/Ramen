@@ -10,6 +10,8 @@ on:
     paths:
       - ".github/workflows/android-apk-check.yml"
       - "app/src/main/java/io/github/helterfall/ramen/runtime/systemnnn/**"
+      - "app/src/main/java/io/github/helterfall/ramen/ui/**"
+      - "app/src/main/java/io/github/helterfall/ramen/library/**"
 
 permissions:
   contents: read
