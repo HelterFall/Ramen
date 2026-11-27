@@ -2,6 +2,7 @@ package io.github.helterfall.ramen.runtime.systemnnn
 
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.io.OutputStream
 import java.nio.charset.StandardCharsets
 
@@ -78,6 +79,38 @@ internal object SystemNnnFullGameAuditExporter {
             )
         }
         return copiedBytes
+    }
+
+
+    @Throws(IOException::class)
+    fun verifySavedReport(source: InputStream, expectedBytes: Long): Long {
+        if (expectedBytes <= 0L) {
+            throw IOException("The expected audit report size is empty.")
+        }
+        var actualBytes = 0L
+        var firstByte = -1
+        var lastByte = -1
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        source.use { input ->
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                if (firstByte < 0) firstByte = buffer[0].toInt() and 0xFF
+                lastByte = buffer[count - 1].toInt() and 0xFF
+                actualBytes += count.toLong()
+            }
+        }
+        if (actualBytes != expectedBytes ||
+            firstByte != '{'.code ||
+            lastByte != '\n'.code
+        ) {
+            throw IOException(
+                "The saved document did not verify as complete JSON: " +
+                    "read $actualBytes bytes, expected $expectedBytes."
+            )
+        }
+        return actualBytes
     }
 
     private const val REPORT_TYPE = "ramen.system-nnn.full-game-audit"

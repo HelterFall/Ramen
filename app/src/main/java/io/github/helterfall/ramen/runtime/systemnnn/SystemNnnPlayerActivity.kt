@@ -196,7 +196,13 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     if (copiedBytes != staged.length() || copiedBytes <= 0L) {
                         throw IOException("Размер записанного JSON не совпал с подготовленным отчётом.")
                     }
-                    val message = "JSON сохранён: $copiedBytes байт. Физические SPT-записи и каталоги ресурсов включены."
+                    val verificationStream = contentResolver.openInputStream(destination)
+                        ?: throw IOException("Не удалось повторно открыть JSON для проверки сохранённого содержимого.")
+                    val verifiedBytes = SystemNnnFullGameAuditExporter.verifySavedReport(
+                        verificationStream,
+                        copiedBytes
+                    )
+                    val message = "JSON проверен после записи: $verifiedBytes байт. Физические SPT-записи и каталоги ресурсов включены."
                     mainHandler.post {
                         android.widget.Toast.makeText(
                             this,

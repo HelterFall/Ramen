@@ -77,6 +77,13 @@ class SystemNnnFullGameAuditorTest {
             val exportedJson = String(exportedBytes.toByteArray(), Charsets.UTF_8)
             assertTrue(exportedJson.startsWith("{"))
             assertTrue(exportedJson.contains("\"reportType\":\"ramen.system-nnn.full-game-audit\""))
+            assertEquals(
+                stagedBytes,
+                SystemNnnFullGameAuditExporter.verifySavedReport(
+                    exportedBytes.toByteArray().inputStream(),
+                    stagedBytes
+                )
+            )
             assertTrue(exportedJson.contains("STARTMESSAGE"))
             assertFalse(exportedJson.contains(privateDialogueMarker))
         } finally {
