@@ -104,6 +104,7 @@ internal class SystemNnnFullGameAuditor(
     private var totalSptCandidates = 0
     private var invalidSptCandidates = 0
     private var fileWalkTruncated = false
+    private var fileWalkDepthLimited = false
     private var totalModulesScanned = 0
     private var totalModulesFailed = 0
     private var totalManifests = 0
@@ -218,6 +219,14 @@ internal class SystemNnnFullGameAuditor(
                 null
             )
         }
+        if (fileWalkDepthLimited) {
+            addIssue(
+                "file_scan_depth_limit",
+                "Directory discovery reached the configured depth limit while deeper folders remained; the report may omit files in those folders.",
+                null,
+                null
+            )
+        }
 
         val managersByModule = linkedMapOf<String, SystemNnnAssetManager?>()
         val modulePlans = plansByPath.values.toList()
@@ -255,7 +264,17 @@ internal class SystemNnnFullGameAuditor(
                     null
                 )
             } else if (key !in assetCatalogReports) {
-                assetCatalogReports[key] = assetCatalogSummary(assetRoot, managerResult.manager)
+                val summary = runCatching {
+                    assetCatalogSummary(assetRoot, managerResult.manager)
+                }.onFailure { failure ->
+                    addIssue(
+                        "asset_catalog_inventory_error",
+                        safeMessage(failure, root),
+                        relativePath(root, plan.file),
+                        null
+                    )
+                }.getOrNull()
+                if (summary != null) assetCatalogReports[key] = summary
             }
         }
 
@@ -313,9 +332,12 @@ internal class SystemNnnFullGameAuditor(
                 "rootLabel" to root.name,
                 "allDiscoveredProjectManifests" to totalManifests,
                 "allValidSptModules" to totalModulesScanned,
+                "discoveredSptModules" to plansByPath.size,
+                "successfullyScannedModules" to totalModulesScanned,
                 "orphanSptModules" to plansByPath.values.count { it.isOrphan },
                 "invalidSptCandidates" to invalidSptCandidates,
                 "fileDiscoveryTruncated" to fileWalkTruncated,
+                "fileDiscoveryDepthLimited" to fileWalkDepthLimited,
                 "totalPhysicalRecords" to totalRecords,
                 "totalSptCandidates" to totalSptCandidates,
                 "failedModules" to totalModulesFailed,
@@ -325,7 +347,7 @@ internal class SystemNnnFullGameAuditor(
             ),
             "coverage" to linkedMapOf(
                 "projectManifests" to "all discovered spt/project.xtx files",
-                "sptModules" to "all valid SPT files referenced by manifests plus valid orphan SPT files",
+                "sptModules" to "all valid SPT files referenced by manifests plus valid orphan SPT files, subject to reported file count and depth limits",
                 "records" to "all validated physical command records in every scanned module",
                 "conditionalPaths" to "both sides are inventoried structurally; runtime-dependent branch outcomes are not guessed",
                 "assets" to "asset bank catalog and statically decoded resource references; asset payload bytes are not exported",
@@ -1187,10 +1209,22 @@ internal class SystemNnnFullGameAuditor(
 
     private fun discoverFiles(root: File, onProgress: (Int) -> Unit): List<File> {
         var visitedFiles = 0
+        val rootDepth = root.toPath().nameCount
         val discovered = root.walkTopDown()
             .onEnter { directory ->
-                !Files.isSymbolicLink(directory.toPath()) &&
-                    (directory == root || !isIgnoredDirectory(directory.name))
+                val isSymbolicLink = Files.isSymbolicLink(directory.toPath())
+                val ignored = directory != root && isIgnoredDirectory(directory.name)
+                if (!isSymbolicLink && !ignored) {
+                    val depth = directory.toPath().nameCount - rootDepth
+                    if (depth >= MAX_SCAN_DEPTH - 1) {
+                        val hasDeeperDirectory = directory.listFiles()?.any { child ->
+                            child.isDirectory && !Files.isSymbolicLink(child.toPath()) &&
+                                !isIgnoredDirectory(child.name)
+                        } == true
+                        if (hasDeeperDirectory) fileWalkDepthLimited = true
+                    }
+                }
+                !isSymbolicLink && !ignored
             }
             .maxDepth(MAX_SCAN_DEPTH)
             .filter { file -> file.isFile && !Files.isSymbolicLink(file.toPath()) }
@@ -1283,6 +1317,9 @@ internal class SystemNnnFullGameAuditor(
         issueStats.clear()
         moduleReports.clear()
         projectReports.clear()
+        assetManagers.values.forEach { result ->
+            runCatching { result.manager?.close() }
+        }
         assetManagers.clear()
         assetCatalogReports.clear()
         globalRecordKinds.clear()
@@ -1294,6 +1331,7 @@ internal class SystemNnnFullGameAuditor(
         totalSptCandidates = 0
         invalidSptCandidates = 0
         fileWalkTruncated = false
+        fileWalkDepthLimited = false
         totalModulesScanned = 0
         totalModulesFailed = 0
         totalManifests = 0
