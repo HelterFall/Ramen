@@ -1,13 +1,18 @@
 package io.github.helterfall.ramen.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,6 +22,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -24,14 +30,17 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -57,6 +66,8 @@ import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
+import io.github.helterfall.ramen.nscripter.NscripterScanReport
+import io.github.helterfall.ramen.nscripter.NscripterStaticScanner
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -80,6 +91,12 @@ fun RamenApp() {
     var statusMessage by remember {
         mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
     }
+    var scanGame by remember { mutableStateOf<GameRecord?>(null) }
+    var isScanning by remember { mutableStateOf(false) }
+    var scanReport by remember { mutableStateOf<NscripterScanReport?>(null) }
+    var scanJson by remember { mutableStateOf<String?>(null) }
+    var scanOutputPath by remember { mutableStateOf<String?>(null) }
+    var scanError by remember { mutableStateOf<String?>(null) }
 
     val executor = remember { Executors.newSingleThreadExecutor() }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
@@ -87,6 +104,55 @@ fun RamenApp() {
     DisposableEffect(executor) {
         onDispose {
             executor.shutdown()
+        }
+    }
+
+    fun startNscripterScan(game: GameRecord) {
+        if (isImporting || isScanning) {
+            statusMessage = "Дождись окончания текущей операции."
+            return
+        }
+
+        scanGame = game
+        isScanning = true
+        scanReport = null
+        scanJson = null
+        scanOutputPath = null
+        scanError = null
+        statusMessage = "Сканирую ${game.title}…"
+
+        executor.execute {
+            try {
+                val scanner = NscripterStaticScanner()
+                val gameDirectory = File(context.filesDir, game.relativeDirectory)
+                val outputFile = File(
+                    context.filesDir,
+                    "reports/nscripter/${game.id}-scan.json"
+                )
+                val report = scanner.writeJson(gameDirectory, outputFile)
+                val json = outputFile.readText(Charsets.UTF_8)
+                val relativeOutputPath = outputFile.relativeTo(context.filesDir)
+                    .invariantSeparatorsPath
+
+                mainHandler.post {
+                    scanReport = report
+                    scanJson = json
+                    scanOutputPath = relativeOutputPath
+                    isScanning = false
+                    statusMessage = if (report.parseErrors.isEmpty()) {
+                        "Сканирование ${game.title} завершено."
+                    } else {
+                        "Сканирование завершено с ошибками: ${report.parseErrors.size}."
+                    }
+                }
+            } catch (error: Exception) {
+                val message = error.message ?: error.javaClass.simpleName
+                mainHandler.post {
+                    scanError = message
+                    isScanning = false
+                    statusMessage = "Сканирование не завершено: $message"
+                }
+            }
         }
     }
 
@@ -286,6 +352,9 @@ fun RamenApp() {
                     items(games, key = { it.id }) { game ->
                         GameCard(
                             game = game,
+                            isScanning = isScanning && scanGame?.id == game.id,
+                            scanEnabled = !isScanning && !isImporting,
+                            onScan = { startNscripterScan(game) },
                             onInspectResources = {
                                 val intent = Intent(context, ResourceInspectorActivity::class.java)
                                     .putExtra(
@@ -323,6 +392,24 @@ fun RamenApp() {
                 }
                 item { ComingNextSection() }
                 item { BuildFooter() }
+            }
+
+            scanGame?.let { game ->
+                NscripterScanDialog(
+                    gameTitle = game.title,
+                    isScanning = isScanning,
+                    report = scanReport,
+                    jsonOutputPath = scanOutputPath,
+                    error = scanError,
+                    onCopyJson = {
+                        scanJson?.let { json ->
+                            context.getSystemService(ClipboardManager::class.java)
+                                ?.setPrimaryClip(ClipData.newPlainText("NScripter scan", json))
+                            Toast.makeText(context, "JSON скопирован", Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    onDismiss = { scanGame = null }
+                )
             }
         }
     }
@@ -623,6 +710,9 @@ private fun SectionHeading(text: String) {
 @Composable
 private fun GameCard(
     game: GameRecord,
+    isScanning: Boolean,
+    scanEnabled: Boolean,
+    onScan: () -> Unit,
     onInspectResources: () -> Unit,
     onLaunch: () -> Unit
 ) {
@@ -680,6 +770,18 @@ private fun GameCard(
             ) {
                 Text("Просмотреть GPK/GTB и VPK/VTB")
             }
+            if (game.engineId == "nscripter") {
+                OutlinedButton(
+                    onClick = onScan,
+                    enabled = scanEnabled,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(13.dp)
+                ) {
+                    Text(
+                        if (isScanning) "Сканирование…" else "Сканировать NScripter"
+                    )
+                }
+            }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
                 (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE")
             ) {
@@ -696,6 +798,147 @@ private fun GameCard(
                 }
             }
         }
+    }
+}
+
+
+@Composable
+private fun NscripterScanDialog(
+    gameTitle: String,
+    isScanning: Boolean,
+    report: NscripterScanReport?,
+    jsonOutputPath: String?,
+    error: String?,
+    onCopyJson: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Статический скан: $gameTitle") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 540.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(9.dp)
+            ) {
+                if (isScanning) {
+                    CircularProgressIndicator()
+                    Text("Читаю сценарии, индексы NSA/SAR и инвентаризирую ресурсы…")
+                } else if (error != null) {
+                    Text(
+                        text = "Сканирование не удалось",
+                        color = Color(0xFFFF9D91),
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(error, color = RamenText)
+                } else if (report != null) {
+                    Text(
+                        text = "Найдено файлов: ${report.scannedFileCount}",
+                        color = RamenText,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    ScanReportLine("Скрипты", report.scriptFiles.joinToString().ifBlank { "Не найдены" })
+                    ScanReportLine(
+                        "Архивы",
+                        report.archives.joinToString("; ") {
+                            "${it.path} (${it.format}, ${it.entryCount} записей)"
+                        }.ifBlank { "Не найдены" }
+                    )
+                    ScanReportLine(
+                        "Частоты команд",
+                        report.commandCounts.entries
+                            .sortedWith(compareByDescending<Map.Entry<String, Int>> { it.value }.thenBy { it.key })
+                            .joinToString(", ") { "${it.key}: ${it.value}" }
+                            .ifBlank { "Команды не обнаружены" }
+                    )
+                    ScanReportLine(
+                        "Форматы графики",
+                        report.graphicsFormats.entries.joinToString(", ") { "${it.key}: ${it.value}" }
+                            .ifBlank { "Не обнаружены" }
+                    )
+                    ScanReportLine(
+                        "Форматы аудио",
+                        report.audioFormats.entries.joinToString(", ") { "${it.key}: ${it.value}" }
+                            .ifBlank { "Не обнаружены" }
+                    )
+
+                    if (report.unsupportedDirectives.isNotEmpty()) {
+                        Text(
+                            text = "Неизвестные директивы",
+                            color = RamenAccent,
+                            fontWeight = FontWeight.Bold
+                        )
+                        report.unsupportedDirectives.forEach { directive ->
+                            Text(
+                                text = "${directive.file}: ${directive.directive} — ${directive.count}, строки ${directive.lineNumbers.joinToString()}",
+                                color = RamenMuted,
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    } else {
+                        ScanReportLine("Неизвестные директивы", "Не обнаружены")
+                    }
+
+                    Text(
+                        text = "Ошибки разбора (${report.parseErrors.size})",
+                        color = if (report.parseErrors.isEmpty()) RamenAccent else Color(0xFFFF9D91),
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (report.parseErrors.isEmpty()) {
+                        Text("Ошибок нет.", color = RamenMuted, fontSize = 12.sp)
+                    } else {
+                        report.parseErrors.forEach { parseError ->
+                            Text(
+                                text = "• $parseError",
+                                color = Color(0xFFFFB4A9),
+                                fontSize = 11.sp,
+                                lineHeight = 15.sp
+                            )
+                        }
+                    }
+                    if (!jsonOutputPath.isNullOrBlank()) {
+                        ScanReportLine("JSON сохранён", jsonOutputPath)
+                        Text(
+                            "Полный JSON можно скопировать кнопкой ниже.",
+                            color = RamenMuted,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            if (report != null) {
+                TextButton(onClick = onCopyJson) { Text("Копировать JSON") }
+            } else {
+                TextButton(onClick = onDismiss) { Text("Закрыть") }
+            }
+        },
+        dismissButton = {
+            if (report != null) {
+                TextButton(onClick = onDismiss) { Text("Готово") }
+            }
+        }
+    )
+}
+
+@Composable
+private fun ScanReportLine(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            text = label,
+            color = RamenAccent,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Bold
+        )
+        Text(
+            text = value,
+            color = RamenText,
+            fontSize = 12.sp,
+            lineHeight = 16.sp
+        )
     }
 }
 
