@@ -669,7 +669,7 @@ class SystemNnnPlayerViewModelTest {
                 ),
                 offsets[7] to SystemNnnDecodedCommand.Dialogue(
                     nextCommandOffset = offsets.last() + 12L,
-                    textEntryOffset = textOffset(0)
+                    textEntryOffset = testTextStartOffset(lengths)
                 )
             )
         )
