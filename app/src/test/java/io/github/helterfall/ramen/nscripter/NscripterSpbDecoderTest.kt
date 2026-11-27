@@ -29,14 +29,14 @@ class NscripterSpbDecoderTest {
         assertEquals(70, readU32Le(bmp, 2))
         assertEquals(2, readU32Le(bmp, 18))
         assertEquals(2, readU32Le(bmp, 22))
-        // BMP stores the bottom row first: (10,20,30), (12,22,32).
-        assertArrayEquals(
-            byteArrayOf(10, 20, 30, 12, 22, 32, 0, 0),
-            bmp.copyOfRange(54, 62)
-        )
-        // The top row is reversed in the SPB bitstream: (12,22,32), (13,23,33).
+        // SPB streams rows top-down with alternating horizontal direction.
+        // A positive-height BMP stores the bottom row first in its pixel array.
         assertArrayEquals(
             byteArrayOf(12, 22, 32, 13, 23, 33, 0, 0),
+            bmp.copyOfRange(54, 62)
+        )
+        assertArrayEquals(
+            byteArrayOf(10, 20, 30, 12, 22, 32, 0, 0),
             bmp.copyOfRange(62, 70)
         )
     }
