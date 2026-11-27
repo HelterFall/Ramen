@@ -1261,6 +1261,7 @@ internal class SystemNnnFullGameAuditor(
         val rootDepth = root.toPath().nameCount
         val discovered = root.walkTopDown()
             .onEnter { directory ->
+                checkNotInterrupted()
                 val isSymbolicLink = Files.isSymbolicLink(directory.toPath())
                 val ignored = directory != root && isIgnoredDirectory(directory.name)
                 if (!isSymbolicLink && !ignored) {
