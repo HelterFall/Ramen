@@ -434,7 +434,17 @@ fun RamenApp() {
                             "Отчёт с замечаниями: найдено модулей $discoveredModules, успешно разобрано: $scannedModules, записей: $records. $incompleteReasons."
                         }
                         statusMessage = "SCAN готов. $completeness JSON — $stagedBytes байт. Выбери место сохранения."
-                        fullGameAuditDocumentPicker.launch(fullGameAuditDocumentName(game.title))
+                        try {
+                            fullGameAuditDocumentPicker.launch(fullGameAuditDocumentName(game.title))
+                        } catch (launchFailure: Exception) {
+                            fullGameAuditStagingFile.delete()
+                            fullAuditLock.set(false)
+                            isFullAuditBusy = false
+                            auditProgress = null
+                            pendingAuditTitle = ""
+                            statusMessage = "Не удалось открыть окно сохранения SCAN: " +
+                                (launchFailure.message ?: launchFailure.javaClass.simpleName)
+                        }
                     }
                 } catch (failure: Exception) {
                     fullGameAuditStagingFile.delete()
