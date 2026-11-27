@@ -590,8 +590,10 @@ class SystemNnnCommandDecoderImpl(
             }
 
             fun readRect(start: Int): SystemNnnNativeRect {
-                // The native callback copies RECT.left/top/right/bottom verbatim.
-                // CAllEffect later treats right/bottom as blit width/height;
+                // In CGameCallBack::SystemFunctionSetEffectRect the native
+                // callback calls SetMyRect(layer, 2, &from), SetMyRect(layer, 3, &to),
+                // and SetMyRect(layer, 5, &from): these are dstFrom/dstTo/dst,
+                // not source-texture coordinates. RECT.right/bottom are blit dimensions;
                 // zero or negative extents are native no-draw rectangles.
                 return SystemNnnNativeRect(
                     x = readPayloadWord(script, record, start).toInt(),
