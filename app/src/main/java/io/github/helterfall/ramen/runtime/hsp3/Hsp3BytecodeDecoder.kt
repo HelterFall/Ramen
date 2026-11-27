@@ -301,7 +301,14 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 }
             } else {
                 PendingInstruction(pc) { _, _ ->
-                    Hsp3Instruction.Unsupported(TYPE_EXTCMD, commandId)
+                    Hsp3Instruction.Unsupported(
+                        commandType = TYPE_EXTCMD,
+                        commandId = commandId,
+                        codeOffset = pc,
+                        tokenType = command.type,
+                        tokenValue = command.value,
+                        detail = "Unsupported OpenHSP extcmd 0x${commandId.toString(16)} at CS+0x${pc.toString(16)}."
+                    )
                 }
             }
             TYPE_INTCMD -> {
