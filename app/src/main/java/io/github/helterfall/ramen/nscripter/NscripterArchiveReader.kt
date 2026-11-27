@@ -138,7 +138,9 @@ class NscripterArchiveReader(
         if (entry.packedSize > maxBytes || entry.packedSize > Int.MAX_VALUE) {
             throw IOException("Packed archive entry exceeds the configured read limit: ${entry.name}")
         }
-        if (entry.unpackedSize > maxBytes || entry.unpackedSize > Int.MAX_VALUE) {
+        if (entry.compressionType == 0 &&
+            (entry.unpackedSize > maxBytes || entry.unpackedSize > Int.MAX_VALUE)
+        ) {
             throw IOException("Unpacked archive entry exceeds the configured read limit: ${entry.name}")
         }
 
@@ -166,9 +168,9 @@ class NscripterArchiveReader(
             }
             SPB_COMPRESSION -> spbDecoder.decode(
                 packed = packed,
-                // ONScripter derives SPB's BMP size from the dimensions in its stream.
-                // Some archives store zero in the directory's original-size field.
-                expectedUnpackedSize = entry.unpackedSize.takeIf { it > 0L },
+                // ONScripter derives SPB's BMP size from the dimensions in its stream
+                // and does not use the archive's original-size field for this codec.
+                expectedUnpackedSize = null,
                 maxOutputBytes = maxBytes
             )
             else -> throw UnsupportedNscripterCompressionException(entry.compressionType)
