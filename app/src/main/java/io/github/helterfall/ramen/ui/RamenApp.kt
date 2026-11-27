@@ -1,6 +1,7 @@
 package io.github.helterfall.ramen.ui
 
 import android.Manifest
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -315,11 +316,18 @@ fun RamenApp() {
                     fullGameAuditStagingFile.length()
                 )
                 auditSnapshot = SystemNnnFullGameAuditStateStore.read(context)
+                val uriGrantFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                runCatching {
+                    context.contentResolver.takePersistableUriPermission(uri, uriGrantFlags)
+                }
                 context.startForegroundService(
                     Intent(context, SystemNnnFullGameAuditService::class.java).apply {
                         action = SystemNnnFullGameAuditService.ACTION_EXPORT_REPORT
                         putExtra(SystemNnnFullGameAuditService.EXTRA_DESTINATION_URI, uri.toString())
                         putExtra(SystemNnnFullGameAuditService.EXTRA_TITLE, title)
+                        clipData = ClipData.newRawUri("SCAN JSON destination", uri)
+                        addFlags(uriGrantFlags)
                     }
                 )
                 statusMessage = "Сохраняю и проверяю JSON в фоне…"
