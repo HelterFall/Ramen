@@ -166,7 +166,9 @@ class NscripterArchiveReader(
             }
             SPB_COMPRESSION -> spbDecoder.decode(
                 packed = packed,
-                expectedUnpackedSize = entry.unpackedSize,
+                // ONScripter derives SPB's BMP size from the dimensions in its stream.
+                // Some archives store zero in the directory's original-size field.
+                expectedUnpackedSize = entry.unpackedSize.takeIf { it > 0L },
                 maxOutputBytes = maxBytes
             )
             else -> throw UnsupportedNscripterCompressionException(entry.compressionType)
