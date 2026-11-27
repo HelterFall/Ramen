@@ -230,13 +230,19 @@ internal class SystemNnnFullGameAuditor(
 
         val managersByModule = linkedMapOf<String, SystemNnnAssetManager?>()
         val modulePlans = plansByPath.values.toList()
-        modulePlans.forEachIndexed { moduleIndex, plan ->
-            val managerProgress = 0.10f + 0.08f *
-                ((moduleIndex + 1).toFloat() / modulePlans.size.coerceAtLeast(1))
-            onProgress?.invoke(
-                "Проверяю каталоги ресурсов: ${moduleIndex + 1}/${modulePlans.size}",
-                managerProgress
-            )
+        try {
+            val moduleProgressStride = (modulePlans.size / 100).coerceAtLeast(1)
+            modulePlans.forEachIndexed { moduleIndex, plan ->
+                if (moduleIndex == 0 || (moduleIndex + 1) % moduleProgressStride == 0 ||
+                    moduleIndex == modulePlans.lastIndex
+                ) {
+                    val managerProgress = 0.10f + 0.08f *
+                        ((moduleIndex + 1).toFloat() / modulePlans.size.coerceAtLeast(1))
+                    onProgress?.invoke(
+                        "Проверяю каталоги ресурсов: ${moduleIndex + 1}/${modulePlans.size}",
+                        managerProgress
+                    )
+                }
             val assetRoot = plan.assetRoot.canonicalFile
             val key = assetRoot.canonicalPath
             val managerResult = assetManagers.getOrPut(key) {
@@ -278,7 +284,6 @@ internal class SystemNnnFullGameAuditor(
             }
         }
 
-        try {
             val projectNamesByManifest = manifestModules
             modulePlans.forEachIndexed { moduleIndex, plan ->
                 if (Thread.currentThread().isInterrupted) {
@@ -307,11 +312,15 @@ internal class SystemNnnFullGameAuditor(
                     assetManager = managersByModule[plan.file.canonicalPath],
                     onRecordsProgress = moduleFraction
                 )
-                onProgress?.invoke(
-                    "Модуль ${moduleIndex + 1}/${modulePlans.size} обработан: ${plan.moduleName}",
-                    (0.18f + 0.68f * ((moduleIndex + 1).toFloat() / modulePlans.size.coerceAtLeast(1)))
-                        .coerceIn(0.18f, 0.86f)
-                )
+                if (moduleIndex == 0 || (moduleIndex + 1) % moduleProgressStride == 0 ||
+                    moduleIndex == modulePlans.lastIndex
+                ) {
+                    onProgress?.invoke(
+                        "Модуль ${moduleIndex + 1}/${modulePlans.size} обработан: ${plan.moduleName}",
+                        (0.18f + 0.68f * ((moduleIndex + 1).toFloat() / modulePlans.size.coerceAtLeast(1)))
+                            .coerceIn(0.18f, 0.86f)
+                    )
+                }
             }
 
             onProgress?.invoke("Проверяю scene.dat, var.fxf и дополнительные каталоги…", 0.89f)
@@ -485,7 +494,7 @@ internal class SystemNnnFullGameAuditor(
                 diagnosticsEnabled = false
             )
 
-            onRecordsProgress(0, stream.records.size)
+            var lastProgressTimeNanos = 0L
             stream.records.forEachIndexed { recordIndex, record ->
                 if (Thread.currentThread().isInterrupted) {
                     throw IOException("Full game audit was interrupted.")
@@ -583,7 +592,13 @@ internal class SystemNnnFullGameAuditor(
                         )
                     }
                 }
-                if ((recordIndex + 1) % 64 == 0 || recordIndex == stream.records.lastIndex) {
+                val progressNow = System.nanoTime()
+                val progressIntervalElapsed =
+                    progressNow - lastProgressTimeNanos >= 100_000_000L
+                if (recordIndex == stream.records.lastIndex ||
+                    ((recordIndex + 1) % 128 == 0 && progressIntervalElapsed)
+                ) {
+                    lastProgressTimeNanos = progressNow
                     onRecordsProgress(recordIndex + 1, stream.records.size)
                 }
             }
