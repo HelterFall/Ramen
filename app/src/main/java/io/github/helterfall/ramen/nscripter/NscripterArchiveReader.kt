@@ -28,7 +28,9 @@ data class NscripterArchiveIndex(
  * decodes the uncompressed codec (0) and explicitly rejects the compressed
  * SPB/LZSS/NBZ codecs rather than returning ciphertext or truncated data.
  */
-class NscripterArchiveReader {
+class NscripterArchiveReader(
+    private val spbDecoder: NscripterSpbDecoder = NscripterSpbDecoder()
+) {
     private val shiftJis: Charset = Charset.forName("Shift_JIS")
 
     @Throws(IOException::class)
@@ -120,9 +122,8 @@ class NscripterArchiveReader {
     }
 
     /**
-     * Reads one entry into memory when its payload is stored without compression.
-     * Compressed NSA entries remain inspectable in the index, but cannot be
-     * mistaken for decoded resources by this base scanner.
+     * Reads a stored entry or decompresses supported SPB bitmaps.
+     * LZSS and NBZ remain explicitly unsupported rather than being returned as raw bytes.
      */
     @Throws(IOException::class)
     fun readEntry(
@@ -131,27 +132,44 @@ class NscripterArchiveReader {
         maxBytes: Long = DEFAULT_MAX_ENTRY_BYTES
     ): ByteArray {
         if (!archiveFile.isFile) throw IOException("Archive does not exist: ${archiveFile.path}")
-        if (entry.compressionType != 0) {
+        if (entry.compressionType != 0 && entry.compressionType != SPB_COMPRESSION) {
             throw UnsupportedNscripterCompressionException(entry.compressionType)
         }
-        if (entry.packedSize != entry.unpackedSize) {
-            throw IOException("Stored NSA entry has mismatched packed/unpacked sizes: ${entry.name}")
-        }
         if (entry.packedSize > maxBytes || entry.packedSize > Int.MAX_VALUE) {
-            throw IOException("Archive entry exceeds the configured read limit: ${entry.name}")
+            throw IOException("Packed archive entry exceeds the configured read limit: ${entry.name}")
+        }
+        if (entry.unpackedSize > maxBytes || entry.unpackedSize > Int.MAX_VALUE) {
+            throw IOException("Unpacked archive entry exceeds the configured read limit: ${entry.name}")
         }
 
-        RandomAccessFile(archiveFile, "r").use { input ->
+        val packed = RandomAccessFile(archiveFile, "r").use { input ->
             val length = input.length()
             if (entry.dataOffset < 0L || entry.dataOffset > length ||
                 entry.packedSize > length - entry.dataOffset
             ) {
                 malformed("Archive entry '${entry.name}' is outside the current archive file.")
             }
-            val result = ByteArray(entry.packedSize.toInt())
-            input.seek(entry.dataOffset)
-            input.readFully(result)
-            return result
+            ByteArray(entry.packedSize.toInt()).also { bytes ->
+                input.seek(entry.dataOffset)
+                input.readFully(bytes)
+            }
+        }
+
+        return when (entry.compressionType) {
+            0 -> {
+                if (entry.packedSize != entry.unpackedSize) {
+                    throw IOException(
+                        "Stored NSA entry has mismatched packed/unpacked sizes: ${entry.name}"
+                    )
+                }
+                packed
+            }
+            SPB_COMPRESSION -> spbDecoder.decode(
+                packed = packed,
+                expectedUnpackedSize = entry.unpackedSize,
+                maxOutputBytes = maxBytes
+            )
+            else -> throw UnsupportedNscripterCompressionException(entry.compressionType)
         }
     }
 
@@ -209,6 +227,7 @@ class NscripterArchiveReader {
     private fun malformed(message: String): Nothing = throw IOException(message)
 
     companion object {
+        private const val SPB_COMPRESSION = 1
         private const val HEADER_SIZE = 6L
         private const val SAR_DESCRIPTOR_SIZE = 8L
         private const val NSA_DESCRIPTOR_SIZE = 13L
