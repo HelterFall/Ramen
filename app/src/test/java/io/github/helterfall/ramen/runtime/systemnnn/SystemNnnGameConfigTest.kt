@@ -23,7 +23,7 @@ class SystemNnnGameConfigTest {
         )
         assertEquals(24, config.frameTimeMillis)
         assertEquals(3, config.maxSkipFrame)
-        assertEquals(0, config.maxSkipFrameBackScript)
+        assertEquals(1, config.maxSkipFrameBackScript)
         assertEquals(8, config.skipAdjustFrame)
         assertTrue(config.isConfigured)
     }
@@ -33,7 +33,7 @@ class SystemNnnGameConfigTest {
         val config = SystemNnnGameConfig.parse("FrameTime=30\nmaxSkipFrame=0\nmaxSkipFrameBackScript=0\nskipAdjustFrame=5")
         assertEquals(30, config.frameTimeMillis)
         assertEquals(1, config.maxSkipFrame)
-        assertEquals(1, config.maxSkipFrameBackScript)
+        assertEquals(0, config.maxSkipFrameBackScript)
         assertEquals(5, config.skipAdjustFrame)
     }
 
