@@ -252,7 +252,21 @@ class Hsp3RuntimeAdapter(
     }
 
     @Throws(IOException::class)
-    fun prepare(executable: File): Hsp3PreparedGame {
+    fun prepare(executable: File): Hsp3PreparedGame =
+        prepareInternal(executable, validateRuntimeProfile = true)
+
+    /**
+     * Loads and decrypts start.ax for analysis only. The bytecode can be scanned
+     * even when this runtime profile cannot load the executable's HPI/DLL segments.
+     */
+    @Throws(IOException::class)
+    fun prepareForStaticScan(executable: File): Hsp3PreparedGame =
+        prepareInternal(executable, validateRuntimeProfile = false)
+
+    private fun prepareInternal(
+        executable: File,
+        validateRuntimeProfile: Boolean
+    ): Hsp3PreparedGame {
         if (!executable.isFile) throw IOException("The HSP3 executable is not a regular file.")
         FileRandomAccessSource(executable).use { source ->
             val container = try {
@@ -284,11 +298,13 @@ class Hsp3RuntimeAdapter(
                 throw IOException("HSPHED/CS/DS/OT/DI loading failed: ${error.message ?: error.javaClass.simpleName}", error)
             }
 
-            if (program.header.libraryInfoSizeBytes != 0L ||
-                program.header.functionInfoSizeBytes != 0L ||
-                program.header.moduleInfoSizeBytes != 0L ||
-                program.header.functionInfo2SizeBytes != 0L ||
-                program.header.hasExternalPluginData
+            if (validateRuntimeProfile && (
+                program.header.libraryInfoSizeBytes != 0L ||
+                    program.header.functionInfoSizeBytes != 0L ||
+                    program.header.moduleInfoSizeBytes != 0L ||
+                    program.header.functionInfo2SizeBytes != 0L ||
+                    program.header.hasExternalPluginData
+                )
             ) {
                 throw IOException("HSP3 external-library validation failed: this runtime profile does not load DLL/HPI plugin segments.")
             }
