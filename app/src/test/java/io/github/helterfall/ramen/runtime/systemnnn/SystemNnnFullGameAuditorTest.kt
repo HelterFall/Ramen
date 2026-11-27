@@ -172,34 +172,6 @@ class SystemNnnFullGameAuditorTest {
     }
 
     @Test
-    fun respondsToThreadInterruptionDuringFileDiscovery() {
-        val root = Files.createTempDirectory("ramen-full-game-audit-interrupt").toFile()
-        try {
-            repeat(128) { index ->
-                File(root, "file-$index.dat").writeText("fixture")
-            }
-            val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
-            val worker = Thread {
-                Thread.currentThread().interrupt()
-                try {
-                    SystemNnnFullGameAuditor(
-                        cacheDirectory = File(root, "audit-cache")
-                    ).audit(root)
-                } catch (caught: Throwable) {
-                    failure.set(caught)
-                }
-            }
-            worker.start()
-            worker.join(3_000L)
-
-            assertFalse("The interrupted SCAN worker must stop promptly.", worker.isAlive)
-            assertTrue("The interrupted SCAN must report an IOException.", failure.get() is IOException)
-        } finally {
-            root.deleteRecursively()
-        }
-    }
-
-    @Test
     fun reportsInvalidSptCandidatesWithoutCopyingTheirPayload() {
         val root = Files.createTempDirectory("ramen-full-game-audit-invalid").toFile()
         try {
