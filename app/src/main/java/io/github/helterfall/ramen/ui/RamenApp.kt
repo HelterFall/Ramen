@@ -30,6 +30,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -58,6 +59,8 @@ import io.github.helterfall.ramen.inspection.DirectoryInventoryTextWriter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
+import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnFullGameAuditor
+import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnFullGameAuditExporter
 import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
 import java.io.File
@@ -110,6 +113,19 @@ private fun structureDocumentName(title: String): String {
     return "$safeBase-structure.txt"
 }
 
+private fun fullGameAuditDocumentName(title: String): String {
+    val safeBase = title
+        .map { character ->
+            if (character.isLetterOrDigit() || character in " ._-") character else '_'
+        }
+        .joinToString("")
+        .trim()
+        .trim('.')
+        .take(64)
+        .ifBlank { "visual-novel" }
+    return "$safeBase-full-game-audit.json"
+}
+
 @Composable
 fun RamenApp() {
     val context = LocalContext.current
@@ -121,14 +137,22 @@ fun RamenApp() {
     }
     var isImporting by remember { mutableStateOf(false) }
     var isExportingStructure by remember { mutableStateOf(false) }
+    var isFullAuditBusy by remember { mutableStateOf(false) }
+    var auditProgress by remember { mutableStateOf<Float?>(null) }
+    var pendingAuditTitle by remember { mutableStateOf("") }
     var pendingStructureExport by remember { mutableStateOf<GameRecord?>(null) }
-    val isBusy = isImporting || isExportingStructure
+    val isBusy = isImporting || isExportingStructure || isFullAuditBusy
     var statusMessage by remember {
         mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
     }
 
     val executor = remember { Executors.newSingleThreadExecutor() }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    // Keep the staged JSON outside cacheDir so Android cannot evict it while
+    // the user is choosing a destination in the system document picker.
+    val fullGameAuditStagingFile = remember(context) {
+        File(context.filesDir, "reports/ramen-library-full-game-audit.json")
+    }
 
     DisposableEffect(executor) {
         onDispose {
@@ -243,6 +267,156 @@ fun RamenApp() {
                     SafFolderImporter(context.applicationContext).import(selectedUri)
                 }
             }
+        }
+    }
+
+    val fullGameAuditDocumentPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        if (uri == null) {
+            fullGameAuditStagingFile.delete()
+            isFullAuditBusy = false
+            auditProgress = null
+            pendingAuditTitle = ""
+            statusMessage = "Сохранение SCAN отменено. Отчёт не экспортирован."
+        } else {
+            val title = pendingAuditTitle.ifBlank { "игры" }
+            statusMessage = "Записываю JSON-отчёт: $title…"
+            auditProgress = 0f
+            try {
+                executor.execute {
+                    try {
+                        val staged = fullGameAuditStagingFile
+                        if (!staged.isFile || staged.length() <= 0L) {
+                            throw IOException("Подготовленный SCAN JSON отсутствует или пуст.")
+                        }
+                        val expectedBytes = staged.length()
+                        val expectedSha256 = SystemNnnFullGameAuditExporter.sha256(staged)
+                        val output = context.contentResolver.openOutputStream(uri, "wt")
+                            ?: throw IOException("Android не открыл выбранный JSON-документ для записи.")
+                        val copiedBytes = output.use { stream ->
+                            SystemNnnFullGameAuditExporter.copyTo(staged, stream) { copied, total ->
+                                val fraction = if (total > 0L) copied.toFloat() / total else 0f
+                                mainHandler.post {
+                                    auditProgress = fraction.coerceIn(0f, 1f)
+                                    statusMessage = "Сохраняю JSON: $copied из $total байт…"
+                                }
+                            }
+                        }
+                        if (copiedBytes != expectedBytes) {
+                            throw IOException("Размер записанного JSON не совпал с подготовленным отчётом.")
+                        }
+                        val verificationStream = context.contentResolver.openInputStream(uri)
+                            ?: throw IOException("Не удалось повторно открыть JSON для проверки.")
+                        val verifiedBytes = SystemNnnFullGameAuditExporter.verifySavedReport(
+                            verificationStream,
+                            copiedBytes,
+                            expectedSha256
+                        )
+                        staged.delete()
+                        mainHandler.post {
+                            isFullAuditBusy = false
+                            auditProgress = null
+                            pendingAuditTitle = ""
+                            statusMessage = "SCAN сохранён: $title. Проверено $verifiedBytes байт; SHA-256 совпадает."
+                        }
+                    } catch (failure: Exception) {
+                        val safeMessage = failure.message ?: failure.javaClass.simpleName
+                        fullGameAuditStagingFile.delete()
+                        mainHandler.post {
+                            isFullAuditBusy = false
+                            auditProgress = null
+                            pendingAuditTitle = ""
+                            statusMessage = "Не удалось сохранить SCAN JSON: " + safeMessage.take(220)
+                        }
+                    }
+                }
+            } catch (failure: Exception) {
+                isFullAuditBusy = false
+                auditProgress = null
+                pendingAuditTitle = ""
+                statusMessage = "Не удалось запустить сохранение SCAN: " +
+                    (failure.message ?: "ошибка фонового потока.")
+            }
+        }
+    }
+
+    fun startFullGameAudit(game: GameRecord) {
+        if (isBusy) {
+            statusMessage = "Дождись завершения текущей операции."
+            return
+        }
+        if (game.engineId != "system-nnn-spt") {
+            statusMessage = "Полный SCAN доступен только для игр System-NNN."
+            return
+        }
+        val root = try {
+            resolveImportedGameDirectory(context, game.relativeDirectory)
+        } catch (failure: Exception) {
+            statusMessage = "Не удалось открыть папку игры для SCAN: " +
+                (failure.message ?: failure.javaClass.simpleName)
+            return
+        }
+
+        isFullAuditBusy = true
+        auditProgress = null
+        pendingAuditTitle = game.title
+        statusMessage = "SCAN: готовлю полный анализ игры ${game.title}…"
+        fullGameAuditStagingFile.delete()
+
+        try {
+            executor.execute {
+                try {
+                    val report = SystemNnnFullGameAuditor(
+                        cacheDirectory = File(context.cacheDir, "ramen-full-game-audit-cache")
+                    ).audit(root) { label, fraction ->
+                        mainHandler.post {
+                            auditProgress = fraction?.coerceIn(0f, 0.93f)
+                            statusMessage = "SCAN · ${game.title}: $label"
+                        }
+                    }
+
+                    mainHandler.post {
+                        auditProgress = 0.95f
+                        statusMessage = "SCAN · ${game.title}: формирую и проверяю JSON-файл…"
+                    }
+                    val stagedBytes = SystemNnnFullGameAuditExporter.stageReport(
+                        report,
+                        fullGameAuditStagingFile
+                    )
+                    val scope = report["scope"] as? Map<*, *>
+                    val modules = scope?.get("allValidSptModules") ?: "?"
+                    val records = scope?.get("totalPhysicalRecords") ?: "?"
+                    mainHandler.post {
+                        if (!fullGameAuditStagingFile.isFile || fullGameAuditStagingFile.length() != stagedBytes) {
+                            isFullAuditBusy = false
+                            auditProgress = null
+                            pendingAuditTitle = ""
+                            statusMessage = "SCAN остановлен: подготовленный JSON не прошёл проверку размера."
+                            return@post
+                        }
+                        auditProgress = 1f
+                        statusMessage = "SCAN готов: модулей $modules, физических записей $records. JSON — $stagedBytes байт. Выбери место сохранения."
+                        fullGameAuditDocumentPicker.launch(fullGameAuditDocumentName(game.title))
+                    }
+                } catch (failure: Exception) {
+                    fullGameAuditStagingFile.delete()
+                    val safeMessage = failure.message ?: failure.javaClass.simpleName
+                    mainHandler.post {
+                        isFullAuditBusy = false
+                        auditProgress = null
+                        pendingAuditTitle = ""
+                        statusMessage = "SCAN не завершён: " + safeMessage.take(220)
+                    }
+                }
+            }
+        } catch (failure: Exception) {
+            fullGameAuditStagingFile.delete()
+            isFullAuditBusy = false
+            auditProgress = null
+            pendingAuditTitle = ""
+            statusMessage = "Не удалось запустить SCAN: " +
+                (failure.message ?: "ошибка фонового потока.")
         }
     }
 
@@ -378,12 +552,22 @@ fun RamenApp() {
                             onImportHtmlClick = onImportHtmlClick
                         )
                     }
+                    if (isFullAuditBusy) {
+                        item {
+                            FullGameScanProgressCard(
+                                title = pendingAuditTitle,
+                                message = statusMessage.removePrefix("SCAN · ").removePrefix("${pendingAuditTitle}: "),
+                                progress = auditProgress
+                            )
+                        }
+                    }
                     item { SectionHeading("ТВОЯ БИБЛИОТЕКА") }
                     items(games, key = { it.id }) { game ->
                         GameCard(
                             game = game,
                             isBusy = isBusy,
                             onExportStructure = { onExportStructureClick(game) },
+                            onFullGameAudit = { startFullGameAudit(game) },
                             onInspectResources = {
                                 val intent = Intent(context, ResourceInspectorActivity::class.java)
                                     .putExtra(
@@ -723,6 +907,7 @@ private fun GameCard(
     game: GameRecord,
     isBusy: Boolean,
     onExportStructure: () -> Unit,
+    onFullGameAudit: () -> Unit,
     onInspectResources: () -> Unit,
     onLaunch: () -> Unit
 ) {
@@ -775,6 +960,7 @@ private fun GameCard(
             )
             OutlinedButton(
                 onClick = onInspectResources,
+                enabled = !isBusy,
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(13.dp)
             ) {
@@ -788,11 +974,22 @@ private fun GameCard(
             ) {
                 Text("Сохранить структуру (.txt)")
             }
+            if (game.engineId == "system-nnn-spt") {
+                OutlinedButton(
+                    onClick = onFullGameAudit,
+                    enabled = !isBusy,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(13.dp)
+                ) {
+                    Text("Полный SCAN · сохранить JSON")
+                }
+            }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
                 (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE")
             ) {
                 Button(
                     onClick = onLaunch,
+                    enabled = !isBusy,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(13.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -805,6 +1002,62 @@ private fun GameCard(
                         fontWeight = FontWeight.Bold
                     )
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun FullGameScanProgressCard(
+    title: String,
+    message: String,
+    progress: Float?
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        color = RamenSurfaceRaised,
+        shape = RoundedCornerShape(17.dp)
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalArrangement = Arrangement.spacedBy(9.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "SCAN",
+                    color = RamenAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 1.2.sp
+                )
+                Spacer(modifier = Modifier.size(9.dp))
+                Text(
+                    text = title,
+                    color = RamenText,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.weight(1f))
+                Text(
+                    text = progress?.let { "${(it.coerceIn(0f, 1f) * 100).toInt()}%" } ?: "…",
+                    color = RamenAccent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = message,
+                color = RamenMuted,
+                fontSize = 12.sp,
+                lineHeight = 17.sp
+            )
+            if (progress == null) {
+                LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+            } else {
+                LinearProgressIndicator(
+                    progress = { progress.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
     }
