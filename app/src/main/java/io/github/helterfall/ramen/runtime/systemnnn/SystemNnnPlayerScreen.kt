@@ -212,17 +212,13 @@ fun SystemNnnPlayerScreen(
         canvasSizePx,
         viewportSizePx
     ) {
-        val logicalWidth = (state.backgroundBitmap?.width ?: state.backgroundMetadata?.widthPixels
-            ?: state.sprites.firstOrNull()?.bitmap?.width ?: 800).coerceAtLeast(1)
-        val logicalHeight = (state.backgroundBitmap?.height ?: state.backgroundMetadata?.heightPixels
-            ?: state.sprites.firstOrNull()?.bitmap?.height ?: 600).coerceAtLeast(1)
+        val logicalWidth = state.logicalWidth.coerceAtLeast(1)
+        val logicalHeight = state.logicalHeight.coerceAtLeast(1)
         val viewportWidth = viewportSizePx.width
         val viewportHeight = viewportSizePx.height
-        // Match SystemNnnAnimatedSpriteLayer's reference dimensions exactly.
-        val rendererReferenceWidth = (state.backgroundBitmap?.width
-            ?: state.sprites.firstOrNull()?.bitmap?.width ?: 800).coerceAtLeast(1)
-        val rendererReferenceHeight = (state.backgroundBitmap?.height
-            ?: state.sprites.firstOrNull()?.bitmap?.height ?: 600).coerceAtLeast(1)
+        // The game configuration defines the viewport; auxiliary layers may be smaller.
+        val rendererReferenceWidth = logicalWidth
+        val rendererReferenceHeight = logicalHeight
         val scaleX = if (viewportWidth > 0) viewportWidth.toFloat() / rendererReferenceWidth else null
         val scaleY = if (viewportHeight > 0) viewportHeight.toFloat() / rendererReferenceHeight else null
         val offsetX = if (canvasSizePx.width > 0 && viewportWidth > 0) {
@@ -312,17 +308,25 @@ fun SystemNnnPlayerScreen(
                 }
             )
         }
-        val effects = state.sprites.mapNotNull { sprite ->
-            sprite.nativeEffectId?.let { effectId ->
-                mapOf(
-                    "layer" to sprite.layerIndex,
-                    "effect_id" to effectId,
-                    "name" to SystemNnnVisualEffectMath.observedEffectName(effectId),
-                    "parameters_raw" to sprite.nativeEffectParameters,
-                    "para_0_to_15" to (0 until 16).map { sprite.nativeEffectParameters.getOrNull(it) },
-                    "currentFrame" to null
+        val effectLayersByIndex = LinkedHashMap<Int, SystemNnnActiveLayerEffect>()
+        state.layerEffects.forEach { effect -> effectLayersByIndex[effect.layerIndex] = effect }
+        state.sprites.forEach { sprite ->
+            val effectId = sprite.nativeEffectId ?: return@forEach
+            if (sprite.layerIndex !in effectLayersByIndex) {
+                effectLayersByIndex[sprite.layerIndex] = SystemNnnActiveLayerEffect(
+                    sprite.layerIndex, effectId, sprite.nativeEffectParameters, sprite.nativeEffectCommandOffset
                 )
             }
+        }
+        val effects = effectLayersByIndex.values.sortedBy { it.layerIndex }.map { effect ->
+            mapOf(
+                "layer" to effect.layerIndex,
+                "effect_id" to effect.effectId,
+                "name" to SystemNnnVisualEffectMath.observedEffectName(effect.effectId),
+                "parameters_raw" to effect.parameters,
+                "para_0_to_15" to (0 until 16).map { effect.parameters.getOrNull(it) },
+                "currentFrame" to null
+            )
         }.toMutableList()
         state.screenEffectId?.let { effectId ->
             effects += mapOf(
@@ -584,16 +588,8 @@ fun SystemNnnPlayerScreen(
             )
     ) {
         BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-            val fullFrameLayer = state.sprites.firstOrNull { sprite ->
-                val rect = sprite.nativeRect
-                rect != null && rect.x == 0 && rect.y == 0 &&
-                    rect.width == sprite.bitmap.width && rect.height == sprite.bitmap.height
-            }
-            val sceneAspectRatio = state.backgroundBitmap?.let { bitmap ->
-                bitmap.width.toFloat() / bitmap.height.toFloat()
-            } ?: fullFrameLayer?.bitmap?.let { bitmap ->
-                bitmap.width.toFloat() / bitmap.height.toFloat()
-            } ?: (4f / 3f)
+            val sceneAspectRatio = state.logicalWidth.toFloat() /
+                state.logicalHeight.coerceAtLeast(1).toFloat()
             val availableAspectRatio = maxWidth.value / maxHeight.value
             val viewportModifier = if (availableAspectRatio > sceneAspectRatio) {
                 Modifier.fillMaxHeight().aspectRatio(sceneAspectRatio)
@@ -607,10 +603,8 @@ fun SystemNnnPlayerScreen(
             ) {
                 val viewportDpWidth = maxWidth
                 val viewportDpHeight = maxHeight
-                val referenceWidth = (state.backgroundBitmap?.width
-                    ?: state.sprites.firstOrNull()?.bitmap?.width ?: 800).toFloat()
-                val referenceHeight = (state.backgroundBitmap?.height
-                    ?: state.sprites.firstOrNull()?.bitmap?.height ?: 600).toFloat()
+                val referenceWidth = state.logicalWidth.coerceAtLeast(1).toFloat()
+                val referenceHeight = state.logicalHeight.coerceAtLeast(1).toFloat()
                 val screenShake = if (state.screenEffectId == 18) {
                     SystemNnnVisualEffectMath.shakeOffset(
                         frame = screenEffectFrame,
@@ -656,19 +650,35 @@ fun SystemNnnPlayerScreen(
                             alignment = Alignment.TopStart
                         )
                     }
-                    state.sprites.forEach { sprite ->
-                        if (sprite.layerIndex !in hiddenPartnerLayers) {
-                            key(sprite.layerIndex) {
+                    val spritesByLayer = state.sprites.associateBy { it.layerIndex }
+                    val standaloneFlashes = state.layerEffects.filter { effect ->
+                        effect.effectId == 17 &&
+                            spritesByLayer[effect.layerIndex]?.nativeEffectId != effect.effectId
+                    }
+                    val renderLayers = (spritesByLayer.keys + standaloneFlashes.map { it.layerIndex })
+                        .distinct().sorted()
+                    renderLayers.forEach { layerIndex ->
+                        val sprite = spritesByLayer[layerIndex]
+                        if (sprite != null && layerIndex !in hiddenPartnerLayers) {
+                            key("sprite-$layerIndex") {
                                 SystemNnnAnimatedSpriteLayer(
                                     sprite = sprite,
                                     stepNumber = state.sceneStepNumber,
-                                    changePartner = changePartners[sprite.layerIndex],
+                                    changePartner = changePartners[layerIndex],
                                     viewportWidth = viewportDpWidth,
                                     viewportHeight = viewportDpHeight,
                                     referenceWidth = referenceWidth,
                                     referenceHeight = referenceHeight,
                                     frameTimeMillis = state.nativeRuntime.frameTimeMillis,
                                     onBitmapDisposed = onBitmapDisposed
+                                )
+                            }
+                        }
+                        standaloneFlashes.filter { it.layerIndex == layerIndex }.forEach { effect ->
+                            key("layer-effect-${effect.layerIndex}-${effect.commandOffset ?: 0L}") {
+                                SystemNnnStandaloneLayerFlash(
+                                    effect = effect,
+                                    frameTimeMillis = state.nativeRuntime.frameTimeMillis
                                 )
                             }
                         }
@@ -1006,7 +1016,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     }
     LaunchedEffect(animationKey, nativeFrameMillis) {
         if (hasRectMotion || isHaikeiYure ||
-            effectId in setOf(9, 29, 39, 40, 52, 62, 64, 65, 99, 119)
+            effectId in setOf(9, 17, 29, 39, 40, 52, 62, 64, 65, 99, 119)
         ) {
             val durationMillis = (durationFrames.toLong() * nativeFrameMillis).coerceIn(
                 nativeFrameMillis.toLong(), 600_000L
@@ -1109,7 +1119,19 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         }
     }
 
-    val cloudBitmap = remember(sprite.bitmap, parameters, referenceWidth, referenceHeight, isCloud) {
+    var cloudFrame by remember(animationKey) { mutableIntStateOf(0) }
+    LaunchedEffect(animationKey, nativeFrameMillis, isCloud) {
+        if (isCloud) {
+            while (true) {
+                delay(nativeFrameMillis.toLong())
+                cloudFrame = if (cloudFrame == Int.MAX_VALUE) 0 else cloudFrame + 1
+            }
+        }
+    }
+
+    val cloudBitmap = remember(
+        sprite.bitmap, parameters, referenceWidth, referenceHeight, isCloud, cloudFrame
+    ) {
         if (isCloud && !sprite.bitmap.isRecycled) {
             runCatching {
                 val sourcePixels = IntArray(sprite.bitmap.width * sprite.bitmap.height)
@@ -1118,7 +1140,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                     0, 0, sprite.bitmap.width, sprite.bitmap.height
                 )
                 val warped = SystemNnnVisualEffectMath.cloudWarpPixels(
-                    frame = 0L,
+                    frame = cloudFrame.toLong(),
                     parameters = parameters,
                     sourcePixels = sourcePixels,
                     sourceWidth = sprite.bitmap.width,
@@ -1137,6 +1159,11 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                 )
             }.getOrNull()
         } else null
+    }
+    DisposableEffect(cloudBitmap) {
+        onDispose {
+            if (cloudBitmap != null && !cloudBitmap.isRecycled) cloudBitmap.recycle()
+        }
     }
     LaunchedEffect(isCloud, cloudBitmap) {
         if (isCloud && cloudBitmap == null) {
@@ -1636,9 +1663,8 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         }
     }
 
-    // The observed CLOUD vector has para[0] == 0 and no DWQ mask. This is a
-    // static software perspective pass; cache the warped bitmap instead of
-    // recycling or replacing pixels while Compose may still be drawing them.
+    // The observed CLOUD vector has para[0] == 0 and no DWQ mask. Recompute
+    // its perspective sample with native m_x/m_y advances on each effect frame.
     cloudBitmap?.let { warped ->
         Canvas(Modifier.fillMaxSize()) {
             val outputHeight = (
@@ -1649,6 +1675,38 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                 dstSize = IntSize(size.width.roundToInt(), outputHeight)
             )
         }
+    }
+}
+
+@Composable
+private fun BoxScope.SystemNnnStandaloneLayerFlash(
+    effect: SystemNnnActiveLayerEffect,
+    frameTimeMillis: Int
+) {
+    val parameters = effect.parameters
+    val duration = (parameters.getOrNull(0) ?: 20).coerceIn(0, 9_999)
+    val animationKey = listOf(effect.layerIndex, effect.effectId, effect.commandOffset, parameters)
+    var frame by remember(animationKey) { mutableIntStateOf(0) }
+    LaunchedEffect(animationKey, frameTimeMillis) {
+        for (currentFrame in 0..duration) {
+            frame = currentFrame
+            if (currentFrame < duration) {
+                delay(frameTimeMillis.coerceAtLeast(1).toLong())
+            }
+        }
+    }
+    val flash = SystemNnnVisualEffectMath.flashState(frame, parameters)
+    if (flash.drawsFill) {
+        Box(
+            Modifier.fillMaxSize().background(
+                Color(
+                    flash.color.red / 255f,
+                    flash.color.green / 255f,
+                    flash.color.blue / 255f,
+                    1f
+                )
+            )
+        )
     }
 }
 

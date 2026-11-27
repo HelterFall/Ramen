@@ -626,6 +626,93 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun maeContinuesThePreviousNativeEffectAndNativeClearStillHidesThePicture() {
+        val lengths = List(8) { 3 }
+        val offsets = recordOffsets(lengths)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.LoadImageLayer(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 1,
+                    resourceId = "ev0601a"
+                ),
+                offsets[1] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[2],
+                    layerIndex = 1,
+                    effectId = 1
+                ),
+                offsets[2] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[3],
+                    layerIndex = 7,
+                    effectId = 27,
+                    parameters = listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120)
+                ),
+                offsets[3] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[4],
+                    layerIndex = 7,
+                    effectId = 1
+                ),
+                offsets[4] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[5],
+                    layerIndex = 9,
+                    effectId = 8,
+                    parameters = listOf(20, 56)
+                ),
+                offsets[5] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[6],
+                    layerIndex = 9,
+                    effectId = 1
+                ),
+                offsets[6] to SystemNnnDecodedCommand.ClearImageLayer(
+                    nextCommandOffset = offsets[7],
+                    layerIndex = 1
+                ),
+                offsets[7] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[8],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(lengths), decoder, EmptyAssets)
+
+        assertTrue(viewModel.uiState.sprites.none { it.layerIndex == 1 })
+        assertEquals(27, viewModel.uiState.layerEffects.single { it.layerIndex == 7 }.effectId)
+        assertEquals(8, viewModel.uiState.layerEffects.single { it.layerIndex == 9 }.effectId)
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
+    @Test
+    fun flashWithoutAPictureIsPublishedAsAnActiveNativeLayerEffect() {
+        val offsets = recordOffsets()
+        val parameters = listOf(40, 2, 21, 0, 0, 0)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 13,
+                    effectId = 17,
+                    parameters = parameters
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertTrue(viewModel.uiState.sprites.none { it.layerIndex == 13 })
+        val flash = viewModel.uiState.layerEffects.single { it.layerIndex == 13 }
+        assertEquals(17, flash.effectId)
+        assertEquals(parameters, flash.parameters)
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
+    @Test
     fun screenLayerFadeIsPublishedAsAViewportEffect() {
         val offsets = recordOffsets()
         val parameters = listOf(24, 16, 32, 48, 0, 0)

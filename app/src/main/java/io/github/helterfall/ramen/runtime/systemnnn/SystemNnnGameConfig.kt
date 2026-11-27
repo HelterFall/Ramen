@@ -7,6 +7,9 @@ import java.nio.file.Files
 /** Values read by native CGame from CNameList::LoadInit("game"). */
 data class SystemNnnGameConfig(
     val frameTimeMillis: Int = DEFAULT_FRAME_TIME_MILLIS,
+    /** Native CMyGraphics viewport size; auxiliary DWQ dimensions never redefine it. */
+    val screenWidth: Int = DEFAULT_SCREEN_WIDTH,
+    val screenHeight: Int = DEFAULT_SCREEN_HEIGHT,
     val maxSkipFrame: Int = DEFAULT_MAX_SKIP_FRAME,
     val maxSkipFrameBackScript: Int = DEFAULT_MAX_SKIP_FRAME,
     val skipAdjustFrame: Int = DEFAULT_SKIP_ADJUST_FRAME,
@@ -14,6 +17,8 @@ data class SystemNnnGameConfig(
 ) {
     companion object {
         const val DEFAULT_FRAME_TIME_MILLIS = 50
+        const val DEFAULT_SCREEN_WIDTH = 800
+        const val DEFAULT_SCREEN_HEIGHT = 600
         const val DEFAULT_MAX_SKIP_FRAME = 2
         const val DEFAULT_SKIP_ADJUST_FRAME = 10
         private const val MAX_SETUP_BYTES = 128 * 1024
@@ -36,10 +41,18 @@ data class SystemNnnGameConfig(
                 }
             }
             val maxSkip = (values["maxskipframe"] ?: DEFAULT_MAX_SKIP_FRAME).coerceAtLeast(1)
-            val knownKeys = setOf("frametime", "maxskipframe", "maxskipframebackscript", "skipadjustframe")
+            val knownKeys = setOf(
+                "frametime", "maxskipframe", "maxskipframebackscript", "skipadjustframe",
+                "screenwidth", "screensizex", "logicalwidth",
+                "screenheight", "screensizey", "logicalheight"
+            )
             return SystemNnnGameConfig(
                 frameTimeMillis = (values["frametime"] ?: DEFAULT_FRAME_TIME_MILLIS)
                     .takeIf { it > 0 } ?: DEFAULT_FRAME_TIME_MILLIS,
+                screenWidth = (values["screenwidth"] ?: values["screensizex"] ?: values["logicalwidth"])
+                    ?.takeIf { it in 1..4_096 } ?: DEFAULT_SCREEN_WIDTH,
+                screenHeight = (values["screenheight"] ?: values["screensizey"] ?: values["logicalheight"])
+                    ?.takeIf { it in 1..4_096 } ?: DEFAULT_SCREEN_HEIGHT,
                 maxSkipFrame = maxSkip,
                 maxSkipFrameBackScript = values["maxskipframebackscript"] ?: maxSkip,
                 skipAdjustFrame = values["skipadjustframe"] ?: DEFAULT_SKIP_ADJUST_FRAME,

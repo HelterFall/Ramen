@@ -545,6 +545,19 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
+    fun flashUsesTheIntroVectorAndNativeCountMaxFillTransition() {
+        val parameters = listOf(40, 2, 21, 0, 0, 0)
+        assertTrue(SystemNnnVisualEffectMath.flashState(0, parameters).drawsFill)
+        assertTrue(SystemNnnVisualEffectMath.flashState(1, parameters).drawsFill)
+        assertFalse(SystemNnnVisualEffectMath.flashState(2, parameters).drawsFill)
+        assertFalse(SystemNnnVisualEffectMath.flashState(22, parameters).drawsFill)
+        assertTrue(SystemNnnVisualEffectMath.flashState(23, parameters).drawsFill)
+        assertTrue(SystemNnnVisualEffectMath.flashState(40, parameters).drawsFill)
+        assertEquals(SystemNnnVisualColor(0, 0, 0),
+            SystemNnnVisualEffectMath.flashState(40, parameters).color)
+    }
+
+    @Test
     fun haikeiYureMatchesNativeLayerLocalWaveAndStopsAtCountMax() {
         val parameters = listOf(20, 20, 0, 25, 25, 0, 0, 0)
         assertEquals(SystemNnnVisualOffset(20f, 0f),
@@ -615,6 +628,29 @@ class SystemNnnVisualEffectMathTest {
             ),
             warped.pixels.toList()
         )
+    }
+
+    @Test
+    fun cloudMovesHorizontallyByNativeHundredthsPerFrame() {
+        val width = 16
+        val height = 8
+        val source = IntArray(width * height) { index ->
+            val x = index % width
+            val y = index / width
+            -0x1000000 or (x shl 16) or (y shl 8) or (x + y)
+        }
+        val parameters = listOf(0, 4, 13, 0, 100, 1, 2, 100, 0, 0, 0, 0, 0, 0)
+        val atStart = checkNotNull(
+            SystemNnnVisualEffectMath.cloudWarpPixels(
+                0L, parameters, source, width, height, 8, 4
+            )
+        )
+        val afterOneHundredFrames = checkNotNull(
+            SystemNnnVisualEffectMath.cloudWarpPixels(
+                100L, parameters, source, width, height, 8, 4
+            )
+        )
+        assertFalse(atStart.pixels.contentEquals(afterOneHundredFrames.pixels))
     }
 
     @Test

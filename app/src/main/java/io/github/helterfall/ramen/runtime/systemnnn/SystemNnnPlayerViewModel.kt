@@ -55,6 +55,13 @@ data class SystemNnnSpriteBitmap(
     val sourceMetadata: SystemNnnImageResourceMetadata? = null
 )
 
+data class SystemNnnActiveLayerEffect(
+    val layerIndex: Int,
+    val effectId: Int,
+    val parameters: List<Int>,
+    val commandOffset: Long? = null
+)
+
 data class SystemNnnChoiceOption(
     val id: String,
     val label: String,
@@ -101,7 +108,12 @@ data class SystemNnnPlayerUiState(
     val backgroundBitmap: Bitmap? = null,
     val backgroundResourceId: String? = null,
     val backgroundMetadata: SystemNnnImageResourceMetadata? = null,
+    /** Logical game viewport; auxiliary image-layer sizes never redefine this. */
+    val logicalWidth: Int = SystemNnnGameConfig.DEFAULT_SCREEN_WIDTH,
+    val logicalHeight: Int = SystemNnnGameConfig.DEFAULT_SCREEN_HEIGHT,
     val sprites: List<SystemNnnSpriteBitmap> = emptyList(),
+    /** Active native layer effects, including commands with no picture attached. */
+    val layerEffects: List<SystemNnnActiveLayerEffect> = emptyList(),
     val speakerName: String? = null,
     val dialogueText: String = "",
     val visibleCharacterCount: Int = 0,
@@ -620,6 +632,34 @@ class SystemNnnPlayerViewModel : ViewModel() {
         }.getOrNull()
     }
 
+    private fun activeLayerEffectSnapshot(
+        configurations: Map<Int, SystemNnnVisualLayerConfiguration>,
+        sprites: List<SystemNnnSpriteBitmap>
+    ): List<SystemNnnActiveLayerEffect> {
+        val byLayer = LinkedHashMap<Int, SystemNnnActiveLayerEffect>()
+        configurations.forEach { (layerIndex, configuration) ->
+            val effectId = configuration.effectId ?: return@forEach
+            byLayer[layerIndex] = SystemNnnActiveLayerEffect(
+                layerIndex = layerIndex,
+                effectId = effectId,
+                parameters = configuration.effectParameters,
+                commandOffset = configuration.effectCommandOffset
+            )
+        }
+        sprites.forEach { sprite ->
+            val effectId = sprite.nativeEffectId ?: return@forEach
+            if (sprite.layerIndex !in byLayer) {
+                byLayer[sprite.layerIndex] = SystemNnnActiveLayerEffect(
+                    layerIndex = sprite.layerIndex,
+                    effectId = effectId,
+                    parameters = sprite.nativeEffectParameters,
+                    commandOffset = sprite.nativeEffectCommandOffset
+                )
+            }
+        }
+        return byLayer.values.sortedBy { it.layerIndex }
+    }
+
     private fun recordSceneTrace(
         event: String,
         commandOffset: Long? = null,
@@ -632,10 +672,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         screenEffectId: Int? = uiState.screenEffectId,
         screenEffectParameters: List<Int> = uiState.screenEffectParameters
     ) {
-        val logicalWidth = (backgroundBitmap?.width ?: backgroundMetadata?.widthPixels
-            ?: sprites.firstOrNull()?.bitmap?.width ?: 800).coerceAtLeast(1)
-        val logicalHeight = (backgroundBitmap?.height ?: backgroundMetadata?.heightPixels
-            ?: sprites.firstOrNull()?.bitmap?.height ?: 600).coerceAtLeast(1)
+        val logicalWidth = nativeGameConfig.screenWidth.coerceAtLeast(1)
+        val logicalHeight = nativeGameConfig.screenHeight.coerceAtLeast(1)
         val anomalies = ArrayList<Map<String, Any?>>()
         if (backgroundBitmap != null && backgroundMetadata != null &&
             (backgroundBitmap.width != backgroundMetadata.widthPixels ||
@@ -686,10 +724,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
             // SETEFFECTRECT configures dstFrom/dstTo, not a source crop.
             // A destination y may therefore lie outside the texture's height.
 }
-        val effectList = sprites.mapNotNull { sprite ->
-            sprite.nativeEffectId?.let {
-                traceEffect(it, sprite.nativeEffectParameters, frame = null, layer = sprite.layerIndex)
+        val effectsByLayer = LinkedHashMap<Int, SystemNnnActiveLayerEffect>()
+        uiState.layerEffects.forEach { effectsByLayer[it.layerIndex] = it }
+        sprites.forEach { sprite ->
+            val effectId = sprite.nativeEffectId ?: return@forEach
+            if (sprite.layerIndex !in effectsByLayer) {
+                effectsByLayer[sprite.layerIndex] = SystemNnnActiveLayerEffect(
+                    sprite.layerIndex, effectId, sprite.nativeEffectParameters, sprite.nativeEffectCommandOffset
+                )
             }
+        }
+        val effectList = effectsByLayer.values.sortedBy { it.layerIndex }.map { effect ->
+            traceEffect(effect.effectId, effect.parameters, frame = null, layer = effect.layerIndex)
         }.toMutableList()
         if (screenEffectId != null) {
             effectList += traceEffect(screenEffectId, screenEffectParameters, frame = null, layer = SCREEN_EFFECT_LAYER_INDEX)
@@ -1910,16 +1956,15 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             return
                         }
 
-                        // These native effects operate on the shared screen buffer,
-                        // rather than on the bitmap assigned to one image layer.
-                        if (SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)) {
+                        // Native CAllEffect::SetEffectScript handles MAE (1) as
+                        // a continuation marker: it returns TRUE without SetParam,
+                        // preserving the current effect on that layer.
+                        if (command.effectId != 1 &&
+                            SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)
+                        ) {
                             val screenWideHaikeiYure = command.effectId == 100 &&
                                 (command.parameters.getOrNull(5) ?: 0) == 1
-                            if (command.effectId == 1 && command.layerIndex == SCREEN_EFFECT_LAYER_INDEX) {
-                                pendingScreenEffectId = null
-                                pendingScreenEffectParameters = emptyList()
-                                pendingScreenEffectCommandOffset = null
-                            } else if (command.effectId in SCREEN_BUFFER_EFFECT_IDS || screenWideHaikeiYure) {
+                            if (command.effectId in SCREEN_BUFFER_EFFECT_IDS || screenWideHaikeiYure) {
                                 pendingScreenEffectId = command.effectId
                                 pendingScreenEffectParameters = command.parameters
                                 pendingScreenEffectCommandOffset = command.nextCommandOffset
@@ -2213,6 +2258,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             backgroundResourceId = sceneBackgroundResourceId,
                             backgroundMetadata = sceneBackgroundMetadata,
                             sprites = sceneSprites,
+                            logicalWidth = nativeGameConfig.screenWidth,
+                            logicalHeight = nativeGameConfig.screenHeight,
+                            layerEffects = activeLayerEffectSnapshot(pendingLayerVisuals, sceneSprites),
                             currentFilmNumber = currentFilmNumber,
                             statusMessage = imageStatusMessage ?: uiState.statusMessage,
                             screenEffectId = pendingScreenEffectId,
@@ -2348,7 +2396,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             backgroundBitmap = sceneBackground,
                             backgroundResourceId = sceneBackgroundResourceId,
                             backgroundMetadata = sceneBackgroundMetadata,
+                            logicalWidth = nativeGameConfig.screenWidth,
+                            logicalHeight = nativeGameConfig.screenHeight,
                             sprites = sceneSprites,
+                            layerEffects = activeLayerEffectSnapshot(pendingLayerVisuals, sceneSprites),
                             speakerName = command.speakerName,
                             dialogueText = text,
                             visibleCharacterCount = 0,

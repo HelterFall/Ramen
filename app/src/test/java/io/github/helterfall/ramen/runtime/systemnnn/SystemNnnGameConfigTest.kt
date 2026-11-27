@@ -7,9 +7,24 @@ import org.junit.Test
 
 class SystemNnnGameConfigTest {
     @Test
+    fun readsLogicalViewportFromGameConfigInsteadOfAssetDimensions() {
+        val config = SystemNnnGameConfig.parse(
+            "screenWidth,800\nscreenHeight,600\nframeTime,50"
+        )
+        assertEquals(800, config.screenWidth)
+        assertEquals(600, config.screenHeight)
+
+        val alternateKeys = SystemNnnGameConfig.parse("screenSizeX=640\nscreenSizeY=480")
+        assertEquals(640, alternateKeys.screenWidth)
+        assertEquals(480, alternateKeys.screenHeight)
+    }
+
+    @Test
     fun nativeGameDefaultsMatchCGameAndCShakin() {
         val config = SystemNnnGameConfig.parse("")
         assertEquals(50, config.frameTimeMillis)
+        assertEquals(800, config.screenWidth)
+        assertEquals(600, config.screenHeight)
         assertEquals(2, config.maxSkipFrame)
         assertEquals(2, config.maxSkipFrameBackScript)
         assertEquals(10, config.skipAdjustFrame)
