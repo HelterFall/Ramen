@@ -20,6 +20,7 @@ internal object SystemNnnFullGameAuditExporter {
 
     @Throws(IOException::class)
     fun stageReport(report: Map<String, Any?>, destination: File): Long {
+        checkNotInterrupted()
         if (report["reportType"] != REPORT_TYPE ||
             report["schemaVersion"] != 1 ||
             report["scope"] !is Map<*, *>
@@ -40,6 +41,7 @@ internal object SystemNnnFullGameAuditExporter {
                 writer.write("\n")
                 writer.flush()
             }
+            checkNotInterrupted()
             verifyStagedJsonBoundaries(temporary)
 
             if (destination.exists() && !destination.delete()) {
@@ -92,6 +94,7 @@ internal object SystemNnnFullGameAuditExporter {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         source.inputStream().buffered().use { input ->
             while (true) {
+                checkNotInterrupted()
                 val count = input.read(buffer)
                 if (count < 0) break
                 if (count == 0) continue
@@ -124,6 +127,7 @@ internal object SystemNnnFullGameAuditExporter {
         source.inputStream().buffered().use { input ->
             val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
             while (true) {
+                checkNotInterrupted()
                 val count = input.read(buffer)
                 if (count < 0) break
                 if (count > 0) digest.update(buffer, 0, count)
@@ -148,6 +152,7 @@ internal object SystemNnnFullGameAuditExporter {
         val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
         source.use { input ->
             while (true) {
+                checkNotInterrupted()
                 val count = input.read(buffer)
                 if (count < 0) break
                 if (count == 0) continue
@@ -167,6 +172,12 @@ internal object SystemNnnFullGameAuditExporter {
             )
         }
         return actualBytes
+    }
+
+    private fun checkNotInterrupted() {
+        if (Thread.currentThread().isInterrupted) {
+            throw IOException("SCAN export was cancelled.")
+        }
     }
 
     private fun ByteArray.toHexString(): String = joinToString("") { byte ->
