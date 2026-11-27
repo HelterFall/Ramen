@@ -204,8 +204,3 @@ class UnsupportedNscripterScriptFormatException(
     val fileName: String,
     reason: String
 ) : IOException("Unsupported NScripter script format '$fileName': $reason.")
-
-class UnsupportedNscripterScriptFormatException(
-    val fileName: String,
-    reason: String
-) : IOException("Unsupported NScripter script format '$fileName': $reason.")
