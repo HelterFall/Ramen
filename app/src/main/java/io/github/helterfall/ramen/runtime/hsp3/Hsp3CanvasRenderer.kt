@@ -661,12 +661,18 @@ class Hsp3CanvasRenderer(
             target.drawColor(Color.BLACK)
             bitmapPaint.color = Color.WHITE
             bitmapPaint.alpha = 255
-            target.drawBitmap(
-                bitmap,
-                null,
-                RectF(left, top, left + drawWidth, top + drawHeight),
-                bitmapPaint
-            )
+            if (drawWidth == bitmap.width.toFloat() && drawHeight == bitmap.height.toFloat()) {
+                // Avoid a redundant RectF resample when the logical HSP surface
+                // already matches the target Canvas pixel dimensions.
+                target.drawBitmap(bitmap, left, top, bitmapPaint)
+            } else {
+                target.drawBitmap(
+                    bitmap,
+                    null,
+                    RectF(left, top, left + drawWidth, top + drawHeight),
+                    bitmapPaint
+                )
+            }
         } finally {
             target.restoreToCount(saveCount)
         }
