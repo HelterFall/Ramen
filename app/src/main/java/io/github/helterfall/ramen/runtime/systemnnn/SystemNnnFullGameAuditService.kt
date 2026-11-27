@@ -208,7 +208,6 @@ class SystemNnnFullGameAuditService : Service() {
                 )
                 updateNotification(title, summary, 1f, ongoing = false, showCancel = false, force = true)
             } catch (failure: Exception) {
-                releasePersistedDestinationPermission(destination)
                 if (timeLimitReached) {
                     val timeoutMessage = "Android ограничил время фоновой службы. Запусти SCAN заново, когда приложение будет открыто."
                     SystemNnnFullGameAuditStateStore.stagingFile(this).delete()
@@ -365,6 +364,7 @@ class SystemNnnFullGameAuditService : Service() {
                 )
                 updateNotification(title, message, 1f, ongoing = false, showCancel = false, force = true)
             } catch (failure: Exception) {
+                releasePersistedDestinationPermission(destination)
                 if (timeLimitReached) {
                     val timeoutMessage = "Android ограничил время фоновой службы. Готовый JSON остался внутри приложения — экспорт можно повторить позже."
                     SystemNnnFullGameAuditStateStore.update(
