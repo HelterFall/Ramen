@@ -154,7 +154,8 @@ fun RamenApp() {
     val isFullAuditBusy = auditSnapshot.isRunning
     val stagedAuditReady = auditSnapshot.hasStagedReport &&
         fullGameAuditStagingFile.isFile && fullGameAuditStagingFile.length() > 0L
-    val isBusy = isImporting || isExportingStructure || isFullAuditBusy
+    // Do not let a second scan overwrite a completed report awaiting export.
+    val isBusy = isImporting || isExportingStructure || isFullAuditBusy || stagedAuditReady
     var statusMessage by remember {
         mutableStateOf("Добавь ZIP, HTML-файл или выбери папку с визуальной новеллой.")
     }
@@ -651,7 +652,7 @@ fun RamenApp() {
                         message = if (auditSnapshot.status != SystemNnnFullGameAuditStateStore.STATUS_IDLE &&
                             auditSnapshot.message.isNotBlank()
                         ) auditSnapshot.message else statusMessage,
-                        isImporting = isBusy
+                        isImporting = isImporting
                     )
                 }
                 item { ComingNextSection() }
