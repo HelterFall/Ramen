@@ -291,7 +291,18 @@ fun RamenApp() {
     ) { uri ->
         if (uri == null) {
             // Cancelling the Android picker must not throw away a completed scan.
-            statusMessage = "Выбор места сохранения отменён. Готовый JSON остался внутри приложения."
+            val title = auditSnapshot.title.ifBlank { "System-NNN" }
+            val message = "Выбор места сохранения отменён. Готовый JSON остался внутри приложения."
+            SystemNnnFullGameAuditStateStore.update(
+                context,
+                SystemNnnFullGameAuditStateStore.STATUS_READY,
+                title,
+                message,
+                1f,
+                fullGameAuditStagingFile.length()
+            )
+            auditSnapshot = SystemNnnFullGameAuditStateStore.read(context)
+            statusMessage = message
         } else {
             val title = auditSnapshot.title.ifBlank { "System-NNN" }
             try {
@@ -303,6 +314,7 @@ fun RamenApp() {
                     0f,
                     fullGameAuditStagingFile.length()
                 )
+                auditSnapshot = SystemNnnFullGameAuditStateStore.read(context)
                 context.startForegroundService(
                     Intent(context, SystemNnnFullGameAuditService::class.java).apply {
                         action = SystemNnnFullGameAuditService.ACTION_EXPORT_REPORT
@@ -322,6 +334,7 @@ fun RamenApp() {
                     1f,
                     fullGameAuditStagingFile.length()
                 )
+                auditSnapshot = SystemNnnFullGameAuditStateStore.read(context)
             }
         }
     }
@@ -353,6 +366,7 @@ fun RamenApp() {
             "Запускаю фоновый анализ…",
             null
         )
+        auditSnapshot = SystemNnnFullGameAuditStateStore.read(context)
         try {
             context.startForegroundService(
                 Intent(context, SystemNnnFullGameAuditService::class.java).apply {
@@ -370,6 +384,7 @@ fun RamenApp() {
                 game.title,
                 "Не удалось запустить фоновый SCAN: $safeMessage"
             )
+            auditSnapshot = SystemNnnFullGameAuditStateStore.read(context)
             statusMessage = "Не удалось запустить фоновый SCAN: $safeMessage"
         }
     }
@@ -403,7 +418,26 @@ fun RamenApp() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
-            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            SystemNnnFullGameAuditStateStore.update(
+                context,
+                SystemNnnFullGameAuditStateStore.STATUS_RUNNING,
+                game.title,
+                "Запрашиваю разрешение на уведомление о фоновой проверке…"
+            )
+            auditSnapshot = SystemNnnFullGameAuditStateStore.read(context)
+            try {
+                notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } catch (failure: Exception) {
+                pendingScanGame = null
+                SystemNnnFullGameAuditStateStore.update(
+                    context,
+                    SystemNnnFullGameAuditStateStore.STATUS_FAILED,
+                    game.title,
+                    "Не удалось запросить уведомления: " +
+                        (failure.message ?: failure.javaClass.simpleName)
+                )
+                auditSnapshot = SystemNnnFullGameAuditStateStore.read(context)
+            }
         } else {
             pendingScanGame = null
             launchFullGameAuditService(game, notificationsGranted = true)
