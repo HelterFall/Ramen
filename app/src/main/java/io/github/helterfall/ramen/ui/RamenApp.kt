@@ -440,6 +440,18 @@ fun RamenApp() {
                         ?: scope?.get("allValidSptModules") ?: "?"
                     val failedModules = scope?.get("failedModules") ?: 0
                     val records = scope?.get("totalPhysicalRecords") ?: "?"
+                    val issueGroups = (report["issues"] as? List<*>)?.size ?: 0
+                    val catalogSummaries = report["assetCatalogs"] as? List<*> ?: emptyList<Any?>()
+                    val truncatedAssetCatalogs = catalogSummaries.count { item ->
+                        val catalog = item as? Map<*, *> ?: return@count false
+                        listOf(
+                            "looseAudioResourcesTruncated",
+                            "indexedImageResourcesTruncated",
+                            "indexedAudioResourcesTruncated",
+                            "musicNameListTruncated",
+                            "soundNameListTruncated"
+                        ).any { catalog[it] == true }
+                    }
                     val incompleteReasons = buildList {
                         if ((failedModules as? Number)?.toInt()?.let { it > 0 } == true) {
                             add("ошибок модулей: $failedModules")
@@ -449,6 +461,9 @@ fun RamenApp() {
                         }
                         if (scope?.get("fileDiscoveryDepthLimited") == true) {
                             add("достигнут предел глубины папок")
+                        }
+                        if (truncatedAssetCatalogs > 0) {
+                            add("детализация каталога ресурсов ограничена в каталогах: $truncatedAssetCatalogs")
                         }
                         val invalidCandidates = (scope?.get("invalidSptCandidates") as? Number)?.toInt() ?: 0
                         if (invalidCandidates > 0) add("невалидных SPT-кандидатов: $invalidCandidates")
@@ -465,10 +480,11 @@ fun RamenApp() {
                         }
                         stagedAuditReady = true
                         auditProgress = 1f
+                        val findings = "Групп замечаний в отчёте: $issueGroups."
                         val completeness = if (incompleteReasons.isBlank()) {
-                            "Модулей найдено: $discoveredModules, успешно разобрано: $scannedModules, физических записей: $records."
+                            "Модулей найдено: $discoveredModules, успешно разобрано: $scannedModules, физических записей: $records. $findings"
                         } else {
-                            "Отчёт с замечаниями: найдено модулей $discoveredModules, успешно разобрано: $scannedModules, записей: $records. $incompleteReasons."
+                            "Отчёт с замечаниями: найдено модулей $discoveredModules, успешно разобрано: $scannedModules, записей: $records. $findings $incompleteReasons."
                         }
                         statusMessage = "SCAN готов. $completeness JSON — $stagedBytes байт. Выбери место сохранения."
                         // Transfer the lock from the scan phase to the document-save phase.
