@@ -87,7 +87,6 @@ fun SystemNnnPlayerScreen(
     onBitmapDisposed: (Bitmap) -> Unit,
     onExportDiagnostics: () -> Unit,
     onExportTrace: () -> Unit,
-    onFullGameAudit: () -> Unit,
     onQuickAction: (SystemNnnPlayerQuickAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -722,7 +721,6 @@ fun SystemNnnPlayerScreen(
             },
             onExportDiagnostics = onExportDiagnostics,
             onExportTrace = onExportTrace,
-            onFullGameAudit = onFullGameAudit,
             debugVisible = debugOverlayVisible,
             onDebugToggle = { debugOverlayVisible = !debugOverlayVisible },
             modifier = Modifier
@@ -1779,7 +1777,6 @@ private fun QuickMenu(
     onSkipToggle: () -> Unit,
     onExportDiagnostics: () -> Unit,
     onExportTrace: () -> Unit,
-    onFullGameAudit: () -> Unit,
     debugVisible: Boolean,
     onDebugToggle: () -> Unit,
     modifier: Modifier = Modifier
@@ -1804,7 +1801,6 @@ private fun QuickMenu(
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 QuickMenuButton(label = "LOG", selected = false, onClick = onExportDiagnostics)
                 QuickMenuButton(label = "TRACE", selected = false, onClick = onExportTrace)
-                QuickMenuButton(label = "SCAN", selected = false, onClick = onFullGameAudit)
                 QuickMenuButton(label = "DBG", selected = debugVisible, onClick = onDebugToggle)
             }
         }
