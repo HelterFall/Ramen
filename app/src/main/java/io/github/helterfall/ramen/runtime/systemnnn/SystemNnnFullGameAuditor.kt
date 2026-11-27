@@ -102,6 +102,10 @@ internal class SystemNnnFullGameAuditor(
     private val maxOpcodeLocations = 200
     private val maxEffectSamples = 6
     private var totalRecords = 0
+    private var totalGotoCandidates = 0
+    private var gotoDetailsTruncated = false
+    private var resourceReferenceDetailsTruncated = false
+    private var issueDetailsTruncated = false
     private var totalSptCandidates = 0
     private var invalidSptCandidates = 0
     private var fileWalkTruncated = false
@@ -354,6 +358,10 @@ internal class SystemNnnFullGameAuditor(
                 "invalidSptCandidates" to invalidSptCandidates,
                 "fileDiscoveryTruncated" to fileWalkTruncated,
                 "fileDiscoveryDepthLimited" to fileWalkDepthLimited,
+                "gotoDetailsTruncated" to gotoDetailsTruncated,
+                "resourceReferenceDetailsTruncated" to resourceReferenceDetailsTruncated,
+                "issueDetailsTruncated" to issueDetailsTruncated,
+                "totalGotoCandidates" to totalGotoCandidates,
                 "totalPhysicalRecords" to totalRecords,
                 "totalSptCandidates" to totalSptCandidates,
                 "failedModules" to totalModulesFailed,
@@ -440,6 +448,8 @@ internal class SystemNnnFullGameAuditor(
             "moduleTransfers" to globalTransfers,
             "localSubroutines" to globalSubroutines,
             "gotos" to globalGotos,
+            "gotoDetailsTruncated" to gotoDetailsTruncated,
+            "gotoCandidateCount" to totalGotoCandidates,
             "assetCatalogs" to assetCatalogReports.values.toList(),
             "issues" to issueStats.values.map { issue ->
                 linkedMapOf(
@@ -592,12 +602,17 @@ internal class SystemNnnFullGameAuditor(
                 ) {
                     val goto = runCatching { decoder.decodeNext(script, record.offset) }.getOrNull()
                     if (goto is SystemNnnDecodedCommand.Jump) {
-                        globalGotos += linkedMapOf(
-                            "module" to plan.moduleName,
-                            "sourceOffset" to hexLong(record.offset),
-                            "targetOffset" to hexLong(goto.targetCommandOffset),
-                            "targetExists" to (stream.records.binarySearchBy(goto.targetCommandOffset) { it.offset } >= 0)
-                        )
+                        totalGotoCandidates += 1
+                        if (globalGotos.size < MAX_REPORTED_GOTO_DETAILS) {
+                            globalGotos += linkedMapOf(
+                                "module" to plan.moduleName,
+                                "sourceOffset" to hexLong(record.offset),
+                                "targetOffset" to hexLong(goto.targetCommandOffset),
+                                "targetExists" to (stream.records.binarySearchBy(goto.targetCommandOffset) { it.offset } >= 0)
+                            )
+                        } else {
+                            gotoDetailsTruncated = true
+                        }
                     }
                 }
                 val progressNow = System.nanoTime()
@@ -622,10 +637,13 @@ internal class SystemNnnFullGameAuditor(
                     "module" to plan.moduleName,
                     "candidateCount" to localSubs.candidates.size,
                     "subroutineIdsAreDense" to localSubs.subroutineIdsAreDense,
-                    "missingSubroutineIds" to localSubs.missingSubroutineIds,
-                    "duplicateSubroutineIds" to localSubs.duplicateSubroutineIds,
+                    "missingSubroutineIds" to localSubs.missingSubroutineIds.take(MAX_REPORTED_EDGE_DETAILS_PER_MODULE),
+                    "missingSubroutineIdsTruncated" to (localSubs.missingSubroutineIds.size > MAX_REPORTED_EDGE_DETAILS_PER_MODULE),
+                    "duplicateSubroutineIds" to localSubs.duplicateSubroutineIds.take(MAX_REPORTED_EDGE_DETAILS_PER_MODULE),
+                    "duplicateSubroutineIdsTruncated" to (localSubs.duplicateSubroutineIds.size > MAX_REPORTED_EDGE_DETAILS_PER_MODULE),
                     "unresolvedTargetCount" to localSubs.unresolvedTargetCount,
-                    "candidates" to localSubs.candidates.map {
+                    "candidatesTruncated" to (localSubs.candidates.size > MAX_REPORTED_EDGE_DETAILS_PER_MODULE),
+                    "candidates" to localSubs.candidates.take(MAX_REPORTED_EDGE_DETAILS_PER_MODULE).map {
                         mapOf(
                             "commandOffset" to hexLong(it.commandOffset),
                             "subroutineId" to it.subroutineId,
@@ -661,7 +679,8 @@ internal class SystemNnnFullGameAuditor(
                     "sourceModule" to plan.moduleName,
                     "candidateCount" to transfers.candidates.size,
                     "unresolvedTargetCount" to transfers.unresolvedTargetCount,
-                    "edges" to transfers.candidates.map {
+                    "edgesTruncated" to (transfers.candidates.size > MAX_REPORTED_EDGE_DETAILS_PER_MODULE),
+                    "edges" to transfers.candidates.take(MAX_REPORTED_EDGE_DETAILS_PER_MODULE).map {
                         mapOf(
                             "targetModule" to it.targetModuleName,
                             "kind" to it.kind.name,
@@ -1287,7 +1306,20 @@ internal class SystemNnnFullGameAuditor(
         offset: Long
     ) {
         val key = ReferenceKey(kind, resource, status)
-        val stats = referenceStats.getOrPut(key) { ReferenceStats() }
+        val stats = referenceStats[key] ?: if (referenceStats.size < MAX_REFERENCE_GROUPS) {
+            ReferenceStats().also { referenceStats[key] = it }
+        } else {
+            resourceReferenceDetailsTruncated = true
+            val overflowKey = ReferenceKey(
+                "additional_reference_groups_omitted",
+                "<details-truncated>",
+                "not_listed"
+            )
+            referenceStats.getOrPut(overflowKey) { ReferenceStats() }.also {
+                it.count += 1
+            }
+            return
+        }
         stats.count += 1
         if (stats.locations.size < maxIssueLocations) {
             stats.locations += mapOf(
@@ -1306,7 +1338,19 @@ internal class SystemNnnFullGameAuditor(
     ) {
         val safe = message.replace('\n', ' ').replace('\r', ' ').take(400)
         val key = code + "|" + safe
-        val stats = issueStats.getOrPut(key) { IssueStats(code, safe) }
+        val stats = issueStats[key] ?: if (issueStats.size < MAX_ISSUE_GROUPS) {
+            IssueStats(code, safe).also { issueStats[key] = it }
+        } else {
+            issueDetailsTruncated = true
+            val overflowKey = "<additional-issue-groups-omitted>"
+            issueStats.getOrPut(overflowKey) {
+                IssueStats(
+                    "additional_issue_groups_omitted",
+                    "Additional distinct issue groups were omitted to keep the SCAN report bounded."
+                )
+            }.also { it.count += 1 }
+            return
+        }
         stats.count += 1
         if (stats.locations.size < maxIssueLocations) {
             stats.locations += linkedMapOf(
@@ -1349,6 +1393,10 @@ internal class SystemNnnFullGameAuditor(
         globalGotos.clear()
         filmCountsByModulePath.clear()
         totalRecords = 0
+        totalGotoCandidates = 0
+        gotoDetailsTruncated = false
+        resourceReferenceDetailsTruncated = false
+        issueDetailsTruncated = false
         totalSptCandidates = 0
         invalidSptCandidates = 0
         fileWalkTruncated = false
@@ -1464,7 +1512,11 @@ internal class SystemNnnFullGameAuditor(
         "0x" + value.toString(16).uppercase(Locale.ROOT)
 
     private companion object {
-        const val MAX_ASSET_INVENTORY_ENTRIES = 100_000
+        const val MAX_ASSET_INVENTORY_ENTRIES = 25_000
+        const val MAX_REPORTED_GOTO_DETAILS = 25_000
+        const val MAX_REPORTED_EDGE_DETAILS_PER_MODULE = 10_000
+        const val MAX_REFERENCE_GROUPS = 50_000
+        const val MAX_ISSUE_GROUPS = 50_000
         const val MAX_SCAN_DEPTH = 12
         const val MAX_DISCOVERED_FILES = 10_000
         const val MAX_TOTAL_RECORDS = 2_000_000
