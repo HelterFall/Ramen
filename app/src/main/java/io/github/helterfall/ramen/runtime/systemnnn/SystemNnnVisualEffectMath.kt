@@ -2,6 +2,7 @@ package io.github.helterfall.ramen.runtime.systemnnn
 
 import kotlin.math.cos
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 internal data class SystemNnnVisualOffset(
