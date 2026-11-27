@@ -76,10 +76,14 @@ class SystemNnnFullGameAuditorTest {
             assertTrue("The staged JSON file must contain data.", stagedBytes > 0L)
             assertEquals(stagedBytes, stagedFile.length())
             val exportedBytes = ByteArrayOutputStream()
+            val copyProgress = mutableListOf<Pair<Long, Long>>()
             assertEquals(
                 stagedBytes,
-                SystemNnnFullGameAuditExporter.copyTo(stagedFile, exportedBytes)
+                SystemNnnFullGameAuditExporter.copyTo(stagedFile, exportedBytes) { copied, total ->
+                    copyProgress += copied to total
+                }
             )
+            assertEquals(stagedBytes to stagedBytes, copyProgress.last())
             val exportedJson = String(exportedBytes.toByteArray(), Charsets.UTF_8)
             assertTrue(exportedJson.startsWith("{"))
             assertTrue(exportedJson.contains("\"reportType\":\"ramen.system-nnn.full-game-audit\""))
@@ -108,6 +112,31 @@ class SystemNnnFullGameAuditorTest {
             assertTrue("A same-length but modified JSON export must fail checksum verification.", tamperedExportRejected)
             assertTrue(exportedJson.contains("STARTMESSAGE"))
             assertFalse(exportedJson.contains(privateDialogueMarker))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun reportsWhenDirectoryDepthLimitCanHideDeeperFiles() {
+        val root = Files.createTempDirectory("ramen-full-game-audit-depth").toFile()
+        try {
+            var nested = root
+            repeat(15) { depth ->
+                nested = File(nested, "nested-$depth").apply { mkdirs() }
+            }
+            File(nested, "deep-module.spt").writeText("not scanned because it is too deep")
+
+            val report = SystemNnnFullGameAuditor(
+                cacheDirectory = File(root, "audit-cache")
+            ).audit(root)
+            val scope = report["scope"] as Map<*, *>
+            assertEquals(true, scope["fileDiscoveryDepthLimited"])
+            val issues = report["issues"] as List<*>
+            assertTrue(
+                issues.map { it as Map<*, *> }
+                    .any { it["code"] == "file_scan_depth_limit" }
+            )
         } finally {
             root.deleteRecursively()
         }
