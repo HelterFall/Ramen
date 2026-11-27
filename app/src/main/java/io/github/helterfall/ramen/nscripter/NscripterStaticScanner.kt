@@ -282,7 +282,7 @@ class NscripterStaticScanner(
         for ((archiveFile, index) in orderedArchives) {
             val archivePath = relativePath(gameDirectory, archiveFile)
             val scriptEntries = index.entries.map { entry ->
-                val normalizedName = entry.name.replace('\\\\', '/').trimStart('/')
+                val normalizedName = entry.name.replace('\\', '/').trimStart('/')
                 entry to normalizedName.substringAfterLast('/').lowercase(Locale.ROOT)
             }
 
@@ -291,7 +291,7 @@ class NscripterStaticScanner(
                 scriptEntries.firstOrNull { (_, leafName) -> leafName == candidate }?.first
             } ?: continue
 
-            val mainLeaf = mainEntry.name.replace('\\\\', '/').substringAfterLast('/').lowercase(Locale.ROOT)
+            val mainLeaf = mainEntry.name.replace('\\', '/').substringAfterLast('/').lowercase(Locale.ROOT)
             val extension = when {
                 mainLeaf.endsWith(".utf") -> "utf"
                 mainLeaf.endsWith(".txt") -> "txt"
