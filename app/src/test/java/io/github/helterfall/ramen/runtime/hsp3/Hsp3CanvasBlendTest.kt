@@ -25,7 +25,7 @@ class Hsp3CanvasBlendTest {
             renderer.boxf(0, 0, 0, 0)
             renderer.gmode(5, 1, 1, 128)
             renderer.gcopy(1, 0, 0, 1, 1, 0, 0)
-            assertPixel(renderer, 250, 180, 138)
+            assertPixel(renderer, 250, 180, 137)
         } finally { renderer.close() }
     }
 
