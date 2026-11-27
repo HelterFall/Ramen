@@ -24,9 +24,9 @@ data class NscripterArchiveIndex(
  * Read-only index reader for the big-endian NScripter SAR and NSA containers.
  *
  * SAR entries are stored verbatim. NSA entries record a codec byte plus packed
- * and unpacked sizes. Index parsing is supported for every codec; readEntry()
- * decodes the uncompressed codec (0) and explicitly rejects the compressed
- * SPB/LZSS/NBZ codecs rather than returning ciphertext or truncated data.
+ * and unpacked sizes. readEntry() supports stored data (0) and SPB bitmaps (1);
+ * LZSS (2) and NBZ (4) remain explicitly unsupported rather than being
+ * returned as ciphertext or truncated data.
  */
 class NscripterArchiveReader(
     private val spbDecoder: NscripterSpbDecoder = NscripterSpbDecoder()
@@ -242,5 +242,5 @@ class UnsupportedNscripterCompressionException(
     val compressionType: Int
 ) : IOException(
     "NSA compression type $compressionType is indexed but not decoded by this scanner " +
-        "(supported raw type: 0; known compressed types: 1=SPB, 2=LZSS, 4=NBZ)."
+        "(supported types: 0=stored, 1=SPB; unsupported compressed types: 2=LZSS, 4=NBZ)."
 )
