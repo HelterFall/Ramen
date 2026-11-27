@@ -86,6 +86,7 @@ class Hsp3CanvasBlendTest {
             assertEquals(Bitmap.Config.ARGB_8888, bitmap.config)
             val expected = 0xFF000000.toInt() or (red shl 16) or (green shl 8) or blue
             val actual = bitmap.getPixel(x, y)
+            println("HSP blend pixel ($x,$y): expected=0x${expected.toUInt().toString(16)} actual=0x${actual.toUInt().toString(16)}")
             assertEquals(
                 "expected 0x${expected.toUInt().toString(16)}, actual 0x${actual.toUInt().toString(16)} at ($x,$y)",
                 expected,
