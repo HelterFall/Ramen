@@ -113,31 +113,48 @@ class NscripterStaticScanner(
             }
         }
 
-        val scriptFiles = try {
+        val scriptSources = mutableListOf<NscripterScriptSource>()
+        val looseScriptFiles = try {
             scriptDecoder.findScriptFiles(gameDirectory)
         } catch (error: Exception) {
             parseErrors += "script discovery failed: ${error.message ?: error.javaClass.simpleName}"
             emptyList()
         }
 
-        for (scriptFile in scriptFiles) {
-            val path = relativePath(gameDirectory, scriptFile)
-            try {
-                val decoded = if (scriptFile.name.equals("nscript.dat", ignoreCase = true)) {
-                    scriptDecoder.decodeNscriptDat(scriptFile)
-                } else {
-                    scriptDecoder.decodeTextFile(scriptFile)
+        if (looseScriptFiles.isNotEmpty()) {
+            for (scriptFile in looseScriptFiles) {
+                val path = relativePath(gameDirectory, scriptFile)
+                try {
+                    val decoded = scriptDecoder.decodeScriptBytes(
+                        scriptFile.name,
+                        scriptFile.readBytes()
+                    )
+                    scriptSources += NscripterScriptSource(
+                        relativePath = path,
+                        text = decoded.text,
+                        encoding = decoded.encoding,
+                        mode = decoded.mode
+                    )
+                } catch (error: Exception) {
+                    parseErrors += "$path: script decoding/parsing failed: " +
+                        (error.message ?: error.javaClass.simpleName)
                 }
-                countCommands(
-                    sourcePath = path,
-                    text = decoded.text,
-                    commandCounts = commandCounts,
-                    unsupported = unsupported
-                )
-            } catch (error: Exception) {
-                parseErrors += "$path: script decoding/parsing failed: " +
-                    (error.message ?: error.javaClass.simpleName)
             }
+        } else {
+            scriptSources += readScriptSourcesFromArchives(
+                gameDirectory = gameDirectory,
+                indexedArchives = indexedArchives,
+                parseErrors = parseErrors
+            )
+        }
+
+        for (source in scriptSources) {
+            countCommands(
+                sourcePath = source.relativePath,
+                text = source.text,
+                commandCounts = commandCounts,
+                unsupported = unsupported
+            )
         }
 
         val unsupportedReport = unsupported.entries
@@ -154,7 +171,7 @@ class NscripterStaticScanner(
         return NscripterScanReport(
             gameRoot = gameDirectory.name.ifBlank { "game" },
             scannedFileCount = files.size,
-            scriptFiles = scriptFiles.map { relativePath(gameDirectory, it) },
+            scriptFiles = scriptSources.map { it.relativePath },
             archives = archives.sortedBy { it.path },
             commandCounts = commandCounts,
             graphicsFormats = graphicsFormats,
@@ -246,6 +263,82 @@ class NscripterStaticScanner(
             throw IOException("Could not write the NScripter audit JSON: ${error.message}", error)
         }
         return report
+    }
+
+
+    private fun readScriptSourcesFromArchives(
+        gameDirectory: File,
+        indexedArchives: List<Pair<File, NscripterArchiveIndex>>,
+        parseErrors: MutableList<String>
+    ): List<NscripterScriptSource> {
+        val orderedArchives = indexedArchives.sortedWith(
+            compareBy<Pair<File, NscripterArchiveIndex>>(
+                { if (relativePath(gameDirectory, it.first).startsWith("patch/", ignoreCase = true)) 0 else 1 },
+                { archivePriority(it.first.name) },
+                { relativePath(gameDirectory, it.first) }
+            )
+        )
+
+        for ((archiveFile, index) in orderedArchives) {
+            val archivePath = relativePath(gameDirectory, archiveFile)
+            val scriptEntries = index.entries.map { entry ->
+                val normalizedName = entry.name.replace('\\\\', '/').trimStart('/')
+                entry to normalizedName.substringAfterLast('/').lowercase(Locale.ROOT)
+            }
+
+            val entryPriority = listOf("0.utf", "00.utf", "0.txt", "00.txt", "nscript.dat")
+            val mainEntry = entryPriority.firstNotNullOfOrNull { candidate ->
+                scriptEntries.firstOrNull { (_, leafName) -> leafName == candidate }?.first
+            } ?: continue
+
+            val mainLeaf = mainEntry.name.replace('\\\\', '/').substringAfterLast('/').lowercase(Locale.ROOT)
+            val extension = when {
+                mainLeaf.endsWith(".utf") -> "utf"
+                mainLeaf.endsWith(".txt") -> "txt"
+                else -> "dat"
+            }
+            val selectedEntries = buildList {
+                add(mainEntry)
+                if (extension != "dat") {
+                    for (number in 1..99) {
+                        val unpadded = "$number.$extension"
+                        val padded = number.toString().padStart(2, '0') + ".$extension"
+                        val segment = scriptEntries.firstOrNull { (_, leafName) ->
+                            leafName == unpadded
+                        }?.first ?: scriptEntries.firstOrNull { (_, leafName) ->
+                            leafName == padded
+                        }?.first
+                        if (segment != null) add(segment)
+                    }
+                }
+            }
+
+            val sources = mutableListOf<NscripterScriptSource>()
+            for (entry in selectedEntries) {
+                val sourcePath = "$archivePath!/${entry.name}"
+                try {
+                    val bytes = archiveReader.readEntry(archiveFile, entry)
+                    val decoded = scriptDecoder.decodeScriptBytes(entry.name, bytes)
+                    sources += NscripterScriptSource(
+                        relativePath = sourcePath,
+                        text = decoded.text,
+                        encoding = decoded.encoding,
+                        mode = decoded.mode
+                    )
+                } catch (error: Exception) {
+                    parseErrors += "$sourcePath: archived script decoding/parsing failed: " +
+                        (error.message ?: error.javaClass.simpleName)
+                }
+            }
+            return sources
+        }
+        return emptyList()
+    }
+
+    private fun archivePriority(fileName: String): Int {
+        if (fileName.equals("arc.nsa", ignoreCase = true)) return 0
+        val match = EXTRA_ARCHIVE_NAME_PATTERN.matchEntire(fileName)
+        return match?.groupValues?.get(1)?.toIntOrNull() ?: 100
     }
 
     private fun countCommands(
@@ -399,6 +492,8 @@ class NscripterStaticScanner(
     }
 
     companion object {
+        private const val SPB_COMPRESSION = 1
+        private val EXTRA_ARCHIVE_NAME_PATTERN = Regex("^arc([1-9])?\\.nsa$", RegexOption.IGNORE_CASE)
         private val GRAPHICS_EXTENSIONS = setOf(
             "bmp", "jpg", "jpeg", "png", "spb", "pdt", "gif", "tif", "tiff",
             "webp", "qnt", "msk"
