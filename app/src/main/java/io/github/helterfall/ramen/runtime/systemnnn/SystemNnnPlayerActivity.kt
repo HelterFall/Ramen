@@ -16,7 +16,6 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicBoolean
 import io.github.helterfall.ramen.parser.SystemNnnScriptLoader
 import io.github.helterfall.ramen.parser.SystemNnnProjectCatalog
 import io.github.helterfall.ramen.parser.SystemNnnScript
@@ -52,8 +51,6 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     private lateinit var startupExecutor: ExecutorService
     private lateinit var diagnosticLog: SystemNnnDiagnosticLog
     private var crashHandlerRegistration: AutoCloseable? = null
-    @Volatile private var activeGameDirectory: File? = null
-    private val fullAuditRunning = AtomicBoolean(false)
     private val mainHandler = Handler(Looper.getMainLooper())
 
     private val diagnosticsExportLauncher = registerForActivityResult(
@@ -69,172 +66,6 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     ) { uri ->
         if (uri != null && ::diagnosticLog.isInitialized) {
             exportSceneTrace(uri)
-        }
-    }
-
-    private val fullGameAuditExportLauncher = registerForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")
-    ) { uri ->
-        if (uri == null) {
-            fullGameAuditStagingFile.delete()
-            fullAuditRunning.set(false)
-            android.widget.Toast.makeText(
-                this,
-                "Сохранение JSON отменено.",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        } else {
-            exportStagedFullGameAudit(uri)
-        }
-    }
-
-    // A stable cache path lets the CreateDocument result callback survive Activity recreation.
-    private val fullGameAuditStagingFile: File
-        get() = File(cacheDir, "ramen-full-game-audit-export.json")
-
-    private fun launchFullGameAuditExport() {
-        val root = activeGameDirectory
-        if (root == null || !::startupExecutor.isInitialized) {
-            android.widget.Toast.makeText(
-                this,
-                "Сначала дождись полной загрузки проекта, затем запускай SCAN.",
-                android.widget.Toast.LENGTH_LONG
-            ).show()
-            return
-        }
-        if (!fullAuditRunning.compareAndSet(false, true)) {
-            android.widget.Toast.makeText(
-                this,
-                "Полный аудит уже выполняется.",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-            return
-        }
-
-        fullGameAuditStagingFile.delete()
-        android.widget.Toast.makeText(
-            this,
-            "SCAN: анализирую все SPT и каталоги ресурсов на устройстве.",
-            android.widget.Toast.LENGTH_LONG
-        ).show()
-
-        try {
-            startupExecutor.execute {
-                try {
-                    val report = SystemNnnFullGameAuditor(
-                        File(cacheDir, "ramen-full-game-audit")
-                    ).audit(root)
-                    val stagedBytes = SystemNnnFullGameAuditExporter.stageReport(
-                        report,
-                        fullGameAuditStagingFile
-                    )
-                    val scope = report["scope"] as? Map<*, *>
-                    val modules = scope?.get("allValidSptModules") ?: "?"
-                    val records = scope?.get("totalPhysicalRecords") ?: "?"
-                    mainHandler.post {
-                        if (isFinishing || isDestroyed) {
-                            fullAuditRunning.set(false)
-                            return@post
-                        }
-                        android.widget.Toast.makeText(
-                            this,
-                            "SCAN завершён: модулей $modules, записей $records. Отчёт сформирован ($stagedBytes байт). Выбери место сохранения.",
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
-                        fullGameAuditExportLauncher.launch("ramen_full_game_audit.json")
-                    }
-                } catch (failure: Exception) {
-                    fullGameAuditStagingFile.delete()
-                    val safeMessage = failure.message ?: failure.javaClass.simpleName
-                    if (::diagnosticLog.isInitialized) {
-                        diagnosticLog.recordException("full_game_audit_failure", failure)
-                    }
-                    mainHandler.post {
-                        fullAuditRunning.set(false)
-                        android.widget.Toast.makeText(
-                            this,
-                            "SCAN не завершён: " + safeMessage.take(220),
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
-                    }
-                }
-            }
-        } catch (failure: Exception) {
-            fullAuditRunning.set(false)
-            fullGameAuditStagingFile.delete()
-            android.widget.Toast.makeText(
-                this,
-                "Не удалось запустить SCAN: " + (failure.message ?: "ошибка потока."),
-                android.widget.Toast.LENGTH_LONG
-            ).show()
-        }
-    }
-
-    private fun exportStagedFullGameAudit(destination: Uri) {
-        if (!::startupExecutor.isInitialized) {
-            fullAuditRunning.set(false)
-            android.widget.Toast.makeText(
-                this,
-                "Не найден поток для записи JSON.",
-                android.widget.Toast.LENGTH_LONG
-            ).show()
-            return
-        }
-        try {
-            startupExecutor.execute {
-                try {
-                    val staged = fullGameAuditStagingFile
-                    if (!staged.isFile || staged.length() <= 0L) {
-                        throw IOException("Подготовленный отчёт отсутствует или пуст.")
-                    }
-                    val expectedSha256 = SystemNnnFullGameAuditExporter.sha256(staged)
-                    val output = contentResolver.openOutputStream(destination, "wt")
-                        ?: throw IOException("Android не открыл выбранный JSON-документ для записи.")
-                    val copiedBytes = output.use { stream ->
-                        SystemNnnFullGameAuditExporter.copyTo(staged, stream)
-                    }
-                    if (copiedBytes != staged.length() || copiedBytes <= 0L) {
-                        throw IOException("Размер записанного JSON не совпал с подготовленным отчётом.")
-                    }
-                    val verificationStream = contentResolver.openInputStream(destination)
-                        ?: throw IOException("Не удалось повторно открыть JSON для проверки сохранённого содержимого.")
-                    val verifiedBytes = SystemNnnFullGameAuditExporter.verifySavedReport(
-                        verificationStream,
-                        copiedBytes,
-                        expectedSha256
-                    )
-                    val message = "JSON проверен после записи: $verifiedBytes байт. Физические SPT-записи и каталоги ресурсов включены."
-                    mainHandler.post {
-                        android.widget.Toast.makeText(
-                            this,
-                            message,
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
-                    }
-                    staged.delete()
-                } catch (failure: Exception) {
-                    val safeMessage = failure.message ?: failure.javaClass.simpleName
-                    if (::diagnosticLog.isInitialized) {
-                        diagnosticLog.recordException("full_game_audit_export_failure", failure)
-                    }
-                    mainHandler.post {
-                        android.widget.Toast.makeText(
-                            this,
-                            "Не удалось записать JSON: " + safeMessage.take(220),
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
-                    }
-                } finally {
-                    fullAuditRunning.set(false)
-                }
-            }
-        } catch (failure: Exception) {
-            fullAuditRunning.set(false)
-            android.widget.Toast.makeText(
-                this,
-                "Не удалось начать запись JSON: " + (failure.message ?: "ошибка потока."),
-                android.widget.Toast.LENGTH_LONG
-            ).show()
         }
     }
 
@@ -317,7 +148,6 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     onExportTrace = {
                         traceExportLauncher.launch("ramen_scene_trace.jsonl")
                     },
-                    onFullGameAudit = ::launchFullGameAuditExport,
                     onQuickAction = { action ->
                         val message = when (action) {
                             SystemNnnPlayerQuickAction.SAVE ->
@@ -346,7 +176,6 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             var assetResolver: SystemNnnAssetManager? = null
             try {
                 val gameDirectory = resolvePrivateGameDirectory(gameId)
-                activeGameDirectory = gameDirectory
                 val commandStreamReader = SystemNnnCommandStreamReader()
                 val launch = prepareScriptLaunch(
                     gameDirectory = gameDirectory,
