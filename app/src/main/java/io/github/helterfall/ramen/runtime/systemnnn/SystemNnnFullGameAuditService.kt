@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import android.os.SystemClock
 import io.github.helterfall.ramen.MainActivity
 import java.io.File
@@ -30,6 +31,7 @@ class SystemNnnFullGameAuditService : Service() {
     @Volatile private var cancellationToken: AtomicBoolean? = null
     @Volatile private var latestStartId: Int = 0
     @Volatile private var timeLimitReached = false
+    @Volatile private var cpuWakeLock: PowerManager.WakeLock? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private val operationRunning = AtomicBoolean(false)
     private var lastNotificationUpdateMillis = 0L
@@ -93,9 +95,12 @@ class SystemNnnFullGameAuditService : Service() {
         )
         try {
             enterForeground(title, "Подготовка фонового SCAN…", null, showCancel = true)
+            acquireCpuWakeLock()
         } catch (failure: Exception) {
+            releaseCpuWakeLock()
             operationRunning.set(false)
             cancellationToken = null
+            stopForeground(true)
             val message = "Android не разрешил запустить фоновый SCAN: " +
                 (failure.message ?: failure.javaClass.simpleName)
             SystemNnnFullGameAuditStateStore.update(
@@ -259,9 +264,12 @@ class SystemNnnFullGameAuditService : Service() {
         )
         try {
             enterForeground(title, "Записываю JSON…", 0f, showCancel = true)
+            acquireCpuWakeLock()
         } catch (failure: Exception) {
+            releaseCpuWakeLock()
             operationRunning.set(false)
             cancellationToken = null
+            stopForeground(true)
             SystemNnnFullGameAuditStateStore.update(
                 this,
                 SystemNnnFullGameAuditStateStore.STATUS_READY,
@@ -379,6 +387,7 @@ class SystemNnnFullGameAuditService : Service() {
                 operationRunning.set(false)
                 cancellationToken = null
                 workerThread = null
+                releaseCpuWakeLock()
                 mainHandler.post {
                     if (!operationRunning.get()) {
                         stopForeground(false)
@@ -446,6 +455,28 @@ class SystemNnnFullGameAuditService : Service() {
             force = true
         )
         workerThread?.interrupt()
+    }
+
+    private fun acquireCpuWakeLock() {
+        releaseCpuWakeLock()
+        val powerManager = getSystemService(PowerManager::class.java)
+            ?: throw IOException("Android could not access the power manager.")
+        val wakeLock = powerManager.newWakeLock(
+            PowerManager.PARTIAL_WAKE_LOCK,
+            "$packageName:RamenFullGameAudit"
+        ).apply {
+            setReferenceCounted(false)
+            acquire(MAX_WAKE_LOCK_MILLIS)
+        }
+        cpuWakeLock = wakeLock
+    }
+
+    private fun releaseCpuWakeLock() {
+        val wakeLock = cpuWakeLock
+        cpuWakeLock = null
+        if (wakeLock?.isHeld == true) {
+            runCatching { wakeLock.release() }
+        }
     }
 
     private fun checkNotCancelled(token: AtomicBoolean) {
@@ -591,6 +622,7 @@ class SystemNnnFullGameAuditService : Service() {
 
     override fun onTimeout(startId: Int, fgsType: Int) {
         timeLimitReached = true
+        releaseCpuWakeLock()
         cancellationToken?.set(true)
         workerThread?.interrupt()
         val snapshot = SystemNnnFullGameAuditStateStore.read(this)
@@ -607,6 +639,7 @@ class SystemNnnFullGameAuditService : Service() {
     override fun onDestroy() {
         cancellationToken?.set(true)
         workerThread?.interrupt()
+        releaseCpuWakeLock()
         super.onDestroy()
     }
 
@@ -622,5 +655,6 @@ class SystemNnnFullGameAuditService : Service() {
         private const val NOTIFICATION_ID = 7319
         private const val OPEN_APP_REQUEST_CODE = 7320
         private const val CANCEL_REQUEST_CODE = 7321
+        private const val MAX_WAKE_LOCK_MILLIS = 5L * 60L * 60L * 1000L
     }
 }
