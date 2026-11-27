@@ -16,31 +16,40 @@ class Hsp3AxStaticScannerTest {
             ax.writeBytes(createAx())
             val report = Hsp3AxStaticScanner.scan(Hsp3BytecodeLoader().load(ax))
             val json = report.toJson()
-            assertEquals(2, report.opcodeCount)
-            assertEquals(1, report.unsupportedCommands.size)
+            assertEquals(4, report.opcodeCount)
+            assertEquals(3, report.unsupportedCommands.size)
             assertTrue(json.contains("\"format\": \"ramen-hsp3-scan-v1\""))
             assertTrue(json.contains("\"hspVersion\": 769"))
             assertTrue(json.contains("\"tokenType\": 15, \"id\": 16, \"count\": 1"))
             assertTrue(json.contains("\"tokenType\": 9, \"id\": 119, \"count\": 1"))
+            assertTrue(json.contains("\"tokenType\": 8, \"id\": 102, \"count\": 1"))
+            assertTrue(json.contains("\"tokenType\": 15, \"id\": 119, \"count\": 1"))
             assertTrue(json.contains("\"unsupportedCommands\""))
             assertTrue(json.contains("\"codeOffset\": 4"))
+            assertTrue(json.contains("\"codeOffset\": 8"))
+            assertTrue(json.contains("\"codeOffset\": 12"))
         } finally {
             directory.deleteRecursively()
         }
     }
 
     private fun createAx(): ByteArray {
-        val bytes = ByteArray(0x68)
+        val bytes = ByteArray(0x70)
         "HSP3".toByteArray(Charsets.US_ASCII).copyInto(bytes)
         putU32(bytes, 4, 0x301)
         putU32(bytes, 8, 32)
         putU32(bytes, 12, bytes.size)
         putU32(bytes, 16, 0x60)
-        putU32(bytes, 20, 8)
+        putU32(bytes, 20, 16)
+        // END, then three unknown command IDs: EXTCMD, INTCMD and PROGCMD.
         putU16(bytes, 0x60, 0x200F)
         putU16(bytes, 0x62, 0x10)
         putU16(bytes, 0x64, 0x2009)
         putU16(bytes, 0x66, 0x77)
+        putU16(bytes, 0x68, 0x2008)
+        putU16(bytes, 0x6A, 0x66)
+        putU16(bytes, 0x6C, 0x200F)
+        putU16(bytes, 0x6E, 0x77)
         return bytes
     }
 
