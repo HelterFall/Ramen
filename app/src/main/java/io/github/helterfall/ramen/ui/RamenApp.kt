@@ -155,6 +155,9 @@ fun RamenApp() {
     val fullGameAuditStagingFile = remember(context) {
         File(context.filesDir, "reports/ramen-library-full-game-audit.json")
     }
+    var stagedAuditReady by remember {
+        mutableStateOf(fullGameAuditStagingFile.isFile && fullGameAuditStagingFile.length() > 0L)
+    }
 
     DisposableEffect(executor) {
         onDispose {
@@ -277,6 +280,7 @@ fun RamenApp() {
     ) { uri ->
         if (uri == null) {
             fullGameAuditStagingFile.delete()
+            stagedAuditReady = false
             fullAuditLock.set(false)
             isFullAuditBusy = false
             auditProgress = null
@@ -322,6 +326,7 @@ fun RamenApp() {
                         )
                         staged.delete()
                         mainHandler.post {
+                            stagedAuditReady = false
                             fullAuditLock.set(false)
                             isFullAuditBusy = false
                             auditProgress = null
@@ -330,24 +335,53 @@ fun RamenApp() {
                         }
                     } catch (failure: Exception) {
                         val safeMessage = failure.message ?: failure.javaClass.simpleName
-                        fullGameAuditStagingFile.delete()
                         mainHandler.post {
+                            stagedAuditReady = fullGameAuditStagingFile.isFile &&
+                                fullGameAuditStagingFile.length() > 0L
                             fullAuditLock.set(false)
                             isFullAuditBusy = false
                             auditProgress = null
-                            pendingAuditTitle = ""
-                            statusMessage = "Не удалось сохранить SCAN JSON: " + safeMessage.take(220)
+                            statusMessage = "Не удалось сохранить SCAN JSON: " + safeMessage.take(220) +
+                                if (stagedAuditReady) ". Подготовленный отчёт сохранён внутри приложения — можно повторить экспорт." else ""
                         }
                     }
                 }
             } catch (failure: Exception) {
+                stagedAuditReady = fullGameAuditStagingFile.isFile &&
+                    fullGameAuditStagingFile.length() > 0L
                 fullAuditLock.set(false)
                 isFullAuditBusy = false
                 auditProgress = null
-                pendingAuditTitle = ""
                 statusMessage = "Не удалось запустить сохранение SCAN: " +
                     (failure.message ?: "ошибка фонового потока.")
             }
+        }
+    }
+
+    fun launchStagedAuditSave() {
+        if (!stagedAuditReady || !fullGameAuditStagingFile.isFile ||
+            fullGameAuditStagingFile.length() <= 0L
+        ) {
+            stagedAuditReady = false
+            statusMessage = "Подготовленный JSON SCAN отсутствует. Запусти проверку заново."
+            return
+        }
+        if (!fullAuditLock.compareAndSet(false, true)) {
+            statusMessage = "Операция SCAN уже выполняется."
+            return
+        }
+        isFullAuditBusy = true
+        auditProgress = 1f
+        statusMessage = "Открой место сохранения для готового SCAN JSON…"
+        try {
+            fullGameAuditDocumentPicker.launch(fullGameAuditDocumentName(pendingAuditTitle))
+        } catch (failure: Exception) {
+            fullAuditLock.set(false)
+            isFullAuditBusy = false
+            auditProgress = null
+            statusMessage = "Не удалось открыть окно сохранения SCAN: " +
+                (failure.message ?: failure.javaClass.simpleName) +
+                ". Подготовленный отчёт остался внутри приложения."
         }
     }
 
@@ -373,6 +407,7 @@ fun RamenApp() {
             return
         }
         isFullAuditBusy = true
+        stagedAuditReady = false
         auditProgress = null
         pendingAuditTitle = game.title
         statusMessage = "SCAN: готовлю полный анализ игры ${game.title}…"
@@ -420,6 +455,7 @@ fun RamenApp() {
                     }.joinToString("; ")
                     mainHandler.post {
                         if (!fullGameAuditStagingFile.isFile || fullGameAuditStagingFile.length() != stagedBytes) {
+                            stagedAuditReady = false
                             fullAuditLock.set(false)
                             isFullAuditBusy = false
                             auditProgress = null
@@ -427,6 +463,7 @@ fun RamenApp() {
                             statusMessage = "SCAN остановлен: подготовленный JSON не прошёл проверку размера."
                             return@post
                         }
+                        stagedAuditReady = true
                         auditProgress = 1f
                         val completeness = if (incompleteReasons.isBlank()) {
                             "Модулей найдено: $discoveredModules, успешно разобрано: $scannedModules, физических записей: $records."
@@ -434,22 +471,13 @@ fun RamenApp() {
                             "Отчёт с замечаниями: найдено модулей $discoveredModules, успешно разобрано: $scannedModules, записей: $records. $incompleteReasons."
                         }
                         statusMessage = "SCAN готов. $completeness JSON — $stagedBytes байт. Выбери место сохранения."
-                        try {
-                            fullGameAuditDocumentPicker.launch(fullGameAuditDocumentName(game.title))
-                        } catch (launchFailure: Exception) {
-                            fullGameAuditStagingFile.delete()
-                            fullAuditLock.set(false)
-                            isFullAuditBusy = false
-                            auditProgress = null
-                            pendingAuditTitle = ""
-                            statusMessage = "Не удалось открыть окно сохранения SCAN: " +
-                                (launchFailure.message ?: launchFailure.javaClass.simpleName)
-                        }
+                        launchStagedAuditSave()
                     }
                 } catch (failure: Exception) {
                     fullGameAuditStagingFile.delete()
                     val safeMessage = failure.message ?: failure.javaClass.simpleName
                     mainHandler.post {
+                        stagedAuditReady = false
                         fullAuditLock.set(false)
                         isFullAuditBusy = false
                         auditProgress = null
@@ -601,12 +629,15 @@ fun RamenApp() {
                             onImportHtmlClick = onImportHtmlClick
                         )
                     }
-                    if (isFullAuditBusy) {
+                    if (isFullAuditBusy || stagedAuditReady) {
                         item {
                             FullGameScanProgressCard(
-                                title = pendingAuditTitle,
+                                title = pendingAuditTitle.ifBlank { "Готовый отчёт" },
                                 message = statusMessage.removePrefix("SCAN · ").removePrefix("${pendingAuditTitle}: "),
-                                progress = auditProgress
+                                progress = auditProgress,
+                                onRetrySave = if (stagedAuditReady && !isFullAuditBusy) {
+                                    ::launchStagedAuditSave
+                                } else null
                             )
                         }
                     }
@@ -1060,7 +1091,8 @@ private fun GameCard(
 private fun FullGameScanProgressCard(
     title: String,
     message: String,
-    progress: Float?
+    progress: Float?,
+    onRetrySave: (() -> Unit)? = null
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -1107,6 +1139,15 @@ private fun FullGameScanProgressCard(
                     progress = { progress.coerceIn(0f, 1f) },
                     modifier = Modifier.fillMaxWidth()
                 )
+            }
+            if (onRetrySave != null) {
+                OutlinedButton(
+                    onClick = onRetrySave,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Повторить сохранение готового JSON")
+                }
             }
         }
     }
