@@ -471,6 +471,13 @@ class Hsp3VirtualMachine(
                                 if (nextValue.javaClass != value.javaClass) {
                                     throw IOException("HSP comma-separated array values must keep the variable type.")
                                 }
+                                // code_arrayint2() can extend a flexible one-dimensional array.
+                                if (activeDimensions.size == 1 && firstIndex >= activeDimensions[0]) {
+                                    if (firstIndex >= MAX_ARRAY_DIMENSION) {
+                                        throw IOException("HSP array dimension exceeds the configured bounds.")
+                                    }
+                                    arrayDimensions[instruction.variable] = listOf(firstIndex + 1)
+                                }
                                 writeVariable(instruction.variable, nextIndices, nextValue)
                             }
                         }

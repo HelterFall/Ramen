@@ -376,7 +376,7 @@ class Hsp3BytecodeDecoderTest {
             val words = mutableListOf(
                 0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM,
                 0x0001, 4,
-                0x5004, 16,
+                0x5004, 2,
                 0x2001, 4,
                 0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
                 0x0004, 100
@@ -438,7 +438,7 @@ class Hsp3BytecodeDecoderTest {
             assertEquals(Hsp3RuntimeValue.IntegerValue(11), snapshot.arrayValues[4 to listOf(2, 1)])
             assertEquals(Hsp3RuntimeValue.IntegerValue(22), snapshot.arrayValues[4 to listOf(3, 1)])
             assertEquals(Hsp3RuntimeValue.IntegerValue(33), snapshot.arrayValues[4 to listOf(4, 1)])
-            assertNull(snapshot.arrayValues[4 to listOf(3, 0)])
+            assertEquals(null, snapshot.arrayValues[4 to listOf(3, 0)])
         }
     }
 
