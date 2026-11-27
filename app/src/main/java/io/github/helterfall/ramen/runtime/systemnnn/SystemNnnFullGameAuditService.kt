@@ -692,11 +692,24 @@ class SystemNnnFullGameAuditService : Service() {
         cancellationToken?.set(true)
         workerThread?.interrupt()
         val snapshot = SystemNnnFullGameAuditStateStore.read(this)
+        val staged = SystemNnnFullGameAuditStateStore.stagingFile(this)
+        val exportCanBeRetried =
+            snapshot.status == SystemNnnFullGameAuditStateStore.STATUS_EXPORTING &&
+                staged.isFile && staged.length() > 0L
+        val timeoutMessage = if (exportCanBeRetried) {
+            "Android ограничил время фонового сохранения. Готовый JSON остался внутри приложения — экспорт можно повторить."
+        } else {
+            staged.delete()
+            "Android ограничил время фонового SCAN. Запусти анализ заново, когда приложение будет открыто."
+        }
         SystemNnnFullGameAuditStateStore.update(
             this,
-            SystemNnnFullGameAuditStateStore.STATUS_FAILED,
+            if (exportCanBeRetried) SystemNnnFullGameAuditStateStore.STATUS_READY
+            else SystemNnnFullGameAuditStateStore.STATUS_FAILED,
             snapshot.title,
-            "Android ограничил время фоновой операции. Запусти SCAN заново, когда приложение будет открыто."
+            timeoutMessage,
+            if (exportCanBeRetried) 1f else null,
+            if (exportCanBeRetried) staged.length() else 0L
         )
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf(startId)
