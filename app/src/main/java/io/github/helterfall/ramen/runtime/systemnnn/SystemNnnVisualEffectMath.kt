@@ -37,11 +37,21 @@ internal data class SystemNnnCloudPixels(
 )
 
 internal data class SystemNnnVisualLayerConfiguration(
-    val sourceRect: SystemNnnNativeRect? = null,
+    /** First destination RECT supplied to native SetImageLayerRect (dstFrom). */
+    val destinationRectFrom: SystemNnnNativeRect? = null,
+    /** Target/current destination RECT supplied to native SetImageLayerRect. */
     val destinationRect: SystemNnnNativeRect? = null,
     val effectId: Int? = null,
     val effectParameters: List<Int> = emptyList(),
     val effectCommandOffset: Long? = null
+)
+
+internal fun SystemNnnVisualLayerConfiguration.withSetImageLayerRect(
+    fromRect: SystemNnnNativeRect,
+    toRect: SystemNnnNativeRect
+): SystemNnnVisualLayerConfiguration = copy(
+    destinationRectFrom = fromRect,
+    destinationRect = toRect
 )
 
 /**

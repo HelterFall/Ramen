@@ -506,13 +506,13 @@ class SystemNnnVisualEffectMathTest {
 
         val firstAdvance = store.snapshot()
         firstAdvance[7] = SystemNnnVisualLayerConfiguration(
-            sourceRect = from,
+            destinationRectFrom = from,
             destinationRect = to
         )
         store.replaceWith(firstAdvance)
 
         val secondAdvance = store.snapshot()
-        assertEquals(from, secondAdvance[7]?.sourceRect)
+        assertEquals(from, secondAdvance[7]?.destinationRectFrom)
         assertEquals(to, secondAdvance[7]?.destinationRect)
 
         secondAdvance[7] = checkNotNull(secondAdvance[7]).copy(
@@ -557,6 +557,34 @@ class SystemNnnVisualEffectMathTest {
             SystemNnnVisualEffectMath.haikeiYureOffset(20, parameters))
         assertEquals(SystemNnnVisualOffset(0f, 0f),
             SystemNnnVisualEffectMath.haikeiYureOffset(0, listOf(0, 20, 0, 25, 25)))
+    }
+
+    @Test
+    fun setImageLayerRectKeepsThe800By89LayerYAsDestinationOnly() {
+        val rect = SystemNnnNativeRect(x = 0, y = 250, width = 800, height = 89)
+        val configuration = SystemNnnVisualLayerConfiguration()
+            .withSetImageLayerRect(fromRect = rect, toRect = rect)
+
+        assertEquals(rect, configuration.destinationRectFrom)
+        assertEquals(rect, configuration.destinationRect)
+        assertEquals(
+            rect,
+            SystemNnnVisualEffectMath.moveRect(
+                0, 630, configuration.destinationRectFrom!!, configuration.destinationRect!!
+            )
+        )
+    }
+
+    @Test
+    fun haikeiYureUsesNativeScreenBufferWaveForObservedIntroParameters() {
+        val parameters = listOf(9999, 2, 1, 17, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+
+        assertEquals(SystemNnnVisualOffset(2f, 1f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(0, parameters))
+        assertEquals(SystemNnnVisualOffset(0f, -1f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(1, parameters))
+        assertEquals(SystemNnnVisualOffset(-2f, 0f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(273, parameters))
     }
 
     @Test

@@ -48,7 +48,7 @@ data class SystemNnnSpriteBitmap(
     val nativeRect: SystemNnnNativeRect? = null,
     val nativeBankNamespace: String? = null,
     val nativeBankSlot: Int? = null,
-    val nativeRectFrom: SystemNnnNativeRect? = null,
+    val nativeDestinationRectFrom: SystemNnnNativeRect? = null,
     val nativeEffectId: Int? = null,
     val nativeEffectParameters: List<Int> = emptyList(),
     val nativeEffectCommandOffset: Long? = null,
@@ -79,7 +79,10 @@ data class SystemNnnNativeRuntimeState(
     val optionOff: Int = 0,
     val dontPlayMode: Int = 0,
     val configMask: Int = 0,
-    val frameTimeMillis: Int = 50,
+    val frameTimeMillis: Int = SystemNnnGameConfig.DEFAULT_FRAME_TIME_MILLIS,
+    val maxSkipFrame: Int = SystemNnnGameConfig.DEFAULT_MAX_SKIP_FRAME,
+    val maxSkipFrameBackScript: Int = SystemNnnGameConfig.DEFAULT_MAX_SKIP_FRAME,
+    val skipAdjustFrame: Int = SystemNnnGameConfig.DEFAULT_SKIP_ADJUST_FRAME,
     val cgFlags: Set<Pair<Int, Int>> = emptySet(),
     val faceControlGeneration: Long = 0L
 )
@@ -361,7 +364,7 @@ data class SystemNnnSpriteReference(
     val layerIndex: Int = -1,
     val nativeRect: SystemNnnNativeRect? = null,
     val nativeEffectId: Int? = null,
-    val nativeRectFrom: SystemNnnNativeRect? = null,
+    val nativeDestinationRectFrom: SystemNnnNativeRect? = null,
     val nativeEffectParameters: List<Int> = emptyList(),
     val nativeEffectCommandOffset: Long? = null
 )
@@ -377,6 +380,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private set
 
     private var nativeRuntimeState = SystemNnnNativeRuntimeState()
+    private var nativeGameConfig = SystemNnnGameConfig()
     private var script: SystemNnnScript? = null
     private var commandStream: SystemNnnCommandStream? = null
     private var decoder: SystemNnnCommandDecoder? = null
@@ -500,7 +504,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
             is SystemNnnDecodedCommand.ClearImageLayer -> mapOf("layer" to command.layerIndex)
             is SystemNnnDecodedCommand.SetImageLayerRect -> mapOf(
                 "layer" to command.layerIndex,
-                "srcRect" to traceRect(command.fromRect),
+                "dstRectFrom" to traceRect(command.fromRect),
                 "dstRect" to traceRect(command.toRect)
             )
             is SystemNnnDecodedCommand.SceneUpdate -> mapOf(
@@ -573,7 +577,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 sprite.nativeRect != null -> "native_rect"
                 else -> "bottom_center_default"
             },
-            "srcRect" to traceRect(sprite.nativeRectFrom),
+            "dstRectFrom" to traceRect(sprite.nativeDestinationRectFrom),
             "nativeRectWasExplicit" to (sprite.nativeRect != null),
             "packType" to metadata?.packType,
             "format" to metadata?.format,
@@ -679,21 +683,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     )
                 }
             }
-            val sourceRect = sprite.nativeRectFrom
-            if (sourceRect != null && (
-                sourceRect.x < 0 || sourceRect.y < 0 || sourceRect.width <= 0 || sourceRect.height <= 0 ||
-                    sourceRect.x.toLong() + sourceRect.width.toLong() > bitmap.width.toLong() ||
-                    sourceRect.y.toLong() + sourceRect.height.toLong() > bitmap.height.toLong()
-                )
-            ) {
-                anomalies += mapOf(
-                    "type" to "src_rect_out_of_bounds",
-                    "layerIndex" to sprite.layerIndex,
-                    "srcRect" to traceRect(sourceRect),
-                    "sourceSize" to "${bitmap.width}x${bitmap.height}"
-                )
-            }
-        }
+            // SETEFFECTRECT configures dstFrom/dstTo, not a source crop.
+            // A destination y may therefore lie outside the texture's height.
+}
         val effectList = sprites.mapNotNull { sprite ->
             sprite.nativeEffectId?.let {
                 traceEffect(it, sprite.nativeEffectParameters, frame = null, layer = sprite.layerIndex)
@@ -831,10 +823,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
         controllerModuleName: String? = null,
         initialFilmNumber: Int? = null,
         sceneReplayModuleName: String? = null,
-        sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList()
+        sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList(),
+        initialGameConfig: SystemNnnGameConfig = SystemNnnGameConfig()
     ) {
         releaseAssets()
-        nativeRuntimeState = SystemNnnNativeRuntimeState()
+        nativeGameConfig = initialGameConfig
+        nativeRuntimeState = SystemNnnNativeRuntimeState(
+            frameTimeMillis = initialGameConfig.frameTimeMillis,
+            maxSkipFrame = initialGameConfig.maxSkipFrame,
+            maxSkipFrameBackScript = initialGameConfig.maxSkipFrameBackScript,
+            skipAdjustFrame = initialGameConfig.skipAdjustFrame
+        )
         visualLayerConfigurationStore.clear()
 
         moduleCallStack.clear()
@@ -904,7 +903,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         this.traceStepCounter = 0L
         this.audioRequestId += 1L
 
-        uiState = SystemNnnPlayerUiState(isLoading = true)
+        uiState = SystemNnnPlayerUiState(isLoading = true, nativeRuntime = nativeRuntimeState)
         startAudio(initialAudioTrack, initialAudioResourceName)
 
         if (commandDecoder == null) {
@@ -926,7 +925,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         assetResolver: SystemNnnSceneAssetResolver,
         decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder,
         audioRepository: SystemNnnAudioResourceRepository? = null,
-        initialSceneRoute: SystemNnnSceneRoute? = null
+        initialSceneRoute: SystemNnnSceneRoute? = null,
+        initialGameConfig: SystemNnnGameConfig = SystemNnnGameConfig()
     ) {
         val orderedModules = modules.toList()
         val moduleMap = orderedModules.associateBy { it.name.lowercase(Locale.ROOT) }
@@ -996,7 +996,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
             controllerModuleName = control.name,
             initialFilmNumber = replayFilms.firstOrNull()?.filmIndex?.plus(1),
             sceneReplayModuleName = initialSceneRoute?.moduleName,
-            sceneReplayFilms = replayFilms
+            sceneReplayFilms = replayFilms,
+            initialGameConfig = initialGameConfig
         )
     }
 
@@ -1616,9 +1617,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
             0x001E -> current.copy(dontPlayMode = if (first == 2) 0 else first)
             0x0028 -> when {
                 first > 0 -> current.copy(frameTimeMillis = first)
-                first == 0 -> current.copy(frameTimeMillis = DEFAULT_NATIVE_FRAME_TIME_MILLIS)
+                first == 0 -> current.copy(frameTimeMillis = nativeGameConfig.frameTimeMillis)
                 else -> current
             }
+            0x0029 -> current.copy(frameTimeMillis = nativeGameConfig.frameTimeMillis)
             0x0053 -> when {
                 first > 0 -> current.copy(configMask = first)
                 first < 0 -> current.copy(configMask = 0)
@@ -1673,7 +1675,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     nativeBankSlot = sprite.nativeBankSlot,
                     layerIndex = sprite.layerIndex,
                     nativeRect = sprite.nativeRect,
-                    nativeRectFrom = sprite.nativeRectFrom,
+                    nativeDestinationRectFrom = sprite.nativeDestinationRectFrom,
                     nativeEffectId = sprite.nativeEffectId,
                     nativeEffectParameters = sprite.nativeEffectParameters,
                     nativeEffectCommandOffset = sprite.nativeEffectCommandOffset
@@ -1802,7 +1804,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             layerIndex = command.layerIndex,
                             nativeRect = layerVisuals?.destinationRect,
                             nativeEffectId = layerVisuals?.effectId,
-                            nativeRectFrom = layerVisuals?.sourceRect,
+                            nativeDestinationRectFrom = layerVisuals?.destinationRectFrom,
                             nativeEffectParameters = layerVisuals?.effectParameters.orEmpty(),
                             nativeEffectCommandOffset = layerVisuals?.effectCommandOffset
                         )
@@ -1857,13 +1859,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         nextCommandOffset = command.nextCommandOffset
                         val currentLayerVisuals = pendingLayerVisuals[command.layerIndex]
                             ?: SystemNnnVisualLayerConfiguration()
-                        pendingLayerVisuals[command.layerIndex] = currentLayerVisuals.copy(
-                            sourceRect = command.fromRect,
-                            destinationRect = command.toRect
+                        pendingLayerVisuals[command.layerIndex] = currentLayerVisuals.withSetImageLayerRect(
+                            fromRect = command.fromRect,
+                            toRect = command.toRect
                         )
                         pendingSpriteLayers[command.layerIndex]?.let { reference ->
                             pendingSpriteLayers[command.layerIndex] = reference.copy(
-                                nativeRectFrom = command.fromRect,
+                                nativeDestinationRectFrom = command.fromRect,
                                 nativeRect = command.toRect
                             )
                         }
@@ -2699,7 +2701,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 existing.nativeBankNamespace == reference.nativeBankNamespace &&
                 existing.nativeBankSlot == reference.nativeBankSlot &&
                 existing.nativeRect == reference.nativeRect &&
-                existing.nativeRectFrom == reference.nativeRectFrom &&
+                existing.nativeDestinationRectFrom == reference.nativeDestinationRectFrom &&
                 existing.nativeEffectId == reference.nativeEffectId &&
                 existing.nativeEffectParameters == reference.nativeEffectParameters &&
                 existing.nativeEffectCommandOffset == reference.nativeEffectCommandOffset &&
@@ -2826,7 +2828,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 } else null,
                 nativeBankNamespace = reference.nativeBankNamespace,
                 nativeBankSlot = reference.nativeBankSlot,
-                nativeRectFrom = reference.nativeRectFrom,
+                nativeDestinationRectFrom = reference.nativeDestinationRectFrom,
                 nativeEffectId = reference.nativeEffectId,
                 nativeEffectParameters = reference.nativeEffectParameters,
                 nativeEffectCommandOffset = reference.nativeEffectCommandOffset,
@@ -2836,7 +2838,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
         val resolvedByLayer = resolved.associateBy { it.layerIndex }
         references.filter { it.nativeEffectId == 52 }.forEach { reference ->
-            if (reference.nativeRectFrom == null || reference.nativeRect == null) {
+            if (reference.nativeDestinationRectFrom == null || reference.nativeRect == null) {
                 warnings += "MOVE (52) on layer ${reference.layerIndex} has no SETEFFECTRECT destination and cannot move yet."
             }
         }
@@ -2945,7 +2947,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private val SCREEN_BUFFER_EFFECT_IDS = setOf(
             2, 10, 11, 18, 20, 22, 29, 31, 43, 50, 54, 55, 69, 71, 74
         )
-        private const val DEFAULT_NATIVE_FRAME_TIME_MILLIS = 50
         private const val DEFAULT_OVERRAP_LENGTH_FRAMES = 18
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,

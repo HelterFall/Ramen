@@ -26,6 +26,29 @@ class SystemNnnNativeEffectRendererTest {
     }
 
     @Test
+    fun haikeiYureScreenBufferMovesUsingTheObservedIntroParameters() {
+        val source = IntArray(12) { it + 1 }
+        val original = source.copyOf()
+        val parameters = listOf(9999, 2, 1, 17, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+
+        val result = SystemNnnNativeEffectRenderer.renderScreenBufferEffect(
+            effectId = 100,
+            frame = 0,
+            parameters = parameters,
+            source = source,
+            width = 4,
+            height = 3
+        )
+
+        assertNotNull(result)
+        assertEquals(1, result!![6])
+        assertEquals(2, result[7])
+        assertEquals(5, result[10])
+        assertEquals(6, result[11])
+        assertArrayEquals(original, source)
+    }
+
+    @Test
     fun overrapUsesNativeEightBitFixedPointWeights() {
         val start = intArrayOf(0xFF000000.toInt(), 0xFF102030.toInt())
         val end = intArrayOf(0xFFFFFFFF.toInt(), 0xFF304050.toInt())

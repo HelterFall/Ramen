@@ -190,6 +190,10 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     SystemNnnOverrapConfig.load(launch.assetRootDirectory)
                 }.onFailure { diagnosticLog.recordException("overrap_setup", it) }
                     .getOrDefault(SystemNnnOverrapConfig())
+                val gameConfig = runCatching {
+                    SystemNnnGameConfig.load(launch.assetRootDirectory)
+                }.onFailure { diagnosticLog.recordException("native_game_config", it) }
+                    .getOrDefault(SystemNnnGameConfig())
                 val assetManagerToTransfer = SystemNnnAssetManager.forGameDirectory(
                     gameDirectory = launch.assetRootDirectory,
                     cacheDirectory = File(cacheDir, "systemnnn-audio")
@@ -217,7 +221,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                                 assetResolver = assetManagerToTransfer,
                                 decoderFactory = decoderFactory,
                                 audioRepository = assetManagerToTransfer,
-                                initialSceneRoute = initialSceneRoute
+                                initialSceneRoute = initialSceneRoute,
+                                initialGameConfig = gameConfig
                             )
                         } else {
                             playerViewModel.start(
@@ -229,7 +234,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                                 ),
                                 assetResolver = assetManagerToTransfer,
                                 initialCommandOffset = launch.initialCommandOffset,
-                                audioRepository = assetManagerToTransfer
+                                audioRepository = assetManagerToTransfer,
+                                initialGameConfig = gameConfig
                             )
                         }
                     }

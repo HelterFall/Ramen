@@ -231,13 +231,21 @@ fun SystemNnnPlayerScreen(
         val offsetY = if (canvasSizePx.height > 0 && viewportHeight > 0) {
             (canvasSizePx.height - viewportHeight) / 2f
         } else null
-        val shake = if (state.screenEffectId == 18) {
-            SystemNnnVisualEffectMath.shakeOffset(
+        val shake = when (state.screenEffectId) {
+            18 -> SystemNnnVisualEffectMath.shakeOffset(
                 frame = screenEffectFrame,
                 frameCount = (state.screenEffectParameters.firstOrNull() ?: 20).coerceAtLeast(1),
                 vertical = (state.screenEffectParameters.getOrNull(1) ?: 0) != 0
             )
-        } else SystemNnnVisualOffset(0f, 0f)
+            100 -> if ((state.screenEffectParameters.getOrNull(5) ?: 0) == 1) {
+                // Native CEffectHaikeiYure::Print calls MoveScreen for para[5]==1.
+                // This is trace metadata; screen-buffer pixels are shifted by the renderer.
+                SystemNnnVisualEffectMath.haikeiYureOffset(screenEffectFrame, state.screenEffectParameters)
+            } else {
+                SystemNnnVisualOffset(0f, 0f)
+            }
+            else -> SystemNnnVisualOffset(0f, 0f)
+        }
         val shakePxX = if (scaleX != null) shake.x * scaleX else 0f
         val shakePxY = if (scaleY != null) shake.y * scaleY else 0f
         val matrix = if (scaleX != null && scaleY != null && offsetX != null && offsetY != null) {
@@ -286,7 +294,7 @@ fun SystemNnnPlayerScreen(
                     sprite.nativeRect != null -> "native_rect"
                     else -> "bottom_center_default"
                 },
-                "srcRect" to sprite.nativeRectFrom?.let {
+                "dstRectFrom" to sprite.nativeDestinationRectFrom?.let {
                     mapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height)
                 },
                 "packType" to sprite.sourceMetadata?.packType,
@@ -490,8 +498,18 @@ fun SystemNnnPlayerScreen(
         }
     }
 
-    LaunchedEffect(state.drawEventId, state.pendingDrawFrameCount, state.nativeRuntime.frameTimeMillis) {
+    LaunchedEffect(
+        state.drawEventId,
+        state.pendingDrawFrameCount,
+        state.nativeRuntime.frameTimeMillis,
+        skipMode,
+        state.nativeRuntime.cannotSkip
+    ) {
         val frames = state.pendingDrawFrameCount ?: return@LaunchedEffect
+        if (skipMode && state.nativeRuntime.cannotSkip <= 0) {
+            onDrawFrameCompleted()
+            return@LaunchedEffect
+        }
         delay(frames.coerceIn(1, 9_999) * state.nativeRuntime.frameTimeMillis.coerceAtLeast(1).toLong())
         onDrawFrameCompleted()
     }
@@ -806,7 +824,14 @@ fun SystemNnnPlayerScreen(
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
                     .padding(horizontal = 14.dp, vertical = 18.dp),
-                windowVisible = state.nativeRuntime.messageWindowPrintFlag
+                windowVisible = state.nativeRuntime.messageWindowPrintFlag,
+                showContinuePrompt = state.nativeRuntime.messageWindowPrintFlag &&
+                    state.pendingDrawFrameCount == null &&
+                    state.isTextComplete &&
+                    state.choices.isEmpty() &&
+                    state.nativeRuntime.autoMessage <= 0 &&
+                    state.nativeRuntime.cannotClick <= 0 &&
+                    !autoMode && !skipMode && !state.isLoading
             )
         } else {
             Surface(
@@ -895,7 +920,8 @@ private fun DialogueBox(
     speakerName: String?,
     dialogue: String,
     modifier: Modifier = Modifier,
-    windowVisible: Boolean = true
+    windowVisible: Boolean = true,
+    showContinuePrompt: Boolean = true
 ) {
     val windowModifier = if (windowVisible) {
         modifier.clip(RoundedCornerShape(16.dp)).background(Color(0xE6101216))
@@ -920,15 +946,17 @@ private fun DialogueBox(
             style = MaterialTheme.typography.bodyLarge,
             minLines = 2
         )
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            Text(
-                text = "НАЖМИТЕ ДЛЯ ПРОДОЛЖЕНИЯ",
-                color = Color(0xFFA8ADB7),
-                style = MaterialTheme.typography.labelSmall
-            )
+        if (showContinuePrompt) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.End
+            ) {
+                Text(
+                    text = "НАЖМИТЕ ДЛЯ ПРОДОЛЖЕНИЯ",
+                    color = Color(0xFFA8ADB7),
+                    style = MaterialTheme.typography.labelSmall
+                )
+            }
         }
     }
 }
@@ -937,8 +965,8 @@ private fun DialogueBox(
 
 
 /**
- * Draws one native DWQ layer. The reference compositor advances SETEFFECTRECT's
- * left/top from source to destination while keeping right/bottom as dimensions.
+ * Draws one native DWQ layer. SETEFFECTRECT interpolates between two
+ * destination RECTs; neither RECT is a source-texture crop.
  */
 @Composable
 private fun BoxScope.SystemNnnAnimatedSpriteLayer(
@@ -960,7 +988,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val effectId = sprite.nativeEffectId
     val parameters = sprite.nativeEffectParameters
     val nativeRect = sprite.nativeRect
-    val fromRect = sprite.nativeRectFrom
+    val fromRect = sprite.nativeDestinationRectFrom
     // Native blit receives RECT right/bottom as dimensions. Preserve invalid
     // extents in decoded state but do not submit a non-positive destination to Compose.
     if (nativeRect != null && (nativeRect.width <= 0 || nativeRect.height <= 0)) return

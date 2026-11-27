@@ -34,6 +34,19 @@ class SystemNnnVisualLayerConfigurationStoreTest {
     }
 
     @Test
+    fun setImageLayerRectPreservesY250AsDestinationForAn800By89Texture() {
+        val rect = SystemNnnNativeRect(x = 0, y = 250, width = 800, height = 89)
+        val store = SystemNnnVisualLayerConfigurationStore()
+        store.replaceWith(
+            mapOf(12 to SystemNnnVisualLayerConfiguration().withSetImageLayerRect(rect, rect))
+        )
+
+        val layer = checkNotNull(store.snapshot()[12])
+        assertEquals(rect, layer.destinationRectFrom)
+        assertEquals(rect, layer.destinationRect)
+    }
+
+    @Test
     fun clearingTheStoreRemovesAllLayerVisualConfiguration() {
         val store = SystemNnnVisualLayerConfigurationStore()
         store.replaceWith(
