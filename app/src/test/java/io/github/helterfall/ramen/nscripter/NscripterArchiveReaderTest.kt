@@ -62,7 +62,7 @@ class NscripterArchiveReaderTest {
                     name = "cg/one-pixel.bmp",
                     payload = packedSpb,
                     compression = 1,
-                    unpackedSize = 58
+                    unpackedSize = 0
                 )
             )
 
