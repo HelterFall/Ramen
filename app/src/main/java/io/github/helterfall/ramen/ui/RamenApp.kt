@@ -68,6 +68,7 @@ import io.github.helterfall.ramen.library.GameRecord
 import io.github.helterfall.ramen.library.LibraryRepository
 import io.github.helterfall.ramen.nscripter.NscripterScanReport
 import io.github.helterfall.ramen.nscripter.NscripterStaticScanner
+import io.github.helterfall.ramen.nscripter.NscripterPlayerActivity
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -368,6 +369,11 @@ fun RamenApp() {
                                     "system-nnn-spt" -> {
                                         val intent = Intent(context, SystemNnnPlayerActivity::class.java)
                                             .putExtra(SystemNnnPlayerActivity.EXTRA_GAME_ID, game.id)
+                                        context.startActivity(intent)
+                                    }
+                                    "nscripter" -> {
+                                        val intent = Intent(context, NscripterPlayerActivity::class.java)
+                                            .putExtra(NscripterPlayerActivity.EXTRA_GAME_ID, game.id)
                                         context.startActivity(intent)
                                     }
                                     "html5" -> {
