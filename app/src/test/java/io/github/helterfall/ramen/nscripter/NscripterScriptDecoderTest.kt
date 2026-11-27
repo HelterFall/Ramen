@@ -59,6 +59,29 @@ class NscripterScriptDecoderTest {
     }
 
     @Test
+    fun loadsUtf8OnscripterEntryAndNumberedSegmentsWithCyrillic() {
+        val root = Files.createTempDirectory("onscripter-utf8-script").toFile()
+        try {
+            File(root, "0.utf").writeText(
+                ";mode800\n*define\n*start\nn \"Привет, мир!\"\n",
+                Charsets.UTF_8
+            )
+            File(root, "01.utf").writeText("bg \"room.bmp\",1\n", Charsets.UTF_8)
+            File(root, "2.utf").writeText("end\n", Charsets.UTF_8)
+
+            val scripts = decoder.loadScripts(root)
+
+            assertEquals(listOf("0.utf", "01.utf", "2.utf"), scripts.map { it.relativePath })
+            assertEquals("UTF-8", scripts.first().encoding)
+            assertEquals("utf8-script", scripts.first().mode)
+            assertTrue(scripts.first().text.contains("Привет, мир!"))
+            assertTrue(scripts.first().text.contains(";mode800"))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun fallsBackToNscriptDatWhenNoPlainEntryScriptExists() {
         val root = Files.createTempDirectory("nscripter-dat-entry").toFile()
         try {
