@@ -54,6 +54,7 @@ import io.github.helterfall.ramen.importer.SafFolderImporter
 import io.github.helterfall.ramen.importer.ZipGameImporter
 import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.runtime.hsp3.Hsp3PlayerActivity
+import io.github.helterfall.ramen.runtime.hsp3.Hsp3AxScanActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
@@ -293,6 +294,11 @@ fun RamenApp() {
                                         ResourceInspectorActivity.EXTRA_GAME_RELATIVE_DIRECTORY,
                                         game.relativeDirectory
                                     )
+                                context.startActivity(intent)
+                            },
+                            onScan = {
+                                val intent = Intent(context, Hsp3AxScanActivity::class.java)
+                                    .putExtra(Hsp3AxScanActivity.EXTRA_GAME_ID, game.id)
                                 context.startActivity(intent)
                             },
                             onLaunch = {
@@ -630,6 +636,7 @@ private fun SectionHeading(text: String) {
 private fun GameCard(
     game: GameRecord,
     onInspectResources: () -> Unit,
+    onScan: () -> Unit,
     onLaunch: () -> Unit
 ) {
     Card(
@@ -687,6 +694,17 @@ private fun GameCard(
                 shape = RoundedCornerShape(13.dp)
             ) {
                 Text("Просмотреть GPK/GTB и VPK/VTB")
+            }
+            if (game.engineId == "hsp3-dpmx" &&
+                game.compatibilityStatus == "PARSER_AVAILABLE"
+            ) {
+                OutlinedButton(
+                    onClick = onScan,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(13.dp)
+                ) {
+                    Text("SCAN start.ax → JSON")
+                }
             }
             if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
                 (game.compatibilityStatus == "PARSER_AVAILABLE" &&

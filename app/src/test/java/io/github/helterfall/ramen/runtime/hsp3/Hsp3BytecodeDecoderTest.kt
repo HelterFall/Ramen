@@ -98,6 +98,34 @@ class Hsp3BytecodeDecoderTest {
     }
 
     @Test
+    fun unaryMinusUsesOpenHspPostfixLoweringAndLeavesOneExpressionValue() {
+        withProgram(createColorWithUnaryMinus()) { program ->
+            val command = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.NativeCommand
+            val value = command.arguments[0]!!.evaluate(
+                variable = { index ->
+                    if (index == 4) Hsp3RuntimeValue.IntegerValue(7)
+                    else Hsp3RuntimeValue.IntegerValue(0)
+                },
+                systemVariable = { Hsp3RuntimeValue.IntegerValue(0) }
+            )
+
+            assertEquals(Hsp3RuntimeValue.IntegerValue(-5), value)
+        }
+    }
+
+    @Test
+    fun nestedFunctionPreservesRepeatedAndTrailingOmittedArguments() {
+        withProgram(createColorWithTrailingOmittedLimitArguments()) { program ->
+            val graphics = RecordingGraphics()
+            val snapshot = Hsp3VirtualMachine(graphics)
+                .runSlice(Hsp3BytecodeDecoder().decode(program))
+
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertTrue(graphics.calls.contains("color:10:128:64"))
+        }
+    }
+
+    @Test
     fun decodesAndExecutesNestedBuiltinStringFunction() {
         withProgram(createMesWithStringFunction()) { program ->
             val graphics = RecordingGraphics()
@@ -218,6 +246,35 @@ class Hsp3BytecodeDecoderTest {
         )
         return createAx(code)
     }
+
+    private fun createColorWithUnaryMinus(): ByteArray = createAx(
+        listOf(
+            0x2009, Hsp3CommandIds.COLOR,
+            0x0001, 4, // variable #4
+            0x8004, 0xFFFF, 0xFFFF, // wide TYPE_INUM -1
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_MUL,
+            0x0004, 2,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_ADD,
+            0x4004, 128,
+            0x4004, 64,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+    )
+
+    private fun createColorWithTrailingOmittedLimitArguments(): ByteArray = createAx(
+        listOf(
+            0x2009, Hsp3CommandIds.COLOR,
+            0x000D, 0x0011, // TYPE_INTFUNC limit()
+            0x0000, '('.code,
+            0x0004, 10,
+            0x4000, '?'.code, // omitted second parameter, EXFLG_2 boundary
+            0x4000, '?'.code, // omitted third parameter
+            0x0000, ')'.code,
+            0x4004, 128,
+            0x4004, 64,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+    )
 
     private fun createNativeCommandProgram(commandId: Int): ByteArray {
         val code = listOf(

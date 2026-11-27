@@ -21,7 +21,9 @@ private class Hsp3DecodeException(val token:Hsp3Token?,message:String,cause:Thro
  * CS values are 16-bit-word tokens (or 32-bit payload tokens). EXFLG_1 marks
  * command heads; EXFLG_2 marks subsequent argument boundaries; EXFLG_0 is the
  * compiler's single-literal fast-path flag; EXFLG_3 selects a 32-bit value.
- * Expression operators are postfix and use CALCCODE_* values 0..15.
+ * All CALCCODE_* markers are binary in OpenHSP. Unary minus is lowered by the
+ * compiler to "operand, -1, MUL"; EXFLG_2 is an argument boundary, while '?'
+ * is the explicit omitted-argument marker.
  */
 class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
     private val diagnosticBuffer=ArrayList<Hsp3DecodeDiagnostic>()
@@ -105,28 +107,50 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         val groups=ArrayList<List<Hsp3Token>>()
         var current=ArrayList<Hsp3Token>()
         var depth=0
-        var previousFast=false
-        fun finish() { if(current.isNotEmpty()) groups+=current.toList(); current=ArrayList() }
-        for(i in startIndex until endIndex) {
-            val t=tokens[i]
-            val open=t.type==TYPE_MARK && t.value=='('.code.toLong()
-            val close=t.type==TYPE_MARK && t.value==')'.code.toLong()
-            if(t.extensionFlags and EXFLG_2!=0 && depth==0) {
-                if(current.isNotEmpty()) finish()
-                else if(groups.isEmpty() || !previousFast) groups.add(emptyList())
+        var previousFastLiteral=false
+        fun finish() {
+            if (current.isNotEmpty()) groups += current.toList()
+            current = ArrayList()
+        }
+        for (i in startIndex until endIndex) {
+            val token = tokens[i]
+            val isOpen = token.type == TYPE_MARK && token.value == '('.code.toLong()
+            val isClose = token.type == TYPE_MARK && token.value == ')'.code.toLong()
+
+            // OpenHSP code_get() observes EXFLG_2 before consuming the token.
+            // At a fresh argument position it is a default/empty argument; after
+            // an EXFLG_0 fast literal it is only the next argument's delimiter.
+            if (token.extensionFlags and EXFLG_2 != 0 && depth == 0) {
+                if (current.isNotEmpty()) {
+                    finish()
+                } else if (groups.isEmpty() || !previousFastLiteral) {
+                    groups.add(emptyList())
+                }
             }
-            if(t.extensionFlags and EXFLG_0!=0 && depth==0) {
+
+            // EXFLG_0 is OpenHSP's standalone literal fast path. It must be a
+            // complete argument, never left on the postfix expression stack.
+            if (token.extensionFlags and EXFLG_0 != 0 && depth == 0) {
                 finish()
-                groups+=listOf(t.copy(extensionFlags=t.extensionFlags and (EXFLG_0 or EXFLG_2).inv()))
-                previousFast=true
+                groups += listOf(
+                    token.copy(
+                        extensionFlags = token.extensionFlags and (EXFLG_0 or EXFLG_2).inv()
+                    )
+                )
+                previousFastLiteral = true
                 continue
             }
-            // Keep nested EXFLG_2 separators until parenthesized arguments are parsed.
-            current+=t.copy(extensionFlags=t.extensionFlags and EXFLG_0.inv())
-            previousFast=false
-            if(open) depth++
-            if(close) {
-                if(depth==0) throw Hsp3DecodeException(t,"Unbalanced closing parenthesis in HSP parameters.")
+
+            // EXFLG_2 inside a callback/array's parentheses belongs to that
+            // nested parameter list. Leave it for readParenthesizedArguments().
+            current += token.copy(extensionFlags = token.extensionFlags and EXFLG_0.inv())
+            previousFastLiteral = false
+
+            if (isOpen) depth++
+            if (isClose) {
+                if (depth == 0) {
+                    throw Hsp3DecodeException(token, "Unbalanced closing parenthesis in HSP parameters.")
+                }
                 depth--
             }
         }
@@ -223,9 +247,22 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             catch(e:Exception) { throw Hsp3DecodeException(t,e.message ?: e.javaClass.simpleName,e) }
             i++
         }
-        if(stack.size!=1) {
-            val t=tokens.lastOrNull()
-            throw Hsp3DecodeException(t,"The HSP postfix expression leaves ${stack.size} values on its stack.")
+        if (stack.size != 1) {
+            val t = tokens.lastOrNull()
+            val remaining = stack.joinToString(prefix = "[", postfix = "]") { node ->
+                when (node) {
+                    is Hsp3ExpressionNode.Literal -> "literal(${node.value})"
+                    is Hsp3ExpressionNode.Variable -> "variable(${node.index})"
+                    is Hsp3ExpressionNode.SystemVariable -> "sysvar(${node.index})"
+                    is Hsp3ExpressionNode.Function -> "function(0x${node.id.toString(16)})"
+                    is Hsp3ExpressionNode.Binary -> "binary(${node.operator})"
+                    is Hsp3ExpressionNode.Opaque -> "opaque(type=${node.tokenType},value=${node.tokenValue})"
+                }
+            }
+            throw Hsp3DecodeException(
+                t,
+                "The HSP postfix expression leaves ${stack.size} values on its stack: $remaining."
+            )
         }
         return Hsp3Expression(stack.removeLast())
     }
