@@ -681,6 +681,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             Hsp3CommandIds.CELDIV,
             Hsp3CommandIds.CELPUT,
             Hsp3CommandIds.GMODE,
+            Hsp3CommandIds.GETKEY,
             Hsp3CommandIds.BUFFER,
             Hsp3CommandIds.SCREEN,
             Hsp3CommandIds.BOXF,
