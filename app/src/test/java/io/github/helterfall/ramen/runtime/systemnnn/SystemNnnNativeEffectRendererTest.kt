@@ -253,7 +253,11 @@ class SystemNnnNativeEffectRendererTest {
             12, listOf(20, 2, 3, 3, 8, 6, 50, 100), 800, 600
         )
         assertEquals(3, rain2.size)
-        assertTrue(rain2.all { it.x in 0 until 800 && it.y in 0 until 600 })
+        assertTrue(rain2.all { it.x in -800 until 800 && it.y in -600 until 600 })
+        val gameRain2 = SystemNnnNativeEffectRenderer.rain2Offsets(
+            12, listOf(0, 0, 270, 4), 800, 600
+        )
+        assertEquals(4, gameRain2.size)
 
         val rain4 = SystemNnnNativeEffectRenderer.rain4Copies(
             80, 60, 10, listOf(20, 3, 500, 20, -2, 400, 300, 30, 200), 800, 600

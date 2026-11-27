@@ -709,6 +709,62 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun nativeSystemFunctionsUpdateRuntimeStateAndGatePlayerInput() {
+        val offsets = recordOffsets(List(12) { 3 })
+        val commandMap = linkedMapOf<Long, SystemNnnDecodedCommand>()
+        val functions = listOf(
+            0x001B to listOf(42, 1),
+            0x001C to listOf(42, 3, 1),
+            0x0018 to listOf(2, 7, -1),
+            0x0057 to listOf(-1),
+            0x0058 to listOf(1),
+            0x005A to listOf(4),
+            0x001E to listOf(2),
+            0x0059 to listOf(1),
+            0x0017 to emptyList(),
+            0x0053 to listOf(3),
+            0x0028 to listOf(75)
+        )
+        functions.forEachIndexed { index, entry ->
+            commandMap[offsets[index]] = SystemNnnDecodedCommand.NativeSystemFunction(
+                nextCommandOffset = offsets[index + 1],
+                functionId = entry.first,
+                parameters = entry.second
+            )
+        }
+        val textStart = testTextStartOffset(List(12) { 3 })
+        commandMap[offsets[11]] = SystemNnnDecodedCommand.Dialogue(
+            nextCommandOffset = 0xF0L,
+            textEntryOffset = textStart
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(
+            script = testScript(List(12) { 3 }),
+            commandDecoder = FakeDecoder(commandMap),
+            assetResolver = EmptyAssets
+        )
+
+        val native = viewModel.uiState.nativeRuntime
+        assertEquals(42, native.lastMessageId)
+        assertEquals(3, native.nextMessageType)
+        assertEquals(-1, native.nextMessageWindowPrintMode)
+        assertTrue(native.messageWindowPrintFlag)
+        assertFalse(native.messageHaveVoiceFlag)
+        assertEquals(setOf(1 to 6), native.cgFlags)
+        assertEquals(0, native.autoMessage)
+        assertEquals(1, native.cannotClick)
+        assertEquals(1, native.cannotSkip)
+        assertEquals(4, native.optionOff)
+        assertEquals(0, native.dontPlayMode)
+        assertEquals(3, native.configMask)
+        assertEquals(75, native.frameTimeMillis)
+
+        viewModel.onScreenTap()
+        assertFalse(viewModel.uiState.isTextComplete)
+    }
+
+    @Test
     fun invalidChoiceTargetIsRejected() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(

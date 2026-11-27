@@ -380,8 +380,9 @@ internal object SystemNnnVisualEffectMath {
             // (0) and screen-buffer (1) modes are supported by the renderer.
             100 -> (parameters.getOrNull(5) ?: 0) in 0..1
             27 -> parameters.size >= 12
-            29 -> parameters.size >= 9
-            56 -> parameters.size >= 8
+            // SUNA and RAIN2 SetParam() supply native defaults for omitted operands.
+            29 -> parameters.size in 4..10
+            56 -> parameters.size in 4..8
             63 -> parameters.size >= 15
             102 -> parameters.size >= 9
             0, 1, 2, 8, 9, 10, 11, 17, 18, 20, 22, 31, 39, 40, 43,

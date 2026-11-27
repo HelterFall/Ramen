@@ -67,6 +67,23 @@ enum class SystemNnnScreenCapturePurpose {
     OVERRAP_TARGET
 }
 
+data class SystemNnnNativeRuntimeState(
+    val messageWindowPrintFlag: Boolean = true,
+    val nextMessageType: Int = 3,
+    val nextMessageWindowPrintMode: Int = -1,
+    val lastMessageId: Int = -1,
+    val messageHaveVoiceFlag: Boolean = false,
+    val autoMessage: Int = 0,
+    val cannotClick: Int = 0,
+    val cannotSkip: Int = 0,
+    val optionOff: Int = 0,
+    val dontPlayMode: Int = 0,
+    val configMask: Int = 0,
+    val frameTimeMillis: Int = 50,
+    val cgFlags: Set<Pair<Int, Int>> = emptySet(),
+    val faceControlGeneration: Long = 0L
+)
+
 data class SystemNnnPlayerUiState(
     /** Changes only when a dialogue/choice frame is published. */
     val frameId: Long = 0L,
@@ -110,7 +127,8 @@ data class SystemNnnPlayerUiState(
     val overrapTransitionType: Int = 0,
     val overrapTransitionDurationFrames: Int = 0,
     val overrapOptionButtonPrintFlag: Int = 1,
-    val overrapSceneButtonPrintFlag: Int = 1
+    val overrapSceneButtonPrintFlag: Int = 1,
+    val nativeRuntime: SystemNnnNativeRuntimeState = SystemNnnNativeRuntimeState()
 )
 
 /**
@@ -358,6 +376,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     var uiState by mutableStateOf(SystemNnnPlayerUiState())
         private set
 
+    private var nativeRuntimeState = SystemNnnNativeRuntimeState()
     private var script: SystemNnnScript? = null
     private var commandStream: SystemNnnCommandStream? = null
     private var decoder: SystemNnnCommandDecoder? = null
@@ -815,6 +834,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList()
     ) {
         releaseAssets()
+        nativeRuntimeState = SystemNnnNativeRuntimeState()
         visualLayerConfigurationStore.clear()
 
         moduleCallStack.clear()
@@ -999,7 +1019,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 "visibleCharacters" to current.visibleCharacterCount
             )
         )
-        if (current.isLoading || current.isEnded || current.choices.isNotEmpty() ||
+        if (current.nativeRuntime.cannotClick > 0 ||
+            current.isLoading || current.isEnded || current.choices.isNotEmpty() ||
             current.pendingDrawFrameCount != null
         ) return
 
@@ -1518,6 +1539,74 @@ class SystemNnnPlayerViewModel : ViewModel() {
         advanceToVisibleEvent()
     }
 
+    private fun applyNativeSystemFunction(functionId: Int, parameters: List<Int>): Boolean {
+        val current = nativeRuntimeState
+        val first = parameters.firstOrNull() ?: 0
+        val normalizedMinusOne = if (first == -1) 0 else first
+
+        nativeRuntimeState = when (functionId) {
+            0x0017 -> current.copy(messageWindowPrintFlag = true)
+            0x0018 -> {
+                val player = parameters.getOrNull(0) ?: return true
+                val cgNumber = parameters.getOrNull(1) ?: return true
+                if (player <= 0 || cgNumber <= 0) current
+                else current.copy(cgFlags = current.cgFlags + ((player - 1) to (cgNumber - 1)))
+            }
+            0x001B -> {
+                val messageId = parameters.getOrNull(0)
+                val nextMode = if (parameters.size > 1) {
+                    when (parameters[1]) {
+                        0 -> -1
+                        1 -> 0
+                        2 -> 1
+                        else -> current.nextMessageWindowPrintMode
+                    }
+                } else -1
+                current.copy(
+                    lastMessageId = messageId?.takeIf { it >= 0 } ?: current.lastMessageId,
+                    nextMessageWindowPrintMode = nextMode,
+                    messageHaveVoiceFlag = false
+                )
+            }
+            0x001C -> {
+                val base = current.copy(faceControlGeneration = current.faceControlGeneration + 1L)
+                if (parameters.isEmpty()) {
+                    base
+                } else {
+                    val nextType = parameters.getOrNull(1) ?: 3
+                    val nextWindowMode = parameters.getOrNull(2) ?: -1
+                    var windowVisible = nextType == 0
+                    if (nextWindowMode == 1) windowVisible = false
+                    if (nextWindowMode == 2) windowVisible = true
+                    base.copy(
+                        nextMessageType = nextType,
+                        nextMessageWindowPrintMode = nextWindowMode,
+                        messageWindowPrintFlag = windowVisible
+                    )
+                }
+            }
+            0x001E -> current.copy(dontPlayMode = if (first == 2) 0 else first)
+            0x0028 -> when {
+                first > 0 -> current.copy(frameTimeMillis = first)
+                first == 0 -> current.copy(frameTimeMillis = DEFAULT_NATIVE_FRAME_TIME_MILLIS)
+                else -> current
+            }
+            0x0053 -> when {
+                first > 0 -> current.copy(configMask = first)
+                first < 0 -> current.copy(configMask = 0)
+                else -> current
+            }
+            0x0057 -> current.copy(autoMessage = normalizedMinusOne)
+            0x0058 -> current.copy(cannotClick = normalizedMinusOne)
+            0x0059 -> current.copy(cannotSkip = normalizedMinusOne)
+            0x005A -> current.copy(optionOff = normalizedMinusOne)
+            else -> return false
+        }
+
+        uiState = uiState.copy(nativeRuntime = nativeRuntimeState)
+        return true
+    }
+
     private fun advanceToVisibleEvent() {
         val resolver = assets
 
@@ -1904,19 +1993,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         if (command.functionId == 0x0011) {
                             requestScreenCapture(SystemNnnScreenCapturePurpose.PREPARE_OVERRAP)
                             return
-                        } else {
+                        } else if (!applyNativeSystemFunction(command.functionId, command.parameters)) {
                             val functionName = when (command.functionId) {
-                                0x0018 -> "SETCG"
-                                0x001B -> "STARTMESSAGE"
-                                0x001C -> "STARTKOMA"
-                                0x001E -> "SETDEMOFLAG"
                                 0x0050 -> "FILMNAME"
                                 0x0051 -> "STORYNAME"
                                 0x0052 -> "FILMTYPETIME"
-                                0x0057 -> "AUTOMESSAGE"
-                                0x0058 -> "CANNOTCLICK"
-                                0x0059 -> "CANNOTSKIP"
-                                0x005A -> "OPTIONOFF"
                                 else -> "UNKNOWN"
                             }
                             diagnosticLog?.recordTrace(
@@ -1929,7 +2010,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                     "functionName" to functionName,
                                     "parameters" to command.parameters,
                                     "textValue" to command.textValue,
-                                    "reason" to "Decoded but not applied by the player runtime"
+                                    "reason" to "No player-side behavior is implemented for this opcode"
                                 ),
                                 summary = "System function fallback " + functionName +
                                     " (0x" + command.functionId.toString(16) + ")"
@@ -2217,6 +2298,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
                         visualLayerConfigurationStore.replaceWith(pendingLayerVisuals)
                         val dialogueStepIndex = command.dialogueStepIndex
+                        val pendingWindowMode = nativeRuntimeState.nextMessageWindowPrintMode
+                        if (pendingWindowMode != -1) {
+                            nativeRuntimeState = nativeRuntimeState.copy(
+                                messageWindowPrintFlag = when (pendingWindowMode) {
+                                    0 -> false
+                                    1 -> true
+                                    else -> nativeRuntimeState.messageWindowPrintFlag
+                                },
+                                nextMessageWindowPrintMode = -1
+                            )
+                        }
                         frameCounter += 1L
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter,
@@ -2236,7 +2328,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             statusMessage = imageStatusMessage,
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
-                            screenEffectCommandOffset = pendingScreenEffectCommandOffset
+                            screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            nativeRuntime = nativeRuntimeState
                         )
                         recordSceneTrace(
                             event = "dialogue_frame",
@@ -2329,7 +2422,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             statusMessage = imageStatusMessage,
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
-                            screenEffectCommandOffset = pendingScreenEffectCommandOffset
+                            screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            nativeRuntime = nativeRuntimeState
                         )
                         recordSceneTrace(
                             event = "choice_frame",
@@ -2353,7 +2447,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             sceneStepNumber = traceStepCounter,
                             lastCommandOffset = commandOffset,
                             isEnded = true,
-                            currentFilmNumber = currentFilmNumber
+                            currentFilmNumber = currentFilmNumber,
+                            nativeRuntime = nativeRuntimeState
                         )
                         recordSceneTrace(
                             event = "scene_end",
@@ -2488,7 +2583,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         uiState = SystemNnnPlayerUiState(
             frameId = frameCounter + 1L,
             isEnded = true,
-            currentFilmNumber = currentFilmNumber
+            currentFilmNumber = currentFilmNumber,
+            nativeRuntime = nativeRuntimeState
         )
     }
 
@@ -2505,7 +2601,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
             uiState = SystemNnnPlayerUiState(
                 frameId = frameCounter + 1L,
                 isEnded = true,
-                currentFilmNumber = currentFilmNumber
+                currentFilmNumber = currentFilmNumber,
+                nativeRuntime = nativeRuntimeState
             )
             return
         }
@@ -2820,6 +2917,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private val SCREEN_BUFFER_EFFECT_IDS = setOf(
             2, 10, 11, 18, 20, 22, 29, 31, 43, 50, 54, 55, 69, 71, 74
         )
+        private const val DEFAULT_NATIVE_FRAME_TIME_MILLIS = 50
         private const val DEFAULT_OVERRAP_LENGTH_FRAMES = 18
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,

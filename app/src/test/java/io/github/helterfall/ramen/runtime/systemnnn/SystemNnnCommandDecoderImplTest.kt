@@ -166,7 +166,7 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
-    fun malformedSetEffectRectIsSkippedInsteadOfStoppingTheScript() {
+    fun setEffectRectPreservesZeroAndNegativeExtentsLikeTheNativeCallback() {
         val script = testScript(
             records = listOf(
                 record(
@@ -176,16 +176,21 @@ class SystemNnnCommandDecoderImplTest {
                     9u,
                     3u,
                     100u, 100u, 0u, 50u,
-                    10u, 20u, 410u, 320u
+                    10u, 20u, 410u, 0u
                 )
             ),
             textCount = 0
         )
 
-        val skipped = decoder().decodeNext(script, RECORD_START) as SystemNnnDecodedCommand.Skip
-        assertEquals(RECORD_START + 52L, skipped.nextCommandOffset)
-        assertTrue(skipped.unsupported)
-        assertTrue(skipped.reason.orEmpty().isNotBlank())
+        assertEquals(
+            SystemNnnDecodedCommand.SetImageLayerRect(
+                nextCommandOffset = RECORD_START + 52L,
+                layerIndex = 3,
+                fromRect = SystemNnnNativeRect(100, 100, 0, 50),
+                toRect = SystemNnnNativeRect(10, 20, 410, 0)
+            ),
+            decoder().decodeNext(script, RECORD_START)
+        )
     }
 
     @Test
@@ -461,6 +466,27 @@ class SystemNnnCommandDecoderImplTest {
             offset += rec.size * DWORD_BYTES
         }
     }
+    @Test
+    fun decodesNoMessageWindowConfigMaskAndFrameControl() {
+        val records = listOf(
+            record(3, SYSTEM_FUNCTION, 0x33330017u),
+            record(5, SYSTEM_FUNCTION, 0x33330053u, 1u, 77u),
+            record(5, SYSTEM_FUNCTION, 0x33330028u, 1u, 45u)
+        )
+        val script = testScript(records, 0)
+        var offset = RECORD_START
+        val expected = listOf(
+            SystemNnnDecodedCommand.NativeSystemFunction(offset + 12L, 0x17, emptyList()).also { offset += 12L },
+            SystemNnnDecodedCommand.NativeSystemFunction(offset + 20L, 0x53, listOf(77)).also { offset += 20L },
+            SystemNnnDecodedCommand.NativeSystemFunction(offset + 20L, 0x28, listOf(45)).also { offset += 20L }
+        )
+        offset = RECORD_START
+        expected.forEach { command ->
+            assertEquals(command, decoder().decodeNext(script, offset))
+            offset = command.nextCommandOffset
+        }
+    }
+
     @Test
     fun skipsEndKomaAndEndIfControlRecords() {
         for (code in listOf(CODE_CONTROL_ENDKOMA, CODE_CONTROL_ENDIF, CODE_CONTROL_NOP)) {

@@ -107,6 +107,10 @@ fun SystemNnnPlayerScreen(
 
     // The recorder writes on its own thread. Poll the immutable tail slowly so
     // per-animation-frame trace events cannot trigger a recomposition storm.
+    LaunchedEffect(state.nativeRuntime.cannotSkip) {
+        if (state.nativeRuntime.cannotSkip > 0) skipMode = false
+    }
+
     LaunchedEffect(debugOverlayVisible) {
         if (!debugOverlayVisible) return@LaunchedEffect
         while (true) {
@@ -456,7 +460,7 @@ fun SystemNnnPlayerScreen(
                 return@LaunchedEffect
             }
             overrapProgress = frame.toFloat() / duration.toFloat()
-            if (frame < duration) delay(16L)
+            if (frame < duration) delay(state.nativeRuntime.frameTimeMillis.coerceAtLeast(1).toLong())
         }
         onOverrapTransitionFinished(transitionId)
     }
@@ -470,20 +474,20 @@ fun SystemNnnPlayerScreen(
             (effectId == 18 && (parameters.getOrNull(2) ?: 0) != 0)
         if (repeats) {
             while (true) {
-                delay(16L)
+                delay(state.nativeRuntime.frameTimeMillis.coerceAtLeast(1).toLong())
                 screenEffectFrame = (screenEffectFrame + 1) % duration
             }
         } else {
             for (frame in 0..duration) {
                 screenEffectFrame = frame
-                if (frame < duration) delay(16L)
+                if (frame < duration) delay(state.nativeRuntime.frameTimeMillis.coerceAtLeast(1).toLong())
             }
         }
     }
 
-    LaunchedEffect(state.drawEventId, state.pendingDrawFrameCount) {
+    LaunchedEffect(state.drawEventId, state.pendingDrawFrameCount, state.nativeRuntime.frameTimeMillis) {
         val frames = state.pendingDrawFrameCount ?: return@LaunchedEffect
-        delay(frames.coerceIn(1, 9_999) * 16L)
+        delay(frames.coerceIn(1, 9_999) * state.nativeRuntime.frameTimeMillis.coerceAtLeast(1).toLong())
         onDrawFrameCompleted()
     }
 
@@ -530,7 +534,8 @@ fun SystemNnnPlayerScreen(
             .clickable(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
-                enabled = state.choices.isEmpty() && !state.isEnded &&
+                enabled = state.nativeRuntime.cannotClick <= 0 &&
+                    state.choices.isEmpty() && !state.isEnded &&
                     !state.isLoading && state.pendingDrawFrameCount == null,
                 onClick = onScreenTap
             )
@@ -619,6 +624,7 @@ fun SystemNnnPlayerScreen(
                                     viewportHeight = viewportDpHeight,
                                     referenceWidth = referenceWidth,
                                     referenceHeight = referenceHeight,
+                                    frameTimeMillis = state.nativeRuntime.frameTimeMillis,
                                     onBitmapDisposed = onBitmapDisposed
                                 )
                             }
@@ -709,6 +715,8 @@ fun SystemNnnPlayerScreen(
         QuickMenu(
             autoEnabled = autoMode,
             skipEnabled = skipMode,
+            optionsEnabled = state.nativeRuntime.optionOff <= 0,
+            skipAllowed = state.nativeRuntime.cannotSkip <= 0,
             onSave = { onQuickAction(SystemNnnPlayerQuickAction.SAVE) },
             onLoad = { onQuickAction(SystemNnnPlayerQuickAction.LOAD) },
             onAutoToggle = {
@@ -771,7 +779,8 @@ fun SystemNnnPlayerScreen(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 18.dp)
+                    .padding(horizontal = 14.dp, vertical = 18.dp),
+                windowVisible = state.nativeRuntime.messageWindowPrintFlag
             )
         } else {
             Surface(
@@ -844,6 +853,7 @@ fun SystemNnnPlayerScreen(
         if (state.choices.isNotEmpty()) {
             ChoiceOverlay(
                 choices = state.choices,
+                clicksEnabled = state.nativeRuntime.cannotClick <= 0,
                 onChoiceSelected = onChoiceSelected,
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -858,13 +868,16 @@ fun SystemNnnPlayerScreen(
 private fun DialogueBox(
     speakerName: String?,
     dialogue: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    windowVisible: Boolean = true
 ) {
+    val windowModifier = if (windowVisible) {
+        modifier.clip(RoundedCornerShape(16.dp)).background(Color(0xE6101216))
+    } else {
+        modifier
+    }
     Column(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(Color(0xE6101216))
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+        modifier = windowModifier.padding(horizontal = 20.dp, vertical = 16.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         if (!speakerName.isNullOrBlank()) {
@@ -910,6 +923,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     viewportHeight: androidx.compose.ui.unit.Dp,
     referenceWidth: Float,
     referenceHeight: Float,
+    frameTimeMillis: Int,
     onBitmapDisposed: (Bitmap) -> Unit
 ) {
     DisposableEffect(sprite.bitmap) { onDispose { onBitmapDisposed(sprite.bitmap) } }
@@ -921,40 +935,50 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val parameters = sprite.nativeEffectParameters
     val nativeRect = sprite.nativeRect
     val fromRect = sprite.nativeRectFrom
+    // Native blit receives RECT right/bottom as dimensions. Preserve invalid
+    // extents in decoded state but do not submit a non-positive destination to Compose.
+    if (nativeRect != null && (nativeRect.width <= 0 || nativeRect.height <= 0)) return
+    val nativeFrameMillis = frameTimeMillis.coerceAtLeast(1)
     val hasRectMotion = fromRect != null && nativeRect != null && effectId != null
     val defaultDurationFrames = if (effectId == 62 || effectId == 119) 1 else 20
     val durationFrames = (parameters.firstOrNull() ?: defaultDurationFrames).coerceIn(1, 9_999)
     val isHaikeiYure = effectId == 100 && (parameters.getOrNull(5) ?: 0) == 0
     val animationKey = listOf(sprite.resourceId, sprite.layerIndex, sprite.nativeEffectCommandOffset,
         fromRect, nativeRect, effectId, parameters)
-    val progress = remember(animationKey) {
+    val progress = remember(animationKey, nativeFrameMillis) {
         Animatable(if (hasRectMotion || isHaikeiYure ||
-            effectId in setOf(9, 17, 39, 40, 52, 62, 64, 65, 99, 100, 119)
+            effectId in setOf(9, 17, 29, 39, 40, 52, 62, 64, 65, 99, 100, 119)
         ) 0f else 1f)
     }
-    LaunchedEffect(animationKey) {
+    LaunchedEffect(animationKey, nativeFrameMillis) {
         if (hasRectMotion || isHaikeiYure ||
-            effectId in setOf(9, 39, 40, 52, 62, 64, 65, 99, 119)
+            effectId in setOf(9, 29, 39, 40, 52, 62, 64, 65, 99, 119)
         ) {
-            progress.animateTo(1f, tween((durationFrames * 16).coerceIn(16, 60_000), easing = LinearEasing))
+            val durationMillis = (durationFrames.toLong() * nativeFrameMillis).coerceIn(
+                nativeFrameMillis.toLong(), 600_000L
+            ).toInt()
+            progress.animateTo(1f, tween(durationMillis, easing = LinearEasing))
         }
     }
     val cycleFrames = when (effectId) {
         27 -> ((parameters.getOrNull(8) ?: 30) + (parameters.getOrNull(9) ?: 0)).coerceIn(1, 9_999)
         39 -> (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
-        56 -> (parameters.firstOrNull()?.takeIf { it > 0 } ?: 120).coerceIn(1, 9_999)
+        56 -> (parameters.firstOrNull()?.takeIf { it > 0 } ?: 9_999).coerceIn(1, 9_999)
         63 -> (parameters.getOrNull(14)?.takeIf { it > 0 } ?: durationFrames).coerceIn(1, 9_999)
         102 -> ((parameters.getOrNull(2) ?: 500) - (parameters.getOrNull(3) ?: 20)).coerceAtLeast(1)
         132 -> (parameters.getOrNull(3) ?: 8).coerceIn(1, 60)
         else -> 1
     }
     val cycle = remember(animationKey) { Animatable(0f) }
-    LaunchedEffect(animationKey) {
+    LaunchedEffect(animationKey, nativeFrameMillis) {
         if ((effectId == 39 && (parameters.getOrNull(3) ?: 0) != 0) ||
             effectId in setOf(27, 56, 63, 102, 132)
         ) {
+            val cycleMillis = (cycleFrames.toLong() * nativeFrameMillis).coerceIn(
+                nativeFrameMillis.toLong(), 600_000L
+            ).toInt()
             while (true) {
-                cycle.animateTo(1f, tween((cycleFrames * 16).coerceIn(16, 60_000), easing = LinearEasing))
+                cycle.animateTo(1f, tween(cycleMillis, easing = LinearEasing))
                 cycle.snapTo(0f)
             }
         } else cycle.snapTo(1f)
@@ -985,6 +1009,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val isTurn = effectId == 64
     val isKe = effectId == 27
     val isKomaAnime = effectId == 63
+    val isSuna = effectId == 29
     val isRain2 = effectId == 56
     val isRain4 = effectId == 102
     val isFlash = effectId == 17
@@ -997,6 +1022,39 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val flashState = if (isFlash) {
         SystemNnnVisualEffectMath.flashState(frame, parameters)
     } else null
+    val sunaFrameBitmap = remember(sprite.bitmap, parameters, frame, isSuna) {
+        if (isSuna && !sprite.bitmap.isRecycled) {
+            runCatching {
+                val sourcePixels = IntArray(sprite.bitmap.width * sprite.bitmap.height)
+                sprite.bitmap.getPixels(
+                    sourcePixels, 0, sprite.bitmap.width,
+                    0, 0, sprite.bitmap.width, sprite.bitmap.height
+                )
+                val output = SystemNnnNativeEffectRenderer.sunaNoise(
+                    source = sourcePixels,
+                    width = sprite.bitmap.width,
+                    height = sprite.bitmap.height,
+                    frame = frame,
+                    duration = durationFrames,
+                    parameters = parameters
+                )
+                Bitmap.createBitmap(
+                    output, sprite.bitmap.width, sprite.bitmap.height, Bitmap.Config.ARGB_8888
+                )
+            }.onFailure { failure ->
+                SystemNnnDiagnosticLog.active?.recordException(
+                    "suna_layer_render_failure", failure,
+                    "layer=${sprite.layerIndex} resource=${sprite.resourceId} params=$parameters"
+                )
+            }.getOrNull()
+        } else null
+    }
+    DisposableEffect(sunaFrameBitmap) {
+        onDispose {
+            if (sunaFrameBitmap != null && !sunaFrameBitmap.isRecycled) sunaFrameBitmap.recycle()
+        }
+    }
+
     val cloudBitmap = remember(sprite.bitmap, parameters, referenceWidth, referenceHeight, isCloud) {
         if (isCloud && !sprite.bitmap.isRecycled) {
             runCatching {
@@ -1149,7 +1207,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val width = viewportWidth * (rectWidth.coerceAtLeast(1).toFloat() / safeReferenceWidth)
     val height = viewportHeight * (rectHeight.coerceAtLeast(1).toFloat() / safeReferenceHeight)
     val spriteModifier = when {
-        isKe || isKomaAnime || isRain2 || isRain4 -> Modifier.fillMaxSize()
+        isKe || isKomaAnime || isSuna || isRain2 || isRain4 -> Modifier.fillMaxSize()
         isTurn -> Modifier.align(Alignment.Center)
             .offset(
                 x = viewportWidth * (turnOffset.x / safeReferenceWidth),
@@ -1289,6 +1347,15 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                         )
                     }
                 }
+            }
+            isSuna -> {
+                Image(
+                    bitmap = (sunaFrameBitmap ?: sprite.bitmap).asImageBitmap(),
+                    contentDescription = sprite.contentDescription,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.FillBounds,
+                    alignment = Alignment.TopStart
+                )
             }
             isRain2 -> {
                 val offsets = SystemNnnNativeEffectRenderer.rain2Offsets(
@@ -1771,6 +1838,8 @@ enum class SystemNnnPlayerQuickAction {
 private fun QuickMenu(
     autoEnabled: Boolean,
     skipEnabled: Boolean,
+    optionsEnabled: Boolean,
+    skipAllowed: Boolean,
     onSave: () -> Unit,
     onLoad: () -> Unit,
     onAutoToggle: () -> Unit,
@@ -1793,10 +1862,12 @@ private fun QuickMenu(
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                QuickMenuButton(label = "SAVE", selected = false, onClick = onSave)
-                QuickMenuButton(label = "LOAD", selected = false, onClick = onLoad)
+                if (optionsEnabled) {
+                    QuickMenuButton(label = "SAVE", selected = false, onClick = onSave)
+                    QuickMenuButton(label = "LOAD", selected = false, onClick = onLoad)
+                }
                 QuickMenuButton(label = "AUTO", selected = autoEnabled, onClick = onAutoToggle)
-                QuickMenuButton(label = "SKIP", selected = skipEnabled, onClick = onSkipToggle)
+                QuickMenuButton(label = "SKIP", selected = skipEnabled, onClick = onSkipToggle, enabled = skipAllowed)
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 QuickMenuButton(label = "LOG", selected = false, onClick = onExportDiagnostics)
@@ -1811,10 +1882,12 @@ private fun QuickMenu(
 private fun QuickMenuButton(
     label: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    enabled: Boolean = true
 ) {
     Button(
         onClick = onClick,
+        enabled = enabled,
         shape = RoundedCornerShape(9.dp),
         colors = ButtonDefaults.buttonColors(
             containerColor = if (selected) Color(0xFFB8793D) else Color(0xFF303741),
@@ -1834,7 +1907,8 @@ private fun QuickMenuButton(
 private fun ChoiceOverlay(
     choices: List<SystemNnnChoiceOption>,
     onChoiceSelected: (String) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    clicksEnabled: Boolean = true
 ) {
     Surface(
         color = Color(0xF0181C23),
@@ -1855,6 +1929,7 @@ private fun ChoiceOverlay(
             choices.forEach { choice ->
                 Button(
                     onClick = { onChoiceSelected(choice.id) },
+                    enabled = clicksEnabled,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(

@@ -358,7 +358,8 @@ class SystemNnnCommandDecoderImpl(
         }
 
         return when (record.codeId) {
-            CODE_SYSTEMFUNCTION_PREPAREOVERRAP ->
+            CODE_SYSTEMFUNCTION_PREPAREOVERRAP,
+            CODE_SYSTEMFUNCTION_NOMESSAGEWINDOW ->
                 SystemNnnDecodedCommand.NativeSystemFunction(record.endOffsetExclusive, record.codeId, emptyList())
             CODE_SYSTEMFUNCTION_SETCG,
             CODE_SYSTEMFUNCTION_STARTMESSAGE,
@@ -367,7 +368,9 @@ class SystemNnnCommandDecoderImpl(
             CODE_SYSTEMFUNCTION_AUTOMESSAGE,
             CODE_SYSTEMFUNCTION_CANNOTCLICK,
             CODE_SYSTEMFUNCTION_CANNOTSKIP,
-            CODE_SYSTEMFUNCTION_OPTIONOFF -> decodeCountedNativeSystemFunction(script, record)
+            CODE_SYSTEMFUNCTION_OPTIONOFF,
+            CODE_SYSTEMFUNCTION_CONFIGMASK,
+            CODE_SYSTEMFUNCTION_FRAMECONTROL -> decodeCountedNativeSystemFunction(script, record)
             CODE_SYSTEMFUNCTION_FILMTYPETIME -> {
                 if (isDescriptorThreeContinuation(script, stream, record)) {
                     SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
@@ -586,31 +589,20 @@ class SystemNnnCommandDecoderImpl(
                 return skipUnsupported(record, "SETEFFECTRECT layer is outside the supported range")
             }
 
-            fun readRect(start: Int): SystemNnnNativeRect? {
-                // The native engine stores Win32 RECT edges (left, top, right, bottom).
-                val left = readPayloadWord(script, record, start).toInt()
-                val top = readPayloadWord(script, record, start + 1).toInt()
-                val right = readPayloadWord(script, record, start + 2).toInt()
-                val bottom = readPayloadWord(script, record, start + 3).toInt()
-                // The family renderer stores left/top as the origin and right/bottom
-                // as width/height. CAllEffect::CalcuOnly interpolates only left/top;
-                // PrintLayers passes right/bottom directly as the picture dimensions.
-                val width = right.toLong()
-                val height = bottom.toLong()
-                if (left !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
-                    top !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
-                    width !in 1L..MAX_EFFECT_RECT_DIMENSION.toLong() ||
-                    height !in 1L..MAX_EFFECT_RECT_DIMENSION.toLong()
-                ) {
-                    return null
-                }
-                return SystemNnnNativeRect(left, top, width.toInt(), height.toInt())
+            fun readRect(start: Int): SystemNnnNativeRect {
+                // The native callback copies RECT.left/top/right/bottom verbatim.
+                // CAllEffect later treats right/bottom as blit width/height;
+                // zero or negative extents are native no-draw rectangles.
+                return SystemNnnNativeRect(
+                    x = readPayloadWord(script, record, start).toInt(),
+                    y = readPayloadWord(script, record, start + 1).toInt(),
+                    width = readPayloadWord(script, record, start + 2).toInt(),
+                    height = readPayloadWord(script, record, start + 3).toInt()
+                )
             }
 
             val fromRect = readRect(2)
-                ?: return skipUnsupported(record, "SETEFFECTRECT source RECT is not renderable")
             val toRect = readRect(6)
-                ?: return skipUnsupported(record, "SETEFFECTRECT destination RECT is not renderable")
 
             SystemNnnDecodedCommand.SetImageLayerRect(
                 nextCommandOffset = record.endOffsetExclusive,
@@ -1286,6 +1278,9 @@ class SystemNnnCommandDecoderImpl(
         const val CODE_SYSTEMFUNCTION_SOUND = 0x0009
         const val CODE_SYSTEMFUNCTION_SETEFFECT = 0x0013
         const val CODE_SYSTEMFUNCTION_SETEFFECTRECT = 0x0016
+        const val CODE_SYSTEMFUNCTION_NOMESSAGEWINDOW = 0x0017
+        const val CODE_SYSTEMFUNCTION_FRAMECONTROL = 0x0028
+        const val CODE_SYSTEMFUNCTION_CONFIGMASK = 0x0053
         const val CODE_SYSTEMFUNCTION_SETFILM = 0x001A
         const val CODE_SYSTEMFUNCTION_CLEARALLEFFECT = 0x0012
         const val CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER = 0x0014

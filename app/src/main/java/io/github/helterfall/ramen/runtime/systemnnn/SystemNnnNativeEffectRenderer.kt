@@ -735,18 +735,20 @@ internal object SystemNnnNativeEffectRenderer {
             val localY = y - top
             val tileY = localY / 128
             val inTileY = localY % 128
-            val sourceY = inTileY / 16
             for (x in left until right) {
                 val localX = x - left
                 val tileX = localX / 128
                 val inTileX = localX % 128
-                val sourceX = inTileX / 2
                 val tile = tileY * tileColumns + tileX
-                // Native Suna stretches a randomly selected 64x64 patch to
-                // a 128x128 block, so each source noise sample covers 2x2 pixels.
-                val noiseIndex = sourceY * 64 + sourceX
-                val noise = randomMix(tile * 0x45D9F3B xor noiseIndex * 0x119DE1F3 xor frame * 0x3449F5)
-                val value = noise and 0xFF
+                // Native Suna stretches a random 64x64 patch from its 128x128
+                // texture to each 128x128 tile (2x source-pixel expansion).
+                val sourceSeed = randomMix(tile * 0x45D9F3B xor frame * 0x3449F5)
+                val sourceStartX = sourceSeed and 63
+                val sourceStartY = randomMix(sourceSeed xor 0x119DE1F3) and 63
+                val sourceX = sourceStartX + inTileX / 2
+                val sourceY = sourceStartY + inTileY / 2
+                val noiseIndex = sourceY * 128 + sourceX
+                val noise = randomMix(noiseIndex * 0x119DE1F3)
                 val gray = value
                 val index = y * width + x
                 val old = source[index]
@@ -888,53 +890,76 @@ internal object SystemNnnNativeEffectRenderer {
         bitmapWidth: Int = screenWidth,
         bitmapHeight: Int = screenHeight
     ): List<LayerOffset> {
-        val count = (parameters.getOrNull(3) ?: 1).coerceIn(1, 4)
-        val baseSpeedX = (parameters.getOrNull(1) ?: 0) * 100
-        val baseSpeedY = (parameters.getOrNull(2) ?: 0) * 100
-        val variationX = (parameters.getOrNull(4) ?: 0).coerceAtLeast(0) * 100
-        val variationY = (parameters.getOrNull(5) ?: 0).coerceAtLeast(0) * 100
-        val nextPercent = (parameters.getOrNull(6) ?: 100).coerceIn(0, 100)
+        val count = (parameters.getOrNull(3) ?: 2).coerceIn(1, 4)
+        val baseSpeedX = (parameters.getOrNull(1) ?: 5) * 100
+        val baseSpeedY = (parameters.getOrNull(2) ?: 30) * 100
+        val baseVariationX = (parameters.getOrNull(4) ?: 3) * 100
+        val baseVariationY = (parameters.getOrNull(5) ?: 0) * 100
+        val nextPercent = (parameters.getOrNull(6) ?: 50).coerceIn(0, 100)
         val randomInterval = (parameters.getOrNull(7) ?: 100).coerceAtLeast(1)
         val minX = min(bitmapWidth, screenWidth).coerceAtLeast(1)
         val minY = min(bitmapHeight, screenHeight).coerceAtLeast(1)
         val ticks = frame.coerceIn(0, 10_000)
 
-        return List(count) { index ->
-            val scale = if (index == 0) 100 else nextPercent
-            var speedX = baseSpeedX * scale / 100
-            var speedY = baseSpeedY * scale / 100
-            val randomX = variationX * scale / 100
-            val randomY = variationY * scale / 100
-            var x = floorMod(randomMix(index * 0x119DE1F3), bitmapWidth.coerceAtLeast(1)) * 100
-            var y = floorMod(randomMix(index * 0x3449F5), bitmapHeight.coerceAtLeast(1)) * 100
+        val speedX = MutableList(count) { 0 }
+        val speedY = MutableList(count) { 0 }
+        val randomX = MutableList(count) { 0 }
+        val randomY = MutableList(count) { 0 }
+        speedX[0] = baseSpeedX
+        speedY[0] = baseSpeedY
+        randomX[0] = baseVariationX
+        randomY[0] = baseVariationY
+        for (index in 1 until count) {
+            speedX[index] = speedX[index - 1] * nextPercent / 100
+            speedY[index] = speedY[index - 1] * nextPercent / 100
+            randomX[index] = randomX[index - 1] * nextPercent / 100
+            randomY[index] = randomY[index - 1] * nextPercent / 100
+        }
 
-            for (tick in 0 until ticks) {
+        val x = MutableList(count) { index ->
+            floorMod(randomMix(index * 0x119DE1F3), bitmapWidth.coerceAtLeast(1)) * 100
+        }
+        val y = MutableList(count) { index ->
+            floorMod(randomMix(index * 0x3449F5), bitmapHeight.coerceAtLeast(1)) * 100
+        }
+
+        for (tick in 0 until ticks) {
+            // Native Calcu updates every X velocity before every Y velocity,
+            // then advances and wraps all placements.
+            for (index in 0 until count) {
                 val seed = randomMix(index * 0x45D9F3B xor (tick * 0x119DE1F3))
-                if (randomX > 0 && floorMod(seed, randomInterval) == 0) {
-                    var dx = floorMod(randomMix(seed xor 0x1B873593), randomX)
-                    if ((randomMix(seed xor 0x3449F5) and 1) != 0) dx = -dx
-                    speedX = (speedX + dx).coerceIn(
-                        (baseSpeedX - variationX) * scale / 100,
-                        (baseSpeedX + variationX) * scale / 100
+                val variation = randomX[index]
+                if (variation > 0 && floorMod(seed, randomInterval) == 0) {
+                    var delta = floorMod(randomMix(seed xor 0x1B873593), variation)
+                    if ((randomMix(seed xor 0x3449F5) % 100) < 50) delta = -delta
+                    speedX[index] = (speedX[index] + delta).coerceIn(
+                        baseSpeedX - baseVariationX, baseSpeedX + baseVariationX
                     )
                 }
-                if (randomY > 0 && floorMod(randomMix(seed xor 0x7F4A), randomInterval) == 0) {
-                    var dy = floorMod(randomMix(seed xor 0xB5297A4D.toInt()), randomY)
-                    if ((randomMix(seed xor 0x1947) and 1) != 0) dy = -dy
-                    speedY = (speedY + dy).coerceIn(
-                        (baseSpeedY - variationY) * scale / 100,
-                        (baseSpeedY + variationY) * scale / 100
+            }
+            for (index in 0 until count) {
+                val seed = randomMix(index * 0x7F4A xor (tick * 0x3449F5))
+                val variation = randomY[index]
+                if (variation > 0 && floorMod(seed, randomInterval) == 0) {
+                    var delta = floorMod(randomMix(seed xor 0xB5297A4D.toInt()), variation)
+                    if ((randomMix(seed xor 0x1947) % 100) < 50) delta = -delta
+                    speedY[index] = (speedY[index] + delta).coerceIn(
+                        baseSpeedY - baseVariationY, baseSpeedY + baseVariationY
                     ).coerceAtLeast(100)
                 }
-                x += speedX
-                y += speedY
-                if (x <= -minX * 100) x += minX * 1_000
-                if (x >= minX * 100) x %= minX * 100
-                if (y < -minY * 100) y += minY * 1_000
-                if (y >= minY * 100) y %= minY * 100
             }
-            LayerOffset(x / 100, y / 100)
+            for (index in 0 until count) {
+                var nextX = x[index] + speedX[index]
+                var nextY = y[index] + speedY[index]
+                if (nextX <= -minX * 100) nextX += minX * 1_000
+                if (nextX >= minX * 100) nextX %= minX * 100
+                if (nextY < -minY * 100) nextY += minY * 1_000
+                if (nextY >= minY * 100) nextY %= minY * 100
+                x[index] = nextX
+                y[index] = nextY
+            }
         }
+        return List(count) { index -> LayerOffset(x[index] / 100, y[index] / 100) }
     }
 
     /** KOMAANIME (63): source rectangle for the current sprite-sheet cel. */
