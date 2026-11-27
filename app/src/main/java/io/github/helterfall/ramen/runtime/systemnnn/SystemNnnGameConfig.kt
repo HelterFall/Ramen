@@ -41,7 +41,7 @@ data class SystemNnnGameConfig(
                 frameTimeMillis = (values["frametime"] ?: DEFAULT_FRAME_TIME_MILLIS)
                     .takeIf { it > 0 } ?: DEFAULT_FRAME_TIME_MILLIS,
                 maxSkipFrame = maxSkip,
-                maxSkipFrameBackScript = (values["maxskipframebackscript"] ?: maxSkip).coerceAtLeast(1),
+                maxSkipFrameBackScript = values["maxskipframebackscript"] ?: maxSkip,
                 skipAdjustFrame = values["skipadjustframe"] ?: DEFAULT_SKIP_ADJUST_FRAME,
                 isConfigured = values.keys.any(knownKeys::contains)
             )
