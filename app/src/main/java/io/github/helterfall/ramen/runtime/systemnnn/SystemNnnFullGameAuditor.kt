@@ -1056,10 +1056,10 @@ internal class SystemNnnFullGameAuditor(
     ) {
         manifests.forEachIndexed { manifestIndex, manifest ->
             onProgress(manifestIndex + 1, manifests.size)
-            val sptDirectory = manifest.parentFile ?: return@forEach
+            val sptDirectory = manifest.parentFile ?: return@forEachIndexed
             val project = projectReports.firstOrNull {
                 it["manifest"] == relativePath(root, manifest)
-            } ?: return@forEach
+            } ?: return@forEachIndexed
             val moduleNames = project["moduleNames"] as? List<*> ?: emptyList<Any?>()
             val assetRoot = resolveAssetRoot(sptDirectory)
             val sceneDataFile = File(sptDirectory, "scene.dat")
