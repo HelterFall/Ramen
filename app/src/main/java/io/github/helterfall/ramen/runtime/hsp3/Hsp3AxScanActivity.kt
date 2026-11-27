@@ -83,8 +83,7 @@ class Hsp3AxScanActivity : ComponentActivity() {
         executor.execute {
             try {
                 val gameDirectory = resolvePrivateGameDirectory(game)
-                val executable = findPreparedExecutable(gameDirectory)
-                val prepared = Hsp3RuntimeAdapter().prepare(executable)
+                val prepared = prepareGame(gameDirectory)
                 val report = Hsp3AxStaticScanner.scan(prepared.program)
                 val output = File(cacheDir, "hsp3-scan/${game.id}-start.ax.json")
                 report.writeJson(output)
@@ -93,7 +92,7 @@ class Hsp3AxScanActivity : ComponentActivity() {
                     if (!isFinishing && !isDestroyed) {
                         scanState.value = Hsp3AxScanUiState(
                             loading = false,
-                            message = "SCAN завершён для ${executable.name}",
+                            message = "SCAN завершён для ${prepared.executable.name}",
                             json = json,
                             fileName = output.name,
                             opcodeCount = report.opcodeCount,
@@ -132,7 +131,7 @@ class Hsp3AxScanActivity : ComponentActivity() {
         return gameDirectory
     }
 
-    private fun findPreparedExecutable(gameDirectory: File): File {
+    private fun prepareGame(gameDirectory: File): Hsp3PreparedGame {
         val executables = gameDirectory.walkTopDown()
             .maxDepth(MAX_GAME_SCAN_DEPTH)
             .filter { it.isFile && it.extension.equals("exe", ignoreCase = true) }
@@ -151,8 +150,7 @@ class Hsp3AxScanActivity : ComponentActivity() {
         for (executable in executables) {
             try {
                 // prepare() decrypts and validates start.ax without constructing or running a VM.
-                Hsp3RuntimeAdapter().prepare(executable)
-                return executable
+                return Hsp3RuntimeAdapter().prepare(executable)
             } catch (error: Exception) {
                 lastError = error
             }

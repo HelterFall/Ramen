@@ -86,7 +86,8 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         val id = token.value.toInt()
         return when (token.type) {
             TYPE_VAR -> true
-            TYPE_INTCMD, TYPE_EXTCMD, TYPE_CMPCMD, TYPE_PROGCMD -> id in 0..0x0FFF
+            TYPE_INTCMD, TYPE_EXTCMD, TYPE_CMPCMD, TYPE_PROGCMD,
+            TYPE_MODCMD, TYPE_DLLFUNC, TYPE_DLLCTRL, TYPE_USERDEF -> id in 0..0x0FFF
             else -> false
         }
     }

@@ -359,6 +359,33 @@ class Hsp3BytecodeDecoderTest {
     }
 
     @Test
+    fun moduleCommandHeadEndsThePreviousPostfixExpression() {
+        val code = listOf(
+            0x2009, Hsp3CommandIds.MES,
+            0x0004, 7,
+            0x200C, 1, // TYPE_MODCMD + EXFLG_1 command head
+            0x0004, 1, // module command parameter
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        withProgram(createAx(code)) { program ->
+            val decoder = Hsp3BytecodeDecoder()
+            val instructions = decoder.decode(program)
+
+            assertEquals(3, instructions.size)
+            assertTrue(instructions[0] is Hsp3Instruction.NativeCommand)
+            val moduleCommand = instructions[1] as Hsp3Instruction.Unsupported
+            assertEquals(12, moduleCommand.commandType)
+            assertEquals(1, moduleCommand.commandId)
+            assertEquals(4, moduleCommand.codeOffset)
+            assertTrue(
+                decoder.diagnostics.none {
+                    it.message.contains("postfix expression leaves")
+                }
+            )
+        }
+    }
+
+    @Test
     fun parameterBoundaryCommandShapedTokenIsNotScannedAsACommandHead() {
         val words = listOf(
             0x2009, Hsp3CommandIds.MES,

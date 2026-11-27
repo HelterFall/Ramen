@@ -85,7 +85,11 @@ object Hsp3AxStaticScanner {
                     Hsp3BytecodeDecoder.TYPE_INTCMD,
                     Hsp3BytecodeDecoder.TYPE_EXTCMD,
                     Hsp3BytecodeDecoder.TYPE_CMPCMD,
-                    Hsp3BytecodeDecoder.TYPE_PROGCMD
+                    Hsp3BytecodeDecoder.TYPE_PROGCMD,
+                    Hsp3BytecodeDecoder.TYPE_MODCMD,
+                    Hsp3BytecodeDecoder.TYPE_DLLFUNC,
+                    Hsp3BytecodeDecoder.TYPE_DLLCTRL,
+                    Hsp3BytecodeDecoder.TYPE_USERDEF
                 )
         }
         val counts = heads.groupingBy { it.type to it.value }.eachCount()
