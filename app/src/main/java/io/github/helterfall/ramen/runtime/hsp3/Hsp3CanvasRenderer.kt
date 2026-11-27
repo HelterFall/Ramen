@@ -652,6 +652,7 @@ class Hsp3CanvasRenderer(
         mode: Int
     ) {
         val destination = activeSurface().bitmap
+        val sourceBitmap = source.bitmap
         val pivotX = rotationPivotX ?: destinationRect.centerX()
         val pivotY = rotationPivotY ?: destinationRect.centerY()
         val radians = Math.toRadians(rotationDegrees.toDouble())
@@ -681,48 +682,110 @@ class Hsp3CanvasRenderer(
 
         val regionWidth = right - left
         val regionHeight = bottom - top
-        val overlay = Bitmap.createBitmap(regionWidth, regionHeight, Bitmap.Config.ARGB_8888)
-        try {
-            val overlayCanvas = Canvas(overlay)
-            val canvasSave = overlayCanvas.save()
-            try {
-                overlayCanvas.translate(-left.toFloat(), -top.toFloat())
-                if (rotationDegrees != 0f) overlayCanvas.rotate(rotationDegrees, pivotX, pivotY)
-                val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = filter }
-                overlayCanvas.drawBitmap(source.bitmap, sourceRect, destinationRect, overlayPaint)
-            } finally {
-                overlayCanvas.restoreToCount(canvasSave)
-            }
+        val destinationPixels = IntArray(regionWidth * regionHeight)
+        destination.getPixels(
+            destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight
+        )
 
-            val destinationPixels = IntArray(regionWidth * regionHeight)
-            val sourcePixels = IntArray(regionWidth * regionHeight)
-            destination.getPixels(destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight)
-            overlay.getPixels(sourcePixels, 0, regionWidth, 0, 0, regionWidth, regionHeight)
-            val rate = blendAlpha.coerceIn(0, 256)
-            if (rate > 0) {
-                for (index in destinationPixels.indices) {
-                    val sourcePixel = sourcePixels[index]
-                    val destinationPixel = destinationPixels[index]
-                    fun channel(shift: Int): Int {
-                        val destinationValue = (destinationPixel ushr shift) and 0xFF
-                        val sourceValue = (sourcePixel ushr shift) and 0xFF
-                        // OpenHSP: (source channel * gfrate) >> 8.
-                        val contribution = (sourceValue * rate) ushr 8
-                        return if (mode == ADDITIVE_BLEND) {
-                            (destinationValue + contribution).coerceAtMost(255)
-                        } else {
-                            (destinationValue - contribution).coerceAtLeast(0)
-                        }
+        val sourceWidth = sourceRect.width().toDouble()
+        val sourceHeight = sourceRect.height().toDouble()
+        val targetWidth = destinationRect.width().toDouble()
+        val targetHeight = destinationRect.height().toDouble()
+        val rate = blendAlpha.coerceIn(0, 256)
+
+        for (row in 0 until regionHeight) {
+            for (column in 0 until regionWidth) {
+                val destinationX = left + column + 0.5
+                val destinationY = top + row + 0.5
+
+                // Undo the destination rotation to locate the corresponding point
+                // inside the unrotated destination rectangle.
+                val dx = destinationX - pivotX.toDouble()
+                val dy = destinationY - pivotY.toDouble()
+                val unrotatedX = if (rotationDegrees == 0f) destinationX
+                    else pivotX + dx * cosine + dy * sine
+                val unrotatedY = if (rotationDegrees == 0f) destinationY
+                    else pivotY - dx * sine + dy * cosine
+                val u = (unrotatedX - destinationRect.left) / targetWidth
+                val v = (unrotatedY - destinationRect.top) / targetHeight
+                if (u < 0.0 || u >= 1.0 || v < 0.0 || v >= 1.0) continue
+
+                val sourceX = sourceRect.left + u * sourceWidth
+                val sourceY = sourceRect.top + v * sourceHeight
+                if (sourceX < 0.0 || sourceY < 0.0 ||
+                    sourceX >= sourceBitmap.width || sourceY >= sourceBitmap.height
+                ) continue
+
+                val sourcePixel = sampleBlendSourcePixel(
+                    sourceBitmap, sourceX, sourceY, filter
+                )
+                val sourceAlpha = (sourcePixel ushr 24) and 0xFF
+                val effectiveRate = (rate * sourceAlpha + 127) / 255
+                if (effectiveRate == 0) continue
+
+                val pixelIndex = row * regionWidth + column
+                val destinationPixel = destinationPixels[pixelIndex]
+                fun channel(shift: Int): Int {
+                    val destinationValue = (destinationPixel ushr shift) and 0xFF
+                    val sourceValue = (sourcePixel ushr shift) and 0xFF
+                    // OpenHSP: (source channel * gfrate) >> 8.
+                    val contribution = (sourceValue * effectiveRate) ushr 8
+                    return if (mode == ADDITIVE_BLEND) {
+                        (destinationValue + contribution).coerceAtMost(255)
+                    } else {
+                        (destinationValue - contribution).coerceAtLeast(0)
                     }
-                    val alpha = destinationPixel and -0x1000000
-                    destinationPixels[index] = alpha or
-                        (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
                 }
+                val alpha = destinationPixel and -0x1000000
+                destinationPixels[pixelIndex] = alpha or
+                    (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
             }
-            destination.setPixels(destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight)
-        } finally {
-            overlay.recycle()
         }
+        destination.setPixels(
+            destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight
+        )
+    }
+
+    /**
+     * Samples one source pixel at bitmap coordinates. The same-size path is
+     * exact; scaled copies use bilinear interpolation to avoid nearest-neighbour
+     * jaggies while rotation and blending are evaluated in destination space.
+     */
+    private fun sampleBlendSourcePixel(
+        bitmap: Bitmap,
+        sourceX: Double,
+        sourceY: Double,
+        filter: Boolean
+    ): Int {
+        if (!filter) {
+            return bitmap.getPixel(sourceX.toInt(), sourceY.toInt())
+        }
+
+        val sampleX = sourceX - 0.5
+        val sampleY = sourceY - 0.5
+        val floorX = kotlin.math.floor(sampleX)
+        val floorY = kotlin.math.floor(sampleY)
+        val x0 = floorX.toInt().coerceIn(0, bitmap.width - 1)
+        val y0 = floorY.toInt().coerceIn(0, bitmap.height - 1)
+        val x1 = (floorX.toInt() + 1).coerceIn(0, bitmap.width - 1)
+        val y1 = (floorY.toInt() + 1).coerceIn(0, bitmap.height - 1)
+        val fractionX = (sampleX - floorX).coerceIn(0.0, 1.0)
+        val fractionY = (sampleY - floorY).coerceIn(0.0, 1.0)
+        val topLeft = bitmap.getPixel(x0, y0)
+        val topRight = bitmap.getPixel(x1, y0)
+        val bottomLeft = bitmap.getPixel(x0, y1)
+        val bottomRight = bitmap.getPixel(x1, y1)
+
+        fun channel(shift: Int): Int {
+            val top = ((topLeft ushr shift) and 0xFF) * (1.0 - fractionX) +
+                ((topRight ushr shift) and 0xFF) * fractionX
+            val bottom = ((bottomLeft ushr shift) and 0xFF) * (1.0 - fractionX) +
+                ((bottomRight ushr shift) and 0xFF) * fractionX
+            return (top * (1.0 - fractionY) + bottom * fractionY + 0.5)
+                .toInt().coerceIn(0, 255)
+        }
+        return (channel(24) shl 24) or
+            (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
     }
 
     private fun validateAssetName(name: String, command: String) {
