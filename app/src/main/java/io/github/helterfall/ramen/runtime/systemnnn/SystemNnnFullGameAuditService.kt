@@ -9,7 +9,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.SystemClock
 import io.github.helterfall.ramen.MainActivity
 import java.io.File
@@ -26,6 +28,8 @@ class SystemNnnFullGameAuditService : Service() {
 
     @Volatile private var workerThread: Thread? = null
     @Volatile private var cancellationToken: AtomicBoolean? = null
+    @Volatile private var latestStartId: Int = 0
+    private val mainHandler = Handler(Looper.getMainLooper())
     private val operationRunning = AtomicBoolean(false)
     private var lastNotificationUpdateMillis = 0L
     private var lastNotificationPercent = -1
@@ -38,6 +42,7 @@ class SystemNnnFullGameAuditService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        latestStartId = startId
         when (intent?.action) {
             ACTION_START_SCAN -> {
                 val relativeDirectory = intent.getStringExtra(EXTRA_RELATIVE_DIRECTORY).orEmpty()
@@ -101,7 +106,7 @@ class SystemNnnFullGameAuditService : Service() {
             return
         }
 
-        launchWorker(startId, token, "Ramen-SystemNnn-Scan") {
+        launchWorker(token, "Ramen-SystemNnn-Scan") {
             try {
                 checkNotCancelled(token)
                 val root = resolveImportedGameDirectory(relativeDirectory)
@@ -257,7 +262,7 @@ class SystemNnnFullGameAuditService : Service() {
             return
         }
 
-        launchWorker(startId, token, "Ramen-SystemNnn-Export") {
+        launchWorker(token, "Ramen-SystemNnn-Export") {
             val staged = SystemNnnFullGameAuditStateStore.stagingFile(this)
             try {
                 checkNotCancelled(token)
@@ -340,7 +345,6 @@ class SystemNnnFullGameAuditService : Service() {
     }
 
     private fun launchWorker(
-        startId: Int,
         token: AtomicBoolean,
         threadName: String,
         task: () -> Unit
@@ -352,8 +356,10 @@ class SystemNnnFullGameAuditService : Service() {
                 operationRunning.set(false)
                 cancellationToken = null
                 workerThread = null
-                stopForeground(false)
-                stopSelfResult(startId)
+                mainHandler.post {
+                    stopForeground(false)
+                    stopSelfResult(latestStartId)
+                }
             }
         }, threadName)
         workerThread = thread
@@ -364,27 +370,50 @@ class SystemNnnFullGameAuditService : Service() {
             cancellationToken = null
             workerThread = null
             stopForeground(false)
-            stopSelfResult(startId)
+            stopSelfResult(latestStartId)
             throw failure
         }
     }
 
     private fun cancelCurrentOperation() {
+        val snapshot = SystemNnnFullGameAuditStateStore.read(this)
         val token = cancellationToken
         if (token == null) {
-            stopSelf()
+            val staged = SystemNnnFullGameAuditStateStore.stagingFile(this)
+            if (snapshot.status == SystemNnnFullGameAuditStateStore.STATUS_RUNNING) {
+                staged.delete()
+                SystemNnnFullGameAuditStateStore.update(
+                    this,
+                    SystemNnnFullGameAuditStateStore.STATUS_CANCELLED,
+                    snapshot.title,
+                    "SCAN отменён."
+                )
+            } else if (snapshot.status == SystemNnnFullGameAuditStateStore.STATUS_EXPORTING) {
+                SystemNnnFullGameAuditStateStore.update(
+                    this,
+                    SystemNnnFullGameAuditStateStore.STATUS_READY,
+                    snapshot.title,
+                    "Сохранение отменено. Готовый JSON остался внутри приложения.",
+                    1f,
+                    staged.length()
+                )
+            }
+            stopSelfResult(latestStartId)
             return
         }
         token.set(true)
+        val isExporting = snapshot.status == SystemNnnFullGameAuditStateStore.STATUS_EXPORTING
         SystemNnnFullGameAuditStateStore.update(
             this,
-            SystemNnnFullGameAuditStateStore.STATUS_RUNNING,
-            SystemNnnFullGameAuditStateStore.read(this).title,
-            "Останавливаю SCAN…",
-            SystemNnnFullGameAuditStateStore.read(this).progress
+            if (isExporting) SystemNnnFullGameAuditStateStore.STATUS_EXPORTING
+            else SystemNnnFullGameAuditStateStore.STATUS_RUNNING,
+            snapshot.title,
+            "Останавливаю текущую операцию…",
+            snapshot.progress,
+            snapshot.bytes
         )
         updateNotification(
-            SystemNnnFullGameAuditStateStore.read(this).title,
+            snapshot.title,
             "Останавливаю текущую операцию…",
             null,
             ongoing = true,
@@ -426,7 +455,13 @@ class SystemNnnFullGameAuditService : Service() {
         progress: Float?,
         showCancel: Boolean
     ) {
-        val notification = buildNotification(title, message, progress, ongoing = true, showCancel)
+        val notification = buildNotification(
+            title,
+            message,
+            progress,
+            ongoing = true,
+            showCancel = showCancel
+        )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIFICATION_ID,
