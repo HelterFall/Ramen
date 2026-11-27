@@ -296,7 +296,7 @@ internal class SystemNnnFullGameAuditor(
                             relativePath(root, File(it.key)) == manifestPath
                         }?.value
                     }.orEmpty()
-                val moduleFraction = { processed: Int, recordCount: Int ->
+                val moduleFraction: (Int, Int) -> Unit = { processed, recordCount ->
                     val withinModule = if (recordCount <= 0) 1f
                     else (processed.toFloat() / recordCount).coerceIn(0f, 1f)
                     val fraction = 0.18f + 0.68f *
