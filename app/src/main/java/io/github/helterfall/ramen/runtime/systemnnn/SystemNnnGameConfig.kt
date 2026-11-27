@@ -23,7 +23,7 @@ data class SystemNnnGameConfig(
             text.lineSequence().forEach { line ->
                 val content = line.substringBefore('#').substringBefore(';')
                 val tokens = content.split(',', ' ', '\t', '\r')
-                    .asSequence().map(String::trim).filter(String::isNotEmpty).toList()
+                    .asSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
                 var index = 0
                 while (index < tokens.size) {
                     val token = tokens[index++]
