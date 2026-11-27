@@ -1,4 +1,3 @@
-import java.security.MessageDigest
 import java.util.Locale
 
 plugins {
@@ -6,46 +5,51 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
-val debugBranchName: String = run {
-    // GitHub uses GITHUB_HEAD_REF for pull requests (GITHUB_REF_NAME is "123/merge").
-    System.getenv("GITHUB_HEAD_REF")?.takeIf { it.isNotBlank() }
-        ?: System.getenv("GITHUB_REF_NAME")?.takeIf { it.isNotBlank() }
-        ?: runCatching {
-            val process = ProcessBuilder(
-                "git",
-                "-C",
-                rootProject.projectDir.absolutePath,
-                "branch",
-                "--show-current",
-            ).redirectErrorStream(true).start()
-            val branch = process.inputStream.bufferedReader().use { it.readText().trim() }
-            if (process.waitFor() == 0) branch.takeIf { it.isNotBlank() } else null
-        }.getOrNull()
-        ?: "local"
+fun gitOutput(vararg arguments: String): String? =
+    runCatching {
+        val process = ProcessBuilder("git", *arguments)
+            .redirectErrorStream(true)
+            .start()
+        process.inputStream.bufferedReader().use { it.readText().trim() }
+            .takeIf { process.waitFor() == 0 }
+    }.getOrNull()?.takeIf { it.isNotBlank() && it != "HEAD" }
+
+fun sanitizeDebugPart(value: String, fallback: String): String {
+    val sanitized = value.lowercase(Locale.ROOT)
+        .replace(Regex("[^a-z0-9_]+"), "_")
+        .trim('_')
+        .ifBlank { fallback }
+
+    return if (sanitized.first() in 'a'..'z') sanitized else "b_$sanitized"
 }
 
-val debugApplicationIdSuffix: String = if (debugBranchName == "main") {
-    ".debug"
-} else {
-    // Keep the suffix readable and package-name safe. The hash prevents different
-    // branch names from colliding after normalisation (for example, "a-b" and "a/b").
-    val branchSlug = debugBranchName.lowercase(Locale.ROOT)
-        .replace(Regex("[^a-z0-9]+"), "_")
-        .trim('_')
-        .take(40)
-        .trimEnd('_')
-        .ifBlank { "branch" }
-    val packageSafeSlug = if (branchSlug.first() in 'a'..'z') {
-        branchSlug
-    } else {
-        "branch_$branchSlug"
-    }
-    val branchHash = MessageDigest.getInstance("SHA-256")
-        .digest(debugBranchName.toByteArray(Charsets.UTF_8))
-        .take(8)
-        .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
-    ".${packageSafeSlug}_$branchHash"
-}
+val debugBranchName = System.getenv("GITHUB_HEAD_REF")
+    ?.takeIf { it.isNotBlank() }
+    ?: System.getenv("GITHUB_REF_NAME")
+        ?.takeIf { it.isNotBlank() }
+    ?: gitOutput("-C", rootProject.projectDir.absolutePath, "rev-parse", "--abbrev-ref", "HEAD")
+    ?: "local"
+
+val debugRunNumber = System.getenv("GITHUB_RUN_NUMBER")
+    ?.takeIf { it.isNotBlank() }
+    ?: "local"
+
+val debugShortSha = System.getenv("GITHUB_SHA")
+    ?.takeIf { it.isNotBlank() }
+    ?.take(7)
+    ?: gitOutput("-C", rootProject.projectDir.absolutePath, "rev-parse", "--short", "HEAD")
+        ?.take(7)
+    ?: "unknown"
+
+val debugBranchId = sanitizeDebugPart(debugBranchName, "branch")
+    .take(32)
+    .trimEnd('_')
+    .ifBlank { "branch" }
+val debugBranchLabel = debugBranchId.take(24)
+val debugBuildId = sanitizeDebugPart(
+    "run_${debugRunNumber}_sha_${debugShortSha}",
+    "run_local"
+)
 
 android {
     namespace = "io.github.helterfall.ramen"
@@ -57,18 +61,20 @@ android {
         targetSdk = 37
         versionCode = 1
         versionName = "0.1.0"
-        manifestPlaceholders["appLabel"] = "@string/app_name"
     }
 
     buildTypes {
         getByName("debug") {
-            applicationIdSuffix = debugApplicationIdSuffix
-            manifestPlaceholders["appLabel"] = "Ramen [$debugBranchName]"
+            // Include the branch and CI run identity so debug APKs from separate
+            // branches/runs can remain installed side by side on one device.
+            applicationIdSuffix = ".dbg_${debugBranchId}_${debugBuildId}"
+            resValue("string", "app_name", "Ramen #${debugRunNumber} (${debugBranchLabel})")
         }
     }
 
     buildFeatures {
         compose = true
+        resValues = true
     }
 
     compileOptions {
