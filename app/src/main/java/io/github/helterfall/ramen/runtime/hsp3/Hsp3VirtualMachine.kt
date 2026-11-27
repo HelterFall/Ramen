@@ -690,12 +690,10 @@ class Hsp3VirtualMachine(
                     )
                 }
                 Hsp3CommandIds.BUFFER -> graphics.buffer(
-                    intArg(0), intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
-                    intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT)
+                    intArg(0), intArg(1, 640), intArg(2, 480)
                 )
                 Hsp3CommandIds.SCREEN -> graphics.screen(
-                    intArg(0), intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
-                    intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT)
+                    intArg(0), intArg(1, 640), intArg(2, 480)
                 )
                 Hsp3CommandIds.BOXF -> if (args.isEmpty()) graphics.boxf()
                     else graphics.boxf(intArg(0), intArg(1), intArg(2), intArg(3))
@@ -708,10 +706,13 @@ class Hsp3VirtualMachine(
                         intArg(2, 1) != 0
                     )
                 }
-                Hsp3CommandIds.GRECT -> graphics.grect(
-                    intArg(0), intArg(1), intArg(2) * (2.0 * Math.PI / 4096.0),
-                    intArg(3), intArg(4)
-                )
+                Hsp3CommandIds.GRECT -> {
+                    val size = graphics.currentSurfaceSize()
+                    graphics.grect(
+                        intArg(0), intArg(1), doubleArg(2),
+                        intArg(3, size.first), intArg(4, size.second)
+                    )
+                }
                 Hsp3CommandIds.GROTATE -> {
                     val size = graphics.copySize()
                     graphics.grotate(
