@@ -1,5 +1,6 @@
 package io.github.helterfall.ramen.runtime.hsp3
 
+import io.github.helterfall.ramen.parser.Hsp3StringEncoding
 import java.io.IOException
 import java.util.ArrayDeque
 import java.util.Calendar

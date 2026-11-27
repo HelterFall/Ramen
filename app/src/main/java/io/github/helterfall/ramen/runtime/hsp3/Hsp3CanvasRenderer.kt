@@ -524,7 +524,7 @@ class Hsp3CanvasRenderer(
 
             widestLine = maxOf(widestLine, textPaint.measureText(line))
             cursorX = startX
-            cursorY += lineHeight
+            cursorY += lineHeight.toInt()
         }
 
         // Bmscr::Print() always advances by the rendered line height. HSPMES_NOCR
