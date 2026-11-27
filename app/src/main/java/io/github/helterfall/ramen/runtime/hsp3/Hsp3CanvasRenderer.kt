@@ -433,7 +433,7 @@ class Hsp3CanvasRenderer(
             RectF(position.first.toFloat(), position.second.toFloat(),
                 (position.first + destWidth).toFloat(), (position.second + destHeight).toFloat()),
             filter = quality != 0,
-            applyGmode = false
+            applyGmode = true
         )
     }
 

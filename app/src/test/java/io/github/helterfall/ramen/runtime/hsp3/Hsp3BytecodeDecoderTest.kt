@@ -224,6 +224,24 @@ class Hsp3BytecodeDecoderTest {
         }
     }
 
+    @Test
+    fun decodesOpenHspAwaitProgramCommandSeparatelyFromWait() {
+        withProgram(
+            createAx(
+                listOf(
+                    0x200F, Hsp3BytecodeDecoder.PROGCMD_AWAIT,
+                    0x0004, 25,
+                    0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+                )
+            )
+        ) { program ->
+            val decoded = Hsp3BytecodeDecoder().decode(program)
+            val await = decoded.first() as Hsp3Instruction.AwaitFor
+            assertEquals(25L, await.delayMillis)
+            assertEquals(null, await.delayExpression)
+        }
+    }
+
     private fun withProgram(bytes: ByteArray, block: (io.github.helterfall.ramen.parser.Hsp3Program) -> Unit) {
         val directory = Files.createTempDirectory("ramen-hsp3-decoder").toFile()
         try {

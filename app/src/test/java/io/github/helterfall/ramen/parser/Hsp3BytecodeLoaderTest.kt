@@ -21,6 +21,7 @@ class Hsp3BytecodeLoaderTest {
             assertEquals(2L, program.header.debugInfoSizeBytes)
             assertFalse(program.header.hasExternalPluginData)
             assertEquals("hello", program.stringAt(0))
+            assertEquals("llo", program.stringAt(2)) // TYPE_STRING values are raw byte offsets from DS start.
             assertEquals(0L, program.labelCodeOffset(0))
             assertEquals(2, program.tokens().count())
         }

@@ -154,6 +154,11 @@ sealed class Hsp3Instruction {
         val delayExpression: Hsp3Expression? = null,
         val delayMultiplier: Long = 1L
     ) : Hsp3Instruction()
+    data class AwaitFor(
+        val delayMillis: Long,
+        val delayExpression: Hsp3Expression? = null,
+        val delayMultiplier: Long = 1L
+    ) : Hsp3Instruction()
     object End : Hsp3Instruction()
     data class Unsupported(
         val commandType:Int,val commandId:Int,val codeOffset:Int=-1,
@@ -224,7 +229,8 @@ class Hsp3VirtualMachine(
     private val maxCallDepth: Int = DEFAULT_MAX_CALL_DEPTH,
     private val maxLoopDepth: Int = DEFAULT_MAX_LOOP_DEPTH,
     private val fileStorage: Hsp3FileStorage = Hsp3UnavailableFileStorage,
-    private val audio: Hsp3AudioPlayer = Hsp3UnavailableAudioPlayer
+    private val audio: Hsp3AudioPlayer = Hsp3UnavailableAudioPlayer,
+    private val monotonicMillis: () -> Long = { System.nanoTime() / 1_000_000L }
 ) {
     private data class RepeatFrame(
         val bodyStart: Int,
@@ -245,6 +251,8 @@ class Hsp3VirtualMachine(
     private var status = Hsp3VmStatus.READY
     private var errorMessage: String? = null
     private var yieldDelayMillis = 0L
+    private var lastAwaitTickMillis: Long? = null
+    private var pendingAwaitDeadlineMillis: Long? = null
     private var hspStat = 0
     private var statValue = 0
     private var hspError = 0
@@ -265,6 +273,22 @@ class Hsp3VirtualMachine(
     ): Hsp3VmSnapshot {
         require(instructionBudget > 0)
         if (status == Hsp3VmStatus.ENDED || status == Hsp3VmStatus.FAILED) return snapshot()
+
+        // OpenHSP resumes an await against the original deadline. A late host wake
+        // completes the await at the actual resume tick, which becomes the origin
+        // for the next await in the script's frame loop.
+        pendingAwaitDeadlineMillis?.let { deadline ->
+            val now = monotonicMillis()
+            val remaining = if (deadline > now) deadline - now else 0L
+            if (remaining > 0L) {
+                status = Hsp3VmStatus.YIELDED
+                yieldDelayMillis = remaining
+                return snapshot()
+            }
+            lastAwaitTickMillis = now
+            pendingAwaitDeadlineMillis = null
+        }
+
         status = Hsp3VmStatus.READY
         yieldDelayMillis = 0L
         var remainingBudget = instructionBudget
@@ -591,6 +615,28 @@ class Hsp3VirtualMachine(
                                 instructions.size
                             )
                         }
+                    }
+                    is Hsp3Instruction.AwaitFor -> {
+                        val requestedDelay = instruction.delayExpression
+                            ?.let { evaluate(it).asInt().toLong() * instruction.delayMultiplier }
+                            ?: instruction.delayMillis
+                        val delay = requestedDelay.coerceIn(0L, MAX_WAIT_MS)
+                        val now = monotonicMillis()
+                        val lastTick = lastAwaitTickMillis ?: now
+                        val deadline = try {
+                            Math.addExact(lastTick, delay)
+                        } catch (_: ArithmeticException) {
+                            Long.MAX_VALUE
+                        }
+                        val remaining = if (deadline > now) deadline - now else 0L
+                        programCounter += 1
+                        if (remaining > 0L) {
+                            pendingAwaitDeadlineMillis = deadline
+                            status = Hsp3VmStatus.YIELDED
+                            yieldDelayMillis = remaining
+                            return snapshot()
+                        }
+                        lastAwaitTickMillis = now
                     }
                     Hsp3Instruction.Wait -> {
                         programCounter += 1

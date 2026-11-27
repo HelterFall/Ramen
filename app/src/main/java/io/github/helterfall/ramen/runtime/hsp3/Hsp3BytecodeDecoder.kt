@@ -534,7 +534,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                     ?: constantExpression(Hsp3RuntimeValue.IntegerValue(0))
                 val constantDelay = delayExpression.constantIntOrNull()
                 PendingInstruction(pc) { _, _ ->
-                    Hsp3Instruction.WaitFor(
+                    Hsp3Instruction.AwaitFor(
                         delayMillis = (constantDelay ?: 0).coerceAtLeast(0).toLong().coerceAtMost(MAX_WAIT_MS),
                         delayExpression = delayExpression.takeIf { constantDelay == null },
                         delayMultiplier = 1L

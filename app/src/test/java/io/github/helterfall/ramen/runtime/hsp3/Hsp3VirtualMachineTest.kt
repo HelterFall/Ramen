@@ -276,11 +276,36 @@ class Hsp3VirtualMachineTest {
         val await = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
             listOf(
                 Hsp3Instruction.SetInt(0, 25),
-                Hsp3Instruction.WaitFor(0L, delayExpression = delay, delayMultiplier = 1L)
+                Hsp3Instruction.AwaitFor(0L, delayExpression = delay, delayMultiplier = 1L)
             )
         )
         assertEquals(Hsp3VmStatus.YIELDED, await.status)
         assertEquals(25L, await.yieldDelayMillis)
+    }
+
+    @Test
+    fun awaitSchedulesOnlyTheTimeRemainingSinceThePreviousAwaitCompleted() {
+        // First await starts at 100ms and resumes at 200ms. The script reaches
+        // the next await at 270ms, so only 30ms of its 100ms cadence remain.
+        val ticks = listOf(100L, 200L, 270L)
+        var tickIndex = 0
+        val vm = Hsp3VirtualMachine(
+            RecordingGraphics(),
+            monotonicMillis = { ticks[tickIndex++] }
+        )
+        val instructions = listOf(
+            Hsp3Instruction.AwaitFor(100L),
+            Hsp3Instruction.AwaitFor(100L),
+            Hsp3Instruction.End
+        )
+
+        val first = vm.runSlice(instructions)
+        assertEquals(Hsp3VmStatus.YIELDED, first.status)
+        assertEquals(100L, first.yieldDelayMillis)
+
+        val second = vm.runSlice(instructions)
+        assertEquals(Hsp3VmStatus.YIELDED, second.status)
+        assertEquals(30L, second.yieldDelayMillis)
     }
 
     @Test
