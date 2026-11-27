@@ -424,7 +424,7 @@ class Hsp3VirtualMachineTest {
                 native(Hsp3CommandIds.SCREEN, int(0), int(640), int(480)),
                 native(Hsp3CommandIds.BOXF, int(0), int(0), int(20), int(20)),
                 native(Hsp3CommandIds.STICK, variable(4), int(0), int(1)),
-                native(Hsp3CommandIds.GRECT, int(1), int(2), int(1024), int(20), int(30)),
+                native(Hsp3CommandIds.GRECT, int(1), int(2), double(Math.PI / 2), int(20), int(30)),
                 native(Hsp3CommandIds.GROTATE, int(1), int(0), int(0), double(0.5), int(32), int(48)),
                 Hsp3Instruction.End
             )
