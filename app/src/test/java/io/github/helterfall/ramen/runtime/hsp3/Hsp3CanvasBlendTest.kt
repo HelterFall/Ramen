@@ -12,34 +12,42 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class Hsp3CanvasBlendTest {
     @Test
-    fun gmodeTwoMakesBlackPixelsTransparentInGcopyAndGzoom() {
+    fun gmodeTwoMakesBlackPixelsTransparentInGcopy() {
         val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
         try {
-            renderer.screen(0, 6, 4)
-            renderer.color(255, 0, 0)
-            renderer.boxf(0, 0, 5, 3)
-
-            renderer.buffer(1, 2, 2)
-            renderer.gsel(1)
-            renderer.color(0, 0, 0)
-            renderer.boxf(0, 0, 1, 1)
-            renderer.color(0, 255, 0)
-            renderer.boxf(1, 1, 1, 1)
-
+            prepareBlackAndGreenSource(renderer)
             renderer.gsel(0)
             renderer.gmode(2, 2, 2, 0)
             renderer.gcopy(1, 0, 0, 2, 2, 0, 0)
             assertPixel(renderer, 255, 0, 0, 0, 0)
             assertPixel(renderer, 0, 255, 0, 1, 1)
+        } finally { renderer.close() }
+    }
 
-            // Scaled copies use the same active gmode as ordinary gcopy.
-            renderer.color(255, 0, 0)
-            renderer.boxf(0, 0, 5, 3)
+    @Test
+    fun gmodeTwoMakesBlackPixelsTransparentInGzoom() {
+        val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
+        try {
+            prepareBlackAndGreenSource(renderer)
+            renderer.gsel(0)
+            renderer.gmode(2, 2, 2, 0)
             renderer.pos(2, 0)
             renderer.gzoom(4, 4, 1, 0, 0, 2, 2, 0)
             assertPixel(renderer, 255, 0, 0, 2, 0)
             assertPixel(renderer, 0, 255, 0, 4, 2)
         } finally { renderer.close() }
+    }
+
+    private fun prepareBlackAndGreenSource(renderer: Hsp3CanvasRenderer) {
+        renderer.screen(0, 6, 4)
+        renderer.color(255, 0, 0)
+        renderer.boxf(0, 0, 5, 3)
+        renderer.buffer(1, 2, 2)
+        renderer.gsel(1)
+        renderer.color(0, 0, 0)
+        renderer.boxf(0, 0, 1, 1)
+        renderer.color(0, 255, 0)
+        renderer.boxf(1, 1, 1, 1)
     }
 
     @Test
