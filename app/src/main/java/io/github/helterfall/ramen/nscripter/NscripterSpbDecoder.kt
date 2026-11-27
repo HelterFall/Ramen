@@ -30,7 +30,7 @@ class NscripterSpbDecoder {
         val rowPadding = (4L - rawRowBytes % 4L) % 4L
         val rowStride = rawRowBytes + rowPadding
         val imageBytes = checkedMultiply(rowStride, height.toLong(), "SPB image data")
-        val outputBytes = checkedAdd(BMP_HEADER_SIZE, imageBytes, "SPB BMP size")
+        val outputBytes = checkedAdd(BMP_HEADER_SIZE.toLong(), imageBytes, "SPB BMP size")
         if (outputBytes > maxOutputBytes || outputBytes > Int.MAX_VALUE.toLong()) {
             malformed("SPB BMP exceeds the configured output limit.")
         }
