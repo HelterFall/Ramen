@@ -187,6 +187,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     if (!staged.isFile || staged.length() <= 0L) {
                         throw IOException("Подготовленный отчёт отсутствует или пуст.")
                     }
+                    val expectedSha256 = SystemNnnFullGameAuditExporter.sha256(staged)
                     val output = contentResolver.openOutputStream(destination, "wt")
                         ?: throw IOException("Android не открыл выбранный JSON-документ для записи.")
                     val copiedBytes = output.use { stream ->
@@ -199,7 +200,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                         ?: throw IOException("Не удалось повторно открыть JSON для проверки сохранённого содержимого.")
                     val verifiedBytes = SystemNnnFullGameAuditExporter.verifySavedReport(
                         verificationStream,
-                        copiedBytes
+                        copiedBytes,
+                        expectedSha256
                     )
                     val message = "JSON проверен после записи: $verifiedBytes байт. Физические SPT-записи и каталоги ресурсов включены."
                     mainHandler.post {
