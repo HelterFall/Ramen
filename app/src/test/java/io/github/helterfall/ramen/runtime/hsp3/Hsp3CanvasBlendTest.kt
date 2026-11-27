@@ -12,7 +12,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class Hsp3CanvasBlendTest {
     @Test
-    fun gmodeTwoMakesBlackPixelsTransparentInGcopy() {
+    fun gcopyModeTwoLeavesDestinationUnchangedForBlackPixels() {
         val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
         try {
             prepareBlackAndGreenSource(renderer)
@@ -20,12 +20,23 @@ class Hsp3CanvasBlendTest {
             renderer.gmode(2, 2, 2, 0)
             renderer.gcopy(1, 0, 0, 2, 2, 0, 0)
             assertPixel(renderer, 255, 0, 0, 0, 0)
+        } finally { renderer.close() }
+    }
+
+    @Test
+    fun gcopyModeTwoStillCopiesNonBlackPixels() {
+        val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
+        try {
+            prepareBlackAndGreenSource(renderer)
+            renderer.gsel(0)
+            renderer.gmode(2, 2, 2, 0)
+            renderer.gcopy(1, 0, 0, 2, 2, 0, 0)
             assertPixel(renderer, 0, 255, 0, 1, 1)
         } finally { renderer.close() }
     }
 
     @Test
-    fun gmodeTwoMakesBlackPixelsTransparentInGzoom() {
+    fun gzoomModeTwoLeavesDestinationUnchangedForBlackPixels() {
         val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
         try {
             prepareBlackAndGreenSource(renderer)
@@ -34,6 +45,18 @@ class Hsp3CanvasBlendTest {
             renderer.pos(2, 0)
             renderer.gzoom(4, 4, 1, 0, 0, 2, 2, 0)
             assertPixel(renderer, 255, 0, 0, 2, 0)
+        } finally { renderer.close() }
+    }
+
+    @Test
+    fun gzoomModeTwoStillCopiesNonBlackPixels() {
+        val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
+        try {
+            prepareBlackAndGreenSource(renderer)
+            renderer.gsel(0)
+            renderer.gmode(2, 2, 2, 0)
+            renderer.pos(2, 0)
+            renderer.gzoom(4, 4, 1, 0, 0, 2, 2, 0)
             assertPixel(renderer, 0, 255, 0, 4, 2)
         } finally { renderer.close() }
     }
