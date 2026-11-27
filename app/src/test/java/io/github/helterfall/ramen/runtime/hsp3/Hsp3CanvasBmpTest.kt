@@ -78,10 +78,19 @@ class Hsp3CanvasBmpTest {
 
             renderer.gsel(0)
             renderer.redraw(false)
+            // Drawing while updates are disabled must keep the last presented frame.
+            renderer.color(255, 0, 0)
+            renderer.boxf(0, 0, 0, 0)
             target.eraseColor(Color.BLACK)
             renderer.draw(Canvas(target))
-            assertEquals(Color.BLACK, target.getPixel(0, 0))
+            assertEquals(Color.GREEN, target.getPixel(0, 0))
+
+            // Re-enabling redraw publishes the changes made to the backing surface.
             renderer.redraw(true)
+            target.eraseColor(Color.BLACK)
+            renderer.draw(Canvas(target))
+            assertEquals(Color.RED, target.getPixel(0, 0))
+            assertEquals(Color.GREEN, target.getPixel(1, 1))
         } finally {
             target.recycle()
             renderer.close()

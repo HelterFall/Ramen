@@ -75,6 +75,7 @@ class Hsp3CanvasRenderer(
         val bitmap: Bitmap,
         val canvas: Canvas,
         var shouldPresent: Boolean = true,
+        var suspendedFrame: Bitmap? = null,
         var cursorX: Int = 0,
         var cursorY: Int = 0,
         var currentColor: Int = Color.WHITE,
@@ -322,6 +323,7 @@ class Hsp3CanvasRenderer(
                     .first { !surfaces.containsKey(it) }
                 val old = surfaces.put(targetId, Surface(bitmap, Canvas(bitmap)))
                 old?.bitmap?.recycle()
+                old?.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
                 cellGrids.remove(targetId)
                 preloadedCellIds.entries.removeAll { it.value == targetId }
                 if (id == -2) preloadedCellIds[cacheKey] = targetId
@@ -613,8 +615,19 @@ class Hsp3CanvasRenderer(
 
     @Synchronized
     override fun redraw(enabled: Boolean) {
-        // HSP's fl_udraw belongs to the selected Bmscr, not to the whole host.
-        activeSurface().shouldPresent = enabled
+        // OpenHSP's Bmscr::Send() stops updating the window while fl_udraw == 0.
+        // Keep the last presented screen image so Compose invalidations cannot
+        // replace a deliberately frozen HSP frame with a cleared Canvas.
+        val surface = activeSurface()
+        if (!enabled && activeId == 0 && surface.shouldPresent) {
+            surface.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
+            surface.suspendedFrame = surface.bitmap.copy(Bitmap.Config.ARGB_8888, false)
+                ?: throw IOException("Could not snapshot the last presented HSP frame.")
+        } else if (enabled) {
+            surface.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
+            surface.suspendedFrame = null
+        }
+        surface.shouldPresent = enabled
     }
 
     /** Presents the visible HSP window (screen ID 0), never an offscreen buffer. */
@@ -622,8 +635,8 @@ class Hsp3CanvasRenderer(
     fun draw(target: Canvas) {
         if (closed) return
         val screen = surfaces[0] ?: return
-        if (!screen.shouldPresent) return
-        val bitmap = screen.bitmap
+        val bitmap = if (screen.shouldPresent) screen.bitmap
+            else screen.suspendedFrame ?: screen.bitmap
         val width = target.width.toFloat()
         val height = target.height.toFloat()
         if (width <= 0f || height <= 0f) return
@@ -878,6 +891,7 @@ class Hsp3CanvasRenderer(
         val bitmap = MutableArgbBitmapDecoder.create(width, height)
         val old = surfaces.put(id, Surface(bitmap, Canvas(bitmap)))
         old?.bitmap?.recycle()
+        old?.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
     }
 
     private fun activeSurface(): Surface =
@@ -913,6 +927,7 @@ class Hsp3CanvasRenderer(
         closed = true
         surfaces.values.forEach { surface ->
             if (!surface.bitmap.isRecycled) surface.bitmap.recycle()
+            surface.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
         }
         surfaces.clear()
     }
