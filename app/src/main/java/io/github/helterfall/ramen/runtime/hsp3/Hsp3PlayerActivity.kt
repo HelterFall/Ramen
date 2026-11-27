@@ -174,7 +174,8 @@ class Hsp3PlayerActivity : ComponentActivity() {
                     executable = executable,
                     instructionDecoder = decoder,
                     input = inputController,
-                    assetRoot = gameDirectory
+                    assetRoot = gameDirectory,
+                    audio = AndroidHsp3AudioPlayer(cacheDir)
                 )
                 decoder.diagnostics.forEach { Log.w("RamenHsp3Decoder",it.asLogMessage()) }
                 return session

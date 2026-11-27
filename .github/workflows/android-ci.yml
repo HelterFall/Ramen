@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, feat/hsp3-dpmx-runtime]
   pull_request:
     branches: [main]
   workflow_dispatch:

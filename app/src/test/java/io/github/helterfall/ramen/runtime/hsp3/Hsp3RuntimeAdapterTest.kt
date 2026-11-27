@@ -34,6 +34,23 @@ class Hsp3RuntimeAdapterTest {
     }
 
     @Test
+    fun autoDetectsEncryptedStartAxWhenNoKnownKeyOrDataScheduleExists() {
+        val fixtureKey = DpmxTestKey(al = 0x41, cl = 0xB3)
+        withExecutable(
+            createExecutableFixture(
+                validCommand = true,
+                fileKey = 0x12345678L,
+                encryptionKey = fixtureKey
+            )
+        ) { executable ->
+            val prepared = Hsp3RuntimeAdapter().prepare(executable)
+            assertEquals(DpmxKeyResolution.Method.SIGNATURE_AUTODETECT, prepared.scriptKey.method)
+            assertEquals(0x301L, prepared.program.header.version)
+            assertEquals(0x10L, prepared.program.tokens().single().value)
+        }
+    }
+
+    @Test
     fun missingStartAxDoesNotPrepareAsHsp() {
         val bytes = createExecutableFixture(includeScript = false)
         withExecutable(bytes) { executable ->
@@ -55,10 +72,12 @@ class Hsp3RuntimeAdapterTest {
 
     private fun createExecutableFixture(
         includeScript: Boolean = true,
-        validCommand: Boolean = false
+        validCommand: Boolean = false,
+        fileKey: Long = SAMPLE_FILE_KEY,
+        encryptionKey: DpmxTestKey = SAMPLE_KEY
     ): ByteArray {
         val script = createAxFixture(validCommand)
-        val payload = if (includeScript) encrypt(script, SAMPLE_KEY) else byteArrayOf()
+        val payload = if (includeScript) encrypt(script, encryptionKey) else byteArrayOf()
         val overlayOffset = 0x400
         val dataOffset = 0x80
         val dataBlockOffset = overlayOffset + dataOffset
@@ -90,7 +109,7 @@ class Hsp3RuntimeAdapterTest {
             val record = overlayOffset + 16
             "start.ax".toByteArray(Charsets.US_ASCII).copyInto(bytes, record)
             putUInt32(bytes, record + 16, 0xFFFF_FFFFL)
-            putUInt32(bytes, record + 20, SAMPLE_FILE_KEY)
+            putUInt32(bytes, record + 20, fileKey)
             putUInt32(bytes, record + 24, 0L)
             putUInt32(bytes, record + 28, script.size.toLong())
             payload.copyInto(bytes, dataBlockOffset)

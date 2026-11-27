@@ -112,9 +112,10 @@ class Hsp3CanvasRenderer(
     }
 
     @Synchronized
+    @Synchronized
     override fun screen(id: Int, width: Int, height: Int) {
         checkOpen()
-        require(id == 0) { "HSP screen must use window ID 0." }
+        require(id >= 0) { "HSP screen IDs cannot be negative." }
         createSurface(id, width, height)
         activeId = id
     }
@@ -601,6 +602,13 @@ class Hsp3CanvasRenderer(
             destinationRect.width() <= 0f || destinationRect.height() <= 0f
         ) return
         val effectiveMode = if (applyGmode) blendMode else 0
+        if (effectiveMode == ADDITIVE_BLEND || effectiveMode == SUBTRACTIVE_BLEND) {
+            drawArithmeticBlend(
+                source, sourceRect, destinationRect, filter,
+                rotationDegrees, rotationPivotX, rotationPivotY, effectiveMode
+            )
+            return
+        }
         val bitmap = when (effectiveMode) {
             COLOR_KEY_BLACK -> makeColorTransparent(source.bitmap, Color.BLACK)
             COLOR_KEY_CURRENT -> makeColorTransparent(source.bitmap, currentColor)
@@ -609,14 +617,10 @@ class Hsp3CanvasRenderer(
         bitmapPaint.color = Color.WHITE
         bitmapPaint.isFilterBitmap = filter
         bitmapPaint.alpha = when (effectiveMode) {
-            ALPHA_BLEND, COLOR_KEY_ALPHA, 5, SUBTRACTIVE_BLEND ->
-                ((blendAlpha * 255) / 256).coerceIn(0, 255)
+            ALPHA_BLEND, COLOR_KEY_ALPHA -> ((blendAlpha * 255) / 256).coerceIn(0, 255)
             else -> 255
         }
-        bitmapPaint.xfermode = when (effectiveMode) {
-            SUBTRACTIVE_BLEND -> PorterDuffXfermode(PorterDuff.Mode.DARKEN)
-            else -> null
-        }
+        bitmapPaint.xfermode = null
         val canvas = activeSurface().canvas
         val saveCount = canvas.save()
         try {
@@ -634,6 +638,86 @@ class Hsp3CanvasRenderer(
             bitmapPaint.xfermode = null
             bitmapPaint.isFilterBitmap = true
             if (bitmap !== source.bitmap) bitmap.recycle()
+        }
+    }
+
+    /** HSP modes 5/6 are channel arithmetic, not Porter-Duff blend approximations. */
+    private fun drawArithmeticBlend(
+        source: Surface,
+        sourceRect: Rect,
+        destinationRect: RectF,
+        filter: Boolean,
+        rotationDegrees: Float,
+        rotationPivotX: Float?,
+        rotationPivotY: Float?,
+        mode: Int
+    ) {
+        val destination = activeSurface().bitmap
+        val pivotX = rotationPivotX ?: destinationRect.centerX()
+        val pivotY = rotationPivotY ?: destinationRect.centerY()
+        val radians = Math.toRadians(rotationDegrees.toDouble())
+        val cosine = kotlin.math.cos(radians)
+        val sine = kotlin.math.sin(radians)
+        val corners = arrayOf(
+            destinationRect.left to destinationRect.top,
+            destinationRect.right to destinationRect.top,
+            destinationRect.right to destinationRect.bottom,
+            destinationRect.left to destinationRect.bottom
+        )
+        val rotated = if (rotationDegrees == 0f) corners else corners.map { (x, y) ->
+            val dx = x - pivotX
+            val dy = y - pivotY
+            (pivotX + dx * cosine - dy * sine) to (pivotY + dx * sine + dy * cosine)
+        }
+        val left = kotlin.math.floor(rotated.minOf { it.first }.toDouble()).toInt().coerceAtLeast(0)
+        val top = kotlin.math.floor(rotated.minOf { it.second }.toDouble()).toInt().coerceAtLeast(0)
+        val right = kotlin.math.ceil(rotated.maxOf { it.first }.toDouble()).toInt().coerceAtMost(destination.width)
+        val bottom = kotlin.math.ceil(rotated.maxOf { it.second }.toDouble()).toInt().coerceAtMost(destination.height)
+        if (right <= left || bottom <= top) return
+
+        val regionWidth = right - left
+        val regionHeight = bottom - top
+        val overlay = Bitmap.createBitmap(regionWidth, regionHeight, Bitmap.Config.ARGB_8888)
+        try {
+            val overlayCanvas = Canvas(overlay)
+            val canvasSave = overlayCanvas.save()
+            try {
+                overlayCanvas.translate(-left.toFloat(), -top.toFloat())
+                if (rotationDegrees != 0f) overlayCanvas.rotate(rotationDegrees, pivotX, pivotY)
+                val overlayPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { isFilterBitmap = filter }
+                overlayCanvas.drawBitmap(source.bitmap, sourceRect, destinationRect, overlayPaint)
+            } finally {
+                overlayCanvas.restoreToCount(canvasSave)
+            }
+
+            val destinationPixels = IntArray(regionWidth * regionHeight)
+            val sourcePixels = IntArray(regionWidth * regionHeight)
+            destination.getPixels(destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight)
+            overlay.getPixels(sourcePixels, 0, regionWidth, 0, 0, regionWidth, regionHeight)
+            val configuredAlpha = blendAlpha.coerceIn(0, 256)
+            for (index in destinationPixels.indices) {
+                val sourcePixel = sourcePixels[index]
+                val sourceAlpha = (sourcePixel ushr 24) and 0xFF
+                val effectiveAlpha = (sourceAlpha * configuredAlpha + 128) / 256
+                if (effectiveAlpha == 0) continue
+                val destinationPixel = destinationPixels[index]
+                fun channel(shift: Int): Int {
+                    val destinationValue = (destinationPixel ushr shift) and 0xFF
+                    val sourceValue = (sourcePixel ushr shift) and 0xFF
+                    val contribution = (sourceValue * effectiveAlpha + 127) / 255
+                    return if (mode == ADDITIVE_BLEND) {
+                        (destinationValue + contribution).coerceAtMost(255)
+                    } else {
+                        (destinationValue - contribution).coerceAtLeast(0)
+                    }
+                }
+                val alpha = destinationPixel and -0x1000000
+                destinationPixels[index] = alpha or
+                    (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
+            }
+            destination.setPixels(destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight)
+        } finally {
+            overlay.recycle()
         }
     }
 
@@ -720,6 +804,7 @@ class Hsp3CanvasRenderer(
         private const val MES_OUTLINE = 4
         private const val COLOR_KEY_BLACK = 2
         private const val ALPHA_BLEND = 3
+        private const val ADDITIVE_BLEND = 5
         private const val COLOR_KEY_ALPHA = 4
         private const val COLOR_KEY_CURRENT = 4
         private const val SUBTRACTIVE_BLEND = 6

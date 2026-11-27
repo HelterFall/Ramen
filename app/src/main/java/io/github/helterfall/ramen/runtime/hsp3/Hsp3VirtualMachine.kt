@@ -40,6 +40,29 @@ object Hsp3UnavailableFileStorage : Hsp3FileStorage {
     }
 }
 
+interface Hsp3AudioPlayer {
+    @Throws(IOException::class)
+    fun load(bank: Int, encodedAudio: ByteArray, mode: Int)
+    @Throws(IOException::class)
+    fun play(bank: Int)
+    @Throws(IOException::class)
+    fun stop(bank: Int)
+    fun close()
+}
+
+object Hsp3UnavailableAudioPlayer : Hsp3AudioPlayer {
+    override fun load(bank: Int, encodedAudio: ByteArray, mode: Int) {
+        throw IOException("HSP audio is unavailable in this runtime host.")
+    }
+    override fun play(bank: Int) {
+        throw IOException("HSP audio is unavailable in this runtime host.")
+    }
+    override fun stop(bank: Int) {
+        throw IOException("HSP audio is unavailable in this runtime host.")
+    }
+    override fun close() = Unit
+}
+
 sealed class Hsp3Instruction {
     data class Screen(val id: Int, val width: Int, val height: Int) : Hsp3Instruction()
     data class Buffer(val id: Int, val width: Int, val height: Int) : Hsp3Instruction()
@@ -199,7 +222,8 @@ class Hsp3VirtualMachine(
     private val input: Hsp3InputProvider = Hsp3InputProvider { 0 },
     private val maxCallDepth: Int = DEFAULT_MAX_CALL_DEPTH,
     private val maxLoopDepth: Int = DEFAULT_MAX_LOOP_DEPTH,
-    private val fileStorage: Hsp3FileStorage = Hsp3UnavailableFileStorage
+    private val fileStorage: Hsp3FileStorage = Hsp3UnavailableFileStorage,
+    private val audio: Hsp3AudioPlayer = Hsp3UnavailableAudioPlayer
 ) {
     private data class RepeatFrame(
         val bodyStart: Int,
@@ -533,8 +557,11 @@ class Hsp3VirtualMachine(
                         return snapshot()
                     }
                     is Hsp3Instruction.Unsupported -> {
-                        // CS/token coordinates are logged by Hsp3BytecodeDecoder.
-                        programCounter += 1
+                        val message = instruction.detail.ifBlank {
+                            "Unsupported HSP opcode type=${instruction.commandType} id=0x${instruction.commandId.toString(16)} at CS+0x${instruction.codeOffset.toString(16)}."
+                        }
+                        vmDiagnostics += message
+                        throw IOException(message)
                     }
                 }
             }
@@ -596,14 +623,22 @@ class Hsp3VirtualMachine(
             arg(index, Hsp3RuntimeValue.StringValue(default)).asString()
         fun doubleArg(index: Int, default: Double = 0.0) =
             arg(index, Hsp3RuntimeValue.DoubleValue(default)).asDouble()
-        fun hasVariable(index: Int): Boolean =
-            args.getOrNull(index)?.variableReferenceOrNull() != null
-        fun hasString(index: Int): Boolean =
-            resolved(index) is Hsp3RuntimeValue.StringValue
         fun resolvedArguments(): List<Hsp3RuntimeValue?> = args.indices.map(::resolved)
 
         if (command.commandType == Hsp3BytecodeDecoder.TYPE_EXTCMD) {
             when (command.commandId) {
+                Hsp3CommandIds.MMLOAD -> {
+                    val fileName = stringArg(0)
+                    val bank = intArg(1, 0)
+                    val mode = intArg(2, 0)
+                    val encodedAudio = fileStorage.read(fileName)
+                        ?: throw IOException("HSP mmload audio resource '$fileName' was not found.")
+                    audio.load(bank, encodedAudio, mode)
+                    hspStat = bank
+                    statValue = bank
+                }
+                Hsp3CommandIds.MMPLAY -> audio.play(intArg(0, 0))
+                Hsp3CommandIds.MMSTOP -> audio.stop(intArg(0, -1))
                 Hsp3CommandIds.MES -> {
                     val message = stringArg(0)
                     graphics.mes(message, intArg(1))
@@ -615,17 +650,9 @@ class Hsp3VirtualMachine(
                     graphics.pos(intArg(0, pos.first), intArg(1, pos.second))
                 }
                 Hsp3CommandIds.CLS -> graphics.cls(intArg(0))
-                0x14 -> if (hasString(0)) graphics.font(stringArg(0), intArg(1, 12), intArg(2, 0))
-                    else graphics.cls(intArg(0))
                 Hsp3CommandIds.FONT -> graphics.font(stringArg(0), intArg(1, 12), intArg(2, 0))
-                Hsp3CommandIds.PICLOAD -> {
-                    if (hasString(0)) graphics.picload(stringArg(0), intArg(1))
-                    else graphics.color(intArg(0), intArg(1), intArg(2))
-                }
-                Hsp3CommandIds.COLOR -> {
-                    if (args.size == 3) graphics.color(intArg(0), intArg(1), intArg(2))
-                    else graphics.palette(resolvedArguments())
-                }
+                Hsp3CommandIds.PICLOAD -> graphics.picload(stringArg(0), intArg(1))
+                Hsp3CommandIds.COLOR -> graphics.color(intArg(0), intArg(1), intArg(2))
                 Hsp3CommandIds.PALCOLOR, Hsp3CommandIds.PALETTE ->
                     graphics.palette(resolvedArguments())
                 Hsp3CommandIds.REDRAW -> graphics.redraw(intArg(0, 1) != 0)
@@ -654,79 +681,46 @@ class Hsp3VirtualMachine(
                         )
                     }
                 }
-                Hsp3CommandIds.GMODE -> {
-                    if (hasString(0)) graphics.picload(stringArg(0), intArg(1))
-                    else graphics.gmode(intArg(0), intArg(1, 32), intArg(2, 32), intArg(3, 0))
-                }
+                Hsp3CommandIds.GMODE -> graphics.gmode(
+                    intArg(0), intArg(1, 32), intArg(2, 32), intArg(3, 0)
+                )
                 Hsp3CommandIds.GETKEY -> {
-                    if (hasVariable(0)) {
-                        val destination = requiredVariable(args.getOrNull(0), "getkey destination")
-                        writeVariable(
-                            destination.index,
-                            destination.indices.map { evaluate(it).asInt() },
-                            Hsp3RuntimeValue.IntegerValue(if (input.isKeyDown(intArg(1, 1))) 1 else 0)
-                        )
-                    } else graphics.gmode(intArg(0), intArg(1, 32), intArg(2, 32), intArg(3, 0))
-                }
-                Hsp3CommandIds.BUFFER -> {
-                    if (hasVariable(0)) {
-                        val destination = requiredVariable(args.getOrNull(0), "stick destination")
-                        readStick(destination.index, destination.indices.map { evaluate(it).asInt() },
-                            intArg(1), intArg(2, 1) != 0)
-                    } else graphics.buffer(
-                        intArg(0), intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
-                        intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT)
+                    val destination = requiredVariable(args.getOrNull(0), "getkey destination")
+                    writeVariable(
+                        destination.index,
+                        destination.indices.map { evaluate(it).asInt() },
+                        Hsp3RuntimeValue.IntegerValue(if (input.isKeyDown(intArg(1, 1))) 1 else 0)
                     )
                 }
-                Hsp3CommandIds.SCREEN -> {
-                    val grectAlias = args.size == 4 ||
-                        (args.size >= 5 && resolved(2) is Hsp3RuntimeValue.DoubleValue)
-                    if (grectAlias) {
-                        graphics.grect(intArg(0), intArg(1), doubleArg(2), intArg(3), intArg(4, intArg(3)))
-                    } else {
-                        val id = intArg(0)
-                        if (id == 0) graphics.screen(id, intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
-                            intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT))
-                        else graphics.buffer(id, intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
-                            intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT))
-                    }
-                }
+                Hsp3CommandIds.BUFFER -> graphics.buffer(
+                    intArg(0), intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
+                    intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT)
+                )
+                Hsp3CommandIds.SCREEN -> graphics.screen(
+                    intArg(0), intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
+                    intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT)
+                )
                 Hsp3CommandIds.BOXF -> if (args.isEmpty()) graphics.boxf()
                     else graphics.boxf(intArg(0), intArg(1), intArg(2), intArg(3))
                 Hsp3CommandIds.STICK -> {
-                    if (hasVariable(0)) {
-                        val destination = requiredVariable(args.getOrNull(0), "stick destination")
-                        readStick(destination.index, destination.indices.map { evaluate(it).asInt() },
-                            intArg(1), intArg(2, 1) != 0)
-                    } else {
-                        val id = intArg(0)
-                        if (id == 0) graphics.screen(id, intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
-                            intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT))
-                        else graphics.buffer(id, intArg(1, Hsp3CanvasRenderer.DEFAULT_WIDTH),
-                            intArg(2, Hsp3CanvasRenderer.DEFAULT_HEIGHT))
-                    }
+                    val destination = requiredVariable(args.getOrNull(0), "stick destination")
+                    readStick(
+                        destination.index,
+                        destination.indices.map { evaluate(it).asInt() },
+                        intArg(1),
+                        intArg(2, 1) != 0
+                    )
                 }
-                Hsp3CommandIds.GRECT -> graphics.grect(intArg(0), intArg(1), doubleArg(2), intArg(3), intArg(4))
+                Hsp3CommandIds.GRECT -> graphics.grect(
+                    intArg(0), intArg(1), intArg(2) * (2.0 * Math.PI / 4096.0),
+                    intArg(3), intArg(4)
+                )
                 Hsp3CommandIds.GROTATE -> {
-                    when (args.size) {
-                        5 -> graphics.celput(
-                            intArg(0, 1), intArg(1), doubleArg(2, 1.0),
-                            doubleArg(3, 1.0), doubleArg(4)
-                        )
-                        8 -> {
-                            val size = graphics.copySize()
-                            graphics.gzoom(
-                                intArg(0, size.first), intArg(1, size.second), intArg(2),
-                                intArg(3), intArg(4), intArg(5, size.first),
-                                intArg(6, size.second), intArg(7)
-                            )
-                        }
-                        else -> {
-                            val size = graphics.copySize()
-                            graphics.grotate(intArg(0), intArg(1), intArg(2), doubleArg(3),
-                                intArg(4, size.first), intArg(5, size.second))
-                        }
-                    }
+                    val size = graphics.copySize()
+                    graphics.grotate(
+                        intArg(0), intArg(1), intArg(2), doubleArg(3),
+                        intArg(4, size.first), intArg(5, size.second)
+                    )
                 }
                 Hsp3CommandIds.CELLLOAD -> {
                     hspStat = graphics.celload(stringArg(0), intArg(1, -2), intArg(2))

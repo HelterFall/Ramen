@@ -308,17 +308,21 @@ class Hsp3RuntimeAdapter(
         executable: File,
         instructionDecoder: Hsp3InstructionDecoder = Hsp3BytecodeDecoder(),
         input: Hsp3InputProvider = Hsp3InputProvider { 0 },
-        assetRoot: File? = null
+        assetRoot: File? = null,
+        audio: Hsp3AudioPlayer = Hsp3UnavailableAudioPlayer
     ): Hsp3RuntimeSession {
         val prepared = prepare(executable)
         val assets = DpmxAssetRepository(prepared.executable, prepared.container, keyResolver, assetRoot)
         try {
             val decodedInstructions = instructionDecoder.decode(prepared.program)
             val renderer = Hsp3CanvasRenderer(openAsset = assets::open)
-            val vm = Hsp3VirtualMachine(renderer, input, fileStorage = assets)
-            return Hsp3RuntimeSession(prepared, decodedInstructions, assets, renderer, vm)
+            val vm = Hsp3VirtualMachine(
+                renderer, input, fileStorage = assets, audio = audio
+            )
+            return Hsp3RuntimeSession(prepared, decodedInstructions, assets, renderer, vm, audio)
         } catch (error: Exception) {
             assets.close()
+            audio.close()
             throw error
         }
     }
@@ -337,7 +341,8 @@ class Hsp3RuntimeSession internal constructor(
     val instructions: List<Hsp3Instruction>,
     private val assets: DpmxAssetRepository,
     val renderer: Hsp3CanvasRenderer,
-    val virtualMachine: Hsp3VirtualMachine
+    val virtualMachine: Hsp3VirtualMachine,
+    private val audio: Hsp3AudioPlayer
 ) : Closeable {
     fun runSlice(instructionBudget: Int = 10_000): Hsp3VmSnapshot =
         virtualMachine.runSlice(instructions, instructionBudget)
@@ -345,6 +350,7 @@ class Hsp3RuntimeSession internal constructor(
     override fun close() {
         renderer.close()
         assets.close()
+        audio.close()
     }
 }
 
@@ -356,6 +362,9 @@ object Hsp3CommandIds {
     const val TYPE_EXTCMD = 9
     const val TYPE_PROGCMD = 15
 
+    const val MMLOAD = 0x08
+    const val MMPLAY = 0x09
+    const val MMSTOP = 0x0A
     const val MES = 0x0F
     const val TITLE = 0x10
     const val POS = 0x11

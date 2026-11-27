@@ -659,6 +659,9 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             TYPE_VAR,TYPE_INTCMD,TYPE_EXTCMD,TYPE_CMPCMD,TYPE_PROGCMD
         )
         private val SUPPORTED_EXT_COMMANDS = setOf(
+            Hsp3CommandIds.MMLOAD,
+            Hsp3CommandIds.MMPLAY,
+            Hsp3CommandIds.MMSTOP,
             Hsp3CommandIds.MES,
             Hsp3CommandIds.TITLE,
             Hsp3CommandIds.POS,

@@ -188,17 +188,20 @@ class Hsp3VirtualMachineTest {
     }
 
     @Test
-    fun skipsUnsupportedHspCommandWithoutFailingTheModule() {
-        val vm = Hsp3VirtualMachine(RecordingGraphics())
-        val snapshot = vm.runSlice(
+    fun unsupportedHspCommandFailsInsteadOfSilentlyAdvancing() {
+        val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
             listOf(
-                Hsp3Instruction.Unsupported(9, 0x77, codeOffset = 0x24, tokenType = 9),
+                Hsp3Instruction.Unsupported(
+                    9, 0x77, codeOffset = 0x24, tokenType = 9,
+                    detail = "Unsupported HSP command TYPE_EXTCMD 0x77 at CS+0x24."
+                ),
                 Hsp3Instruction.End
             )
         )
-        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
-        assertEquals(2, snapshot.executedInstructions)
-        assertEquals(null, snapshot.errorMessage)
+        assertEquals(Hsp3VmStatus.FAILED, snapshot.status)
+        assertEquals(1, snapshot.executedInstructions)
+        assertTrue(snapshot.errorMessage!!.contains("0x77"))
+        assertTrue(snapshot.diagnostics.any { it.contains("0x77") })
     }
 
     @Test
@@ -399,47 +402,88 @@ class Hsp3VirtualMachineTest {
         fun native(id: Int, vararg args: Hsp3Expression?) =
             Hsp3Instruction.NativeCommand(Hsp3BytecodeDecoder.TYPE_EXTCMD, id, args.toList())
 
+        val heldMask = 1 shl 5
         val graphics = RecordingGraphics()
-        val snapshot = Hsp3VirtualMachine(graphics).runSlice(
+        val snapshot = Hsp3VirtualMachine(
+            graphics, Hsp3InputProvider { heldMask }
+        ).runSlice(
             listOf(
-                native(0x0F, string("hello")),
-                native(0x10, string("title")),
-                native(0x11, int(4), int(5)),
-                native(0x14, int(0)),
-                native(0x17, int(1), int(2), int(3)),
-                native(0x18, int(1)),
-                native(0x1B, int(1)),
-                native(0x1C, int(800), int(600)),
-                native(0x1D, int(0)),
-                native(0x1E, int(0), int(0), int(0), int(8), int(8)),
-                native(0x20, string("background.bmp")),
-                native(0x23, int(3), int(32), int(32), int(128)),
-                native(0x29, variable(4), int(0), int(1)),
-                native(0x2A, int(10), int(20), int(40), int(30)),
-                native(0x31, int(0), int(0), int(20), int(20)),
-                native(0x34, int(1), int(800), int(600)),
-                native(0x36, int(1), int(0), double(1.0), double(1.0), double(0.0)),
+                native(Hsp3CommandIds.MES, string("hello")),
+                native(Hsp3CommandIds.TITLE, string("title")),
+                native(Hsp3CommandIds.POS, int(4), int(5)),
+                native(Hsp3CommandIds.FONT, string("Sans"), int(16), int(0)),
+                native(Hsp3CommandIds.PICLOAD, string("background.bmp"), int(0)),
+                native(Hsp3CommandIds.COLOR, int(1), int(2), int(3)),
+                native(Hsp3CommandIds.REDRAW, int(1)),
+                native(Hsp3CommandIds.WIDTH, int(800), int(600)),
+                native(Hsp3CommandIds.GSEL, int(0)),
+                native(Hsp3CommandIds.GCOPY, int(0), int(0), int(0), int(8), int(8)),
+                native(Hsp3CommandIds.GMODE, int(3), int(32), int(32), int(128)),
+                native(Hsp3CommandIds.GETKEY, variable(0), int(13)),
+                native(Hsp3CommandIds.BUFFER, int(1), int(800), int(600)),
+                native(Hsp3CommandIds.SCREEN, int(0), int(640), int(480)),
+                native(Hsp3CommandIds.BOXF, int(0), int(0), int(20), int(20)),
+                native(Hsp3CommandIds.STICK, variable(4), int(0), int(1)),
+                native(Hsp3CommandIds.GRECT, int(1), int(2), int(1024), int(20), int(30)),
+                native(Hsp3CommandIds.GROTATE, int(1), int(0), int(0), double(0.5), int(32), int(48)),
                 Hsp3Instruction.End
             )
         )
         assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(1, snapshot.variables[0])
+        assertEquals(heldMask, snapshot.variables[4])
         assertTrue(graphics.calls.contains("mes:hello:0"))
         assertTrue(graphics.calls.contains("title:title"))
         assertTrue(graphics.calls.contains("pos:4,5"))
-        assertTrue(graphics.calls.contains("cls:0"))
+        assertTrue(graphics.calls.contains("font:Sans,16,0"))
+        assertTrue(graphics.calls.contains("picload:background.bmp:0"))
         assertTrue(graphics.calls.contains("color:1,2,3"))
-        assertTrue(graphics.calls.contains("palette"))
         assertTrue(graphics.calls.contains("redraw:true"))
         assertTrue(graphics.calls.contains("width:800x600"))
         assertTrue(graphics.calls.contains("gsel:0"))
         assertTrue(graphics.calls.any { it.startsWith("gcopy:0:") })
-        assertTrue(graphics.calls.contains("picload:background.bmp:0"))
         assertTrue(graphics.calls.contains("gmode:3:32x32:128"))
-        assertTrue(graphics.calls.contains("stick:4"))
-        assertTrue(graphics.calls.any { it.startsWith("grect:") })
-        assertTrue(graphics.calls.any { it.startsWith("boxf:") })
         assertTrue(graphics.calls.contains("buffer:1:800x600"))
-        assertTrue(graphics.calls.any { it.startsWith("celput:1:0:") })
+        assertTrue(graphics.calls.contains("screen:0:640x480"))
+        assertTrue(graphics.calls.contains("boxf:0,0,20,20"))
+        assertTrue(graphics.calls.any { it.startsWith("grect:1,2,1.5707963267948966,20,30") })
+        assertTrue(graphics.calls.contains("grotate:1:0.5:32x48"))
+    }
+
+    @Test
+    fun mmloadMmplayAndMmstopUseTheAudioBackend() {
+        fun int(value: Int) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.IntegerValue(value))
+        )
+        fun string(value: String) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.StringValue(value))
+        )
+        fun native(id: Int, vararg args: Hsp3Expression?) =
+            Hsp3Instruction.NativeCommand(Hsp3BytecodeDecoder.TYPE_EXTCMD, id, args.toList())
+        val storage = MemoryFileStorage(mutableMapOf("theme.ogg" to byteArrayOf(1, 2, 3, 4)))
+        val audio = RecordingAudio()
+        val snapshot = Hsp3VirtualMachine(
+            RecordingGraphics(), fileStorage = storage, audio = audio
+        ).runSlice(
+            listOf(
+                native(Hsp3CommandIds.MMLOAD, string("theme.ogg"), int(2), int(0)),
+                native(Hsp3CommandIds.MMPLAY, int(2)),
+                native(Hsp3CommandIds.MMSTOP, int(2)),
+                Hsp3Instruction.End
+            )
+        )
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(listOf("load:2:4:0", "play:2", "stop:2"), audio.calls)
+    }
+
+    private class RecordingAudio : Hsp3AudioPlayer {
+        val calls = mutableListOf<String>()
+        override fun load(bank: Int, encodedAudio: ByteArray, mode: Int) {
+            calls += "load:$bank:${encodedAudio.size}:$mode"
+        }
+        override fun play(bank: Int) { calls += "play:$bank" }
+        override fun stop(bank: Int) { calls += "stop:$bank" }
+        override fun close() = Unit
     }
 
     private class MemoryFileStorage(
