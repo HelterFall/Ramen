@@ -111,13 +111,23 @@ internal class SystemNnnFullGameAuditor(
     private var totalSceneVoiceIds = 0
     private var totalVariables = 0
 
-    fun audit(gameDirectory: File): Map<String, Any?> {
+    fun audit(
+        gameDirectory: File,
+        onProgress: ((message: String, fraction: Float?) -> Unit)? = null
+    ): Map<String, Any?> {
         reset()
         if (!gameDirectory.isDirectory || Files.isSymbolicLink(gameDirectory.toPath())) {
             throw IOException("The imported game directory is unavailable or is a symbolic link.")
         }
         val root = gameDirectory.canonicalFile
-        val allFiles = discoverFiles(root)
+        onProgress?.invoke("Обхожу папки и файлы игры…", null)
+        val allFiles = discoverFiles(root) { discoveredCount ->
+            onProgress?.invoke("Проверено файлов: $discoveredCount", null)
+        }
+        onProgress?.invoke(
+            "Найдено файлов: ${allFiles.size}. Собираю проекты и SPT-модули…",
+            0.08f
+        )
         val manifestFiles = allFiles.filter {
             it.isFile &&
                 it.name.equals("project.xtx", ignoreCase = true) &&
@@ -210,7 +220,14 @@ internal class SystemNnnFullGameAuditor(
         }
 
         val managersByModule = linkedMapOf<String, SystemNnnAssetManager?>()
-        plansByPath.values.forEach { plan ->
+        val modulePlans = plansByPath.values.toList()
+        modulePlans.forEachIndexed { moduleIndex, plan ->
+            val managerProgress = 0.10f + 0.08f *
+                ((moduleIndex + 1).toFloat() / modulePlans.size.coerceAtLeast(1))
+            onProgress?.invoke(
+                "Проверяю каталоги ресурсов: ${moduleIndex + 1}/${modulePlans.size}",
+                managerProgress
+            )
             val assetRoot = plan.assetRoot.canonicalFile
             val key = assetRoot.canonicalPath
             val managerResult = assetManagers.getOrPut(key) {
@@ -244,7 +261,7 @@ internal class SystemNnnFullGameAuditor(
 
         try {
             val projectNamesByManifest = manifestModules
-            plansByPath.values.forEach { plan ->
+            modulePlans.forEachIndexed { moduleIndex, plan ->
                 if (Thread.currentThread().isInterrupted) {
                     throw IOException("Full game audit was interrupted.")
                 }
@@ -254,15 +271,32 @@ internal class SystemNnnFullGameAuditor(
                             relativePath(root, File(it.key)) == manifestPath
                         }?.value
                     }.orEmpty()
+                val moduleFraction = { processed: Int, recordCount: Int ->
+                    val withinModule = if (recordCount <= 0) 1f
+                    else (processed.toFloat() / recordCount).coerceIn(0f, 1f)
+                    val fraction = 0.18f + 0.68f *
+                        ((moduleIndex + withinModule) / modulePlans.size.coerceAtLeast(1))
+                    onProgress?.invoke(
+                        "Модуль ${moduleIndex + 1}/${modulePlans.size}: ${plan.moduleName} — записей $processed/$recordCount",
+                        fraction.coerceIn(0.18f, 0.86f)
+                    )
+                }
                 scanModule(
                     root = root,
                     plan = plan,
                     projectModuleNames = projectNames,
-                    assetManager = managersByModule[plan.file.canonicalPath]
+                    assetManager = managersByModule[plan.file.canonicalPath],
+                    onRecordsProgress = moduleFraction
+                )
+                onProgress?.invoke(
+                    "Модуль ${moduleIndex + 1}/${modulePlans.size} обработан: ${plan.moduleName}",
+                    (0.18f + 0.68f * ((moduleIndex + 1).toFloat() / modulePlans.size.coerceAtLeast(1)))
+                        .coerceIn(0.18f, 0.86f)
                 )
             }
 
-            scanProjectSidecars(root, plansByPath.values.toList(), manifestFiles)
+            onProgress?.invoke("Проверяю scene.dat, var.fxf и дополнительные каталоги…", 0.89f)
+            scanProjectSidecars(root, modulePlans, manifestFiles)
         } finally {
             assetManagers.values.forEach { result ->
                 runCatching { result.manager?.close() }
@@ -270,7 +304,8 @@ internal class SystemNnnFullGameAuditor(
             assetManagers.clear()
         }
 
-        return linkedMapOf(
+        onProgress?.invoke("Собираю итоговую сводку SCAN…", 0.95f)
+        val report = linkedMapOf(
             "reportType" to "ramen.system-nnn.full-game-audit",
             "schemaVersion" to 1,
             "generatedAtUtc" to Instant.now().toString(),
@@ -384,13 +419,16 @@ internal class SystemNnnFullGameAuditor(
                 "No raw SPT, image, audio, dialogue, or other game payload is included in this JSON report."
             )
         )
+        onProgress?.invoke("Анализ игры завершён. JSON подготовлен.", 1f)
+        return report
     }
 
     private fun scanModule(
         root: File,
         plan: ModulePlan,
         projectModuleNames: Collection<String>,
-        assetManager: SystemNnnAssetManager?
+        assetManager: SystemNnnAssetManager?,
+        onRecordsProgress: (processed: Int, total: Int) -> Unit
     ) {
         val relative = relativePath(root, plan.file)
         val module = linkedMapOf<String, Any?>(
@@ -425,7 +463,8 @@ internal class SystemNnnFullGameAuditor(
                 diagnosticsEnabled = false
             )
 
-            stream.records.forEach { record ->
+            onRecordsProgress(0, stream.records.size)
+            stream.records.forEachIndexed { recordIndex, record ->
                 if (Thread.currentThread().isInterrupted) {
                     throw IOException("Full game audit was interrupted.")
                 }
@@ -521,6 +560,9 @@ internal class SystemNnnFullGameAuditor(
                             "targetExists" to (stream.records.binarySearchBy(goto.targetCommandOffset) { it.offset } >= 0)
                         )
                     }
+                }
+                if ((recordIndex + 1) % 64 == 0 || recordIndex == stream.records.lastIndex) {
+                    onRecordsProgress(recordIndex + 1, stream.records.size)
                 }
             }
 
@@ -1143,7 +1185,8 @@ internal class SystemNnnFullGameAuditor(
         )
     }
 
-    private fun discoverFiles(root: File): List<File> {
+    private fun discoverFiles(root: File, onProgress: (Int) -> Unit): List<File> {
+        var visitedFiles = 0
         val discovered = root.walkTopDown()
             .onEnter { directory ->
                 !Files.isSymbolicLink(directory.toPath()) &&
@@ -1151,8 +1194,13 @@ internal class SystemNnnFullGameAuditor(
             }
             .maxDepth(MAX_SCAN_DEPTH)
             .filter { file -> file.isFile && !Files.isSymbolicLink(file.toPath()) }
+            .onEach {
+                visitedFiles += 1
+                if (visitedFiles % 64 == 0) onProgress(visitedFiles)
+            }
             .take(MAX_DISCOVERED_FILES + 1)
             .toList()
+        onProgress(visitedFiles)
         if (discovered.size > MAX_DISCOVERED_FILES) {
             fileWalkTruncated = true
         }
