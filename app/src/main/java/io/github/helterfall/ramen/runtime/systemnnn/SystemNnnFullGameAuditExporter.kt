@@ -4,6 +4,8 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.OutputStreamWriter
+import java.io.RandomAccessFile
 import java.nio.charset.StandardCharsets
 import java.security.MessageDigest
 
@@ -25,12 +27,6 @@ internal object SystemNnnFullGameAuditExporter {
             throw IOException("The full-game audit returned an invalid report structure.")
         }
 
-        val json = SystemNnnTraceJson.encode(report)
-        if (json.length < 2 || json.first() != '{' || json.last() != '}') {
-            throw IOException("The full-game audit JSON serialization was empty or malformed.")
-        }
-        val bytes = (json + "\n").toByteArray(StandardCharsets.UTF_8)
-
         val parent = destination.absoluteFile.parentFile
             ?: throw IOException("The audit staging directory is unavailable.")
         if (!parent.exists() && !parent.mkdirs()) {
@@ -39,13 +35,12 @@ internal object SystemNnnFullGameAuditExporter {
 
         val temporary = File(parent, destination.name + ".tmp")
         try {
-            temporary.outputStream().buffered().use { output ->
-                output.write(bytes)
-                output.flush()
+            OutputStreamWriter(temporary.outputStream().buffered(), StandardCharsets.UTF_8).use { writer ->
+                SystemNnnTraceJson.write(report, writer)
+                writer.write("\n")
+                writer.flush()
             }
-            if (temporary.length() != bytes.size.toLong() || temporary.length() == 0L) {
-                throw IOException("The staged audit report size does not match the serialized JSON.")
-            }
+            verifyStagedJsonBoundaries(temporary)
 
             if (destination.exists() && !destination.delete()) {
                 throw IOException("Could not replace the previous staged audit report.")
@@ -54,13 +49,31 @@ internal object SystemNnnFullGameAuditExporter {
                 throw IOException("Could not finalize the staged audit report.")
             }
             val finalizedSize = destination.length()
-            if (finalizedSize != bytes.size.toLong() || finalizedSize == 0L) {
+            if (finalizedSize <= 0L) {
                 destination.delete()
                 throw IOException("The finalized audit report is empty or incomplete.")
             }
+            verifyStagedJsonBoundaries(destination)
             return finalizedSize
         } finally {
             temporary.delete()
+        }
+    }
+
+    private fun verifyStagedJsonBoundaries(file: File) {
+        val length = file.length()
+        if (!file.isFile || length < 3L) {
+            throw IOException("The staged full-game audit JSON is empty or incomplete.")
+        }
+        val validBoundaries = RandomAccessFile(file, "r").use { input ->
+            val first = input.read()
+            input.seek(length - 2L)
+            val penultimate = input.read()
+            val last = input.read()
+            first == '{'.code && penultimate == '}'.code && last == '\n'.code
+        }
+        if (!validBoundaries) {
+            throw IOException("The staged full-game audit JSON has invalid boundaries.")
         }
     }
 
