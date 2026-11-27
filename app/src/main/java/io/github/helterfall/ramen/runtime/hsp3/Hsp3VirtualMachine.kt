@@ -441,7 +441,7 @@ class Hsp3VirtualMachine(
                     }
                     is Hsp3Instruction.Randomize -> {
                         val seed = instruction.seed?.let { evaluate(it).asInt().toLong() }
-                            ?: System.nanoTime()
+                            ?: (System.currentTimeMillis() / 1_000L)
                         randomGenerator = java.util.Random(seed)
                         programCounter += 1
                     }

@@ -344,6 +344,82 @@ class Hsp3BytecodeDecoderTest {
     }
 
     @Test
+    fun assignmentParsesTwoThroughFiveArrayIndicesAndSeparatePostfixRhs() {
+        for (dimensionCount in 2..5) {
+            withProgram(createMultiDimensionalArrayAssignment(dimensionCount)) { program ->
+                val instructions = Hsp3BytecodeDecoder().decode(program)
+                val dimension = instructions[0] as Hsp3Instruction.Dimension
+                assertEquals(dimensionCount, dimension.dimensions.size)
+
+                val scalarAssignment = instructions[1] as Hsp3Instruction.Assign
+                assertEquals(5, scalarAssignment.variable)
+                val arrayAssignment = instructions[2] as Hsp3Instruction.Assign
+                assertEquals(4, arrayAssignment.variable)
+                assertEquals(dimensionCount, arrayAssignment.arrayIndices.size)
+                assertTrue(arrayAssignment.expression.root is Hsp3ExpressionNode.Binary)
+
+                val indices = List(dimensionCount) { it % 2 }
+                val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+                assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+                assertEquals(10, snapshot.variables[5])
+                assertEquals(
+                    Hsp3RuntimeValue.IntegerValue(15),
+                    snapshot.arrayValues[4 to indices]
+                )
+            }
+        }
+    }
+
+    @Test
+    fun repeatInternalLabelDoesNotSharePostfixStackWithCountAndInitialValue() {
+        val words = listOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_REPEAT,
+            0x0007, 0, // OpenHSP's internal repeat-exit TYPE_LABEL, no EXFLG_2
+            0x0004, 2, // count, adjacent to the raw label
+            0x4004, 1, // initial value, following EXFLG_2 boundary
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        // OT label 0 points to the END command at CS word offset 8.
+        withProgram(createAx(words, objectTempWordOffsets = listOf(8))) { program ->
+            val decoder = Hsp3BytecodeDecoder()
+            val instructions = decoder.decode(program)
+            val repeat = instructions.first() as Hsp3Instruction.Repeat
+            assertEquals(2, repeat.count)
+            assertEquals(1, repeat.initialValue)
+            assertEquals(1, repeat.exitInstruction)
+            assertTrue(decoder.diagnostics.none { it.message.contains("postfix expression leaves") })
+        }
+    }
+
+    @Test
+    fun intcmdRandomize027DecodesOptionalSeedLikeOpenHsp() {
+        withProgram(
+            createAx(
+                listOf(
+                    0x2008, Hsp3BytecodeDecoder.INTCMD_RANDOMIZE,
+                    0x0004, 12345,
+                    0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+                )
+            )
+        ) { program ->
+            val randomize = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.Randomize
+            assertEquals(12345, randomize.seed!!.constantIntOrNull())
+        }
+
+        withProgram(
+            createAx(
+                listOf(
+                    0x2008, Hsp3BytecodeDecoder.INTCMD_RANDOMIZE,
+                    0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+                )
+            )
+        ) { program ->
+            val randomize = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.Randomize
+            assertEquals(null, randomize.seed)
+        }
+    }
+
+    @Test
     fun decoderRecognizesAllSuppliedStartAxExtCommandIds() {
         val ids = listOf(
             0x0F, 0x10, 0x11, 0x14, 0x17, 0x18, 0x1B, 0x1C, 0x1D,
@@ -399,6 +475,43 @@ class Hsp3BytecodeDecoderTest {
             assertEquals(Hsp3Instruction.End, instructions[1])
             assertTrue(decoder.diagnostics.none { it.message.contains("unsupported") })
         }
+    }
+
+    private fun createMultiDimensionalArrayAssignment(dimensionCount: Int): ByteArray {
+        require(dimensionCount in 2..5)
+        val words = mutableListOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM,
+            0x0001, 4
+        )
+        repeat(dimensionCount) {
+            words += 0x5004 // EXFLG_2 | EXFLG_0 | TYPE_INUM
+            words += 2
+        }
+
+        words += listOf(
+            0x2001, 5, // scalar assignment: var#5 = 10
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0004, 10
+        )
+
+        words += listOf(
+            0x2001, 4, // array assignment target
+            0x0000, '('.code,
+            0x1004, 0 // first fast-path index
+        )
+        for (index in 1 until dimensionCount) {
+            words += 0x5004 // subsequent fast-path index with EXFLG_2 boundary
+            words += index % 2
+        }
+        words += listOf(
+            0x0000, ')'.code,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0001, 5, // RHS: var#5
+            0x0004, 5, // plus literal 5
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_ADD,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(words)
     }
 
     private fun createTwoDimensionalArrayAssignment(): ByteArray {
@@ -501,18 +614,28 @@ class Hsp3BytecodeDecoderTest {
         return createAx(code)
     }
 
-    private fun createAx(words: List<Int>): ByteArray {
+    private fun createAx(
+        words: List<Int>,
+        objectTempWordOffsets: List<Int> = emptyList()
+    ): ByteArray {
         val codeSize = words.size * 2
-        val bytes = ByteArray(0x60 + codeSize)
+        val objectTempOffset = if (objectTempWordOffsets.isEmpty()) 0 else 0x60 + codeSize
+        val objectTempSize = objectTempWordOffsets.size * Int.SIZE_BYTES
+        val bytes = ByteArray(0x60 + codeSize + objectTempSize)
         "HSP3".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0)
         putUInt32(bytes, 4, 0x301L)
         putUInt32(bytes, 8, 64L)
         putUInt32(bytes, 12, bytes.size.toLong())
         putUInt32(bytes, 16, 0x60L)
         putUInt32(bytes, 20, codeSize.toLong())
+        putUInt32(bytes, 32, objectTempOffset.toLong())
+        putUInt32(bytes, 36, objectTempSize.toLong())
 
         words.forEachIndexed { index, value ->
             putUInt16(bytes, 0x60 + index * 2, value)
+        }
+        objectTempWordOffsets.forEachIndexed { index, wordOffset ->
+            putUInt32(bytes, objectTempOffset + index * Int.SIZE_BYTES, wordOffset.toLong())
         }
         return bytes
     }

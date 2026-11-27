@@ -58,10 +58,24 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             val command=tokens[index]
             val end=heads.getOrNull(ordinal+1) ?: tokens.size
             try {
-                val groups=readArgumentGroups(tokens,index+1,end)
-                val decoded=if(command.type==TYPE_VAR) decodeAssignment(program,command,groups)
-                    else decodeCommand(program,command,groups.map { decodeExpression(it,program) })
-                pending+=decoded
+                val decoded = if (command.type == TYPE_VAR) {
+                    decodeAssignment(program, command, tokens, index + 1, end)
+                } else {
+                    val groups = if (
+                        command.type == TYPE_PROGCMD &&
+                        command.value.toInt() == PROGCMD_REPEAT &&
+                        tokens.getOrNull(index + 1)?.type == TYPE_LABEL
+                    ) {
+                        // OpenHSP CheckInternalProgCMD inserts the repeat exit OT label
+                        // as a raw token, without EXFLG_2, before user count arguments.
+                        listOf(listOf(tokens[index + 1])) +
+                            readArgumentGroups(tokens, index + 2, end)
+                    } else {
+                        readArgumentGroups(tokens, index + 1, end)
+                    }
+                    decodeCommand(program, command, groups.map { decodeExpression(it, program) })
+                }
+                pending += decoded
                 if(isUnsupportedCommand(command)) diagnosticBuffer+=Hsp3DecodeDiagnostic(
                     command.codeOffset,command.type,command.value,command.extensionFlags,
                     "Command is unsupported by this Android VM profile and will be skipped."
@@ -94,7 +108,9 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
 
     private fun isUnsupportedCommand(t:Hsp3Token):Boolean = when(t.type) {
         TYPE_EXTCMD -> t.value.toInt() !in SUPPORTED_EXT_COMMANDS
-        TYPE_INTCMD -> t.value.toInt() !in setOf(INTCMD_EXIST,INTCMD_BLOAD,INTCMD_BSAVE,INTCMD_GETKEY)
+        TYPE_INTCMD -> t.value.toInt() !in setOf(
+            INTCMD_EXIST, INTCMD_BLOAD, INTCMD_BSAVE, INTCMD_GETKEY, INTCMD_RANDOMIZE
+        )
         TYPE_PROGCMD -> t.value.toInt() !in setOf(
             PROGCMD_GOTO,PROGCMD_GOSUB,PROGCMD_RETURN,PROGCMD_BREAK,PROGCMD_REPEAT,
             PROGCMD_LOOP,PROGCMD_CONTINUE,PROGCMD_DIM,PROGCMD_SDIM,PROGCMD_WAIT,
@@ -144,7 +160,13 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
 
             // EXFLG_2 inside a callback/array's parentheses belongs to that
             // nested parameter list. Leave it for readParenthesizedArguments().
-            current += token.copy(extensionFlags = token.extensionFlags and EXFLG_0.inv())
+            current += token.copy(
+                extensionFlags = if (depth == 0) {
+                    token.extensionFlags and EXFLG_0.inv()
+                } else {
+                    token.extensionFlags
+                }
+            )
             previousFastLiteral = false
 
             if (isOpen) depth++
@@ -351,6 +373,10 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             }
             TYPE_INTCMD -> {
                 when (commandId) {
+                    INTCMD_RANDOMIZE -> {
+                        val seed = args.firstOrNull()
+                        PendingInstruction(pc) { _, _ -> Hsp3Instruction.Randomize(seed) }
+                    }
                     INTCMD_GETKEY -> {
                         val destination = requiredVariable(args.getOrNull(0), "getkey destination")
                         val keyCode = args.getOrNull(1)
@@ -486,7 +512,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 if (destination.indices.isNotEmpty()) {
                     throw IOException("HSP dim/sdim requires a plain variable, not an array element.")
                 }
-                val dimensions = args.drop(1).take(4)
+                val dimensions = args.drop(1).take(5)
                 PendingInstruction(pc) { _, _ ->
                     Hsp3Instruction.Dimension(destination.index, dimensions, stringBuffer = id == PROGCMD_SDIM)
                 }
@@ -579,12 +605,14 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
     private fun decodeAssignment(
         program: Hsp3Program,
         command: Hsp3Token,
-        argumentGroups: List<List<Hsp3Token>>
+        tokens: List<Hsp3Token>,
+        startIndex: Int,
+        endIndex: Int
     ): PendingInstruction {
         val variable = checkedIndex(command.value, program.header.maxValueCount, "assignment variable")
-        // arr(i,j) and the RHS can be split into separate EXFLG_2 groups.
-        // Reconstruct the assignment token stream instead of rejecting group 2.
-        val assignmentTokens = argumentGroups.flatten()
+        // Keep the original CS flags: OpenHSP uses EXFLG_0 for one-token
+        // subscript expressions and EXFLG_2 to terminate each index expression.
+        val assignmentTokens = tokens.subList(startIndex, endIndex)
         var cursor = 0
         val arrayIndices = if (
             assignmentTokens.getOrNull(cursor)?.let {
@@ -710,6 +738,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         const val INTCMD_BLOAD = 0x16
         const val INTCMD_BSAVE = 0x17
         const val INTCMD_GETKEY = 0x23
+        const val INTCMD_RANDOMIZE = 0x27
         const val CMP_CMD_IF = 0
         const val CMP_CMD_ELSE = 1
         const val PROGCMD_GOTO = 0x00

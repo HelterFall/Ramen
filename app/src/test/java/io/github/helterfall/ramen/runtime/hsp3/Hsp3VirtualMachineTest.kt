@@ -103,6 +103,30 @@ class Hsp3VirtualMachineTest {
     }
 
     @Test
+    fun randomizeIntcmdSeedResetsTheRuntimeRandomSequence() {
+        fun integer(value: Int) = Hsp3Expression(
+            Hsp3ExpressionNode.Literal(Hsp3RuntimeValue.IntegerValue(value))
+        )
+        fun randomResult(): Int {
+            val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
+                listOf(
+                    Hsp3Instruction.Randomize(integer(0x27)),
+                    Hsp3Instruction.Assign(
+                        variable = 0,
+                        operator = Hsp3BytecodeDecoder.CALCCODE_EQ,
+                        expression = Hsp3Expression(Hsp3ExpressionNode.Function(0x001, listOf(integer(10))))
+                    ),
+                    Hsp3Instruction.End
+                )
+            )
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            return snapshot.variables.getValue(0)
+        }
+
+        assertEquals(randomResult(), randomResult())
+    }
+
+    @Test
     fun stickUsesRisingEdgeAndNonTriggerMask() {
         var heldMask = 0b0011
         val vm = Hsp3VirtualMachine(
