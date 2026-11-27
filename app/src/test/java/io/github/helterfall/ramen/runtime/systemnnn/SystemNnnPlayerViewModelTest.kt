@@ -746,7 +746,8 @@ class SystemNnnPlayerViewModelTest {
         )
 
         val native = viewModel.uiState.nativeRuntime
-        println("NATIVE_RUNTIME_DEBUG=" + native)
+        System.err.println("NATIVE_RUNTIME_DEBUG=" + native + " ui=" + viewModel.uiState)
+        assertEquals("First line", viewModel.uiState.dialogueText)
         assertEquals(42, native.lastMessageId)
         assertEquals(3, native.nextMessageType)
         assertEquals(-1, native.nextMessageWindowPrintMode)
