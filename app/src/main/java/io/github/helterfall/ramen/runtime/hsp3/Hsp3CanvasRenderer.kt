@@ -426,16 +426,21 @@ class Hsp3CanvasRenderer(
     @Synchronized
     override fun boxf(x1: Int, y1: Int, x2: Int, y2: Int) {
         checkOpen()
-        shapePaint.color = currentColor
-        activeSurface().canvas.drawRect(
-            RectF(
-                minOf(x1, x2).toFloat(),
-                minOf(y1, y2).toFloat(),
-                maxOf(x1, x2).toFloat() + 1f,
-                maxOf(y1, y2).toFloat() + 1f
-            ),
-            shapePaint
-        )
+        val bitmap = activeSurface().bitmap
+        val left = minOf(x1, x2).coerceAtLeast(0)
+        val top = minOf(y1, y2).coerceAtLeast(0)
+        val right = (maxOf(x1, x2).toLong() + 1L)
+            .coerceAtMost(bitmap.width.toLong()).toInt()
+        val bottom = (maxOf(y1, y2).toLong() + 1L)
+            .coerceAtMost(bitmap.height.toLong()).toInt()
+        if (right <= left || bottom <= top) return
+
+        // HSP boxf uses inclusive integer coordinates. Write exact pixels rather
+        // than a filtered Canvas primitive so one-pixel edges are never softened.
+        val scanline = IntArray(right - left) { currentColor }
+        for (row in top until bottom) {
+            bitmap.setPixels(scanline, 0, scanline.size, left, row, scanline.size, 1)
+        }
     }
 
     @Synchronized
