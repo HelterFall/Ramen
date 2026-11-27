@@ -112,7 +112,6 @@ class Hsp3CanvasRenderer(
     }
 
     @Synchronized
-    @Synchronized
     override fun screen(id: Int, width: Int, height: Int) {
         checkOpen()
         require(id == 0) { "HSP screen must use window ID 0." }
@@ -658,21 +657,26 @@ class Hsp3CanvasRenderer(
         val radians = Math.toRadians(rotationDegrees.toDouble())
         val cosine = kotlin.math.cos(radians)
         val sine = kotlin.math.sin(radians)
-        val corners = arrayOf(
-            destinationRect.left to destinationRect.top,
-            destinationRect.right to destinationRect.top,
-            destinationRect.right to destinationRect.bottom,
-            destinationRect.left to destinationRect.bottom
+        val corners = listOf(
+            destinationRect.left.toDouble() to destinationRect.top.toDouble(),
+            destinationRect.right.toDouble() to destinationRect.top.toDouble(),
+            destinationRect.right.toDouble() to destinationRect.bottom.toDouble(),
+            destinationRect.left.toDouble() to destinationRect.bottom.toDouble()
         )
-        val rotated = if (rotationDegrees == 0f) corners else corners.map { (x, y) ->
-            val dx = x - pivotX
-            val dy = y - pivotY
-            (pivotX + dx * cosine - dy * sine) to (pivotY + dx * sine + dy * cosine)
+        val rotated: List<Pair<Double, Double>> = if (rotationDegrees == 0f) {
+            corners
+        } else {
+            corners.map { (x, y) ->
+                val dx = x - pivotX.toDouble()
+                val dy = y - pivotY.toDouble()
+                (pivotX + dx * cosine - dy * sine) to
+                    (pivotY + dx * sine + dy * cosine)
+            }
         }
-        val left = kotlin.math.floor(rotated.minOf { it.first }.toDouble()).toInt().coerceAtLeast(0)
-        val top = kotlin.math.floor(rotated.minOf { it.second }.toDouble()).toInt().coerceAtLeast(0)
-        val right = kotlin.math.ceil(rotated.maxOf { it.first }.toDouble()).toInt().coerceAtMost(destination.width)
-        val bottom = kotlin.math.ceil(rotated.maxOf { it.second }.toDouble()).toInt().coerceAtMost(destination.height)
+        val left = kotlin.math.floor(rotated.minOf { it.first }).toInt().coerceAtLeast(0)
+        val top = kotlin.math.floor(rotated.minOf { it.second }).toInt().coerceAtLeast(0)
+        val right = kotlin.math.ceil(rotated.maxOf { it.first }).toInt().coerceAtMost(destination.width)
+        val bottom = kotlin.math.ceil(rotated.maxOf { it.second }).toInt().coerceAtMost(destination.height)
         if (right <= left || bottom <= top) return
 
         val regionWidth = right - left
