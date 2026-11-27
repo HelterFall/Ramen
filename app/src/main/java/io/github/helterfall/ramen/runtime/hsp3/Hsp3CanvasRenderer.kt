@@ -637,15 +637,25 @@ class Hsp3CanvasRenderer(
         val screen = surfaces[0] ?: return
         val bitmap = if (screen.shouldPresent) screen.bitmap
             else screen.suspendedFrame ?: screen.bitmap
-        val width = target.width.toFloat()
-        val height = target.height.toFloat()
+        // Canvas.width/height can describe the backing surface rather than the
+        // current clipped drawing area. Use the clip bounds so Compose/AndroidView
+        // presentation remains correct when the game canvas is inset or clipped.
+        val clipBounds = Rect()
+        val hasClipBounds = target.getClipBounds(clipBounds)
+        val bounds = if (hasClipBounds && !clipBounds.isEmpty) {
+            clipBounds
+        } else {
+            Rect(0, 0, target.width, target.height)
+        }
+        val width = bounds.width().toFloat()
+        val height = bounds.height().toFloat()
         if (width <= 0f || height <= 0f) return
 
         val scale = min(width / bitmap.width.toFloat(), height / bitmap.height.toFloat())
         val drawWidth = bitmap.width * scale
         val drawHeight = bitmap.height * scale
-        val left = (width - drawWidth) / 2f
-        val top = (height - drawHeight) / 2f
+        val left = bounds.left + (width - drawWidth) / 2f
+        val top = bounds.top + (height - drawHeight) / 2f
         val saveCount = target.save()
         try {
             target.drawColor(Color.BLACK)
