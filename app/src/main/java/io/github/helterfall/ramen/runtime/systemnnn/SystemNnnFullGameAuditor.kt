@@ -97,6 +97,7 @@ internal class SystemNnnFullGameAuditor(
     private val globalTransfers = ArrayList<Map<String, Any?>>()
     private val globalSubroutines = ArrayList<Map<String, Any?>>()
     private val globalGotos = ArrayList<Map<String, Any?>>()
+    private val filmCountsByModulePath = linkedMapOf<String, Int>()
     private val maxIssueLocations = 40
     private val maxOpcodeLocations = 200
     private val maxEffectSamples = 6
@@ -324,7 +325,13 @@ internal class SystemNnnFullGameAuditor(
             }
 
             onProgress?.invoke("Проверяю scene.dat, var.fxf и дополнительные каталоги…", 0.89f)
-            scanProjectSidecars(root, modulePlans, manifestFiles)
+            scanProjectSidecars(root, modulePlans, manifestFiles) { index, total ->
+                val fraction = 0.89f + 0.05f * (index.toFloat() / total.coerceAtLeast(1))
+                onProgress?.invoke(
+                    "Дополнительные каталоги проекта: $index/$total",
+                    fraction.coerceIn(0.89f, 0.94f)
+                )
+            }
         } finally {
             assetManagers.values.forEach { result ->
                 runCatching { result.manager?.close() }
@@ -480,6 +487,7 @@ internal class SystemNnnFullGameAuditor(
             }
             val reservedFilms = script.offsetTables.getOrNull(3)?.entryCount?.toInt() ?: 0
             val films = filmEntries.count { it.filmNumber != null }
+            filmCountsByModulePath[plan.file.canonicalPath] = films
             val moduleOpcodeStart = totalRecords
             var moduleUnsupported = 0
             var moduleDecodeErrors = 0
@@ -1024,15 +1032,11 @@ internal class SystemNnnFullGameAuditor(
     private fun scanProjectSidecars(
         root: File,
         plans: List<ModulePlan>,
-        manifests: List<File>
+        manifests: List<File>,
+        onProgress: (index: Int, total: Int) -> Unit
     ) {
-        val filmCountsByPath = plans.associate { plan ->
-            plan.file.canonicalPath to runCatching {
-                val script = scriptLoader.load(plan.file)
-                streamReader.filmTableEntries(script).count { it.filmNumber != null }
-            }.getOrDefault(0)
-        }
-        manifests.forEach { manifest ->
+        manifests.forEachIndexed { manifestIndex, manifest ->
+            onProgress(manifestIndex + 1, manifests.size)
             val sptDirectory = manifest.parentFile ?: return@forEach
             val project = projectReports.firstOrNull {
                 it["manifest"] == relativePath(root, manifest)
@@ -1064,7 +1068,7 @@ internal class SystemNnnFullGameAuditor(
                             if (modulePlan == null) {
                                 missingModuleRoutes += 1
                             } else {
-                                val filmCount = filmCountsByPath[modulePlan.file.canonicalPath] ?: 0
+                                val filmCount = filmCountsByModulePath[modulePlan.file.canonicalPath] ?: 0
                                 if (scene.filmIndices.any { it !in 0 until filmCount }) {
                                     missingFilmRoutes += 1
                                 }
@@ -1342,6 +1346,7 @@ internal class SystemNnnFullGameAuditor(
         globalTransfers.clear()
         globalSubroutines.clear()
         globalGotos.clear()
+        filmCountsByModulePath.clear()
         totalRecords = 0
         totalSptCandidates = 0
         invalidSptCandidates = 0
