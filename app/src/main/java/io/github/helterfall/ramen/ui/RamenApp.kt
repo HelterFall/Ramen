@@ -842,7 +842,7 @@ private fun NscripterScanDialog(
                     ScanReportLine(
                         "Архивы",
                         report.archives.joinToString("; ") {
-                            "${it.path} (${it.format}, ${it.entryCount} записей)"
+                            "${it.path} (${it.format}, ${it.entryCount} записей, SPB BMP: ${it.decodedSpbBitmapCount})"
                         }.ifBlank { "Не найдены" }
                     )
                     ScanReportLine(
