@@ -115,7 +115,7 @@ class Hsp3CanvasRenderer(
     @Synchronized
     override fun screen(id: Int, width: Int, height: Int) {
         checkOpen()
-        require(id >= 0) { "HSP screen IDs cannot be negative." }
+        require(id == 0) { "HSP screen must use window ID 0." }
         createSurface(id, width, height)
         activeId = id
     }
