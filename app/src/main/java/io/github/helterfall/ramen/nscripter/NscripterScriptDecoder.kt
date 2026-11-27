@@ -22,12 +22,15 @@ data class NscripterScriptSource(
 )
 
 /**
- * Decodes the script formats loaded by the classic NScripter/ONScripter path:
- * plain 0.txt (or 00.txt) plus 1.txt..99.txt (with two-digit fallbacks), and nscript.dat XOR 0x84.
+ * Decodes classic NScripter scripts and ONScripter UTF-8 scripts.
  *
- * ONScripter has other protected formats (for example nscr_sec.dat,
- * nscript.___, onscript.nt2 and onscript.nt3). They are intentionally not
- * guessed or decoded here: callers receive an explicit unsupported-format error.
+ * Supported loose entry scripts:
+ * - ONScripter UTF-8: 0.utf / 00.utf, followed by numbered .utf segments.
+ * - Plain text: 0.txt / 00.txt, followed by numbered .txt segments.
+ * - Classic packed script: nscript.dat (XOR 0x84).
+ *
+ * Protected formats (nscr_sec.dat, nscript.___, onscript.nt2 and onscript.nt3)
+ * are reported as unsupported instead of being decoded with a guessed key.
  */
 class NscripterScriptDecoder {
     private val shiftJis: Charset = Charset.forName("Shift_JIS")
@@ -65,58 +68,92 @@ class NscripterScriptDecoder {
     fun decodeTextFile(file: File): NscripterDecodedScript {
         if (!file.isFile) throw IOException("Script file does not exist: ${file.path}")
         val bytes = file.readBytes()
-        if (bytes.isEmpty()) {
-            return NscripterDecodedScript("", "UTF-8", "plain-text")
-        }
+        return decodeTextBytes(file.name, bytes)
+    }
 
-        val hasUtf8Bom = bytes.size >= UTF8_BOM.size &&
-            UTF8_BOM.indices.all { bytes[it] == UTF8_BOM[it] }
-        val content = if (hasUtf8Bom) bytes.copyOfRange(UTF8_BOM.size, bytes.size) else bytes
-        rejectEmbeddedNul(content, file.name)
-        val (text, encoding) = decodeStrict(content, preferUtf8 = true)
+    /** UTF-8 is mandatory for .utf files; Shift-JIS fallback would hide corrupt UTF-8. */
+    fun decodeUtf8Script(file: File): NscripterDecodedScript {
+        if (!file.isFile) throw IOException("Script file does not exist: ${file.path}")
+        return decodeUtf8Script(file.name, file.readBytes())
+    }
+
+    fun decodeUtf8Script(sourceName: String, bytes: ByteArray): NscripterDecodedScript {
+        val content = stripUtf8Bom(bytes)
+        if (content.isEmpty()) {
+            return NscripterDecodedScript("", StandardCharsets.UTF_8.name(), "utf8-script")
+        }
+        rejectEmbeddedNul(content, sourceName)
+        val text = try {
+            StandardCharsets.UTF_8.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(ByteBuffer.wrap(content))
+                .toString()
+        } catch (error: CharacterCodingException) {
+            throw IOException("ONScripter .utf script is not valid UTF-8: $sourceName", error)
+        }
         return NscripterDecodedScript(
             text = text,
-            encoding = encoding,
-            mode = "plain-text"
+            encoding = StandardCharsets.UTF_8.name(),
+            mode = "utf8-script"
         )
     }
 
     /**
-     * Uses the same entry-file preference as ONScripter: 0.txt wins over 00.txt;
-     * numbered text segments 1.txt..99.txt are appended. If neither entry exists,
-     * nscript.dat is used.
+     * Decodes a script buffer using the source file name to select its format.
+     * This is also used for script entries read from NSA archives.
+     */
+    fun decodeScriptBytes(fileName: String, bytes: ByteArray): NscripterDecodedScript {
+        val leafName = fileName.substringAfterLast('/').substringAfterLast('\\')
+        return when {
+            leafName.equals("nscript.dat", ignoreCase = true) -> decodeNscriptDat(bytes)
+            leafName.endsWith(".utf", ignoreCase = true) -> decodeUtf8Script(leafName, bytes)
+            else -> decodeTextBytes(leafName, bytes)
+        }
+    }
+
+    /**
+     * Prefers ONScripter UTF-8 entry scripts, then NScripter plain text scripts.
+     * Numbered segments are appended in numeric order using the entry's extension.
+     * If neither plain entry exists, nscript.dat is used.
      */
     fun findScriptFiles(gameDirectory: File): List<File> {
         if (!gameDirectory.isDirectory) {
             throw IOException("The NScripter game directory is unavailable: ${gameDirectory.path}")
         }
 
-        val zero = File(gameDirectory, "0.txt")
-        val doubleZero = File(gameDirectory, "00.txt")
-        val entryScript = when {
-            zero.isFile -> zero
-            doubleZero.isFile -> doubleZero
-            else -> null
-        }
+        val entryCandidates = listOf(
+            "0.utf",
+            "00.utf",
+            "0.txt",
+            "00.txt"
+        )
+        val entryScript = entryCandidates
+            .asSequence()
+            .map { File(gameDirectory, it) }
+            .firstOrNull { it.isFile }
 
         if (entryScript != null) {
+            val extension = entryScript.extension
             return buildList {
                 add(entryScript)
                 for (number in 1..99) {
-                    val unpadded = File(gameDirectory, "$number.txt")
-                    val padded = File(gameDirectory, number.toString().padStart(2, '0') + ".txt")
-                    val part = when {
+                    val unpadded = File(gameDirectory, "$number.$extension")
+                    val padded = File(
+                        gameDirectory,
+                        number.toString().padStart(2, '0') + ".$extension"
+                    )
+                    val segment = when {
                         unpadded.isFile -> unpadded
                         padded.isFile -> padded
                         else -> null
                     }
-                    if (part != null) add(part)
+                    if (segment != null) add(segment)
                 }
             }
         }
 
-        // ONScripter gives these protected formats precedence over nscript.dat.
-        // Refuse to parse a lower-priority file with the wrong cipher.
+        // Protected formats take precedence over the legacy XOR nscript.dat fallback.
         val protectedBeforeXor = listOf("nscr_sec.dat", "nscript.___")
             .map { File(gameDirectory, it) }
             .firstOrNull { it.isFile }
@@ -142,13 +179,10 @@ class NscripterScriptDecoder {
 
         return emptyList()
     }
+
     fun loadScripts(gameDirectory: File): List<NscripterScriptSource> {
         return findScriptFiles(gameDirectory).map { file ->
-            val decoded = if (file.name.equals("nscript.dat", ignoreCase = true)) {
-                decodeNscriptDat(file)
-            } else {
-                decodeTextFile(file)
-            }
+            val decoded = decodeScriptBytes(file.name, file.readBytes())
             NscripterScriptSource(
                 relativePath = file.relativeTo(gameDirectory).invariantSeparatorsPath,
                 text = decoded.text,
@@ -156,6 +190,26 @@ class NscripterScriptDecoder {
                 mode = decoded.mode
             )
         }
+    }
+
+    private fun decodeTextBytes(sourceName: String, bytes: ByteArray): NscripterDecodedScript {
+        if (bytes.isEmpty()) {
+            return NscripterDecodedScript("", StandardCharsets.UTF_8.name(), "plain-text")
+        }
+        val content = stripUtf8Bom(bytes)
+        rejectEmbeddedNul(content, sourceName)
+        val (text, encoding) = decodeStrict(content, preferUtf8 = true)
+        return NscripterDecodedScript(
+            text = text,
+            encoding = encoding,
+            mode = "plain-text"
+        )
+    }
+
+    private fun stripUtf8Bom(bytes: ByteArray): ByteArray {
+        val hasUtf8Bom = bytes.size >= UTF8_BOM.size &&
+            UTF8_BOM.indices.all { bytes[it] == UTF8_BOM[it] }
+        return if (hasUtf8Bom) bytes.copyOfRange(UTF8_BOM.size, bytes.size) else bytes
     }
 
     private fun decodeStrict(
