@@ -1,3 +1,8 @@
+plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.compose.compiler)
+}
+
 val debugBranchName: String = run {
     // GitHub uses GITHUB_HEAD_REF for pull requests (GITHUB_REF_NAME is "123/merge").
     System.getenv("GITHUB_HEAD_REF")?.takeIf { it.isNotBlank() }
@@ -36,12 +41,7 @@ val debugApplicationIdSuffix: String = if (debugBranchName == "main") {
         .digest(debugBranchName.toByteArray(Charsets.UTF_8))
         .take(4)
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
-    ".$packageSafeSlug_$branchHash"
-}
-
-plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.compose.compiler)
+    ".${packageSafeSlug}_$branchHash"
 }
 
 android {
