@@ -51,6 +51,38 @@ class NscripterArchiveReaderTest {
     }
 
     @Test
+    fun decompressesSpbBitmapStoredInNsaArchive() {
+        val directory = Files.createTempDirectory("nscripter-nsa-spb").toFile()
+        try {
+            // 1x1 SPB: big-endian dimensions followed by one literal B, G and R sample.
+            val packedSpb = byteArrayOf(0, 1, 0, 1, 0x10, 0x20, 0x30)
+            val archive = File(directory, "arc.nsa")
+            archive.writeBytes(
+                createNsa(
+                    name = "cg/one-pixel.bmp",
+                    payload = packedSpb,
+                    compression = 1,
+                    unpackedSize = 58
+                )
+            )
+
+            val entry = reader.readIndex(archive).entries.single()
+            val bmp = reader.readEntry(archive, entry)
+
+            assertEquals(58, bmp.size)
+            assertArrayEquals(
+                byteArrayOf('B'.code.toByte(), 'M'.code.toByte()),
+                bmp.copyOfRange(0, 2)
+            )
+            assertArrayEquals(byteArrayOf(0x10, 0x20, 0x30), bmp.copyOfRange(54, 57))
+            assertEquals(1, bmp[18].toInt() and 0xff)
+            assertEquals(1, bmp[22].toInt() and 0xff)
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    @Test
     fun reportsCompressedNsaCodecExplicitly() {
         val directory = Files.createTempDirectory("nscripter-nsa-compressed").toFile()
         try {
