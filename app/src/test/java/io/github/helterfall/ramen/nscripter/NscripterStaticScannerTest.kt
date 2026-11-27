@@ -82,6 +82,46 @@ class NscripterStaticScannerTest {
     }
 
     @Test
+    fun discoversUtf8ScriptInsideArcNsaWhenNoLooseScriptExists() {
+        val root = Files.createTempDirectory("nscripter-utf8-archive-script").toFile()
+        try {
+            val script = ";mode800\n*define\n*start\nn \"Привет, мир!\"\nbg \"room.bmp\",1\nend\n"
+            File(root, "arc.nsa").writeBytes(
+                createNsa("0.utf", script.toByteArray(Charsets.UTF_8), compression = 0)
+            )
+
+            val report = NscripterStaticScanner().scan(root)
+
+            assertEquals(listOf("arc.nsa!/0.utf"), report.scriptFiles)
+            assertEquals(1, report.commandCounts["n"])
+            assertEquals(1, report.commandCounts["bg"])
+            assertTrue(report.parseErrors.isEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun validatesAndCountsSpbBmpEntriesDuringArchiveScan() {
+        val root = Files.createTempDirectory("nscripter-spb-scan").toFile()
+        try {
+            val packedSpb = byteArrayOf(0, 1, 0, 1, 0x10, 0x20, 0x30)
+            File(root, "arc.nsa").writeBytes(
+                createNsa("cg/one-pixel.bmp", packedSpb, compression = 1, unpackedSize = 58)
+            )
+
+            val report = NscripterStaticScanner().scan(root)
+
+            assertEquals(1, report.graphicsFormats["bmp"])
+            assertEquals(1, report.archives.single().compressedEntriesByType[1])
+            assertEquals(1, report.archives.single().decodedSpbBitmapCount)
+            assertTrue(report.parseErrors.isEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun writesJsonReportToRequestedFile() {
         val root = Files.createTempDirectory("nscripter-json-game").toFile()
         val outputDirectory = Files.createTempDirectory("nscripter-json-output").toFile()
@@ -109,6 +149,27 @@ class NscripterStaticScannerTest {
             write(0)
             writeU32(0)
             writeU32(payload.size.toLong())
+            write(payload)
+        }.toByteArray()
+    }
+
+    private fun createNsa(
+        name: String,
+        payload: ByteArray,
+        compression: Int,
+        unpackedSize: Int = payload.size
+    ): ByteArray {
+        val encodedName = name.toByteArray(Charset.forName("Shift_JIS"))
+        val baseOffset = 6 + encodedName.size + 1 + 13
+        return ByteArrayOutputStream().apply {
+            writeU16(1)
+            writeU32(baseOffset.toLong())
+            write(encodedName)
+            write(0)
+            write(compression)
+            writeU32(0)
+            writeU32(payload.size.toLong())
+            writeU32(unpackedSize.toLong())
             write(payload)
         }.toByteArray()
     }
