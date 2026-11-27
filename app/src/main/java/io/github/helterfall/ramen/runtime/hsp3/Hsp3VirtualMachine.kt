@@ -832,7 +832,7 @@ class Hsp3VirtualMachine(
             return output.array()
         }
         return when (val value = valueOf(index)) {
-            is Hsp3RuntimeValue.StringValue -> value.value.toByteArray(SHIFT_JIS) + byteArrayOf(0)
+            is Hsp3RuntimeValue.StringValue -> value.value.toByteArray(Hsp3StringEncoding.WINDOWS_31J) + byteArrayOf(0)
             is Hsp3RuntimeValue.DoubleValue -> ByteBuffer.allocate(java.lang.Double.BYTES)
                 .order(ByteOrder.LITTLE_ENDIAN).putDouble(value.value).array()
             is Hsp3RuntimeValue.IntegerValue -> ByteBuffer.allocate(Int.SIZE_BYTES)
@@ -898,7 +898,7 @@ class Hsp3VirtualMachine(
 
     private fun decodeStringBuffer(bytes: ByteArray): String {
         val terminator = bytes.indexOf(0)
-        return String(bytes, 0, if (terminator >= 0) terminator else bytes.size, SHIFT_JIS)
+        return String(bytes, 0, if (terminator >= 0) terminator else bytes.size, Hsp3StringEncoding.WINDOWS_31J)
     }
 
     private fun readStick(
@@ -951,17 +951,17 @@ class Hsp3VirtualMachine(
                 val bound = kotlin.math.abs(upperBound.toLong()).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
                 Hsp3RuntimeValue.IntegerValue(randomGenerator.nextInt(bound))
             }
-            0x002 -> Hsp3RuntimeValue.IntegerValue(string(0).toByteArray(SHIFT_JIS).size) // strlen()
+            0x002 -> Hsp3RuntimeValue.IntegerValue(string(0).toByteArray(Hsp3StringEncoding.WINDOWS_31J).size) // strlen()
             0x00F -> {
-                val source = string(0).toByteArray(SHIFT_JIS)
+                val source = string(0).toByteArray(Hsp3StringEncoding.WINDOWS_31J)
                 val start = intDefault(1, 0)
                 val target = string(2)
                 if (start < 0 || start > source.size) Hsp3RuntimeValue.IntegerValue(-1)
                 else {
-                    val suffix = String(source, start, source.size - start, SHIFT_JIS)
+                    val suffix = String(source, start, source.size - start, Hsp3StringEncoding.WINDOWS_31J)
                     val found = suffix.indexOf(target)
                     val result = if (found < 0) -1
-                        else start + suffix.substring(0, found).toByteArray(SHIFT_JIS).size
+                        else start + suffix.substring(0, found).toByteArray(Hsp3StringEncoding.WINDOWS_31J).size
                     Hsp3RuntimeValue.IntegerValue(result)
                 }
             }
@@ -975,14 +975,14 @@ class Hsp3VirtualMachine(
             }
             0x100 -> Hsp3RuntimeValue.StringValue(string(0)) // str()
             0x101 -> {
-                val source = string(0).toByteArray(SHIFT_JIS)
+                val source = string(0).toByteArray(Hsp3StringEncoding.WINDOWS_31J)
                 var start = int(1)
                 val length = int(2)
                 if (start < 0) start = (source.size - length).coerceAtLeast(0)
                 if (start >= source.size || length <= 0) Hsp3RuntimeValue.StringValue("")
                 else {
                     val end = (start.toLong() + length.toLong()).coerceAtMost(source.size.toLong()).toInt()
-                    Hsp3RuntimeValue.StringValue(String(source, start, end - start, SHIFT_JIS))
+                    Hsp3RuntimeValue.StringValue(String(source, start, end - start, Hsp3StringEncoding.WINDOWS_31J))
                 }
             }
             0x180 -> Hsp3RuntimeValue.DoubleValue(sin(doubleDefault(0, 0.0)))
@@ -1154,6 +1154,5 @@ class Hsp3VirtualMachine(
         private const val MAX_ARRAY_ELEMENTS = 1_000_000L
         private const val DEFAULT_STRING_BUFFER_SIZE = 64
         private const val MAX_STRING_BUFFER_BYTES = 16 * 1024 * 1024
-        private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
     }
 }
