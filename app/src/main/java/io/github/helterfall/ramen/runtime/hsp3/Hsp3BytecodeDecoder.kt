@@ -637,14 +637,25 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
             throw IOException("Unsupported HSP assignment operator $operator.")
         }
         val expressionTokens = assignmentTokens.drop(cursor + 1)
-        val expression = if (expressionTokens.isEmpty()) {
-            constantExpression(Hsp3RuntimeValue.IntegerValue(1))
+        val expressionGroups = if (expressionTokens.isEmpty()) {
+            emptyList()
         } else {
-            decodeExpression(expressionTokens, program)
-                ?: constantExpression(Hsp3RuntimeValue.IntegerValue(1))
+            readArgumentGroups(expressionTokens, 0, expressionTokens.size)
         }
+        val expressions = expressionGroups.map { group ->
+            decodeExpression(group, program)
+                ?: throw IOException("An HSP assignment value cannot be omitted.")
+        }
+        if (operator != CALCCODE_EQ && expressions.size > 1) {
+            throw IOException("Only '=' supports comma-separated HSP assignment values.")
+        }
+        val expression = expressions.firstOrNull()
+            ?: constantExpression(Hsp3RuntimeValue.IntegerValue(1))
+        val additionalExpressions = if (operator == CALCCODE_EQ) expressions.drop(1) else emptyList()
         return PendingInstruction(command.codeOffset) { _, _ ->
-            Hsp3Instruction.Assign(variable, operator, expression, arrayIndices)
+            Hsp3Instruction.Assign(
+                variable, operator, expression, arrayIndices, additionalExpressions
+            )
         }
     }
 

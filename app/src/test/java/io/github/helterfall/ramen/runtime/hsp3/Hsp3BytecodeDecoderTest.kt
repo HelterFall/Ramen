@@ -371,6 +371,78 @@ class Hsp3BytecodeDecoderTest {
     }
 
     @Test
+    fun assignmentSplitsFiveThroughTenCommaSeparatedValuesIntoSequentialArrayCells() {
+        for (valueCount in 5..10) {
+            val words = mutableListOf(
+                0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM,
+                0x0001, 4,
+                0x5004, 16,
+                0x2001, 4,
+                0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+                0x0004, 100
+            )
+            for (value in 1 until valueCount) {
+                words += 0x5004 // EXFLG_2 | EXFLG_0: next comma-separated value
+                words += 100 + value
+            }
+            words += listOf(0x200F, Hsp3BytecodeDecoder.PROGCMD_END)
+
+            withProgram(createAx(words)) { program ->
+                val decoder = Hsp3BytecodeDecoder()
+                val instructions = decoder.decode(program)
+                assertEquals(3, instructions.size)
+                val assignment = instructions[1] as Hsp3Instruction.Assign
+                assertEquals(valueCount - 1, assignment.additionalExpressions.size)
+                assertTrue(decoder.diagnostics.none { it.message.contains("postfix expression leaves") })
+
+                val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+                assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+                for (index in 0 until valueCount) {
+                    assertEquals(
+                        Hsp3RuntimeValue.IntegerValue(100 + index),
+                        snapshot.arrayValues[4 to listOf(index)]
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun indexedMultidimensionalAssignmentWritesCommaValuesAlongFirstDimension() {
+        val words = listOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM,
+            0x0001, 4,
+            0x5004, 8,
+            0x5004, 5,
+            0x2001, 4,
+            0x0000, '('.code,
+            0x1004, 2,
+            0x5004, 1,
+            0x0000, ')'.code,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0004, 11,
+            0x5004, 22,
+            0x5004, 33,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        withProgram(createAx(words)) { program ->
+            val decoder = Hsp3BytecodeDecoder()
+            val instructions = decoder.decode(program)
+            val assignment = instructions[1] as Hsp3Instruction.Assign
+            assertEquals(2, assignment.arrayIndices.size)
+            assertEquals(2, assignment.additionalExpressions.size)
+            assertTrue(decoder.diagnostics.none { it.message.contains("postfix expression leaves") })
+
+            val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertEquals(Hsp3RuntimeValue.IntegerValue(11), snapshot.arrayValues[4 to listOf(2, 1)])
+            assertEquals(Hsp3RuntimeValue.IntegerValue(22), snapshot.arrayValues[4 to listOf(3, 1)])
+            assertEquals(Hsp3RuntimeValue.IntegerValue(33), snapshot.arrayValues[4 to listOf(4, 1)])
+            assertNull(snapshot.arrayValues[4 to listOf(3, 0)])
+        }
+    }
+
+    @Test
     fun repeatInternalLabelDoesNotSharePostfixStackWithCountAndInitialValue() {
         val words = listOf(
             0x200F, Hsp3BytecodeDecoder.PROGCMD_REPEAT,

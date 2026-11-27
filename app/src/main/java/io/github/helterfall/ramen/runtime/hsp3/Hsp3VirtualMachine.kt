@@ -105,7 +105,8 @@ sealed class Hsp3Instruction {
         val variable: Int,
         val operator: Int,
         val expression: Hsp3Expression,
-        val arrayIndices: List<Hsp3Expression> = emptyList()
+        val arrayIndices: List<Hsp3Expression> = emptyList(),
+        val additionalExpressions: List<Hsp3Expression> = emptyList()
     ) : Hsp3Instruction()
     data class Dimension(
         val variable: Int,
@@ -417,6 +418,11 @@ class Hsp3VirtualMachine(
                         programCounter += 1
                     }
                     is Hsp3Instruction.Assign -> {
+                        if (instruction.additionalExpressions.isNotEmpty() &&
+                            instruction.operator != Hsp3BytecodeDecoder.CALCCODE_EQ
+                        ) {
+                            throw IOException("Comma-separated HSP assignment requires '='.")
+                        }
                         val indices = instruction.arrayIndices.map { evaluate(it).asInt() }
                         val old = readVariable(instruction.variable, indices)
                         val rhs = evaluate(instruction.expression)
@@ -425,7 +431,49 @@ class Hsp3VirtualMachine(
                         } else {
                             calculate(instruction.operator, old, rhs)
                         }
-                        writeVariable(instruction.variable, indices, value)
+                        if (instruction.additionalExpressions.isEmpty()) {
+                            writeVariable(instruction.variable, indices, value)
+                        } else {
+                            val dimensions = arrayDimensions[instruction.variable]
+                            if (dimensions == null) {
+                                if (indices.isNotEmpty()) {
+                                    throw IOException("HSP comma-separated assignment target is not an array.")
+                                }
+                                val elementCount = instruction.additionalExpressions.size.toLong() + 1L
+                                if (elementCount > MAX_ARRAY_ELEMENTS) {
+                                    throw IOException("HSP comma-separated assignment exceeds the array limit.")
+                                }
+                                // OpenHSP's flexible one-dimensional variables grow when
+                                // code_assign_multi() writes beyond their initial element.
+                                arrayDimensions[instruction.variable] = listOf(elementCount.toInt())
+                                variables.remove(instruction.variable)
+                                arrayValues[instruction.variable to listOf(0)] = value
+                            } else {
+                                writeVariable(instruction.variable, indices, value)
+                            }
+
+                            val activeDimensions = arrayDimensions[instruction.variable]
+                                ?: throw IOException("HSP comma-separated assignment target is not an array.")
+                            val baseIndices = if (indices.isEmpty()) {
+                                List(activeDimensions.size) { 0 }
+                            } else {
+                                indices
+                            }
+                            if (baseIndices.size != activeDimensions.size) {
+                                throw IOException("HSP array assignment index count does not match its dimensions.")
+                            }
+                            var firstIndex = baseIndices.first()
+                            instruction.additionalExpressions.forEach { nextExpression ->
+                                firstIndex = Math.addExact(firstIndex, 1)
+                                val nextIndices = baseIndices.toMutableList()
+                                nextIndices[0] = firstIndex
+                                val nextValue = evaluate(nextExpression)
+                                if (nextValue.javaClass != value.javaClass) {
+                                    throw IOException("HSP comma-separated array values must keep the variable type.")
+                                }
+                                writeVariable(instruction.variable, nextIndices, nextValue)
+                            }
+                        }
                         programCounter += 1
                     }
                     is Hsp3Instruction.FileTransfer -> {
@@ -975,8 +1023,14 @@ class Hsp3VirtualMachine(
         }
     }
 
-    private fun valueOf(index: Int): Hsp3RuntimeValue =
-        variables[index] ?: Hsp3RuntimeValue.IntegerValue(0)
+    private fun valueOf(index: Int): Hsp3RuntimeValue {
+        val dimensions = arrayDimensions[index]
+        if (dimensions != null) {
+            val firstElement = List(dimensions.size) { 0 }
+            return arrayValues[index to firstElement] ?: Hsp3RuntimeValue.IntegerValue(0)
+        }
+        return variables[index] ?: Hsp3RuntimeValue.IntegerValue(0)
+    }
 
     private fun arrayValueOf(index: Int, indices: List<Int>): Hsp3RuntimeValue =
         readVariable(index, indices)
