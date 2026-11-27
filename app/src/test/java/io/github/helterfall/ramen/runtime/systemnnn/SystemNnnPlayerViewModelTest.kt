@@ -30,7 +30,7 @@ class SystemNnnPlayerViewModelTest {
                     )
                 ),
                 offsets[2] to SystemNnnDecodedCommand.Dialogue(
-                    nextCommandOffset = offsets[3],
+                    nextCommandOffset = offsets[2] + 12L,
                     textEntryOffset = textOffset(2)
                 ),
                 offsets[3] to SystemNnnDecodedCommand.End
@@ -734,7 +734,7 @@ class SystemNnnPlayerViewModelTest {
         }
         val textStart = testTextStartOffset(List(12) { 3 })
         commandMap[offsets[11]] = SystemNnnDecodedCommand.Dialogue(
-            nextCommandOffset = 0xF0L,
+            nextCommandOffset = offsets.last() + 12L,
             textEntryOffset = textStart
         )
         val viewModel = SystemNnnPlayerViewModel()
