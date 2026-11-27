@@ -16,6 +16,43 @@ import org.robolectric.annotation.Config
 @Config(sdk = [35])
 class Hsp3CanvasBmpTest {
     @Test
+    fun bufferAutomaticallySelectsItsOwnBmscrAndKeepsPerSurfaceGraphicsState() {
+        val renderer = Hsp3CanvasRenderer({ null }, logicalWidth = 2, logicalHeight = 2)
+        try {
+            renderer.screen(0, 2, 2)
+            renderer.pos(1, 1)
+            renderer.color(0, 255, 0)
+
+            // OpenHSP buffer() switches the active Bmscr immediately.
+            renderer.buffer(1, 2, 2)
+            assertEquals(0 to 0, renderer.currentPosition())
+            renderer.color(255, 0, 0)
+            renderer.boxf(0, 0, 0, 0)
+            assertEquals(0 to 0, renderer.currentPosition())
+
+            renderer.gsel(0)
+            assertEquals(1 to 1, renderer.currentPosition())
+            renderer.boxf(1, 1, 1, 1)
+
+            assertEquals(Color.BLACK, pixel(renderer, 0, 0, 0))
+            assertEquals(Color.GREEN, pixel(renderer, 0, 1, 1))
+            assertEquals(Color.RED, pixel(renderer, 1, 0, 0))
+            assertEquals(Color.BLACK, pixel(renderer, 1, 1, 1))
+        } finally {
+            renderer.close()
+        }
+    }
+
+    private fun pixel(renderer: Hsp3CanvasRenderer, id: Int, x: Int, y: Int): Int {
+        val bitmap = renderer.copySurfaceBitmap(id)
+        return try {
+            bitmap.getPixel(x, y)
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    @Test
     fun drawPresentsScreenZeroInsteadOfTheCurrentlySelectedOffscreenBuffer() {
         val renderer = Hsp3CanvasRenderer({ null }, logicalWidth = 2, logicalHeight = 2)
         val target = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)

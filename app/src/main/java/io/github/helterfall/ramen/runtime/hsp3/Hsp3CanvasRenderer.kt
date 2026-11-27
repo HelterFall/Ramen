@@ -74,7 +74,18 @@ class Hsp3CanvasRenderer(
     private data class Surface(
         val bitmap: Bitmap,
         val canvas: Canvas,
-        var shouldPresent: Boolean = true
+        var shouldPresent: Boolean = true,
+        var cursorX: Int = 0,
+        var cursorY: Int = 0,
+        var currentColor: Int = Color.WHITE,
+        var blendMode: Int = 0,
+        var blendAlpha: Int = 0,
+        var gmodeCopyWidth: Int = 32,
+        var gmodeCopyHeight: Int = 32,
+        val textPaint: Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = Color.WHITE
+            textSize = DEFAULT_FONT_SIZE.toFloat()
+        }
     ) {
         init {
             check(bitmap.isMutable) { "HSP Canvas surfaces must use mutable bitmaps." }
@@ -94,20 +105,35 @@ class Hsp3CanvasRenderer(
     private val shapePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
     }
-    private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = Color.WHITE
-        textSize = DEFAULT_FONT_SIZE.toFloat()
-    }
     private var activeId = 0
-    private var cursorX = 0
-    private var cursorY = 0
-    private var currentColor = Color.WHITE
     private var currentTitle = ""
-    private var blendMode = 0
-    private var blendAlpha = 0
-    private var gmodeCopyWidth = 32
-    private var gmodeCopyHeight = 32
     private var closed = false
+
+    // These fields belong to the active OpenHSP Bmscr. Switching gsel changes
+    // the whole graphics context, not just the backing bitmap.
+    private val textPaint: Paint
+        get() = activeSurface().textPaint
+    private var cursorX: Int
+        get() = activeSurface().cursorX
+        set(value) { activeSurface().cursorX = value }
+    private var cursorY: Int
+        get() = activeSurface().cursorY
+        set(value) { activeSurface().cursorY = value }
+    private var currentColor: Int
+        get() = activeSurface().currentColor
+        set(value) { activeSurface().currentColor = value }
+    private var blendMode: Int
+        get() = activeSurface().blendMode
+        set(value) { activeSurface().blendMode = value }
+    private var blendAlpha: Int
+        get() = activeSurface().blendAlpha
+        set(value) { activeSurface().blendAlpha = value }
+    private var gmodeCopyWidth: Int
+        get() = activeSurface().gmodeCopyWidth
+        set(value) { activeSurface().gmodeCopyWidth = value }
+    private var gmodeCopyHeight: Int
+        get() = activeSurface().gmodeCopyHeight
+        set(value) { activeSurface().gmodeCopyHeight = value }
 
     init {
         validateDimensions(logicalWidth, logicalHeight)
@@ -127,6 +153,8 @@ class Hsp3CanvasRenderer(
         checkOpen()
         require(id > 0) { "HSP buffer IDs must be greater than zero." }
         createSurface(id, width, height)
+        // OpenHSP's TYPE_EXTCMD buffer case makes the new Bmscr current.
+        activeId = id
     }
 
     @Synchronized
@@ -229,13 +257,13 @@ class Hsp3CanvasRenderer(
                 when (mode) {
                     0 -> {
                         val old = surfaces[targetId]
-                        surfaces[targetId] = Surface(
-                            bitmap, Canvas(bitmap), old?.shouldPresent ?: true
-                        )
+                        val replacement = old?.copy(bitmap = bitmap, canvas = Canvas(bitmap))
+                            ?: Surface(bitmap, Canvas(bitmap))
+                        surfaces[targetId] = replacement
                         old?.bitmap?.recycle()
                         cellGrids.remove(targetId)
-                        cursorX = 0
-                        cursorY = 0
+                        replacement.cursorX = 0
+                        replacement.cursorY = 0
                     }
                     1 -> {
                         val destination = activeSurface()
@@ -244,13 +272,14 @@ class Hsp3CanvasRenderer(
                     2 -> {
                         val replacement = resized!!
                         val old = surfaces[targetId]
-                        surfaces[targetId] = Surface(
-                            replacement, Canvas(replacement), old?.shouldPresent ?: true
-                        )
+                        val replacementSurface = old?.copy(
+                            bitmap = replacement, canvas = Canvas(replacement)
+                        ) ?: Surface(replacement, Canvas(replacement))
+                        surfaces[targetId] = replacementSurface
                         old?.bitmap?.recycle()
                         cellGrids.remove(targetId)
-                        cursorX = 0
-                        cursorY = 0
+                        replacementSurface.cursorX = 0
+                        replacementSurface.cursorY = 0
                     }
                 }
             }
