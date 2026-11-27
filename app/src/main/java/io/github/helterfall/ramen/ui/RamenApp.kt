@@ -45,6 +45,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -143,7 +144,8 @@ fun RamenApp() {
     }
     var isImporting by remember { mutableStateOf(false) }
     var isExportingStructure by remember { mutableStateOf(false) }
-    var pendingScanGame by remember { mutableStateOf<GameRecord?>(null) }
+    var pendingScanTitle by rememberSaveable { mutableStateOf("") }
+    var pendingScanRelativeDirectory by rememberSaveable { mutableStateOf("") }
     var pendingStructureExport by remember { mutableStateOf<GameRecord?>(null) }
     var auditSnapshot by remember {
         mutableStateOf(SystemNnnFullGameAuditStateStore.read(context))
@@ -362,7 +364,11 @@ fun RamenApp() {
         }
     }
 
-    fun launchFullGameAuditService(game: GameRecord, notificationsGranted: Boolean) {
+    fun launchFullGameAuditService(
+        title: String,
+        relativeDirectory: String,
+        notificationsGranted: Boolean
+    ) {
         val message = if (notificationsGranted) {
             "SCAN запущен. Можно свернуть Ramen или выключить экран. Прогресс будет в уведомлении; расход батареи может увеличиться."
         } else {
@@ -371,7 +377,7 @@ fun RamenApp() {
         SystemNnnFullGameAuditStateStore.update(
             context,
             SystemNnnFullGameAuditStateStore.STATUS_RUNNING,
-            game.title,
+            title,
             "Запускаю фоновый анализ…",
             null
         )
@@ -380,8 +386,8 @@ fun RamenApp() {
             context.startForegroundService(
                 Intent(context, SystemNnnFullGameAuditService::class.java).apply {
                     action = SystemNnnFullGameAuditService.ACTION_START_SCAN
-                    putExtra(SystemNnnFullGameAuditService.EXTRA_RELATIVE_DIRECTORY, game.relativeDirectory)
-                    putExtra(SystemNnnFullGameAuditService.EXTRA_TITLE, game.title)
+                    putExtra(SystemNnnFullGameAuditService.EXTRA_RELATIVE_DIRECTORY, relativeDirectory)
+                    putExtra(SystemNnnFullGameAuditService.EXTRA_TITLE, title)
                 }
             )
             statusMessage = message
@@ -390,7 +396,7 @@ fun RamenApp() {
             SystemNnnFullGameAuditStateStore.update(
                 context,
                 SystemNnnFullGameAuditStateStore.STATUS_FAILED,
-                game.title,
+                title,
                 "Не удалось запустить фоновый SCAN: $safeMessage"
             )
             auditSnapshot = SystemNnnFullGameAuditStateStore.read(context)
@@ -401,9 +407,13 @@ fun RamenApp() {
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        val game = pendingScanGame
-        pendingScanGame = null
-        if (game != null) launchFullGameAuditService(game, granted)
+        val title = pendingScanTitle
+        val relativeDirectory = pendingScanRelativeDirectory
+        pendingScanTitle = ""
+        pendingScanRelativeDirectory = ""
+        if (title.isNotBlank() && relativeDirectory.isNotBlank()) {
+            launchFullGameAuditService(title, relativeDirectory, granted)
+        }
     }
 
     fun startFullGameAudit(game: GameRecord) {
@@ -423,7 +433,8 @@ fun RamenApp() {
             return
         }
 
-        pendingScanGame = game
+        pendingScanTitle = game.title
+        pendingScanRelativeDirectory = game.relativeDirectory
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) {
@@ -437,7 +448,8 @@ fun RamenApp() {
             try {
                 notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             } catch (failure: Exception) {
-                pendingScanGame = null
+                pendingScanTitle = ""
+                pendingScanRelativeDirectory = ""
                 SystemNnnFullGameAuditStateStore.update(
                     context,
                     SystemNnnFullGameAuditStateStore.STATUS_FAILED,
@@ -448,8 +460,13 @@ fun RamenApp() {
                 auditSnapshot = SystemNnnFullGameAuditStateStore.read(context)
             }
         } else {
-            pendingScanGame = null
-            launchFullGameAuditService(game, notificationsGranted = true)
+            pendingScanTitle = ""
+            pendingScanRelativeDirectory = ""
+            launchFullGameAuditService(
+                game.title,
+                game.relativeDirectory,
+                notificationsGranted = true
+            )
         }
     }
 
