@@ -636,7 +636,13 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
         if (operator !in CALCCODE_ADD..CALCCODE_LR) {
             throw IOException("Unsupported HSP assignment operator $operator.")
         }
-        val expressionTokens = assignmentTokens.drop(cursor + 1)
+        val rawExpressionTokens = assignmentTokens.drop(cursor + 1)
+        // The first RHS token can carry EXFLG_2 from the closing LHS index list.
+        // OpenHSP's code_getva() consumes that boundary before code_get() reads RHS.
+        val expressionTokens = rawExpressionTokens.mapIndexed { index, token ->
+            if (index == 0) token.copy(extensionFlags = token.extensionFlags and EXFLG_2.inv())
+            else token
+        }
         val expressionGroups = if (expressionTokens.isEmpty()) {
             emptyList()
         } else {

@@ -379,7 +379,7 @@ class Hsp3BytecodeDecoderTest {
                 0x5004, 2,
                 0x2001, 4,
                 0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
-                0x0004, 100
+                0x4004, 100
             )
             for (value in 1 until valueCount) {
                 words += 0x5004 // EXFLG_2 | EXFLG_0: next comma-separated value
@@ -420,7 +420,7 @@ class Hsp3BytecodeDecoderTest {
             0x5004, 1,
             0x0000, ')'.code,
             0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
-            0x0004, 11,
+            0x4004, 11,
             0x5004, 22,
             0x5004, 33,
             0x200F, Hsp3BytecodeDecoder.PROGCMD_END
