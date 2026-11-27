@@ -33,11 +33,11 @@ class NscripterArchiveReader {
 
     @Throws(IOException::class)
     fun readIndex(file: File): NscripterArchiveIndex {
-        if (!file.isFile) throw IOException("Archive does not exist: \${file.path}")
+        if (!file.isFile) throw IOException("Archive does not exist: ${file.path}")
         val format = when (file.extension.lowercase()) {
             "sar" -> "SAR"
             "nsa" -> "NSA"
-            else -> throw IOException("Unsupported NScripter archive extension: \${file.extension}")
+            else -> throw IOException("Unsupported NScripter archive extension: ${file.extension}")
         }
 
         RandomAccessFile(file, "r").use { input ->
@@ -130,15 +130,15 @@ class NscripterArchiveReader {
         entry: NscripterArchiveEntry,
         maxBytes: Long = DEFAULT_MAX_ENTRY_BYTES
     ): ByteArray {
-        if (!archiveFile.isFile) throw IOException("Archive does not exist: \${archiveFile.path}")
+        if (!archiveFile.isFile) throw IOException("Archive does not exist: ${archiveFile.path}")
         if (entry.compressionType != 0) {
             throw UnsupportedNscripterCompressionException(entry.compressionType)
         }
         if (entry.packedSize != entry.unpackedSize) {
-            throw IOException("Stored NSA entry has mismatched packed/unpacked sizes: \${entry.name}")
+            throw IOException("Stored NSA entry has mismatched packed/unpacked sizes: ${entry.name}")
         }
         if (entry.packedSize > maxBytes || entry.packedSize > Int.MAX_VALUE) {
-            throw IOException("Archive entry exceeds the configured read limit: \${entry.name}")
+            throw IOException("Archive entry exceeds the configured read limit: ${entry.name}")
         }
 
         RandomAccessFile(archiveFile, "r").use { input ->
@@ -146,7 +146,7 @@ class NscripterArchiveReader {
             if (entry.dataOffset < 0L || entry.dataOffset > length ||
                 entry.packedSize > length - entry.dataOffset
             ) {
-                malformed("Archive entry '\${entry.name}' is outside the current archive file.")
+                malformed("Archive entry '${entry.name}' is outside the current archive file.")
             }
             val result = ByteArray(entry.packedSize.toInt())
             input.seek(entry.dataOffset)

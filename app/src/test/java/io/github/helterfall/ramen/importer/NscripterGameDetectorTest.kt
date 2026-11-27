@@ -26,6 +26,7 @@ class NscripterGameDetectorTest {
     @Test
     fun detectsNumberedTextSegment() {
         assertNscripterMarker("17.txt")
+        assertNscripterMarker("01.txt")
     }
 
     private fun assertNscripterMarker(marker: String) {
@@ -39,4 +40,18 @@ class NscripterGameDetectorTest {
             root.deleteRecursively()
         }
     }
+
+    @Test
+    fun identifiesProtectedScriptFormatsAsDetectedButUnsupported() {
+        val root = Files.createTempDirectory("nscripter-protected-detection").toFile()
+        try {
+            File(root, "nscr_sec.dat").writeBytes(byteArrayOf(1, 2, 3))
+            val result = VisualNovelDetector().detect(root)
+            assertEquals("nscripter", result.engineId)
+            assertEquals("DETECTED_UNSUPPORTED", result.compatibilityStatus)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
 }

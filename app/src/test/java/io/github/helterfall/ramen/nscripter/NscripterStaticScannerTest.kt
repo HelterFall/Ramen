@@ -124,4 +124,17 @@ class NscripterStaticScannerTest {
         write(((value ushr 8) and 0xFF).toInt())
         write((value and 0xFF).toInt())
     }
+
+    @Test
+    fun reportsEncryptedArchiveVariantExplicitly() {
+        val root = Files.createTempDirectory("nscripter-encrypted-archive").toFile()
+        try {
+            File(root, "arc.___").writeBytes(byteArrayOf(1, 2, 3))
+            val report = NscripterStaticScanner().scan(root)
+            assertTrue(report.parseErrors.any { it.contains("arc.___") && it.contains("encrypted NSA") })
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
 }

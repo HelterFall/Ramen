@@ -91,4 +91,40 @@ class NscripterScriptDecoderTest {
             assertTrue(expected.message?.contains("NUL") == true)
         }
     }
+
+    @Test
+    fun usesTwoDigitFallbackWhenUnpaddedSegmentIsMissing() {
+        val root = Files.createTempDirectory("nscripter-padded-segment").toFile()
+        try {
+            File(root, "0.txt").writeText("*start\n")
+            File(root, "01.txt").writeText("bg \"first.bmp\",1\n")
+            File(root, "02.txt").writeText("end\n")
+
+            assertEquals(
+                listOf("0.txt", "01.txt", "02.txt"),
+                decoder.findScriptFiles(root).map { it.name }
+            )
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun rejectsProtectedScriptInsteadOfFallingThroughToNscriptDat() {
+        val root = Files.createTempDirectory("nscripter-protected-priority").toFile()
+        try {
+            File(root, "nscr_sec.dat").writeBytes(byteArrayOf(1, 2, 3))
+            File(root, "nscript.dat").writeBytes(byteArrayOf(1, 2, 3))
+
+            try {
+                decoder.findScriptFiles(root)
+                throw AssertionError("Expected an explicit unsupported-format error.")
+            } catch (expected: UnsupportedNscripterScriptFormatException) {
+                assertEquals("nscr_sec.dat", expected.fileName)
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
 }

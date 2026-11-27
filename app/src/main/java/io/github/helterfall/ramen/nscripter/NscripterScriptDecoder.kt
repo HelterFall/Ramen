@@ -23,7 +23,7 @@ data class NscripterScriptSource(
 
 /**
  * Decodes the script formats loaded by the classic NScripter/ONScripter path:
- * plain 0.txt (or 00.txt) plus 1.txt..99.txt, and nscript.dat XOR 0x84.
+ * plain 0.txt (or 00.txt) plus 1.txt..99.txt (with two-digit fallbacks), and nscript.dat XOR 0x84.
  *
  * ONScripter has other protected formats (for example nscr_sec.dat,
  * nscript.___, onscript.nt2 and onscript.nt3). They are intentionally not
@@ -33,7 +33,7 @@ class NscripterScriptDecoder {
     private val shiftJis: Charset = Charset.forName("Shift_JIS")
 
     fun decodeNscriptDat(file: File): NscripterDecodedScript {
-        if (!file.isFile) throw IOException("Script file does not exist: \${file.path}")
+        if (!file.isFile) throw IOException("Script file does not exist: ${file.path}")
         return decodeNscriptDat(file.readBytes())
     }
 
@@ -63,7 +63,7 @@ class NscripterScriptDecoder {
     }
 
     fun decodeTextFile(file: File): NscripterDecodedScript {
-        if (!file.isFile) throw IOException("Script file does not exist: \${file.path}")
+        if (!file.isFile) throw IOException("Script file does not exist: ${file.path}")
         val bytes = file.readBytes()
         if (bytes.isEmpty()) {
             return NscripterDecodedScript("", "UTF-8", "plain-text")
@@ -88,7 +88,7 @@ class NscripterScriptDecoder {
      */
     fun findScriptFiles(gameDirectory: File): List<File> {
         if (!gameDirectory.isDirectory) {
-            throw IOException("The NScripter game directory is unavailable: \${gameDirectory.path}")
+            throw IOException("The NScripter game directory is unavailable: ${gameDirectory.path}")
         }
 
         val zero = File(gameDirectory, "0.txt")
@@ -103,16 +103,45 @@ class NscripterScriptDecoder {
             return buildList {
                 add(entryScript)
                 for (number in 1..99) {
-                    val part = File(gameDirectory, "$number.txt")
-                    if (part.isFile) add(part)
+                    val unpadded = File(gameDirectory, "$number.txt")
+                    val padded = File(gameDirectory, number.toString().padStart(2, '0') + ".txt")
+                    val part = when {
+                        unpadded.isFile -> unpadded
+                        padded.isFile -> padded
+                        else -> null
+                    }
+                    if (part != null) add(part)
                 }
             }
         }
 
-        val encrypted = File(gameDirectory, "nscript.dat")
-        return if (encrypted.isFile) listOf(encrypted) else emptyList()
-    }
+        // ONScripter gives these protected formats precedence over nscript.dat.
+        // Refuse to parse a lower-priority file with the wrong cipher.
+        val protectedBeforeXor = listOf("nscr_sec.dat", "nscript.___")
+            .map { File(gameDirectory, it) }
+            .firstOrNull { it.isFile }
+        if (protectedBeforeXor != null) {
+            throw UnsupportedNscripterScriptFormatException(
+                protectedBeforeXor.name,
+                "magic-table/key-table encryption is not implemented"
+            )
+        }
 
+        val encrypted = File(gameDirectory, "nscript.dat")
+        if (encrypted.isFile) return listOf(encrypted)
+
+        val protectedAfterXor = listOf("onscript.nt2", "onscript.nt3")
+            .map { File(gameDirectory, it) }
+            .firstOrNull { it.isFile }
+        if (protectedAfterXor != null) {
+            throw UnsupportedNscripterScriptFormatException(
+                protectedAfterXor.name,
+                "ONScripter NT2/NT3 encryption is not implemented"
+            )
+        }
+
+        return emptyList()
+    }
     fun loadScripts(gameDirectory: File): List<NscripterScriptSource> {
         return findScriptFiles(gameDirectory).map { file ->
             val decoded = if (file.name.equals("nscript.dat", ignoreCase = true)) {
@@ -154,7 +183,7 @@ class NscripterScriptDecoder {
         }
 
         throw IOException(
-            "Script bytes are neither valid \${charsets[0].name()} nor \${charsets[1].name()} text.",
+            "Script bytes are neither valid ${charsets[0].name()} nor ${charsets[1].name()} text.",
             lastError
         )
     }
@@ -170,3 +199,13 @@ class NscripterScriptDecoder {
         private val UTF8_BOM = byteArrayOf(0xEF.toByte(), 0xBB.toByte(), 0xBF.toByte())
     }
 }
+
+class UnsupportedNscripterScriptFormatException(
+    val fileName: String,
+    reason: String
+) : IOException("Unsupported NScripter script format '$fileName': $reason.")
+
+class UnsupportedNscripterScriptFormatException(
+    val fileName: String,
+    reason: String
+) : IOException("Unsupported NScripter script format '$fileName': $reason.")

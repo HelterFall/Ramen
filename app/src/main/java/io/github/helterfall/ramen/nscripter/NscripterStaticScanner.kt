@@ -65,6 +65,10 @@ class NscripterStaticScanner(
             )
 
             val extension = file.extension.lowercase(Locale.ROOT)
+            if (extension == "___" && ENCRYPTED_NSA_FILE_PATTERN.matches(file.name.lowercase(Locale.ROOT))) {
+                parseErrors += "$relativePath: encrypted NSA archive variant is recognized but not decoded."
+                continue
+            }
             if (extension != "nsa" && extension != "sar") continue
 
             val relativePath = relativePath(gameDirectory, file)
@@ -97,7 +101,7 @@ class NscripterStaticScanner(
         val scriptFiles = try {
             scriptDecoder.findScriptFiles(gameDirectory)
         } catch (error: Exception) {
-            parseErrors += "script discovery failed: \${error.message ?: error.javaClass.simpleName}"
+            parseErrors += "script discovery failed: ${error.message ?: error.javaClass.simpleName}"
             emptyList()
         }
 
@@ -150,7 +154,7 @@ class NscripterStaticScanner(
         append("  \"engine\": \"NScripter/ONScripter\",\n")
         append("  \"gameRoot\": ")
         appendJsonString(report.gameRoot)
-        append(",\n  \"scannedFileCount\": \${report.scannedFileCount},\n")
+        append(",\n  \"scannedFileCount\": ${report.scannedFileCount},\n")
 
         append("  \"scriptFiles\": ")
         appendStringArray(report.scriptFiles)
@@ -163,8 +167,8 @@ class NscripterStaticScanner(
             appendJsonString(archive.path)
             append(", \"format\": ")
             appendJsonString(archive.format)
-            append(", \"entryCount\": \${archive.entryCount}, \"compressedEntriesByType\": ")
-            appendIntMap(archive.compressedEntriesByType)
+            append(", \"entryCount\": ${archive.entryCount}, \"compressedEntriesByType\": ")
+            appendIntIntMap(archive.compressedEntriesByType)
             append("}")
             if (index != report.archives.lastIndex) append(',')
             append('\n')
@@ -173,15 +177,15 @@ class NscripterStaticScanner(
         append("],\n")
 
         append("  \"commandFrequency\": ")
-        appendIntMap(report.commandCounts)
+        appendStringIntMap(report.commandCounts)
         append(",\n")
 
         append("  \"graphicsFormats\": ")
-        appendIntMap(report.graphicsFormats)
+        appendStringIntMap(report.graphicsFormats)
         append(",\n")
 
         append("  \"audioFormats\": ")
-        appendIntMap(report.audioFormats)
+        appendStringIntMap(report.audioFormats)
         append(",\n")
 
         append("  \"unsupportedDirectives\": [")
@@ -191,7 +195,7 @@ class NscripterStaticScanner(
             appendJsonString(directive.directive)
             append(", \"file\": ")
             appendJsonString(directive.file)
-            append(", \"count\": \${directive.count}, \"lines\": ")
+            append(", \"count\": ${directive.count}, \"lines\": ")
             appendIntArray(directive.lineNumbers)
             append("}")
             if (index != report.unsupportedDirectives.lastIndex) append(',')
@@ -211,7 +215,7 @@ class NscripterStaticScanner(
         val report = scan(gameDirectory)
         val parent = outputFile.absoluteFile.parentFile
         if (parent != null && !parent.exists() && !parent.mkdirs()) {
-            throw IOException("Could not create JSON report directory: \${parent.path}")
+            throw IOException("Could not create JSON report directory: ${parent.path}")
         }
 
         val temporary = File(parent ?: File("."), outputFile.name + ".tmp")
@@ -223,7 +227,7 @@ class NscripterStaticScanner(
             }
         } catch (error: Exception) {
             temporary.delete()
-            throw IOException("Could not write the NScripter audit JSON: \${error.message}", error)
+            throw IOException("Could not write the NScripter audit JSON: ${error.message}", error)
         }
         return report
     }
@@ -334,22 +338,22 @@ class NscripterStaticScanner(
         append(']')
     }
 
-    private fun StringBuilder.appendIntMap(values: Map<String, Int>) {
+    private fun StringBuilder.appendStringIntMap(values: Map<String, Int>) {
         append('{')
         values.entries.sortedBy { it.key }.forEachIndexed { index, entry ->
             if (index > 0) append(", ")
             appendJsonString(entry.key)
-            append(": \${entry.value}")
+            append(": ${entry.value}")
         }
         append('}')
     }
 
-    private fun StringBuilder.appendIntMap(values: Map<Int, Int>) {
+    private fun StringBuilder.appendIntIntMap(values: Map<Int, Int>) {
         append('{')
         values.entries.sortedBy { it.key }.forEachIndexed { index, entry ->
             if (index > 0) append(", ")
             appendJsonString(entry.key.toString())
-            append(": \${entry.value}")
+            append(": ${entry.value}")
         }
         append('}')
     }
@@ -383,6 +387,7 @@ class NscripterStaticScanner(
             "bmp", "jpg", "jpeg", "png", "spb", "pdt", "gif", "tif", "tiff",
             "webp", "qnt", "msk"
         )
+        private val ENCRYPTED_NSA_FILE_PATTERN = Regex("^arc[1-9]?\\.___$")
         private val AUDIO_EXTENSIONS = setOf(
             "wav", "ogg", "mp3", "mid", "midi", "flac", "m4a", "aac",
             "wma", "opus", "mp2"

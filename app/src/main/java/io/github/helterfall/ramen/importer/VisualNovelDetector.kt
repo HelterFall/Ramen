@@ -43,10 +43,27 @@ class VisualNovelDetector {
                 engineLabel = "System-NNN SPT (парсер доступен)",
                 compatibilityStatus = "PARSER_AVAILABLE",
                 evidence = "Validated XOR-masked SPTHEADER[0-9] at 0x30; " +
-                    "\${sptScript.offsetTables.size} table descriptors, " +
-                    "\${sptScript.commandByteCount} raw command-region bytes and " +
-                    "\${sptScript.textPool.size} Shift-JIS text/resource entries parsed. " +
+                    "${sptScript.offsetTables.size} table descriptors, " +
+                    "${sptScript.commandByteCount} raw command-region bytes and " +
+                    "${sptScript.textPool.size} Shift-JIS text/resource entries parsed. " +
                     "The playback interpreter is not connected yet."
+            )
+        }
+
+        val protectedNscripterMarker = files.firstOrNull { path ->
+            path == "nscr_sec.dat" || path == "nscript.___" ||
+                path == "onscript.nt2" || path == "onscript.nt3" ||
+                path == "arc.___" || ENCRYPTED_NSA_PATTERN.matches(path)
+        }
+        if (protectedNscripterMarker != null &&
+            "0.txt" !in files && "00.txt" !in files && "nscript.dat" !in files
+        ) {
+            return GameDetection(
+                engineId = "nscripter",
+                engineLabel = "NScripter / ONScripter (обнаружен защищённый формат)",
+                compatibilityStatus = "DETECTED_UNSUPPORTED",
+                evidence = "Found '$protectedNscripterMarker'; its encryption/archive variant " +
+                    "is recognized but not decoded by the current scanner."
             )
         }
 
@@ -148,7 +165,8 @@ class VisualNovelDetector {
     companion object {
         private const val MAX_SCAN_DEPTH = 4
         private const val MAX_SCANNED_FILES = 10_000
-        private val NUMBERED_SCRIPT_PATTERN = Regex("^(?:[1-9]|[1-9][0-9])\\.txt$")
+        private val NUMBERED_SCRIPT_PATTERN = Regex("^(?:[1-9]|[1-9][0-9]|0[1-9])\\.txt$")
         private val EXTRA_NSA_PATTERN = Regex("^arc[1-9]\\.nsa$")
+        private val ENCRYPTED_NSA_PATTERN = Regex("^arc[1-9]\\.___$")
     }
 }
