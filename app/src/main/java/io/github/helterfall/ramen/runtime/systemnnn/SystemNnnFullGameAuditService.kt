@@ -29,6 +29,7 @@ class SystemNnnFullGameAuditService : Service() {
     @Volatile private var workerThread: Thread? = null
     @Volatile private var cancellationToken: AtomicBoolean? = null
     @Volatile private var latestStartId: Int = 0
+    @Volatile private var timeLimitReached = false
     private val mainHandler = Handler(Looper.getMainLooper())
     private val operationRunning = AtomicBoolean(false)
     private var lastNotificationUpdateMillis = 0L
@@ -80,6 +81,7 @@ class SystemNnnFullGameAuditService : Service() {
             return
         }
 
+        timeLimitReached = false
         val token = AtomicBoolean(false)
         cancellationToken = token
         SystemNnnFullGameAuditStateStore.update(
@@ -106,7 +108,7 @@ class SystemNnnFullGameAuditService : Service() {
             return
         }
 
-        launchWorker(token, "Ramen-SystemNnn-Scan") {
+        launchWorker("Ramen-SystemNnn-Scan") {
             try {
                 checkNotCancelled(token)
                 val root = resolveImportedGameDirectory(relativeDirectory)
@@ -184,7 +186,17 @@ class SystemNnnFullGameAuditService : Service() {
                 )
                 updateNotification(title, summary, 1f, ongoing = false, showCancel = false, force = true)
             } catch (failure: Exception) {
-                if (token.get() || Thread.currentThread().isInterrupted ||
+                if (timeLimitReached) {
+                    val timeoutMessage = "Android ограничил время фоновой службы. Запусти SCAN заново, когда приложение будет открыто."
+                    SystemNnnFullGameAuditStateStore.stagingFile(this).delete()
+                    SystemNnnFullGameAuditStateStore.update(
+                        this,
+                        SystemNnnFullGameAuditStateStore.STATUS_FAILED,
+                        title,
+                        timeoutMessage
+                    )
+                    updateNotification(title, timeoutMessage, null, ongoing = false, showCancel = false, force = true)
+                } else if (token.get() || Thread.currentThread().isInterrupted ||
                     failure is InterruptedException
                 ) {
                     SystemNnnFullGameAuditStateStore.stagingFile(this).delete()
@@ -235,6 +247,7 @@ class SystemNnnFullGameAuditService : Service() {
             return
         }
 
+        timeLimitReached = false
         val token = AtomicBoolean(false)
         cancellationToken = token
         SystemNnnFullGameAuditStateStore.update(
@@ -262,7 +275,7 @@ class SystemNnnFullGameAuditService : Service() {
             return
         }
 
-        launchWorker(token, "Ramen-SystemNnn-Export") {
+        launchWorker("Ramen-SystemNnn-Export") {
             val staged = SystemNnnFullGameAuditStateStore.stagingFile(this)
             try {
                 checkNotCancelled(token)
@@ -313,7 +326,18 @@ class SystemNnnFullGameAuditService : Service() {
                 )
                 updateNotification(title, message, 1f, ongoing = false, showCancel = false, force = true)
             } catch (failure: Exception) {
-                if (token.get() || Thread.currentThread().isInterrupted ||
+                if (timeLimitReached) {
+                    val timeoutMessage = "Android ограничил время фоновой службы. Готовый JSON остался внутри приложения — экспорт можно повторить позже."
+                    SystemNnnFullGameAuditStateStore.update(
+                        this,
+                        SystemNnnFullGameAuditStateStore.STATUS_READY,
+                        title,
+                        timeoutMessage,
+                        1f,
+                        staged.length()
+                    )
+                    updateNotification(title, timeoutMessage, null, ongoing = false, showCancel = false, force = true)
+                } else if (token.get() || Thread.currentThread().isInterrupted ||
                     failure is InterruptedException
                 ) {
                     SystemNnnFullGameAuditStateStore.update(
@@ -345,7 +369,6 @@ class SystemNnnFullGameAuditService : Service() {
     }
 
     private fun launchWorker(
-        token: AtomicBoolean,
         threadName: String,
         task: () -> Unit
     ) {
@@ -357,8 +380,10 @@ class SystemNnnFullGameAuditService : Service() {
                 cancellationToken = null
                 workerThread = null
                 mainHandler.post {
-                    stopForeground(false)
-                    stopSelfResult(latestStartId)
+                    if (!operationRunning.get()) {
+                        stopForeground(false)
+                        stopSelfResult(latestStartId)
+                    }
                 }
             }
         }, threadName)
@@ -565,6 +590,7 @@ class SystemNnnFullGameAuditService : Service() {
     }
 
     override fun onTimeout(startId: Int, fgsType: Int) {
+        timeLimitReached = true
         cancellationToken?.set(true)
         workerThread?.interrupt()
         val snapshot = SystemNnnFullGameAuditStateStore.read(this)
