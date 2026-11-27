@@ -361,14 +361,28 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                         }
                     }
                     else -> PendingInstruction(pc) { _, _ ->
-                        Hsp3Instruction.Unsupported(TYPE_INTCMD, commandId)
+                        Hsp3Instruction.Unsupported(
+                            commandType = TYPE_INTCMD,
+                            commandId = commandId,
+                            codeOffset = pc,
+                            tokenType = command.type,
+                            tokenValue = command.value,
+                            detail = "Unsupported OpenHSP intcmd 0x${commandId.toString(16)} at CS+0x${pc.toString(16)}."
+                        )
                     }
                 }
             }
             TYPE_PROGCMD -> decodeProgramCommand(program, command, args)
             TYPE_CMPCMD -> decodeConditionalCommand(program, command, args)
             else -> PendingInstruction(pc) { _, _ ->
-                Hsp3Instruction.Unsupported(command.type, commandId)
+                Hsp3Instruction.Unsupported(
+                    commandType = command.type,
+                    commandId = commandId,
+                    codeOffset = pc,
+                    tokenType = command.type,
+                    tokenValue = command.value,
+                    detail = "Unsupported HSP token type ${command.type} id=0x${commandId.toString(16)} at CS+0x${pc.toString(16)}."
+                )
             }
         }
     }
@@ -468,7 +482,16 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 val seed = args.firstOrNull()
                 if (seed == null) Hsp3Instruction.End else Hsp3Instruction.Randomize(seed)
             }
-            else -> PendingInstruction(pc) { _, _ -> Hsp3Instruction.Unsupported(TYPE_PROGCMD, id) }
+            else -> PendingInstruction(pc) { _, _ ->
+                Hsp3Instruction.Unsupported(
+                    commandType = TYPE_PROGCMD,
+                    commandId = id,
+                    codeOffset = pc,
+                    tokenType = command.type,
+                    tokenValue = command.value,
+                    detail = "Unsupported OpenHSP progcmd 0x${id.toString(16)} at CS+0x${pc.toString(16)}."
+                )
+            }
         }
     }
 
@@ -503,7 +526,14 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                 Hsp3Instruction.Jump(targetInstruction(addressMap, count))
             }
             else -> PendingInstruction(pc) { _, _ ->
-                Hsp3Instruction.Unsupported(TYPE_CMPCMD, id)
+                Hsp3Instruction.Unsupported(
+                    commandType = TYPE_CMPCMD,
+                    commandId = id,
+                    codeOffset = pc,
+                    tokenType = command.type,
+                    tokenValue = command.value,
+                    detail = "Unsupported OpenHSP cmpcmd 0x${id.toString(16)} at CS+0x${pc.toString(16)}."
+                )
             }
         }
     }
