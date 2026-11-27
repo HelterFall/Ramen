@@ -452,6 +452,21 @@ fun RamenApp() {
                             "soundNameListTruncated"
                         ).any { catalog[it] == true }
                     }
+                    val truncatedGraphDetails =
+                        (report["localSubroutines"] as? List<*>)?.any { item ->
+                            val group = item as? Map<*, *> ?: return@any false
+                            group["candidatesTruncated"] == true ||
+                                group["missingSubroutineIdsTruncated"] == true ||
+                                group["duplicateSubroutineIdsTruncated"] == true
+                        } == true ||
+                        (report["moduleTransfers"] as? List<*>)?.any { item ->
+                            (item as? Map<*, *>)?.get("edgesTruncated") == true
+                        } == true
+                    val truncatedReportDetails =
+                        scope?.get("gotoDetailsTruncated") == true ||
+                        scope?.get("resourceReferenceDetailsTruncated") == true ||
+                        scope?.get("issueDetailsTruncated") == true ||
+                        truncatedGraphDetails
                     val incompleteReasons = buildList {
                         if ((failedModules as? Number)?.toInt()?.let { it > 0 } == true) {
                             add("ошибок модулей: $failedModules")
@@ -464,6 +479,9 @@ fun RamenApp() {
                         }
                         if (truncatedAssetCatalogs > 0) {
                             add("детализация каталога ресурсов ограничена в каталогах: $truncatedAssetCatalogs")
+                        }
+                        if (truncatedReportDetails) {
+                            add("часть подробных списков сокращена для ограничения размера отчёта")
                         }
                         val invalidCandidates = (scope?.get("invalidSptCandidates") as? Number)?.toInt() ?: 0
                         if (invalidCandidates > 0) add("невалидных SPT-кандидатов: $invalidCandidates")
