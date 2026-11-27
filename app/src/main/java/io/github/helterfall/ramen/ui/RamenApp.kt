@@ -67,6 +67,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
 
 private val RamenBackground = Color(0xFF101216)
 private val RamenSurface = Color(0xFF1A1E25)
@@ -148,6 +149,7 @@ fun RamenApp() {
 
     val executor = remember { Executors.newSingleThreadExecutor() }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
+    val fullAuditLock = remember { AtomicBoolean(false) }
     // Keep the staged JSON outside cacheDir so Android cannot evict it while
     // the user is choosing a destination in the system document picker.
     val fullGameAuditStagingFile = remember(context) {
@@ -275,6 +277,7 @@ fun RamenApp() {
     ) { uri ->
         if (uri == null) {
             fullGameAuditStagingFile.delete()
+            fullAuditLock.set(false)
             isFullAuditBusy = false
             auditProgress = null
             pendingAuditTitle = ""
@@ -306,6 +309,10 @@ fun RamenApp() {
                         if (copiedBytes != expectedBytes) {
                             throw IOException("Размер записанного JSON не совпал с подготовленным отчётом.")
                         }
+                        mainHandler.post {
+                            statusMessage = "Проверяю сохранённый JSON и SHA-256…"
+                            auditProgress = 1f
+                        }
                         val verificationStream = context.contentResolver.openInputStream(uri)
                             ?: throw IOException("Не удалось повторно открыть JSON для проверки.")
                         val verifiedBytes = SystemNnnFullGameAuditExporter.verifySavedReport(
@@ -315,6 +322,7 @@ fun RamenApp() {
                         )
                         staged.delete()
                         mainHandler.post {
+                            fullAuditLock.set(false)
                             isFullAuditBusy = false
                             auditProgress = null
                             pendingAuditTitle = ""
@@ -324,6 +332,7 @@ fun RamenApp() {
                         val safeMessage = failure.message ?: failure.javaClass.simpleName
                         fullGameAuditStagingFile.delete()
                         mainHandler.post {
+                            fullAuditLock.set(false)
                             isFullAuditBusy = false
                             auditProgress = null
                             pendingAuditTitle = ""
@@ -332,6 +341,7 @@ fun RamenApp() {
                     }
                 }
             } catch (failure: Exception) {
+                fullAuditLock.set(false)
                 isFullAuditBusy = false
                 auditProgress = null
                 pendingAuditTitle = ""
@@ -358,6 +368,10 @@ fun RamenApp() {
             return
         }
 
+        if (!fullAuditLock.compareAndSet(false, true)) {
+            statusMessage = "Полный SCAN уже выполняется."
+            return
+        }
         isFullAuditBusy = true
         auditProgress = null
         pendingAuditTitle = game.title
@@ -385,10 +399,28 @@ fun RamenApp() {
                         fullGameAuditStagingFile
                     )
                     val scope = report["scope"] as? Map<*, *>
-                    val modules = scope?.get("allValidSptModules") ?: "?"
+                    val discoveredModules = scope?.get("discoveredSptModules")
+                        ?: scope?.get("allValidSptModules") ?: "?"
+                    val scannedModules = scope?.get("successfullyScannedModules")
+                        ?: scope?.get("allValidSptModules") ?: "?"
+                    val failedModules = scope?.get("failedModules") ?: 0
                     val records = scope?.get("totalPhysicalRecords") ?: "?"
+                    val incompleteReasons = buildList {
+                        if ((failedModules as? Number)?.toInt()?.let { it > 0 } == true) {
+                            add("ошибок модулей: $failedModules")
+                        }
+                        if (scope?.get("fileDiscoveryTruncated") == true) {
+                            add("достигнут лимит файлов")
+                        }
+                        if (scope?.get("fileDiscoveryDepthLimited") == true) {
+                            add("достигнут предел глубины папок")
+                        }
+                        val invalidCandidates = (scope?.get("invalidSptCandidates") as? Number)?.toInt() ?: 0
+                        if (invalidCandidates > 0) add("невалидных SPT-кандидатов: $invalidCandidates")
+                    }.joinToString("; ")
                     mainHandler.post {
                         if (!fullGameAuditStagingFile.isFile || fullGameAuditStagingFile.length() != stagedBytes) {
+                            fullAuditLock.set(false)
                             isFullAuditBusy = false
                             auditProgress = null
                             pendingAuditTitle = ""
@@ -396,13 +428,19 @@ fun RamenApp() {
                             return@post
                         }
                         auditProgress = 1f
-                        statusMessage = "SCAN готов: модулей $modules, физических записей $records. JSON — $stagedBytes байт. Выбери место сохранения."
+                        val completeness = if (incompleteReasons.isBlank()) {
+                            "Модулей найдено: $discoveredModules, успешно разобрано: $scannedModules, физических записей: $records."
+                        } else {
+                            "Отчёт с замечаниями: найдено модулей $discoveredModules, успешно разобрано: $scannedModules, записей: $records. $incompleteReasons."
+                        }
+                        statusMessage = "SCAN готов. $completeness JSON — $stagedBytes байт. Выбери место сохранения."
                         fullGameAuditDocumentPicker.launch(fullGameAuditDocumentName(game.title))
                     }
                 } catch (failure: Exception) {
                     fullGameAuditStagingFile.delete()
                     val safeMessage = failure.message ?: failure.javaClass.simpleName
                     mainHandler.post {
+                        fullAuditLock.set(false)
                         isFullAuditBusy = false
                         auditProgress = null
                         pendingAuditTitle = ""
@@ -412,6 +450,7 @@ fun RamenApp() {
             }
         } catch (failure: Exception) {
             fullGameAuditStagingFile.delete()
+            fullAuditLock.set(false)
             isFullAuditBusy = false
             auditProgress = null
             pendingAuditTitle = ""
