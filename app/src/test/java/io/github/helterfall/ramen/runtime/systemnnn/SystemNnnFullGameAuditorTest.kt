@@ -4,6 +4,7 @@ import java.io.ByteArrayOutputStream
 import java.nio.charset.Charset
 import java.nio.file.Files
 import java.io.File
+import java.io.IOException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -33,14 +34,19 @@ class SystemNnnFullGameAuditorTest {
             assertEquals(1, commandStream.records.size)
             assertTrue(streamReader.filmTableEntries(loadedScript, commandStream).isEmpty())
 
+            val progressEvents = mutableListOf<Pair<String, Float?>>()
             val report = SystemNnnFullGameAuditor(
                 cacheDirectory = File(root, "audit-cache")
-            ).audit(root)
+            ).audit(root) { label, fraction ->
+                progressEvents += label to fraction
+            }
 
             val scope = report["scope"] as Map<*, *>
             assertEquals("Full audit report: " + report, 1, scope["allValidSptModules"])
             assertEquals(1, scope["totalPhysicalRecords"])
             assertEquals(0, scope["failedModules"])
+            assertTrue(progressEvents.any { it.first.contains("Модуль") })
+            assertEquals(1f, progressEvents.last().second)
 
             val modules = report["modules"] as List<*>
             val module = modules.single() as Map<*, *>
@@ -77,13 +83,29 @@ class SystemNnnFullGameAuditorTest {
             val exportedJson = String(exportedBytes.toByteArray(), Charsets.UTF_8)
             assertTrue(exportedJson.startsWith("{"))
             assertTrue(exportedJson.contains("\"reportType\":\"ramen.system-nnn.full-game-audit\""))
+            val expectedSha256 = SystemNnnFullGameAuditExporter.sha256(stagedFile)
             assertEquals(
                 stagedBytes,
                 SystemNnnFullGameAuditExporter.verifySavedReport(
                     exportedBytes.toByteArray().inputStream(),
-                    stagedBytes
+                    stagedBytes,
+                    expectedSha256
                 )
             )
+            val tamperedBytes = exportedBytes.toByteArray()
+            val changedIndex = tamperedBytes.size / 2
+            tamperedBytes[changedIndex] = (tamperedBytes[changedIndex].toInt() xor 1).toByte()
+            var tamperedExportRejected = false
+            try {
+                SystemNnnFullGameAuditExporter.verifySavedReport(
+                    tamperedBytes.inputStream(),
+                    stagedBytes,
+                    expectedSha256
+                )
+            } catch (_: IOException) {
+                tamperedExportRejected = true
+            }
+            assertTrue("A same-length but modified JSON export must fail checksum verification.", tamperedExportRejected)
             assertTrue(exportedJson.contains("STARTMESSAGE"))
             assertFalse(exportedJson.contains(privateDialogueMarker))
         } finally {
