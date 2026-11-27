@@ -84,6 +84,23 @@ class SystemNnnFullGameAuditService : Service() {
         }
 
         timeLimitReached = false
+        val stagedBeforeScan = SystemNnnFullGameAuditStateStore.stagingFile(this)
+        val stagedTemporary = File(stagedBeforeScan.parentFile, stagedBeforeScan.name + ".tmp")
+        if ((stagedBeforeScan.exists() && !stagedBeforeScan.delete()) ||
+            (stagedTemporary.exists() && !stagedTemporary.delete())
+        ) {
+            operationRunning.set(false)
+            val message = "Не удалось очистить предыдущий временный JSON. SCAN не запущен."
+            SystemNnnFullGameAuditStateStore.update(
+                this,
+                SystemNnnFullGameAuditStateStore.STATUS_FAILED,
+                title,
+                message
+            )
+            stopSelfResult(startId)
+            return
+        }
+
         val token = AtomicBoolean(false)
         cancellationToken = token
         SystemNnnFullGameAuditStateStore.update(
@@ -191,6 +208,7 @@ class SystemNnnFullGameAuditService : Service() {
                 )
                 updateNotification(title, summary, 1f, ongoing = false, showCancel = false, force = true)
             } catch (failure: Exception) {
+                releasePersistedDestinationPermission(destination)
                 if (timeLimitReached) {
                     val timeoutMessage = "Android ограничил время фоновой службы. Запусти SCAN заново, когда приложение будет открыто."
                     SystemNnnFullGameAuditStateStore.stagingFile(this).delete()
@@ -237,6 +255,18 @@ class SystemNnnFullGameAuditService : Service() {
 
     private fun startExport(destinationText: String, title: String, startId: Int) {
         if (!operationRunning.compareAndSet(false, true)) {
+            return
+        }
+        val stagedReport = SystemNnnFullGameAuditStateStore.stagingFile(this)
+        if (!stagedReport.isFile || stagedReport.length() <= 0L) {
+            operationRunning.set(false)
+            SystemNnnFullGameAuditStateStore.update(
+                this,
+                SystemNnnFullGameAuditStateStore.STATUS_FAILED,
+                title,
+                "Подготовленный SCAN JSON не найден. Запусти анализ заново."
+            )
+            stopSelfResult(startId)
             return
         }
         val destination = runCatching { Uri.parse(destinationText) }.getOrNull()
@@ -323,6 +353,7 @@ class SystemNnnFullGameAuditService : Service() {
                 )
                 checkNotCancelled(token)
                 staged.delete()
+                releasePersistedDestinationPermission(destination)
                 val message = "SCAN сохранён. Проверено $verifiedBytes байт; SHA-256 совпадает."
                 SystemNnnFullGameAuditStateStore.update(
                     this,
@@ -455,6 +486,15 @@ class SystemNnnFullGameAuditService : Service() {
             force = true
         )
         workerThread?.interrupt()
+    }
+
+    private fun releasePersistedDestinationPermission(destination: Uri) {
+        runCatching {
+            contentResolver.releasePersistableUriPermission(
+                destination,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            )
+        }
     }
 
     private fun acquireCpuWakeLock() {
