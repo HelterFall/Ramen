@@ -29,6 +29,13 @@ class NscripterGameDetectorTest {
         assertNscripterMarker("01.txt")
     }
 
+    @Test
+    fun detectsUtf8OnscripterEntryAndSegments() {
+        assertNscripterMarker("0.utf")
+        assertNscripterMarker("00.utf")
+        assertNscripterMarker("27.utf")
+    }
+
     private fun assertNscripterMarker(marker: String) {
         val root = Files.createTempDirectory("nscripter-detection").toFile()
         try {
