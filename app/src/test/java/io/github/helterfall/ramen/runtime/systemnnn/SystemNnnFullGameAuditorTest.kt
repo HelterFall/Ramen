@@ -62,6 +62,23 @@ class SystemNnnFullGameAuditorTest {
             val json = SystemNnnTraceJson.encode(report)
             assertTrue(json.contains("STARTMESSAGE"))
             assertFalse("Dialogue text must remain local to the device.", json.contains(privateDialogueMarker))
+
+            // Exercise the same staged-file and stream-copy path used by the
+            // Android SCAN export, not only the in-memory JSON encoder.
+            val stagedFile = File(root, "export/ramen_full_game_audit.json")
+            val stagedBytes = SystemNnnFullGameAuditExporter.stageReport(report, stagedFile)
+            assertTrue("The staged JSON file must contain data.", stagedBytes > 0L)
+            assertEquals(stagedBytes, stagedFile.length())
+            val exportedBytes = ByteArrayOutputStream()
+            assertEquals(
+                stagedBytes,
+                SystemNnnFullGameAuditExporter.copyTo(stagedFile, exportedBytes)
+            )
+            val exportedJson = String(exportedBytes.toByteArray(), Charsets.UTF_8)
+            assertTrue(exportedJson.startsWith("{"))
+            assertTrue(exportedJson.contains("\"reportType\":\"ramen.system-nnn.full-game-audit\""))
+            assertTrue(exportedJson.contains("STARTMESSAGE"))
+            assertFalse(exportedJson.contains(privateDialogueMarker))
         } finally {
             root.deleteRecursively()
         }
