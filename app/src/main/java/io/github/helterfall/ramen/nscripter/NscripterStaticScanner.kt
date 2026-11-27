@@ -65,13 +65,12 @@ class NscripterStaticScanner(
             )
 
             val extension = file.extension.lowercase(Locale.ROOT)
+            val relativePath = relativePath(gameDirectory, file)
             if (extension == "___" && ENCRYPTED_NSA_FILE_PATTERN.matches(file.name.lowercase(Locale.ROOT))) {
                 parseErrors += "$relativePath: encrypted NSA archive variant is recognized but not decoded."
                 continue
             }
             if (extension != "nsa" && extension != "sar") continue
-
-            val relativePath = relativePath(gameDirectory, file)
             try {
                 val index = archiveReader.readIndex(file)
                 val compressedCounts = TreeMap<Int, Int>()
