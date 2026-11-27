@@ -713,6 +713,45 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun stretchBltAndCloudOutputsSurviveSourceLayerClearAsBufferedContributions() {
+        val store = SystemNnnRetainedLayerBufferStore()
+        val stretchParameters = listOf(300, 0, 0, 100, 100, 101, 101, 5, 2, 0, 100, 100, 0, 0)
+        val stretch = SystemNnnSpriteReference(
+            resourceId = "ev0601a",
+            layerIndex = 1,
+            nativeEffectId = 65,
+            nativeEffectParameters = stretchParameters,
+            nativeEffectCommandOffset = 0x0ac0L
+        )
+
+        assertTrue(store.retainOnClear(stretch, 65, stretchParameters, 0x0ac0L))
+        assertFalse(store.retainOnClear(stretch, 1, emptyList(), null))
+        assertEquals(65, store.snapshot()[1]?.nativeEffectId)
+        assertEquals(stretchParameters, store.snapshot()[1]?.nativeEffectParameters)
+
+        val cloudParameters = listOf(0, 300, 13, 4, 9_999, 200, 1362, 200, 0, 1, 255, 160, 110, 50)
+        val cloud = SystemNnnSpriteReference(
+            resourceId = "bgkhy",
+            layerIndex = 1,
+            nativeEffectId = 82,
+            nativeEffectParameters = cloudParameters,
+            nativeEffectCommandOffset = 0x13b4L
+        )
+        assertTrue(store.retainOnClear(cloud, 82, cloudParameters, 0x13b4L))
+        assertEquals(82, store.snapshot()[1]?.nativeEffectId)
+        assertEquals("bgkhy", store.snapshot()[1]?.resourceId)
+        assertEquals(cloudParameters, store.snapshot()[1]?.nativeEffectParameters)
+
+        assertFalse(
+            store.retainOnClear(
+                cloud.copy(nativeEffectId = 66, nativeEffectParameters = emptyList()),
+                66, emptyList(), 0x1400L
+            )
+        )
+        assertEquals(82, store.snapshot()[1]?.nativeEffectId)
+    }
+
+    @Test
     fun screenLayerFadeIsPublishedAsAViewportEffect() {
         val offsets = recordOffsets()
         val parameters = listOf(24, 16, 32, 48, 0, 0)

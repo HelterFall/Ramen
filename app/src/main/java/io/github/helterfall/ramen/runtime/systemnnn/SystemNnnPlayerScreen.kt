@@ -214,6 +214,8 @@ fun SystemNnnPlayerScreen(
     ) {
         val logicalWidth = state.logicalWidth.coerceAtLeast(1)
         val logicalHeight = state.logicalHeight.coerceAtLeast(1)
+        val renderedSprites = (state.bufferedSprites + state.sprites)
+            .associateBy { it.layerIndex }.values.sortedBy { it.layerIndex }
         val viewportWidth = viewportSizePx.width
         val viewportHeight = viewportSizePx.height
         // The game configuration defines the viewport; auxiliary layers may be smaller.
@@ -251,7 +253,7 @@ fun SystemNnnPlayerScreen(
                 0f, 0f, 1f
             )
         } else null
-        val layerStates = state.sprites.map { sprite ->
+        val layerStates = renderedSprites.map { sprite ->
             val effectId = sprite.nativeEffectId
             val usesFullViewport = effectId in setOf(27, 39, 56, 63, 102)
             val usesCenteredBitmap = effectId == 64 || effectId == 65
@@ -359,12 +361,13 @@ fun SystemNnnPlayerScreen(
                 "viewportHeight" to viewportHeight
             )
         }
-        state.sprites.forEach { sprite ->
+        renderedSprites.forEach { sprite ->
             val dst = sprite.nativeRect
             if (dst != null && (
-                dst.width <= 0 || dst.height <= 0 || dst.x < 0 || dst.y < 0 ||
-                    dst.x.toLong() + dst.width > rendererReferenceWidth.toLong() ||
-                    dst.y.toLong() + dst.height > rendererReferenceHeight.toLong()
+                dst.width <= 0 || dst.height <= 0 ||
+                    SystemNnnVisualEffectMath.isNativeRectFullyOutsideViewport(
+                        dst, rendererReferenceWidth, rendererReferenceHeight
+                    )
                 )
             ) {
                 composeAnomalies += mapOf(
@@ -650,13 +653,19 @@ fun SystemNnnPlayerScreen(
                             alignment = Alignment.TopStart
                         )
                     }
-                    val spritesByLayer = state.sprites.associateBy { it.layerIndex }
+                    // Live layers and previously blitted outputs share one native layer order.
+                    val spritesByLayer = (state.bufferedSprites + state.sprites)
+                        .associateBy { it.layerIndex }
                     val standaloneFlashes = state.layerEffects.filter { effect ->
                         effect.effectId == 17 &&
                             spritesByLayer[effect.layerIndex]?.nativeEffectId != effect.effectId
                     }
-                    val renderLayers = (spritesByLayer.keys + standaloneFlashes.map { it.layerIndex })
-                        .distinct().sorted()
+                    val standaloneOldFilms = state.layerEffects.filter { effect -> effect.effectId == 55 }
+                    val renderLayers = (
+                        spritesByLayer.keys +
+                            standaloneFlashes.map { it.layerIndex } +
+                            standaloneOldFilms.map { it.layerIndex }
+                        ).distinct().sorted()
                     renderLayers.forEach { layerIndex ->
                         val sprite = spritesByLayer[layerIndex]
                         if (sprite != null && layerIndex !in hiddenPartnerLayers) {
@@ -671,6 +680,16 @@ fun SystemNnnPlayerScreen(
                                     referenceHeight = referenceHeight,
                                     frameTimeMillis = state.nativeRuntime.frameTimeMillis,
                                     onBitmapDisposed = onBitmapDisposed
+                                )
+                            }
+                        }
+                        standaloneOldFilms.filter { it.layerIndex == layerIndex }.forEach { effect ->
+                            key("oldfilm-${effect.layerIndex}-${effect.commandOffset ?: 0L}") {
+                                SystemNnnStandaloneLayerOldFilm(
+                                    effect = effect,
+                                    frameTimeMillis = state.nativeRuntime.frameTimeMillis,
+                                    referenceWidth = referenceWidth,
+                                    referenceHeight = referenceHeight
                                 )
                             }
                         }
@@ -756,13 +775,28 @@ fun SystemNnnPlayerScreen(
             }
         }
         overrapFrameBitmap?.let { bitmap ->
-            Image(
-                bitmap = bitmap.asImageBitmap(),
-                contentDescription = "System-NNN native screen transition",
-                modifier = Modifier.fillMaxSize(),
-                contentScale = ContentScale.FillBounds,
-                alignment = Alignment.TopStart
-            )
+            Canvas(Modifier.fillMaxSize()) {
+                val viewport = SystemNnnVisualEffectMath.aspectFitViewportBounds(
+                    canvasWidth = size.width.roundToInt(),
+                    canvasHeight = size.height.roundToInt(),
+                    sceneWidth = state.logicalWidth,
+                    sceneHeight = state.logicalHeight
+                )
+                // Opaque replacement prevents the live dialogue/text from showing
+                // through the captured OVERrap frame.
+                drawRect(
+                    color = Color.Black,
+                    topLeft = Offset(viewport.x.toFloat(), viewport.y.toFloat()),
+                    size = Size(viewport.width.toFloat(), viewport.height.toFloat())
+                )
+                if (viewport.width > 0 && viewport.height > 0) {
+                    drawImage(
+                        image = bitmap.asImageBitmap(),
+                        dstOffset = IntOffset(viewport.x, viewport.y),
+                        dstSize = IntSize(viewport.width, viewport.height)
+                    )
+                }
+            }
         }
 
         QuickMenu(
@@ -1674,6 +1708,48 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                 image = warped.asImageBitmap(),
                 dstSize = IntSize(size.width.roundToInt(), outputHeight)
             )
+        }
+    }
+}
+
+@Composable
+private fun BoxScope.SystemNnnStandaloneLayerOldFilm(
+    effect: SystemNnnActiveLayerEffect,
+    frameTimeMillis: Int,
+    referenceWidth: Float,
+    referenceHeight: Float
+) {
+    val animationKey = listOf(effect.layerIndex, effect.effectId, effect.commandOffset, effect.parameters)
+    var frame by remember(animationKey) { mutableIntStateOf(0) }
+    LaunchedEffect(animationKey, frameTimeMillis) {
+        while (true) {
+            delay(frameTimeMillis.coerceAtLeast(1).toLong())
+            frame = if (frame == Int.MAX_VALUE) 0 else frame + 1
+        }
+    }
+    val marks = SystemNnnVisualEffectMath.oldFilmMarks(
+        frame = frame.toLong(),
+        parameters = effect.parameters,
+        screenWidth = referenceWidth.roundToInt().coerceAtLeast(1),
+        screenHeight = referenceHeight.roundToInt().coerceAtLeast(1),
+        seed = effect.layerIndex xor (effect.commandOffset?.toInt() ?: 0)
+    )
+    if (marks.isNotEmpty()) {
+        Canvas(Modifier.fillMaxSize()) {
+            val scaleX = size.width / referenceWidth.coerceAtLeast(1f)
+            val scaleY = size.height / referenceHeight.coerceAtLeast(1f)
+            marks.forEach { mark ->
+                drawRect(
+                    color = Color(
+                        mark.color.red / 255f,
+                        mark.color.green / 255f,
+                        mark.color.blue / 255f,
+                        mark.alpha
+                    ),
+                    topLeft = Offset(mark.x * scaleX, mark.y * scaleY),
+                    size = Size(mark.width * scaleX, mark.height * scaleY)
+                )
+            }
         }
     }
 }

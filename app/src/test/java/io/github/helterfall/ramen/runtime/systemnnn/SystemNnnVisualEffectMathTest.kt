@@ -676,6 +676,59 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
+    fun overrapSnapshotReplacesOnlyTheCenteredGameViewport() {
+        val wide = SystemNnnVisualEffectMath.aspectFitViewportBounds(
+            canvasWidth = 1_920,
+            canvasHeight = 1_080,
+            sceneWidth = 800,
+            sceneHeight = 600
+        )
+        assertEquals(SystemNnnViewportBounds(240, 0, 1_440, 1_080), wide)
+
+        val portrait = SystemNnnVisualEffectMath.aspectFitViewportBounds(
+            canvasWidth = 1_080,
+            canvasHeight = 1_920,
+            sceneWidth = 800,
+            sceneHeight = 600
+        )
+        assertEquals(SystemNnnViewportBounds(0, 555, 1_080, 810), portrait)
+    }
+
+    @Test
+    fun oldFilmPaintsIndependentLayerScratchesWithoutAteBitmap() {
+        val parameters = listOf(20, 0, 0, 800, 600, 5, 1, 21, 19, 9, 200, 80, 100)
+        val first = SystemNnnVisualEffectMath.oldFilmMarks(
+            frame = 0L, parameters = parameters, screenWidth = 800, screenHeight = 600, seed = 6
+        )
+        val repeated = SystemNnnVisualEffectMath.oldFilmMarks(
+            frame = 0L, parameters = parameters, screenWidth = 800, screenHeight = 600, seed = 6
+        )
+        val later = SystemNnnVisualEffectMath.oldFilmMarks(
+            frame = 80L, parameters = parameters, screenWidth = 800, screenHeight = 600, seed = 6
+        )
+
+        assertEquals(5, first.size)
+        assertEquals(first, repeated)
+        assertNotEquals(first, later)
+        assertTrue(first.all { it.x in 0 until 800 && it.y == 0 && it.height == 600 })
+        assertTrue(first.all { it.width == 1 && it.color == SystemNnnVisualColor(21, 19, 9) })
+        assertTrue(first.all { it.alpha == 1f })
+        assertTrue(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(55))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(55, parameters))
+    }
+
+    @Test
+    fun destinationRectsAreClippedAtTheViewportInsteadOfFlaggedForPartialOverflow() {
+        val text = SystemNnnNativeRect(x = 1, y = 250, width = 800, height = 89)
+        val stretch = SystemNnnNativeRect(x = -85, y = 0, width = 900, height = 600)
+        val outside = SystemNnnNativeRect(x = 800, y = 0, width = 20, height = 600)
+
+        assertFalse(SystemNnnVisualEffectMath.isNativeRectFullyOutsideViewport(text, 800, 600))
+        assertFalse(SystemNnnVisualEffectMath.isNativeRectFullyOutsideViewport(stretch, 800, 600))
+        assertTrue(SystemNnnVisualEffectMath.isNativeRectFullyOutsideViewport(outside, 800, 600))
+    }
+
+    @Test
     fun nativeLayerSupportIsParameterGatedAndNoOpIsNotWarned() {
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(0, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(17, listOf(20, 2, 3, 20, 30, 40)))

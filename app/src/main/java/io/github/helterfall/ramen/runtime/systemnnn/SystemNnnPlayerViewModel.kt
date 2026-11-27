@@ -62,6 +62,37 @@ data class SystemNnnActiveLayerEffect(
     val commandOffset: Long? = null
 )
 
+/** Native effects that blit before CLEAREFFECTLAYER leave a separate buffer contribution. */
+internal class SystemNnnRetainedLayerBufferStore {
+    private val references = LinkedHashMap<Int, SystemNnnSpriteReference>()
+
+    fun snapshot(): LinkedHashMap<Int, SystemNnnSpriteReference> = LinkedHashMap(references)
+
+    fun replaceWith(values: Map<Int, SystemNnnSpriteReference>) {
+        references.clear()
+        references.putAll(values)
+    }
+
+    fun retainOnClear(
+        reference: SystemNnnSpriteReference,
+        effectId: Int,
+        parameters: List<Int>,
+        commandOffset: Long?
+    ): Boolean {
+        if (effectId != 65 && effectId != 82) return false
+        references[reference.layerIndex] = reference.copy(
+            nativeEffectId = effectId,
+            nativeEffectParameters = parameters,
+            nativeEffectCommandOffset = commandOffset
+        )
+        return true
+    }
+
+    fun clear() {
+        references.clear()
+    }
+}
+
 data class SystemNnnChoiceOption(
     val id: String,
     val label: String,
@@ -112,7 +143,9 @@ data class SystemNnnPlayerUiState(
     val logicalWidth: Int = SystemNnnGameConfig.DEFAULT_SCREEN_WIDTH,
     val logicalHeight: Int = SystemNnnGameConfig.DEFAULT_SCREEN_HEIGHT,
     val sprites: List<SystemNnnSpriteBitmap> = emptyList(),
-    /** Active native layer effects, including commands with no picture attached. */
+    /** Native effect output already copied into the shared compositor buffer. */
+    val bufferedSprites: List<SystemNnnSpriteBitmap> = emptyList(),
+    /** Active native layer effects, including bitmap-less and retained outputs. */
     val layerEffects: List<SystemNnnActiveLayerEffect> = emptyList(),
     val speakerName: String? = null,
     val dialogueText: String = "",
@@ -418,6 +451,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList()
     private var sceneReplayFilmCursor: Int = 0
     private val visualLayerConfigurationStore = SystemNnnVisualLayerConfigurationStore()
+    private val retainedLayerBufferStore = SystemNnnRetainedLayerBufferStore()
     private var diagnosticLog: SystemNnnDiagnosticLog? = null
 
     private data class ModuleCallFrame(
@@ -634,7 +668,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
     private fun activeLayerEffectSnapshot(
         configurations: Map<Int, SystemNnnVisualLayerConfiguration>,
-        sprites: List<SystemNnnSpriteBitmap>
+        sprites: List<SystemNnnSpriteBitmap>,
+        bufferedSprites: List<SystemNnnSpriteBitmap> = emptyList()
     ): List<SystemNnnActiveLayerEffect> {
         val byLayer = LinkedHashMap<Int, SystemNnnActiveLayerEffect>()
         configurations.forEach { (layerIndex, configuration) ->
@@ -646,7 +681,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 commandOffset = configuration.effectCommandOffset
             )
         }
-        sprites.forEach { sprite ->
+        (sprites + bufferedSprites).forEach { sprite ->
             val effectId = sprite.nativeEffectId ?: return@forEach
             if (sprite.layerIndex !in byLayer) {
                 byLayer[sprite.layerIndex] = SystemNnnActiveLayerEffect(
@@ -709,9 +744,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         "dstRect" to traceRect(destination)
                     )
                 }
-                if (destination.x < 0 || destination.y < 0 ||
-                    destination.x.toLong() + destination.width.toLong() > logicalWidth.toLong() ||
-                    destination.y.toLong() + destination.height.toLong() > logicalHeight.toLong()
+                if (SystemNnnVisualEffectMath.isNativeRectFullyOutsideViewport(
+                        destination, logicalWidth, logicalHeight
+                    )
                 ) {
                     anomalies += mapOf(
                         "type" to "dst_rect_out_of_bounds",
@@ -778,7 +813,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         "alphaPremultiplied" to it.isPremultiplied
                     )
                 },
-                "layers" to sprites.map { traceLayer(it, logicalWidth, logicalHeight) },
+                "layers" to (sprites + uiState.bufferedSprites).map { traceLayer(it, logicalWidth, logicalHeight) },
                 "activeEffects" to effectList,
                 "screenBuffer" to linkedMapOf(
                     "screenEffectId" to screenEffectId,
@@ -881,6 +916,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
             skipAdjustFrame = initialGameConfig.skipAdjustFrame
         )
         visualLayerConfigurationStore.clear()
+        retainedLayerBufferStore.clear()
 
         moduleCallStack.clear()
         this.sceneReplayModuleName = null
@@ -1701,6 +1737,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
             var sceneBackgroundResourceId = uiState.backgroundResourceId
             var sceneBackgroundMetadata = uiState.backgroundMetadata
             var sceneSprites = uiState.sprites
+            var sceneBufferedSprites = uiState.bufferedSprites
             var pendingBackgroundResourceId: String? = null
             var pendingBackgroundResourceIndex: Long? = null
             var pendingBackgroundBankNamespace: String? = null
@@ -1709,6 +1746,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
             var pendingScreenEffectParameters = uiState.screenEffectParameters
             var pendingScreenEffectCommandOffset = uiState.screenEffectCommandOffset
             val pendingSpriteLayers = LinkedHashMap<Int, SystemNnnSpriteReference>()
+            val pendingBufferedLayerStore = SystemNnnRetainedLayerBufferStore().apply {
+                replaceWith(retainedLayerBufferStore.snapshot())
+            }
             val pendingLayerVisuals = visualLayerConfigurationStore.snapshot()
             sceneSprites.forEach { sprite ->
                 pendingSpriteLayers[sprite.layerIndex] = SystemNnnSpriteReference(
@@ -1743,6 +1783,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 pendingScreenEffectCommandOffset = null
                 pendingSpriteLayers.clear()
                 pendingLayerVisuals.clear()
+                pendingBufferedLayerStore.clear()
+                sceneBufferedSprites = emptyList()
                 pendingSpriteLayersChanged = true
             }
 
@@ -1763,6 +1805,22 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 }
                 imageStatusMessage = listOfNotNull(imageStatusMessage, message)
                     .joinToString(separator = "\n")
+            }
+
+            fun resolvePendingBufferedSprites() {
+                val retainedReferences = pendingBufferedLayerStore.snapshot().values
+                    .sortedBy { it.layerIndex }
+                if (retainedReferences.isEmpty()) {
+                    sceneBufferedSprites = emptyList()
+                    return
+                }
+                val resolution = resolveSprites(
+                    references = retainedReferences,
+                    existingSprites = sceneBufferedSprites,
+                    resolver = resolver
+                )
+                sceneBufferedSprites = resolution.sprites
+                appendImageStatusMessage(resolution.statusMessage)
             }
 
             var commandsWithoutVisibleOutput = 0
@@ -1868,6 +1926,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             throw IOException("CLEAREFFECTLAYER supplied an invalid layer.")
                         }
                         nextCommandOffset = command.nextCommandOffset
+                        val clearedVisuals = pendingLayerVisuals[command.layerIndex]
+                        val clearedReference = pendingSpriteLayers[command.layerIndex]
+                        val clearedEffectId = clearedVisuals?.effectId ?: clearedReference?.nativeEffectId
+                        if (clearedReference != null && clearedEffectId != null) {
+                            pendingBufferedLayerStore.retainOnClear(
+                                clearedReference,
+                                clearedEffectId,
+                                clearedVisuals?.effectParameters ?: clearedReference.nativeEffectParameters,
+                                clearedVisuals?.effectCommandOffset ?: clearedReference.nativeEffectCommandOffset
+                            )
+                        }
                         pendingLayerVisuals.remove(command.layerIndex)
                         if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX) {
                             pendingScreenEffectId = null
@@ -1888,6 +1957,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         nextCommandOffset = command.nextCommandOffset
                         pendingSpriteLayers.clear()
                         pendingLayerVisuals.clear()
+                        pendingBufferedLayerStore.clear()
+                        sceneBufferedSprites = emptyList()
                         pendingScreenEffectId = null
                         pendingScreenEffectParameters = emptyList()
                         pendingScreenEffectCommandOffset = null
@@ -2233,11 +2304,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             appendImageStatusMessage(resolution.statusMessage)
                             pendingSpriteLayersChanged = false
                         }
+                        resolvePendingBufferedSprites()
 
                         // These visual commands are accumulated until DRAW. Publish
                         // that exact scene now, rather than running ahead into the
                         // CLEAR commands that commonly follow the animation frames.
                         visualLayerConfigurationStore.replaceWith(pendingLayerVisuals)
+                        retainedLayerBufferStore.replaceWith(pendingBufferedLayerStore.snapshot())
                         pendingBackgroundResourceId = null
                         pendingBackgroundResourceIndex = null
                         pendingBackgroundBankNamespace = null
@@ -2258,9 +2331,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             backgroundResourceId = sceneBackgroundResourceId,
                             backgroundMetadata = sceneBackgroundMetadata,
                             sprites = sceneSprites,
+                            bufferedSprites = sceneBufferedSprites,
                             logicalWidth = nativeGameConfig.screenWidth,
                             logicalHeight = nativeGameConfig.screenHeight,
-                            layerEffects = activeLayerEffectSnapshot(pendingLayerVisuals, sceneSprites),
+                            layerEffects = activeLayerEffectSnapshot(
+                                pendingLayerVisuals, sceneSprites, sceneBufferedSprites
+                            ),
                             currentFilmNumber = currentFilmNumber,
                             statusMessage = imageStatusMessage ?: uiState.statusMessage,
                             screenEffectId = pendingScreenEffectId,
@@ -2373,8 +2449,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             sceneSprites = resolution.sprites
                             appendImageStatusMessage(resolution.statusMessage)
                         }
+                        resolvePendingBufferedSprites()
 
                         visualLayerConfigurationStore.replaceWith(pendingLayerVisuals)
+                        retainedLayerBufferStore.replaceWith(pendingBufferedLayerStore.snapshot())
                         val dialogueStepIndex = command.dialogueStepIndex
                         val pendingWindowMode = nativeRuntimeState.nextMessageWindowPrintMode
                         if (pendingWindowMode != -1) {
@@ -2399,7 +2477,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             logicalWidth = nativeGameConfig.screenWidth,
                             logicalHeight = nativeGameConfig.screenHeight,
                             sprites = sceneSprites,
-                            layerEffects = activeLayerEffectSnapshot(pendingLayerVisuals, sceneSprites),
+                            bufferedSprites = sceneBufferedSprites,
+                            layerEffects = activeLayerEffectSnapshot(
+                                pendingLayerVisuals, sceneSprites, sceneBufferedSprites
+                            ),
                             speakerName = command.speakerName,
                             dialogueText = text,
                             visibleCharacterCount = 0,
@@ -2481,8 +2562,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             sceneSprites = resolution.sprites
                             appendImageStatusMessage(resolution.statusMessage)
                         }
+                        resolvePendingBufferedSprites()
 
                         visualLayerConfigurationStore.replaceWith(pendingLayerVisuals)
+                        retainedLayerBufferStore.replaceWith(pendingBufferedLayerStore.snapshot())
                         frameCounter += 1L
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter,
@@ -2493,6 +2576,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             backgroundResourceId = sceneBackgroundResourceId,
                             backgroundMetadata = sceneBackgroundMetadata,
                             sprites = sceneSprites,
+                            bufferedSprites = sceneBufferedSprites,
+                            logicalWidth = nativeGameConfig.screenWidth,
+                            logicalHeight = nativeGameConfig.screenHeight,
+                            layerEffects = activeLayerEffectSnapshot(
+                                pendingLayerVisuals, sceneSprites, sceneBufferedSprites
+                            ),
                             speakerName = command.speakerName,
                             dialogueText = promptText,
                             visibleCharacterCount = promptText.length,
@@ -2996,7 +3085,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_IMAGE_WARNING_COUNT = 4
         private const val SCREEN_EFFECT_LAYER_INDEX = 31
         private val SCREEN_BUFFER_EFFECT_IDS = setOf(
-            2, 10, 11, 18, 20, 22, 29, 31, 43, 50, 54, 55, 69, 71, 74
+            2, 10, 11, 18, 20, 22, 29, 31, 43, 50, 54, 69, 71, 74
         )
         private const val DEFAULT_OVERRAP_LENGTH_FRAMES = 18
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L

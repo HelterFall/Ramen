@@ -36,6 +36,22 @@ internal data class SystemNnnCloudPixels(
     val pixels: IntArray
 )
 
+internal data class SystemNnnOldFilmMark(
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int,
+    val color: SystemNnnVisualColor,
+    val alpha: Float
+)
+
+internal data class SystemNnnViewportBounds(
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int
+)
+
 internal data class SystemNnnVisualLayerConfiguration(
     /** First destination RECT supplied to native SetImageLayerRect (dstFrom). */
     val destinationRectFrom: SystemNnnNativeRect? = null,
@@ -402,6 +418,119 @@ internal object SystemNnnVisualEffectMath {
 
     fun scrollUsesLoopFrame(parameters: List<Int>): Boolean =
         (parameters.getOrNull(3) ?: 0) != 0
+
+    /**
+     * CEffectOldFilm::Print paints independently of a layer bitmap. Its
+     * per-line scratch state is seeded here so Compose can reproduce the
+     * native moving scratches deterministically between frames.
+     */
+    fun oldFilmMarks(
+        frame: Long,
+        parameters: List<Int>,
+        screenWidth: Int,
+        screenHeight: Int,
+        seed: Int = 0
+    ): List<SystemNnnOldFilmMark> {
+        if (screenWidth <= 0 || screenHeight <= 0) return emptyList()
+        val pointX = (parameters.getOrNull(1) ?: 0).coerceIn(0, screenWidth - 1)
+        val pointY = (parameters.getOrNull(2) ?: 0).coerceIn(0, screenHeight - 1)
+        val areaWidth = (parameters.getOrNull(3) ?: screenWidth).coerceAtLeast(1)
+            .coerceAtMost(screenWidth - pointX)
+        val areaHeight = (parameters.getOrNull(4) ?: screenHeight).coerceAtLeast(1)
+            .coerceAtMost(screenHeight - pointY)
+        val count = (parameters.getOrNull(5) ?: 3).coerceIn(0, 10)
+        val lineWidth = (parameters.getOrNull(6) ?: 1).coerceIn(1, 4)
+            .coerceAtMost(areaWidth)
+        val red = (parameters.getOrNull(7) ?: 128).coerceIn(0, 255)
+        val green = (parameters.getOrNull(8) ?: 128).coerceIn(0, 255)
+        val blue = (parameters.getOrNull(9) ?: 128).coerceIn(0, 255)
+        val lifeBase = (parameters.getOrNull(10) ?: 200).coerceAtLeast(1)
+        val lifeRandom = (parameters.getOrNull(11) ?: 80).coerceAtLeast(0)
+        val printChance = (parameters.getOrNull(12) ?: 30).coerceIn(0, 100)
+        val alphaMin = (parameters.getOrNull(13) ?: 100).coerceIn(0, 100)
+        val alphaMax = (parameters.getOrNull(14) ?: 100).coerceIn(0, 100)
+        val lowerAlpha = minOf(alphaMin, alphaMax)
+        val upperAlpha = maxOf(alphaMin, alphaMax)
+        val marks = ArrayList<SystemNnnOldFilmMark>(count)
+        val elapsed = frame.coerceAtLeast(0L)
+        val maxX = (areaWidth - lineWidth).coerceAtLeast(0)
+
+        fun random(value: Int): Int = mix(value) and Int.MAX_VALUE
+        repeat(count) { line ->
+            val lineSeed = seed xor (line * 0x45d9f3b)
+            val lifeSpread = if (lifeRandom == 0) 0 else random(lineSeed xor 0x13579bdf) % lifeRandom
+            val life = (lifeBase + lifeSpread).coerceAtLeast(1)
+            val lineFrame = elapsed % life.toLong()
+            val initialX = if (maxX == 0) 0 else random(lineSeed xor 0x2468ace) % (maxX + 1)
+            val velocity = 128 + random(lineSeed xor 0x1020304) % 1_024
+            val direction = if ((random(lineSeed xor 0x556677) and 1) == 0) 1 else -1
+            val period = 10 + random(lineSeed xor 0x7654321) % 20
+            val reversals = (lineFrame / period.toLong()).toInt()
+            val segmentFrame = (lineFrame % period.toLong()).toInt()
+            // Alternating native direction segments cancel in pairs.
+            val completedDistance256 = if (reversals % 2 == 0) 0L else {
+                direction.toLong() * velocity.toLong() * period.toLong()
+            }
+            val currentSign = if (reversals % 2 == 0) direction else -direction
+            val distance256 = completedDistance256 +
+                currentSign.toLong() * velocity.toLong() * segmentFrame.toLong()
+            val range256 = maxX.toLong() * 256L
+            val unfolded = initialX.toLong() * 256L + distance256
+            val folded = if (range256 <= 0L) 0L else {
+                val period256 = range256 * 2L
+                val wrapped = Math.floorMod(unfolded, period256)
+                if (wrapped <= range256) wrapped else period256 - wrapped
+            }
+            val x = pointX + (folded / 256L).toInt()
+            if (random(lineSeed xor elapsed.toInt() xor (line * 0x9e3779b)) % 100 < printChance) {
+                val alpha = if (upperAlpha == lowerAlpha) lowerAlpha else {
+                    lowerAlpha + random(lineSeed xor elapsed.toInt() xor 0x6a09e667) %
+                        (upperAlpha - lowerAlpha + 1)
+                }
+                marks += SystemNnnOldFilmMark(
+                    x = x.coerceIn(pointX, pointX + maxX),
+                    y = pointY,
+                    width = lineWidth,
+                    height = areaHeight,
+                    color = SystemNnnVisualColor(red, green, blue),
+                    alpha = alpha / 100f
+                )
+            }
+        }
+        return marks
+    }
+
+    /** Aspect-fit bounds shared by the live scene and native OVERrap snapshot. */
+    fun aspectFitViewportBounds(
+        canvasWidth: Int,
+        canvasHeight: Int,
+        sceneWidth: Int,
+        sceneHeight: Int
+    ): SystemNnnViewportBounds {
+        if (canvasWidth <= 0 || canvasHeight <= 0 || sceneWidth <= 0 || sceneHeight <= 0) {
+            return SystemNnnViewportBounds(0, 0, 0, 0)
+        }
+        val canvasAspect = canvasWidth.toFloat() / canvasHeight.toFloat()
+        val sceneAspect = sceneWidth.toFloat() / sceneHeight.toFloat()
+        return if (canvasAspect > sceneAspect) {
+            val width = (canvasHeight.toFloat() * sceneAspect).roundToInt().coerceIn(1, canvasWidth)
+            SystemNnnViewportBounds((canvasWidth - width) / 2, 0, width, canvasHeight)
+        } else {
+            val height = (canvasWidth.toFloat() / sceneAspect).roundToInt().coerceIn(1, canvasHeight)
+            SystemNnnViewportBounds(0, (canvasHeight - height) / 2, canvasWidth, height)
+        }
+    }
+
+    /** True when a native blit is wholly outside the clipped game viewport. */
+    fun isNativeRectFullyOutsideViewport(
+        rect: SystemNnnNativeRect,
+        screenWidth: Int,
+        screenHeight: Int
+    ): Boolean =
+        rect.x.toLong() >= screenWidth.toLong() ||
+            rect.y.toLong() >= screenHeight.toLong() ||
+            rect.x.toLong() + rect.width.toLong() <= 0L ||
+            rect.y.toLong() + rect.height.toLong() <= 0L
 
     /**
      * Native CAllEffect::SetEffectScript treats MAE (id=1) as a continuation
