@@ -12,6 +12,7 @@ internal object SystemNnnTraceJson {
     }
 
     private fun appendValue(value: Any?, destination: Appendable) {
+        checkNotInterrupted()
         when (value) {
             null -> destination.append("null")
             is String -> appendQuoted(value, destination)
@@ -73,6 +74,12 @@ internal object SystemNnnTraceJson {
             destination.append(item.toString())
         }
         destination.append(']')
+    }
+
+    private fun checkNotInterrupted() {
+        if (Thread.currentThread().isInterrupted) {
+            throw java.io.InterruptedIOException("SCAN JSON serialization was cancelled.")
+        }
     }
 
     private fun appendQuoted(value: String, destination: Appendable) {
