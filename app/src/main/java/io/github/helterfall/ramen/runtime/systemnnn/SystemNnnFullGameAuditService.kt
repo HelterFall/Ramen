@@ -295,6 +295,7 @@ class SystemNnnFullGameAuditService : Service() {
             enterForeground(title, "Записываю JSON…", 0f, showCancel = true)
             acquireCpuWakeLock()
         } catch (failure: Exception) {
+            releasePersistedDestinationPermission(destination)
             releaseCpuWakeLock()
             operationRunning.set(false)
             cancellationToken = null
@@ -434,9 +435,34 @@ class SystemNnnFullGameAuditService : Service() {
             operationRunning.set(false)
             cancellationToken = null
             workerThread = null
+            releaseCpuWakeLock()
+            val snapshot = SystemNnnFullGameAuditStateStore.read(this)
+            val staged = SystemNnnFullGameAuditStateStore.stagingFile(this)
+            val canRetryExport =
+                snapshot.status == SystemNnnFullGameAuditStateStore.STATUS_EXPORTING &&
+                    staged.isFile && staged.length() > 0L
+            val message = "Не удалось запустить фоновый поток: " +
+                (failure.message ?: failure.javaClass.simpleName)
+            SystemNnnFullGameAuditStateStore.update(
+                this,
+                if (canRetryExport) SystemNnnFullGameAuditStateStore.STATUS_READY
+                else SystemNnnFullGameAuditStateStore.STATUS_FAILED,
+                snapshot.title,
+                if (canRetryExport) "$message. Готовый JSON остался внутри приложения."
+                else message,
+                if (canRetryExport) 1f else null,
+                if (canRetryExport) staged.length() else 0L
+            )
+            updateNotification(
+                snapshot.title,
+                message,
+                null,
+                ongoing = false,
+                showCancel = false,
+                force = true
+            )
             stopForeground(false)
             stopSelfResult(latestStartId)
-            throw failure
         }
     }
 
