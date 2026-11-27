@@ -27,6 +27,20 @@ class Hsp3BytecodeLoaderTest {
     }
 
     @Test
+    fun decodesWindows31jExtensionCharactersFromTheDataSegment() {
+        val bytes = createProgramBytes().apply {
+            // CP932 0x8740 is U+2460 CIRCLED DIGIT ONE; strict Shift_JIS rejects it.
+            this[0x6A] = 0x87.toByte()
+            this[0x6B] = 0x40
+            this[0x6C] = 0
+        }
+        withBytes(bytes) { file ->
+            val program = Hsp3BytecodeLoader().load(file)
+            assertEquals("\u2460", program.stringAt(0))
+        }
+    }
+
+    @Test
     fun decodesNarrowAndWideTokenValues() {
         withProgramBytes { program ->
             val tokens = program.tokens().toList()

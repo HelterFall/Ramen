@@ -71,7 +71,11 @@ class Hsp3CanvasRenderer(
     private val logicalWidth: Int = DEFAULT_WIDTH,
     private val logicalHeight: Int = DEFAULT_HEIGHT
 ) : Hsp3Graphics {
-    private data class Surface(val bitmap: Bitmap, val canvas: Canvas) {
+    private data class Surface(
+        val bitmap: Bitmap,
+        val canvas: Canvas,
+        var shouldPresent: Boolean = true
+    ) {
         init {
             check(bitmap.isMutable) { "HSP Canvas surfaces must use mutable bitmaps." }
             check(bitmap.config == Bitmap.Config.ARGB_8888) {
@@ -103,7 +107,6 @@ class Hsp3CanvasRenderer(
     private var blendAlpha = 0
     private var gmodeCopyWidth = 32
     private var gmodeCopyHeight = 32
-    private var shouldPresent = true
     private var closed = false
 
     init {
@@ -225,7 +228,10 @@ class Hsp3CanvasRenderer(
                 }
                 when (mode) {
                     0 -> {
-                        val old = surfaces.put(targetId, Surface(bitmap, Canvas(bitmap)))
+                        val old = surfaces[targetId]
+                        surfaces[targetId] = Surface(
+                            bitmap, Canvas(bitmap), old?.shouldPresent ?: true
+                        )
                         old?.bitmap?.recycle()
                         cellGrids.remove(targetId)
                         cursorX = 0
@@ -237,7 +243,10 @@ class Hsp3CanvasRenderer(
                     }
                     2 -> {
                         val replacement = resized!!
-                        val old = surfaces.put(targetId, Surface(replacement, Canvas(replacement)))
+                        val old = surfaces[targetId]
+                        surfaces[targetId] = Surface(
+                            replacement, Canvas(replacement), old?.shouldPresent ?: true
+                        )
                         old?.bitmap?.recycle()
                         cellGrids.remove(targetId)
                         cursorX = 0
@@ -450,14 +459,23 @@ class Hsp3CanvasRenderer(
     override fun mes(value: String, flags: Int) {
         checkOpen()
         val canvas = activeSurface().canvas
-        val lines = value.split('\n')
+        // OpenHSP treats CRLF, LF and CR as line delimiters in its string scanner.
+        val lines = value.replace("\r\n", "\n").replace('\r', '\n').split('\n')
         val startX = cursorX
-        val lineHeight = textPaint.fontSpacing.coerceAtLeast(textPaint.textSize)
+        val startY = cursorY
+        val metrics = textPaint.fontMetrics
+        val lineHeight = maxOf(
+            textPaint.fontSpacing,
+            metrics.descent - metrics.ascent
+        ).coerceAtLeast(textPaint.textSize).toInt().coerceAtLeast(1).toFloat()
         val foreground = currentColor
         val baseStyle = textPaint.style
         val baseStroke = textPaint.strokeWidth
-        lines.forEachIndexed { index, line ->
-            val baseline = cursorY + textPaint.textSize
+        var widestLine = 0f
+
+        lines.forEach { line ->
+            // Canvas drawText takes a baseline; HSP PrintLine's cy is the top edge.
+            val baseline = cursorY - metrics.ascent
             if (flags and MES_SHADOW != 0) {
                 textPaint.style = Paint.Style.FILL
                 textPaint.color = Color.BLACK
@@ -472,11 +490,19 @@ class Hsp3CanvasRenderer(
             textPaint.style = Paint.Style.FILL
             textPaint.color = foreground
             canvas.drawText(line, cursorX.toFloat(), baseline, textPaint)
-            cursorX += textPaint.measureText(line).toInt()
-            if (flags and MES_NO_LINE_BREAK == 0 || index < lines.lastIndex) {
-                cursorX = startX
-                cursorY += lineHeight.toInt()
-            }
+
+            widestLine = maxOf(widestLine, textPaint.measureText(line))
+            cursorX = startX
+            cursorY += lineHeight
+        }
+
+        // Bmscr::Print() always advances by the rendered line height. HSPMES_NOCR
+        // then restores the original Y and leaves X after the widest printed line.
+        if (flags and MES_NO_LINE_BREAK != 0) {
+            cursorX = startX + widestLine.toInt()
+            cursorY = startY
+        } else {
+            cursorX = startX
         }
         textPaint.style = baseStyle
         textPaint.strokeWidth = baseStroke
@@ -558,15 +584,17 @@ class Hsp3CanvasRenderer(
 
     @Synchronized
     override fun redraw(enabled: Boolean) {
-        shouldPresent = enabled
+        // HSP's fl_udraw belongs to the selected Bmscr, not to the whole host.
+        activeSurface().shouldPresent = enabled
     }
 
-    /** Draws the selected HSP target with aspect-preserving letterboxing. */
+    /** Presents the visible HSP window (screen ID 0), never an offscreen buffer. */
     @Synchronized
     fun draw(target: Canvas) {
         if (closed) return
-        if (!shouldPresent) return
-        val bitmap = activeSurface().bitmap
+        val screen = surfaces[0] ?: return
+        if (!screen.shouldPresent) return
+        val bitmap = screen.bitmap
         val width = target.width.toFloat()
         val height = target.height.toFloat()
         if (width <= 0f || height <= 0f) return

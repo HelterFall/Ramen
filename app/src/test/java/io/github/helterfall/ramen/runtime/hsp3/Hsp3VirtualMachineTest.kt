@@ -62,6 +62,8 @@ class Hsp3VirtualMachineTest {
                 command(Hsp3CommandIds.BOXF, int(1), int(2), int(3), int(4)),
                 command(Hsp3CommandIds.MES, string("hello"), int(1)),
                 command(Hsp3CommandIds.REDRAW, int(1)),
+                command(Hsp3CommandIds.REDRAW, int(2)),
+                command(Hsp3CommandIds.REDRAW, int(3)),
                 Hsp3Instruction.End
             )
         )
@@ -78,6 +80,7 @@ class Hsp3VirtualMachineTest {
         assertTrue(graphics.calls.contains("boxf:1,2,3,4"))
         assertTrue(graphics.calls.contains("mes:hello:1"))
         assertTrue(graphics.calls.contains("redraw:true"))
+        assertTrue(graphics.calls.contains("redraw:false"))
     }
 
     @Test

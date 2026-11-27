@@ -54,6 +54,15 @@ data class Hsp3Token(
 )
 
 /**
+ * HSP 3.1 Windows binaries use the active Windows ANSI code page for script
+ * strings. Japanese Windows games use CP932 / Windows-31J, not strict JIS
+ * Shift_JIS. DPMX decryption is applied to the whole start.ax before DS is read.
+ */
+object Hsp3StringEncoding {
+    val WINDOWS_31J: Charset = Charset.forName("windows-31j")
+}
+
+/**
  * Bounded HSP3 object representation. Segment arrays contain only the
  * declared HSP payloads; the original executable/container is never copied.
  */
@@ -123,7 +132,7 @@ class Hsp3Program internal constructor(
         if (end == limit && (end == dataSegment.bytes.size || end - start == maxBytes)) {
             throw IOException("The HSP3 string is not NUL-terminated within the configured bound.")
         }
-        return String(dataSegment.bytes, start, end - start, SHIFT_JIS)
+        return String(dataSegment.bytes, start, end - start, Hsp3StringEncoding.WINDOWS_31J)
     }
 
     /** Reads an IEEE-754 little-endian double from the Data Segment. */
@@ -166,7 +175,6 @@ class Hsp3Program internal constructor(
         private const val TOKEN_32BIT_VALUE_FLAG = 0x8000
         private const val TYPE_CMPCMD = 11
         private const val DEFAULT_MAX_STRING_BYTES = 1024 * 1024
-        private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
 
         private fun readUInt16(bytes: ByteArray, offset: Int): Int =
             (bytes[offset].toInt() and 0xFF) or

@@ -1,6 +1,8 @@
 package io.github.helterfall.ramen.runtime.hsp3
 
 import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertEquals
@@ -13,6 +15,68 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [35])
 class Hsp3CanvasBmpTest {
+    @Test
+    fun drawPresentsScreenZeroInsteadOfTheCurrentlySelectedOffscreenBuffer() {
+        val renderer = Hsp3CanvasRenderer({ null }, logicalWidth = 2, logicalHeight = 2)
+        val target = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        try {
+            renderer.screen(0, 2, 2)
+            renderer.color(0, 255, 0)
+            renderer.boxf(0, 0, 1, 1)
+
+            renderer.buffer(1, 2, 2)
+            renderer.gsel(1)
+            renderer.color(255, 0, 0)
+            renderer.boxf(0, 0, 1, 1)
+
+            renderer.draw(Canvas(target))
+            assertEquals(Color.GREEN, target.getPixel(0, 0))
+
+            // redraw state belongs to the selected Bmscr; locking an offscreen
+            // buffer must not hide or clear the visible screen window.
+            renderer.redraw(false)
+            target.eraseColor(Color.BLACK)
+            renderer.draw(Canvas(target))
+            assertEquals(Color.GREEN, target.getPixel(0, 0))
+
+            renderer.gsel(0)
+            renderer.redraw(false)
+            target.eraseColor(Color.BLACK)
+            renderer.draw(Canvas(target))
+            assertEquals(Color.BLACK, target.getPixel(0, 0))
+            renderer.redraw(true)
+        } finally {
+            target.recycle()
+            renderer.close()
+        }
+    }
+
+    @Test
+    fun mesAdvancesCursorBetweenCallsAndHonorsNoCrAcrossMultilineText() {
+        val renderer = Hsp3CanvasRenderer({ null }, logicalWidth = 160, logicalHeight = 100)
+        try {
+            renderer.font("sans-serif", 18, 0)
+            renderer.pos(7, 9)
+            renderer.mes("first")
+            val afterFirst = renderer.currentPosition()
+            assertEquals(7, afterFirst.first)
+            assertTrue(afterFirst.second > 9)
+
+            renderer.mes("second")
+            val afterSecond = renderer.currentPosition()
+            assertEquals(7, afterSecond.first)
+            assertTrue(afterSecond.second > afterFirst.second)
+
+            renderer.pos(11, 13)
+            renderer.mes("a\r\nlonger", 1) // OpenHSP HSPMES_NOCR
+            val noCrPosition = renderer.currentPosition()
+            assertEquals(13, noCrPosition.second)
+            assertTrue(noCrPosition.first > 11)
+        } finally {
+            renderer.close()
+        }
+    }
+
     @Test
     fun picloadLoadsEightBitPalettedBmpWithBgrxPaletteEntries() {
         val red = 0xFFFF0000.toInt()

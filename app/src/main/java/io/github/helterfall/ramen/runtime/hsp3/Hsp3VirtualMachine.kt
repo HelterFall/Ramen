@@ -6,7 +6,6 @@ import java.util.Calendar
 import java.util.concurrent.ThreadLocalRandom
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.nio.charset.Charset
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -697,7 +696,7 @@ class Hsp3VirtualMachine(
                 Hsp3CommandIds.MES -> {
                     val message = stringArg(0)
                     graphics.mes(message, intArg(1))
-                    stringSize = message.toByteArray(SHIFT_JIS).size
+                    stringSize = message.toByteArray(Hsp3StringEncoding.WINDOWS_31J).size
                 }
                 Hsp3CommandIds.TITLE -> graphics.title(stringArg(0))
                 Hsp3CommandIds.POS -> {
@@ -710,7 +709,9 @@ class Hsp3VirtualMachine(
                 Hsp3CommandIds.COLOR -> graphics.color(intArg(0), intArg(1), intArg(2))
                 Hsp3CommandIds.PALCOLOR, Hsp3CommandIds.PALETTE ->
                     graphics.palette(resolvedArguments())
-                Hsp3CommandIds.REDRAW -> graphics.redraw(intArg(0, 1) != 0)
+                // OpenHSP stores fl_udraw as p1 & 1: values 0/2 disable,
+                // values 1/3 enable presentation.
+                Hsp3CommandIds.REDRAW -> graphics.redraw(intArg(0, 1) and 1 != 0)
                 Hsp3CommandIds.WIDTH -> {
                     val size = graphics.currentSurfaceSize()
                     graphics.width(

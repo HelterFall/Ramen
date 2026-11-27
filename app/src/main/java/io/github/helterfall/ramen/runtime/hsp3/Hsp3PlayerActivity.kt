@@ -23,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,7 +105,7 @@ class Hsp3PlayerActivity : ComponentActivity() {
                     title = game.title,
                     session = sessionState.value,
                     error = errorState.value,
-                    frameCounter = frameCounter.value,
+                    frameToken = frameCounter,
                     input = inputController,
                     onExit = ::finish
                 )
@@ -293,7 +294,7 @@ private fun Hsp3PlayerScreen(
     title: String,
     session: Hsp3RuntimeSession?,
     error: String?,
-    frameCounter: Int,
+    frameToken: State<Int>,
     input: Hsp3TouchInputController,
     onExit: () -> Unit
 ) {
@@ -362,8 +363,9 @@ private fun Hsp3PlayerScreen(
                             }
                         }
                 ) {
-                    // Capture the host frame token so each bounded VM slice invalidates the Canvas.
-                    if (frameCounter == Int.MIN_VALUE) drawRect(Color.Transparent)
+                    // Read the token only in the draw phase. VM frames then invalidate
+                    // this Canvas without recomposing the toolbar and touch controls.
+                    if (frameToken.value == Int.MIN_VALUE) drawRect(Color.Transparent)
                     drawIntoCanvas { canvas ->
                         session?.renderer?.draw(canvas.nativeCanvas)
                             ?: canvas.nativeCanvas.drawColor(android.graphics.Color.BLACK)
