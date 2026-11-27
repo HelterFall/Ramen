@@ -363,9 +363,9 @@ fun RamenApp() {
 
     fun launchFullGameAuditService(game: GameRecord, notificationsGranted: Boolean) {
         val message = if (notificationsGranted) {
-            "SCAN запущен. Можно свернуть Ramen и пользоваться телефоном — ход будет в уведомлении."
+            "SCAN запущен. Можно свернуть Ramen или выключить экран. Прогресс будет в уведомлении; расход батареи может увеличиться."
         } else {
-            "SCAN запущен в фоне. Уведомления отключены, поэтому прогресс будет виден после возвращения в Ramen."
+            "SCAN запущен в фоне. Можно заниматься другими делами, но уведомления отключены; прогресс будет виден после возвращения. Расход батареи может увеличиться."
         }
         SystemNnnFullGameAuditStateStore.update(
             context,
