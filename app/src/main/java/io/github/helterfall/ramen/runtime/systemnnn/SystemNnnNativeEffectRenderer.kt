@@ -749,7 +749,7 @@ internal object SystemNnnNativeEffectRenderer {
                 val sourceY = sourceStartY + inTileY / 2
                 val noiseIndex = sourceY * 128 + sourceX
                 val noise = randomMix(noiseIndex * 0x119DE1F3)
-                val gray = value
+                val gray = noise and 0xFF
                 val index = y * width + x
                 val old = source[index]
                 result[index] = argb(
