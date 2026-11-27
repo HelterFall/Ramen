@@ -585,7 +585,8 @@ internal class SystemNnnFullGameAuditor(
                         assetManager = assetManager
                     )
                     if (command is SystemNnnDecodedCommand.NativeSystemFunction &&
-                        command.functionId != PREPARE_OVERRAP
+                        command.functionId != PREPARE_OVERRAP &&
+                        command.functionId !in PLAYER_HANDLED_NATIVE_SYSTEM_FUNCTION_IDS
                     ) {
                         val gap = systemFunctionName(command.functionId) +
                             " (0x" + command.functionId.toString(16) +
@@ -1540,6 +1541,10 @@ internal class SystemNnnFullGameAuditor(
         const val PRELOAD_DWQ = 0x001F
         const val PREPARE_OVERRAP = 0x0011
         const val SET_CG = 0x0018
+        val PLAYER_HANDLED_NATIVE_SYSTEM_FUNCTION_IDS = setOf(
+            0x0017, SET_CG, 0x001B, 0x001C, 0x001E, 0x0028,
+            0x0053, 0x0057, 0x0058, 0x0059, 0x005A
+        )
         const val SCREEN_EFFECT_LAYER = 31
         const val OPEN_BRACE = 0x007B
         const val CLOSE_BRACE = 0x007D

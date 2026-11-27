@@ -229,6 +229,20 @@ class SystemNnnNativeEffectRendererTest {
     }
 
     @Test
+    fun sunaNoiseAcceptsTheFourOperandGameFormWithNativeDefaults() {
+        val source = IntArray(8 * 8) { 0xFF123456.toInt() }
+        val first = SystemNnnNativeEffectRenderer.sunaNoise(
+            source, 8, 8, 45, 9_999, listOf(9_999, 1, 14, 14)
+        )
+        val second = SystemNnnNativeEffectRenderer.sunaNoise(
+            source, 8, 8, 45, 9_999, listOf(9_999, 1, 14, 14)
+        )
+
+        assertEquals(source.size, first.size)
+        assertArrayEquals(first, second)
+    }
+
+    @Test
     fun sunaNoiseUsesTheConfiguredScreenRectangle() {
         val source = IntArray(64) { 0xFF123456.toInt() }
         val first = SystemNnnNativeEffectRenderer.sunaNoise(

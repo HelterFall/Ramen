@@ -135,6 +135,9 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                 SystemNnnPlayerScreen(
                     state = playerViewModel.uiState,
                     onScreenTap = playerViewModel::onNextTap,
+                    onAutomaticAdvance = playerViewModel::onAutomaticAdvance,
+                    onAutoMessageTimerElapsed = playerViewModel::onAutoMessageTimerElapsed,
+                    onAutoModeChanged = playerViewModel::setNativeAutoMode,
                     onDrawFrameCompleted = playerViewModel::onDrawFrameCompleted,
                     onScreenCaptureReady = playerViewModel::onScreenCaptureReady,
                     onOverrapTransitionFinished = playerViewModel::onOverrapTransitionFinished,

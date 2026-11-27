@@ -1003,6 +1003,31 @@ class SystemNnnPlayerViewModel : ViewModel() {
     /** Alias used by the player screen to advance to the next frame. */
     fun onNextTap() = onScreenTap()
 
+    /** Native global AUTO and SKIP advance without passing through manual click gates. */
+    fun onAutomaticAdvance() {
+        val current = uiState
+        if (current.isLoading || current.isEnded || current.choices.isNotEmpty() ||
+            current.pendingDrawFrameCount != null || !current.isTextComplete
+        ) return
+        advanceToVisibleEvent()
+    }
+
+    /** AUTOMESSAGE has its own message timer, separate from NNNPARAM_AUTOMODE. */
+    fun onAutoMessageTimerElapsed() {
+        val current = uiState
+        if (current.nativeRuntime.autoMessage <= 0 || current.isLoading ||
+            current.isEnded || current.choices.isNotEmpty() ||
+            current.pendingDrawFrameCount != null || !current.isTextComplete
+        ) return
+        advanceToVisibleEvent()
+    }
+
+    /** Mirrors CGameCallBack::SetDontPlay and NNNPARAM_AUTOMODE. */
+    fun setNativeAutoMode(enabled: Boolean) {
+        nativeRuntimeState = nativeRuntimeState.copy(dontPlayMode = if (enabled) 1 else 0)
+        uiState = uiState.copy(nativeRuntime = nativeRuntimeState)
+    }
+
     /**
      * A tap first completes the current typewriter line. Only a subsequent tap
      * asks the command decoder for the next event.
@@ -1019,7 +1044,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 "visibleCharacters" to current.visibleCharacterCount
             )
         )
-        if (current.nativeRuntime.cannotClick > 0 ||
+        if (current.nativeRuntime.cannotClick > 0 || current.nativeRuntime.autoMessage > 0 ||
             current.isLoading || current.isEnded || current.choices.isNotEmpty() ||
             current.pendingDrawFrameCount != null
         ) return
@@ -1525,6 +1550,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     fun onChoiceSelected(choiceId: String) {
+        if (uiState.nativeRuntime.cannotClick > 0 || uiState.nativeRuntime.autoMessage > 0) return
         val choice = uiState.choices.firstOrNull { it.id == choiceId } ?: return
         val currentScript = script ?: return
         if (!isValidCommandOffset(currentScript, choice.targetCommandOffset)) {
@@ -1554,14 +1580,16 @@ class SystemNnnPlayerViewModel : ViewModel() {
             }
             0x001B -> {
                 val messageId = parameters.getOrNull(0)
-                val nextMode = if (parameters.size > 1) {
-                    when (parameters[1]) {
+                val nextMode = when {
+                    parameters.size > 1 -> when (parameters[1]) {
                         0 -> -1
                         1 -> 0
                         2 -> 1
                         else -> current.nextMessageWindowPrintMode
                     }
-                } else -1
+                    parameters.size == 1 -> -1
+                    else -> current.nextMessageWindowPrintMode
+                }
                 current.copy(
                     lastMessageId = messageId?.takeIf { it >= 0 } ?: current.lastMessageId,
                     nextMessageWindowPrintMode = nextMode,

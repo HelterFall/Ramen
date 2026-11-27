@@ -78,6 +78,9 @@ import kotlin.math.roundToInt
 fun SystemNnnPlayerScreen(
     state: SystemNnnPlayerUiState,
     onScreenTap: () -> Unit,
+    onAutomaticAdvance: () -> Unit,
+    onAutoMessageTimerElapsed: () -> Unit,
+    onAutoModeChanged: (Boolean) -> Unit,
     onDrawFrameCompleted: () -> Unit,
     onScreenCaptureReady: (Long, Bitmap?) -> Unit,
     onOverrapTransitionFinished: (Long) -> Unit,
@@ -90,7 +93,7 @@ fun SystemNnnPlayerScreen(
     onQuickAction: (SystemNnnPlayerQuickAction) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    var autoMode by remember { mutableStateOf(false) }
+    val autoMode = state.nativeRuntime.dontPlayMode != 0
     var skipMode by remember { mutableStateOf(false) }
     var debugOverlayVisible by remember { mutableStateOf(true) }
     var diagnosticTail by remember { mutableStateOf(emptyList<String>()) }
@@ -107,8 +110,10 @@ fun SystemNnnPlayerScreen(
 
     // The recorder writes on its own thread. Poll the immutable tail slowly so
     // per-animation-frame trace events cannot trigger a recomposition storm.
-    LaunchedEffect(state.nativeRuntime.cannotSkip) {
-        if (state.nativeRuntime.cannotSkip > 0) skipMode = false
+    LaunchedEffect(state.nativeRuntime.cannotSkip, state.nativeRuntime.autoMessage, autoMode) {
+        if (state.nativeRuntime.cannotSkip > 0 || state.nativeRuntime.autoMessage > 0 || autoMode) {
+            skipMode = false
+        }
     }
 
     LaunchedEffect(debugOverlayVisible) {
@@ -509,10 +514,10 @@ fun SystemNnnPlayerScreen(
     }
 
     LaunchedEffect(
-        autoMode, skipMode, state.frameId, state.drawEventId, state.isTextComplete,
-        state.choices, state.isEnded, state.isLoading, state.pendingDrawFrameCount
+        autoMode, skipMode, state.nativeRuntime.autoMessage, state.frameId, state.drawEventId,
+        state.isTextComplete, state.choices, state.isEnded, state.isLoading, state.pendingDrawFrameCount
     ) {
-        if ((!autoMode && !skipMode) ||
+        if ((!autoMode && !skipMode) || state.nativeRuntime.autoMessage > 0 ||
             state.pendingDrawFrameCount != null ||
             !state.isTextComplete ||
             state.choices.isNotEmpty() ||
@@ -523,7 +528,26 @@ fun SystemNnnPlayerScreen(
         }
 
         delay(if (skipMode) SKIP_ADVANCE_DELAY_MILLIS else AUTO_ADVANCE_DELAY_MILLIS)
-        onScreenTap()
+        onAutomaticAdvance()
+    }
+
+    // AUTOMESSAGE's native default autoMessageLastWait is 2000 ms.
+    LaunchedEffect(
+        state.nativeRuntime.autoMessage, state.frameId, state.drawEventId,
+        state.isTextComplete, state.choices, state.isEnded, state.isLoading, state.pendingDrawFrameCount
+    ) {
+        if (state.nativeRuntime.autoMessage <= 0 ||
+            state.pendingDrawFrameCount != null ||
+            !state.isTextComplete ||
+            state.choices.isNotEmpty() ||
+            state.isEnded ||
+            state.isLoading
+        ) {
+            return@LaunchedEffect
+        }
+
+        delay(SCRIPT_AUTO_MESSAGE_WAIT_MILLIS)
+        onAutoMessageTimerElapsed()
     }
 
     Box(
@@ -535,6 +559,7 @@ fun SystemNnnPlayerScreen(
                 interactionSource = remember { MutableInteractionSource() },
                 indication = null,
                 enabled = state.nativeRuntime.cannotClick <= 0 &&
+                    state.nativeRuntime.autoMessage <= 0 &&
                     state.choices.isEmpty() && !state.isEnded &&
                     !state.isLoading && state.pendingDrawFrameCount == null,
                 onClick = onScreenTap
@@ -715,16 +740,18 @@ fun SystemNnnPlayerScreen(
         QuickMenu(
             autoEnabled = autoMode,
             skipEnabled = skipMode,
-            skipAllowed = state.nativeRuntime.cannotSkip <= 0,
+            optionsEnabled = state.nativeRuntime.optionOff <= 0 && state.nativeRuntime.autoMessage <= 0,
+            skipAllowed = state.nativeRuntime.cannotSkip <= 0 && state.nativeRuntime.autoMessage <= 0,
             onSave = { onQuickAction(SystemNnnPlayerQuickAction.SAVE) },
             onLoad = { onQuickAction(SystemNnnPlayerQuickAction.LOAD) },
             onAutoToggle = {
-                autoMode = !autoMode
-                if (autoMode) skipMode = false
+                val enableAuto = !autoMode
+                onAutoModeChanged(enableAuto)
+                if (enableAuto) skipMode = false
             },
             onSkipToggle = {
                 skipMode = !skipMode
-                if (skipMode) autoMode = false
+                if (skipMode) onAutoModeChanged(false)
             },
             onExportDiagnostics = onExportDiagnostics,
             onExportTrace = onExportTrace,
@@ -852,7 +879,7 @@ fun SystemNnnPlayerScreen(
         if (state.choices.isNotEmpty()) {
             ChoiceOverlay(
                 choices = state.choices,
-                clicksEnabled = state.nativeRuntime.cannotClick <= 0,
+                clicksEnabled = state.nativeRuntime.cannotClick <= 0 && state.nativeRuntime.autoMessage <= 0,
                 onChoiceSelected = onChoiceSelected,
                 modifier = Modifier
                     .align(Alignment.Center)
@@ -1837,6 +1864,7 @@ enum class SystemNnnPlayerQuickAction {
 private fun QuickMenu(
     autoEnabled: Boolean,
     skipEnabled: Boolean,
+    optionsEnabled: Boolean,
     skipAllowed: Boolean,
     onSave: () -> Unit,
     onLoad: () -> Unit,
@@ -1859,11 +1887,13 @@ private fun QuickMenu(
             modifier = Modifier.padding(horizontal = 7.dp, vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                QuickMenuButton(label = "SAVE", selected = false, onClick = onSave)
-                QuickMenuButton(label = "LOAD", selected = false, onClick = onLoad)
-                QuickMenuButton(label = "AUTO", selected = autoEnabled, onClick = onAutoToggle)
-                QuickMenuButton(label = "SKIP", selected = skipEnabled, onClick = onSkipToggle, enabled = skipAllowed)
+            if (optionsEnabled) {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    QuickMenuButton(label = "SAVE", selected = false, onClick = onSave)
+                    QuickMenuButton(label = "LOAD", selected = false, onClick = onLoad)
+                    QuickMenuButton(label = "AUTO", selected = autoEnabled, onClick = onAutoToggle)
+                    QuickMenuButton(label = "SKIP", selected = skipEnabled, onClick = onSkipToggle, enabled = skipAllowed)
+                }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 QuickMenuButton(label = "LOG", selected = false, onClick = onExportDiagnostics)
@@ -1943,4 +1973,5 @@ private fun ChoiceOverlay(
 private const val DEBUG_OVERLAY_REFRESH_MILLIS = 500L
 private const val TYPEWRITER_DELAY_MILLIS = 24L
 private const val AUTO_ADVANCE_DELAY_MILLIS = 1_350L
+private const val SCRIPT_AUTO_MESSAGE_WAIT_MILLIS = 2_000L
 private const val SKIP_ADVANCE_DELAY_MILLIS = 160L

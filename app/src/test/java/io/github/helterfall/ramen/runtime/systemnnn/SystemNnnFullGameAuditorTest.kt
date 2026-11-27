@@ -52,17 +52,17 @@ class SystemNnnFullGameAuditorTest {
             val module = modules.single() as Map<*, *>
             assertEquals("scanned", module["status"])
             assertEquals(1, module["physicalRecordCount"])
-            assertEquals(1, module["decodedButNotApplied"])
+            assertEquals(0, module["decodedButNotApplied"])
 
             val opcodes = report["opcodeInventory"] as List<*>
             val startMessage = opcodes.map { it as Map<*, *> }
                 .single { it["name"] == "STARTMESSAGE" }
             assertEquals(1, startMessage["occurrences"])
             assertEquals(1, startMessage["decoded"])
-            assertEquals(1, startMessage["runtimeNotApplied"])
+            assertEquals(0, startMessage["runtimeNotApplied"])
 
             val issues = report["issues"] as List<*>
-            assertTrue(issues.map { it as Map<*, *> }
+            assertFalse(issues.map { it as Map<*, *> }
                 .any { it["code"] == "decoded_but_not_applied" })
 
             val json = SystemNnnTraceJson.encode(report)

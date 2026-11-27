@@ -24,6 +24,20 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(33, actual.size)
     }
     @Test
+    fun targetGameShortFormSunaAndRain2SamplesHaveNativeLayerPaths() {
+        assertTrue(
+            SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+                29, listOf(9_999, 1, 14, 14)
+            )
+        )
+        assertTrue(
+            SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+                56, listOf(0, 0, 270, 4)
+            )
+        )
+    }
+
+    @Test
     fun nativeEffectContinuationAndUnregisteredIdsDoNotReplaceThePreviousEffect() {
         for (effectId in listOf(-1, 4, 5, 6, 7)) {
             assertFalse(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))

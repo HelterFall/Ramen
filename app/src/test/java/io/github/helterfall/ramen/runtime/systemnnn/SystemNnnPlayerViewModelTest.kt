@@ -746,7 +746,6 @@ class SystemNnnPlayerViewModelTest {
         )
 
         val native = viewModel.uiState.nativeRuntime
-        System.err.println("NATIVE_RUNTIME_DEBUG=" + native + " ui=" + viewModel.uiState)
         assertEquals("First line", viewModel.uiState.dialogueText)
         assertEquals(42, native.lastMessageId)
         assertEquals(3, native.nextMessageType)
@@ -764,6 +763,84 @@ class SystemNnnPlayerViewModelTest {
 
         viewModel.onScreenTap()
         assertFalse(viewModel.uiState.isTextComplete)
+    }
+
+    @Test
+    fun startMessageWithoutParametersPreservesPendingMessageWindowMode() {
+        val lengths = List(3) { 3 }
+        val offsets = recordOffsets(lengths)
+        val textStart = testTextStartOffset(lengths)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.NativeSystemFunction(
+                    nextCommandOffset = offsets[1],
+                    functionId = 0x001B,
+                    parameters = listOf(42, 1)
+                ),
+                offsets[1] to SystemNnnDecodedCommand.NativeSystemFunction(
+                    nextCommandOffset = offsets[2],
+                    functionId = 0x001B,
+                    parameters = emptyList()
+                ),
+                offsets[2] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[3],
+                    textEntryOffset = textStart
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(lengths), decoder, EmptyAssets)
+
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertFalse(viewModel.uiState.nativeRuntime.messageWindowPrintFlag)
+        assertEquals(-1, viewModel.uiState.nativeRuntime.nextMessageWindowPrintMode)
+    }
+
+    @Test
+    fun autoMessageBlocksManualInputButAdvancesAfterItsNativeTimer() {
+        val lengths = List(4) { 3 }
+        val offsets = recordOffsets(lengths)
+        val textStart = testTextStartOffset(lengths)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.NativeSystemFunction(
+                    nextCommandOffset = offsets[1],
+                    functionId = 0x0057,
+                    parameters = listOf(1)
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = textStart
+                ),
+                offsets[2] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[3],
+                    textEntryOffset = textStart + 0x0CL
+                ),
+                offsets[3] to SystemNnnDecodedCommand.End
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+        viewModel.start(testScript(lengths), decoder, EmptyAssets)
+
+        assertEquals(1, viewModel.uiState.nativeRuntime.autoMessage)
+        viewModel.onScreenTap()
+        assertFalse(viewModel.uiState.isTextComplete)
+        viewModel.onTypewriterFinished()
+        viewModel.onScreenTap()
+        assertEquals("First line", viewModel.uiState.dialogueText)
+
+        viewModel.onAutoMessageTimerElapsed()
+        assertEquals("Choose a path", viewModel.uiState.dialogueText)
+    }
+
+    @Test
+    fun setDemoFlagRuntimeCanToggleTheNativeGlobalAutoParameter() {
+        val viewModel = SystemNnnPlayerViewModel()
+        viewModel.setNativeAutoMode(true)
+        assertEquals(1, viewModel.uiState.nativeRuntime.dontPlayMode)
+        viewModel.setNativeAutoMode(false)
+        assertEquals(0, viewModel.uiState.nativeRuntime.dontPlayMode)
     }
 
     @Test
