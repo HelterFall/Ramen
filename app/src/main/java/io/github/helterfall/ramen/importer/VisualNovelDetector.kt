@@ -56,6 +56,7 @@ class VisualNovelDetector {
                 path == "arc.___" || ENCRYPTED_NSA_PATTERN.matches(path)
         }
         if (protectedNscripterMarker != null &&
+            "0.utf" !in files && "00.utf" !in files &&
             "0.txt" !in files && "00.txt" !in files && "nscript.dat" !in files
         ) {
             return GameDetection(
@@ -72,6 +73,9 @@ class VisualNovelDetector {
                 false
             } else {
                 path == "nscript.dat" ||
+                    path == "0.utf" ||
+                    path == "00.utf" ||
+                    UTF_NUMBERED_SCRIPT_PATTERN.matches(path) ||
                     path == "0.txt" ||
                     path == "00.txt" ||
                     NUMBERED_SCRIPT_PATTERN.matches(path) ||
@@ -166,6 +170,7 @@ class VisualNovelDetector {
         private const val MAX_SCAN_DEPTH = 4
         private const val MAX_SCANNED_FILES = 10_000
         private val NUMBERED_SCRIPT_PATTERN = Regex("^(?:[1-9]|[1-9][0-9]|0[1-9])\\.txt$")
+        private val UTF_NUMBERED_SCRIPT_PATTERN = Regex("^(?:[1-9]|[1-9][0-9]|0[1-9])\\.utf$")
         private val EXTRA_NSA_PATTERN = Regex("^arc[1-9]\\.nsa$")
         private val ENCRYPTED_NSA_PATTERN = Regex("^arc[1-9]\\.___$")
     }
