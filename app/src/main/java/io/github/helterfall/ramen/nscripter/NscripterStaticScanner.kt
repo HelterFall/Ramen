@@ -13,7 +13,8 @@ data class NscripterArchiveSummary(
     val path: String,
     val format: String,
     val entryCount: Int,
-    val compressedEntriesByType: Map<Int, Int>
+    val compressedEntriesByType: Map<Int, Int>,
+    val decodedSpbBitmapCount: Int = 0
 )
 
 data class NscripterUnsupportedDirective(
@@ -54,6 +55,7 @@ class NscripterStaticScanner(
         val graphicsFormats = TreeMap<String, Int>()
         val audioFormats = TreeMap<String, Int>()
         val archives = mutableListOf<NscripterArchiveSummary>()
+        val indexedArchives = mutableListOf<Pair<File, NscripterArchiveIndex>>()
         val unsupported = linkedMapOf<Pair<String, String>, MutableList<Int>>()
         val parseErrors = mutableListOf<String>()
 
@@ -73,11 +75,24 @@ class NscripterStaticScanner(
             if (extension != "nsa" && extension != "sar") continue
             try {
                 val index = archiveReader.readIndex(file)
+                indexedArchives += file to index
                 val compressedCounts = TreeMap<Int, Int>()
+                var decodedSpbBitmapCount = 0
                 for (entry in index.entries) {
                     if (entry.compressionType != 0) {
                         compressedCounts[entry.compressionType] =
                             (compressedCounts[entry.compressionType] ?: 0) + 1
+                    }
+                    if (entry.compressionType == SPB_COMPRESSION &&
+                        entry.name.substringAfterLast('.', "").equals("bmp", ignoreCase = true)
+                    ) {
+                        try {
+                            archiveReader.readEntry(file, entry)
+                            decodedSpbBitmapCount++
+                        } catch (error: Exception) {
+                            parseErrors += "$relativePath!/${entry.name}: SPB bitmap decompression failed: " +
+                                (error.message ?: error.javaClass.simpleName)
+                        }
                     }
                     countResourceFormat(
                         extension = entry.name.substringAfterLast('.', ""),
@@ -89,7 +104,8 @@ class NscripterStaticScanner(
                     path = relativePath,
                     format = index.format,
                     entryCount = index.entries.size,
-                    compressedEntriesByType = compressedCounts
+                    compressedEntriesByType = compressedCounts,
+                    decodedSpbBitmapCount = decodedSpbBitmapCount
                 )
             } catch (error: Exception) {
                 parseErrors += "$relativePath: archive index parsing failed: " +
@@ -168,6 +184,7 @@ class NscripterStaticScanner(
             appendJsonString(archive.format)
             append(", \"entryCount\": ${archive.entryCount}, \"compressedEntriesByType\": ")
             appendIntIntMap(archive.compressedEntriesByType)
+            append(", \"decodedSpbBitmapCount\": ${archive.decodedSpbBitmapCount}")
             append("}")
             if (index != report.archives.lastIndex) append(',')
             append('\n')
