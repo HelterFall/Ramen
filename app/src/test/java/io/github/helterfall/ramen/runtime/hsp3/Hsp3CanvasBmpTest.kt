@@ -34,10 +34,12 @@ class Hsp3CanvasBmpTest {
             assertEquals(1 to 1, renderer.currentPosition())
             renderer.boxf(1, 1, 1, 1)
 
-            assertEquals(Color.BLACK, pixel(renderer, 0, 0, 0))
+            // New ARGB_8888 surfaces begin transparent; the game window composites
+            // that untouched area over black when it is presented.
+            assertEquals(Color.TRANSPARENT, pixel(renderer, 0, 0, 0))
             assertEquals(Color.GREEN, pixel(renderer, 0, 1, 1))
             assertEquals(Color.RED, pixel(renderer, 1, 0, 0))
-            assertEquals(Color.BLACK, pixel(renderer, 1, 1, 1))
+            assertEquals(Color.TRANSPARENT, pixel(renderer, 1, 1, 1))
         } finally {
             renderer.close()
         }
@@ -54,27 +56,28 @@ class Hsp3CanvasBmpTest {
 
     @Test
     fun drawPresentsScreenZeroInsteadOfTheCurrentlySelectedOffscreenBuffer() {
-        val renderer = Hsp3CanvasRenderer({ null }, logicalWidth = 2, logicalHeight = 2)
-        val target = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
+        val renderer = Hsp3CanvasRenderer({ null }, logicalWidth = 8, logicalHeight = 8)
+        val target = Bitmap.createBitmap(8, 8, Bitmap.Config.ARGB_8888)
         try {
-            renderer.screen(0, 2, 2)
+            renderer.screen(0, 8, 8)
             renderer.color(0, 255, 0)
-            renderer.boxf(0, 0, 1, 1)
+            renderer.boxf(0, 0, 7, 7)
+            assertEquals(Color.GREEN, pixel(renderer, 0, 4, 4))
 
-            renderer.buffer(1, 2, 2)
+            renderer.buffer(1, 8, 8)
             renderer.gsel(1)
             renderer.color(255, 0, 0)
-            renderer.boxf(0, 0, 1, 1)
+            renderer.boxf(0, 0, 7, 7)
 
             renderer.draw(Canvas(target))
-            assertEquals(Color.GREEN, target.getPixel(0, 0))
+            assertEquals(Color.GREEN, target.getPixel(4, 4))
 
             // redraw state belongs to the selected Bmscr; locking an offscreen
             // buffer must not hide or clear the visible screen window.
             renderer.redraw(false)
             target.eraseColor(Color.BLACK)
             renderer.draw(Canvas(target))
-            assertEquals(Color.GREEN, target.getPixel(0, 0))
+            assertEquals(Color.GREEN, target.getPixel(4, 4))
 
             renderer.gsel(0)
             renderer.redraw(false)
@@ -83,14 +86,14 @@ class Hsp3CanvasBmpTest {
             renderer.boxf(0, 0, 0, 0)
             target.eraseColor(Color.BLACK)
             renderer.draw(Canvas(target))
-            assertEquals(Color.GREEN, target.getPixel(0, 0))
+            assertEquals(Color.GREEN, target.getPixel(4, 4))
 
             // Re-enabling redraw publishes the changes made to the backing surface.
             renderer.redraw(true)
             target.eraseColor(Color.BLACK)
             renderer.draw(Canvas(target))
             assertEquals(Color.RED, target.getPixel(0, 0))
-            assertEquals(Color.GREEN, target.getPixel(1, 1))
+            assertEquals(Color.GREEN, target.getPixel(4, 4))
         } finally {
             target.recycle()
             renderer.close()
