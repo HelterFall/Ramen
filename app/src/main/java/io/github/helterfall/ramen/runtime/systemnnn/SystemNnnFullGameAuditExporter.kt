@@ -65,13 +65,32 @@ internal object SystemNnnFullGameAuditExporter {
     }
 
     @Throws(IOException::class)
-    fun copyTo(source: File, destination: OutputStream): Long {
+    fun copyTo(
+        source: File,
+        destination: OutputStream,
+        onProgress: ((copiedBytes: Long, totalBytes: Long) -> Unit)? = null
+    ): Long {
         if (!source.isFile || source.length() <= 0L) {
             throw IOException("The staged full-game audit report is missing or empty.")
         }
         val expectedBytes = source.length()
-        val copiedBytes = source.inputStream().buffered().use { input ->
-            input.copyTo(destination)
+        var copiedBytes = 0L
+        var lastProgressBytes = 0L
+        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        source.inputStream().buffered().use { input ->
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (count == 0) continue
+                destination.write(buffer, 0, count)
+                copiedBytes += count.toLong()
+                if (copiedBytes - lastProgressBytes >= 256L * 1024L ||
+                    copiedBytes == expectedBytes
+                ) {
+                    lastProgressBytes = copiedBytes
+                    onProgress?.invoke(copiedBytes, expectedBytes)
+                }
+            }
         }
         destination.flush()
         if (copiedBytes != expectedBytes) {
