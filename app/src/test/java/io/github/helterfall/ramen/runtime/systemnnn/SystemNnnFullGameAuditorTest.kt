@@ -85,6 +85,7 @@ class SystemNnnFullGameAuditorTest {
             )
             assertEquals(stagedBytes to stagedBytes, copyProgress.last())
             val exportedJson = String(exportedBytes.toByteArray(), Charsets.UTF_8)
+            assertEquals(json + "\n", exportedJson)
             assertTrue(exportedJson.startsWith("{"))
             assertTrue(exportedJson.contains("\"reportType\":\"ramen.system-nnn.full-game-audit\""))
             val expectedSha256 = SystemNnnFullGameAuditExporter.sha256(stagedFile)
