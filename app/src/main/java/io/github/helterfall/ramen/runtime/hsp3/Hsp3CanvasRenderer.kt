@@ -15,6 +15,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 interface Hsp3Graphics : Closeable {
     fun screen(id: Int, width: Int, height: Int)
