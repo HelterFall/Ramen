@@ -715,7 +715,6 @@ fun SystemNnnPlayerScreen(
         QuickMenu(
             autoEnabled = autoMode,
             skipEnabled = skipMode,
-            optionsEnabled = state.nativeRuntime.optionOff <= 0,
             skipAllowed = state.nativeRuntime.cannotSkip <= 0,
             onSave = { onQuickAction(SystemNnnPlayerQuickAction.SAVE) },
             onLoad = { onQuickAction(SystemNnnPlayerQuickAction.LOAD) },
@@ -1838,7 +1837,6 @@ enum class SystemNnnPlayerQuickAction {
 private fun QuickMenu(
     autoEnabled: Boolean,
     skipEnabled: Boolean,
-    optionsEnabled: Boolean,
     skipAllowed: Boolean,
     onSave: () -> Unit,
     onLoad: () -> Unit,
@@ -1862,10 +1860,8 @@ private fun QuickMenu(
             verticalArrangement = Arrangement.spacedBy(3.dp)
         ) {
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (optionsEnabled) {
-                    QuickMenuButton(label = "SAVE", selected = false, onClick = onSave)
-                    QuickMenuButton(label = "LOAD", selected = false, onClick = onLoad)
-                }
+                QuickMenuButton(label = "SAVE", selected = false, onClick = onSave)
+                QuickMenuButton(label = "LOAD", selected = false, onClick = onLoad)
                 QuickMenuButton(label = "AUTO", selected = autoEnabled, onClick = onAutoToggle)
                 QuickMenuButton(label = "SKIP", selected = skipEnabled, onClick = onSkipToggle, enabled = skipAllowed)
             }

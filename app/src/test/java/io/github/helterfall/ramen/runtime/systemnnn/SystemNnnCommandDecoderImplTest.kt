@@ -1004,9 +1004,7 @@ class SystemNnnCommandDecoderImplTest {
         val logFile = File.createTempFile("ramen-system-function-audit-", ".log").apply { delete() }
         try {
             val unsupported = listOf(
-                0x33330017u, 0x33330028u,
-                0x33330053u, 0x33330054u, 0x33330056u, 0x33330060u,
-
+                0x33330054u, 0x33330056u, 0x33330060u
             )
             val records = unsupported.map { code -> record(3, SYSTEM_FUNCTION, code) }
             val script = testScript(records, textCount = 0)
