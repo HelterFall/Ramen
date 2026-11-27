@@ -664,7 +664,7 @@ class Hsp3CanvasRenderer(
             if (drawWidth == bitmap.width.toFloat() && drawHeight == bitmap.height.toFloat()) {
                 // Avoid a redundant RectF resample when the logical HSP surface
                 // already matches the target Canvas pixel dimensions.
-                target.drawBitmap(bitmap, left, top, bitmapPaint)
+                target.drawBitmap(bitmap, left, top, null)
             } else {
                 target.drawBitmap(
                     bitmap,

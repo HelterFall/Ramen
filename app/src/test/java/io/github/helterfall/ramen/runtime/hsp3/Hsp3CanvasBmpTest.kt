@@ -3,6 +3,7 @@ package io.github.helterfall.ramen.runtime.hsp3
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Rect
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertEquals
@@ -69,7 +70,15 @@ class Hsp3CanvasBmpTest {
             renderer.color(255, 0, 0)
             renderer.boxf(0, 0, 7, 7)
 
-            renderer.draw(Canvas(target))
+            val targetCanvas = Canvas(target)
+            assertEquals(8, targetCanvas.width)
+            assertEquals(8, targetCanvas.height)
+            val clipBounds = Rect()
+            assertTrue(targetCanvas.getClipBounds(clipBounds))
+            assertEquals(8, clipBounds.width())
+            assertEquals(8, clipBounds.height())
+
+            renderer.draw(targetCanvas)
             assertEquals(Color.GREEN, target.getPixel(4, 4))
 
             // redraw state belongs to the selected Bmscr; locking an offscreen
