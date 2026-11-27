@@ -523,7 +523,7 @@ class SystemNnnVisualEffectMathTest {
         store.replaceWith(secondAdvance)
 
         val afterImageLoad = checkNotNull(store.snapshot()[7])
-        assertEquals(from, afterImageLoad.sourceRect)
+        assertEquals(from, afterImageLoad.destinationRectFrom)
         assertEquals(to, afterImageLoad.destinationRect)
         assertEquals(52, afterImageLoad.effectId)
         assertEquals(listOf(24), afterImageLoad.effectParameters)

@@ -12,7 +12,7 @@ class SystemNnnVisualLayerConfigurationStoreTest {
     fun snapshotIsIndependentAndCanBeCommittedAtDialogueBoundary() {
         val store = SystemNnnVisualLayerConfigurationStore()
         val configuration = SystemNnnVisualLayerConfiguration(
-            sourceRect = SystemNnnNativeRect(10, 20, 100, 200),
+            destinationRectFrom = SystemNnnNativeRect(10, 20, 100, 200),
             destinationRect = SystemNnnNativeRect(40, 50, 100, 200),
             effectId = 52,
             effectParameters = listOf(24),
