@@ -636,7 +636,7 @@ fun RamenApp() {
                             FullGameScanProgressCard(
                                 title = pendingAuditTitle.ifBlank { "Готовый отчёт" },
                                 message = statusMessage.removePrefix("SCAN · ").removePrefix("${pendingAuditTitle}: "),
-                                progress = auditProgress,
+                                progress = if (stagedAuditReady && !isFullAuditBusy) 1f else auditProgress,
                                 onRetrySave = if (stagedAuditReady && !isFullAuditBusy) {
                                     ::launchStagedAuditSave
                                 } else null
