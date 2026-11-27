@@ -471,6 +471,8 @@ fun RamenApp() {
                             "Отчёт с замечаниями: найдено модулей $discoveredModules, успешно разобрано: $scannedModules, записей: $records. $incompleteReasons."
                         }
                         statusMessage = "SCAN готов. $completeness JSON — $stagedBytes байт. Выбери место сохранения."
+                        // Transfer the lock from the scan phase to the document-save phase.
+                        fullAuditLock.set(false)
                         launchStagedAuditSave()
                     }
                 } catch (failure: Exception) {
