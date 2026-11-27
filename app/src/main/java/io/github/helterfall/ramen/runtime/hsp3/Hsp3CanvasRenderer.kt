@@ -694,26 +694,26 @@ class Hsp3CanvasRenderer(
             val sourcePixels = IntArray(regionWidth * regionHeight)
             destination.getPixels(destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight)
             overlay.getPixels(sourcePixels, 0, regionWidth, 0, 0, regionWidth, regionHeight)
-            val configuredAlpha = blendAlpha.coerceIn(0, 256)
-            for (index in destinationPixels.indices) {
-                val sourcePixel = sourcePixels[index]
-                val sourceAlpha = (sourcePixel ushr 24) and 0xFF
-                val effectiveAlpha = (sourceAlpha * configuredAlpha + 128) / 256
-                if (effectiveAlpha == 0) continue
-                val destinationPixel = destinationPixels[index]
-                fun channel(shift: Int): Int {
-                    val destinationValue = (destinationPixel ushr shift) and 0xFF
-                    val sourceValue = (sourcePixel ushr shift) and 0xFF
-                    val contribution = (sourceValue * effectiveAlpha + 127) / 255
-                    return if (mode == ADDITIVE_BLEND) {
-                        (destinationValue + contribution).coerceAtMost(255)
-                    } else {
-                        (destinationValue - contribution).coerceAtLeast(0)
+            val rate = blendAlpha.coerceIn(0, 256)
+            if (rate > 0) {
+                for (index in destinationPixels.indices) {
+                    val sourcePixel = sourcePixels[index]
+                    val destinationPixel = destinationPixels[index]
+                    fun channel(shift: Int): Int {
+                        val destinationValue = (destinationPixel ushr shift) and 0xFF
+                        val sourceValue = (sourcePixel ushr shift) and 0xFF
+                        // OpenHSP: (source channel * gfrate) >> 8.
+                        val contribution = (sourceValue * rate) ushr 8
+                        return if (mode == ADDITIVE_BLEND) {
+                            (destinationValue + contribution).coerceAtMost(255)
+                        } else {
+                            (destinationValue - contribution).coerceAtLeast(0)
+                        }
                     }
+                    val alpha = destinationPixel and -0x1000000
+                    destinationPixels[index] = alpha or
+                        (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
                 }
-                val alpha = destinationPixel and -0x1000000
-                destinationPixels[index] = alpha or
-                    (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
             }
             destination.setPixels(destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight)
         } finally {
