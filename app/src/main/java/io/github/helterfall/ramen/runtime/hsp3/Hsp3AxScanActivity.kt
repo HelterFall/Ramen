@@ -150,7 +150,7 @@ class Hsp3AxScanActivity : ComponentActivity() {
         for (executable in executables) {
             try {
                 // prepare() decrypts and validates start.ax without constructing or running a VM.
-                return Hsp3RuntimeAdapter().prepare(executable)
+                return Hsp3RuntimeAdapter().prepareForStaticScan(executable)
             } catch (error: Exception) {
                 lastError = error
             }
