@@ -147,6 +147,7 @@ internal class SystemNnnFullGameAuditor(
         val plansByPath = linkedMapOf<String, ModulePlan>()
         val manifestModules = linkedMapOf<String, List<String>>()
         manifestFiles.forEach { manifest ->
+            checkNotInterrupted()
             val manifestPath = relativePath(root, manifest)
             try {
                 val catalog = SystemNnnProjectCatalog.load(manifest)
@@ -189,6 +190,7 @@ internal class SystemNnnFullGameAuditor(
         }
 
         sptFiles.forEach { file ->
+            checkNotInterrupted()
             val canonicalPath = runCatching { file.canonicalPath }.getOrNull() ?: return@forEach
             if (canonicalPath in plansByPath) return@forEach
             if (Files.isSymbolicLink(file.toPath())) return@forEach
@@ -238,6 +240,7 @@ internal class SystemNnnFullGameAuditor(
         try {
             val moduleProgressStride = (modulePlans.size / 100).coerceAtLeast(1)
             modulePlans.forEachIndexed { moduleIndex, plan ->
+                checkNotInterrupted()
                 if (moduleIndex == 0 || (moduleIndex + 1) % moduleProgressStride == 0 ||
                     moduleIndex == modulePlans.lastIndex
                 ) {
@@ -291,9 +294,7 @@ internal class SystemNnnFullGameAuditor(
 
             val projectNamesByManifest = manifestModules
             modulePlans.forEachIndexed { moduleIndex, plan ->
-                if (Thread.currentThread().isInterrupted) {
-                    throw IOException("Full game audit was interrupted.")
-                }
+                checkNotInterrupted()
                 val projectNames = plan.projectManifests
                     .firstNotNullOfOrNull { manifestPath ->
                         projectNamesByManifest.entries.firstOrNull {
@@ -1048,6 +1049,12 @@ internal class SystemNnnFullGameAuditor(
         }
     }
 
+    private fun checkNotInterrupted() {
+        if (Thread.currentThread().isInterrupted) {
+            throw IOException("Full game audit was cancelled.")
+        }
+    }
+
     private fun scanProjectSidecars(
         root: File,
         plans: List<ModulePlan>,
@@ -1055,6 +1062,7 @@ internal class SystemNnnFullGameAuditor(
         onProgress: (index: Int, total: Int) -> Unit
     ) {
         manifests.forEachIndexed { manifestIndex, manifest ->
+            checkNotInterrupted()
             onProgress(manifestIndex + 1, manifests.size)
             val sptDirectory = manifest.parentFile ?: return@forEachIndexed
             val project = projectReports.firstOrNull {
@@ -1071,7 +1079,9 @@ internal class SystemNnnFullGameAuditor(
                     var missingModuleRoutes = 0
                     var missingFilmRoutes = 0
                     sceneData.characters.forEach { character ->
+                        checkNotInterrupted()
                         character.scenes.forEach { scene ->
+                            checkNotInterrupted()
                             val moduleName = moduleNames.getOrNull(scene.moduleIndex)?.toString()
                             if (moduleName == null) {
                                 missingModuleRoutes += 1
@@ -1268,6 +1278,7 @@ internal class SystemNnnFullGameAuditor(
             .maxDepth(MAX_SCAN_DEPTH)
             .filter { file -> file.isFile && !Files.isSymbolicLink(file.toPath()) }
             .onEach {
+                checkNotInterrupted()
                 visitedFiles += 1
                 if (visitedFiles % 64 == 0) onProgress(visitedFiles)
             }
