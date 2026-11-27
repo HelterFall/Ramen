@@ -1,3 +1,6 @@
+import java.security.MessageDigest
+import java.util.Locale
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.compose.compiler)
@@ -26,7 +29,7 @@ val debugApplicationIdSuffix: String = if (debugBranchName == "main") {
 } else {
     // Keep the suffix readable and package-name safe. The hash prevents different
     // branch names from colliding after normalisation (for example, "a-b" and "a/b").
-    val branchSlug = debugBranchName.lowercase(java.util.Locale.ROOT)
+    val branchSlug = debugBranchName.lowercase(Locale.ROOT)
         .replace(Regex("[^a-z0-9]+"), "_")
         .trim('_')
         .take(40)
@@ -37,10 +40,10 @@ val debugApplicationIdSuffix: String = if (debugBranchName == "main") {
     } else {
         "branch_$branchSlug"
     }
-    val branchHash = java.security.MessageDigest.getInstance("SHA-256")
+    val branchHash = MessageDigest.getInstance("SHA-256")
         .digest(debugBranchName.toByteArray(Charsets.UTF_8))
-        .take(4)
-        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+        .take(8)
+        .joinToString("") { byte -> "%02x".format(byte.toInt() and 0xff) }
     ".${packageSafeSlug}_$branchHash"
 }
 
