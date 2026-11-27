@@ -1157,6 +1157,7 @@ internal class SystemNnnFullGameAuditor(
             "totalIndexedImageResources" to catalog.totalIndexedImageResources,
             "totalIndexedAudioResources" to catalog.totalIndexedAudioResources,
             "looseValidatedAudioResources" to catalog.looseAudioResources.size,
+            "looseAudioResourcesTruncated" to (catalog.looseAudioResources.size > MAX_ASSET_INVENTORY_ENTRIES),
             "looseAudioFormats" to catalog.looseAudioResources.groupingBy { it.mediaFormat }.eachCount(),
             "looseAudioResourceInventory" to catalog.looseAudioResources.take(MAX_ASSET_INVENTORY_ENTRIES).map {
                 mapOf(
