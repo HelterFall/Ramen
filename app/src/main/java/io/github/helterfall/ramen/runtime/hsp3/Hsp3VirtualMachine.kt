@@ -671,15 +671,12 @@ class Hsp3VirtualMachine(
                         intArg(3, size.first), intArg(4, size.second), pos.first, pos.second)
                 }
                 Hsp3CommandIds.GZOOM -> {
-                    if (hasString(0)) graphics.picload(stringArg(0), intArg(1))
-                    else {
-                        val dst = graphics.currentSurfaceSize()
-                        val src = graphics.copySize()
-                        graphics.gzoom(
-                            intArg(0, dst.first), intArg(1, dst.second), intArg(2),
-                            intArg(3), intArg(4), intArg(5, src.first), intArg(6, src.second), intArg(7)
-                        )
-                    }
+                    val dst = graphics.currentSurfaceSize()
+                    val src = graphics.copySize()
+                    graphics.gzoom(
+                        intArg(0, dst.first), intArg(1, dst.second), intArg(2),
+                        intArg(3), intArg(4), intArg(5, src.first), intArg(6, src.second), intArg(7)
+                    )
                 }
                 Hsp3CommandIds.GMODE -> graphics.gmode(
                     intArg(0), intArg(1, 32), intArg(2, 32), intArg(3, 0)
