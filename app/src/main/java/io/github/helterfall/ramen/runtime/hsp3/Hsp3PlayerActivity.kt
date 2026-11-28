@@ -421,8 +421,8 @@ private fun DpadControl(input: Hsp3TouchInputController) {
                             input.setDpadPosition(
                                 change.position.x,
                                 change.position.y,
-                                size.width.toFloat(),
-                                size.height.toFloat()
+                                zoneWidth,
+                                zoneHeight
                             )
                             change.consume()
                         }

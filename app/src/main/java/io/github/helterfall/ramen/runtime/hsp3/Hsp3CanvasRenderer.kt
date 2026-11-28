@@ -813,7 +813,6 @@ class Hsp3CanvasRenderer(
         markSurfaceChanged(destination)
     }
 
-    /** HSP modes 2/4 use exact RGB color keys; mode 4 then applies gfrate. */
     /** HSP modes 2/4 use cached alpha masks; mode 4 applies gfrate in Canvas. */
     private fun drawColorKeyBlend(
         source: Surface,

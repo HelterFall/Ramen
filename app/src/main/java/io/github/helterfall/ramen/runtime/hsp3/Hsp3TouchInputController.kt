@@ -1,7 +1,7 @@
 package io.github.helterfall.ramen.runtime.hsp3
 
-import kotlin.math.abs
 import java.util.concurrent.atomic.AtomicInteger
+import kotlin.math.abs
 
 /** Maps a single pointer within the complete D-pad area to one of eight directions. */
 internal object Hsp3DpadMapper {
