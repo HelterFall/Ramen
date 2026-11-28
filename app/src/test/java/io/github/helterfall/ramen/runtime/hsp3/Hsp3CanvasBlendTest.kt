@@ -1,8 +1,10 @@
 package io.github.helterfall.ramen.runtime.hsp3
 
 import android.graphics.Bitmap
+import android.graphics.Color
 import java.io.ByteArrayInputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -22,6 +24,55 @@ class Hsp3CanvasBlendTest {
             renderer.gcopy(1, 0, 0, 2, 2, 0, 0)
             assertPixel(renderer, 255, 0, 0, 0, 0)
         } finally { renderer.close() }
+    }
+
+    @Test
+    fun gcopyModeTwoMakesBlackPixelsTransparentForOpaqueDecodedAssets() {
+        val image = Bitmap.createBitmap(2, 1, Bitmap.Config.ARGB_8888)
+        val encoded = try {
+            image.setHasAlpha(false)
+            image.setPixel(0, 0, Color.BLACK)
+            image.setPixel(1, 0, Color.GREEN)
+            java.io.ByteArrayOutputStream().use { output ->
+                image.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        } finally {
+            image.recycle()
+        }
+
+        val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(encoded) }, 2, 1)
+        try {
+            renderer.buffer(1, 2, 1)
+            renderer.gsel(1)
+            renderer.picload("opaque-sprite.png", 0)
+
+            val source = renderer.copySurfaceBitmap(1)
+            try {
+                assertFalse("the fixture must decode without an alpha channel", source.hasAlpha())
+            } finally {
+                source.recycle()
+            }
+
+            renderer.gsel(0)
+            renderer.color(255, 0, 0)
+            renderer.boxf(0, 0, 1, 0)
+            renderer.gmode(2, 2, 1, 0)
+            renderer.gcopy(1, 0, 0, 2, 1, 0, 0)
+
+            assertPixel(renderer, 255, 0, 0, 0, 0)
+            assertPixel(renderer, 0, 255, 0, 1, 0)
+
+            val cachedMask = renderer.copyColorKeyBlackBitmap(1)
+            try {
+                assertEquals(0, cachedMask.getPixel(0, 0) ushr 24)
+                assertEquals(255, cachedMask.getPixel(1, 0) ushr 24)
+            } finally {
+                cachedMask.recycle()
+            }
+        } finally {
+            renderer.close()
+        }
     }
 
     @Test

@@ -1168,6 +1168,10 @@ class Hsp3CanvasRenderer(
     private fun makeColorTransparent(source: Bitmap, keyColor: Int): Bitmap {
         val mutable = source.copy(Bitmap.Config.ARGB_8888, true)
             ?: throw IOException("Could not create a transparent copy of an HSP source bitmap.")
+        // Bitmap.copy() preserves hasAlpha=false for opaque RGB assets. In that
+        // state Android treats writes with alpha=0 as opaque, restoring the black
+        // color-key rectangle. The cached mask must always be an alpha bitmap.
+        mutable.setHasAlpha(true)
         val pixels = IntArray(mutable.width * mutable.height)
         val key = keyColor and 0x00FFFFFF
         mutable.getPixels(pixels, 0, mutable.width, 0, 0, mutable.width, mutable.height)
