@@ -117,6 +117,10 @@ class Hsp3CanvasBlendTest {
             renderer.color(0, 0, 0)
             renderer.gcopy(1, 0, 0, 2, 2, 4, 2)
             assertEquals(3, renderer.currentColorKeyCacheBuildCount)
+            // Changing keys and writing the source refresh one allocated bitmap
+            // and one reusable pixel scratch array rather than allocating per use.
+            assertEquals(1, renderer.colorKeyBitmapAllocationCount)
+            assertEquals(1, renderer.colorKeyPixelScratchAllocationCount)
         } finally {
             renderer.close()
         }
@@ -185,6 +189,8 @@ class Hsp3CanvasBlendTest {
             renderer.gsel(0)
             renderer.gcopy(1, 0, 0, 2, 2, 4, 0)
             assertEquals(2, renderer.colorKeyCacheBuildCount)
+            assertEquals(1, renderer.colorKeyBitmapAllocationCount)
+            assertEquals(1, renderer.colorKeyPixelScratchAllocationCount)
             assertCachedPixel(renderer, 1, 0, 0, 255, 0, 0)
         } finally { renderer.close() }
     }

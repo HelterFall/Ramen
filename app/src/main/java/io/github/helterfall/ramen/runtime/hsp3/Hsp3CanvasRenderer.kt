@@ -77,8 +77,11 @@ class Hsp3CanvasRenderer(
         var shouldPresent: Boolean = true,
         var suspendedFrame: Bitmap? = null,
         var colorKeyBlackBitmap: Bitmap? = null,
+        var colorKeyBlackBitmapValid: Boolean = false,
         var colorKeyCurrentBitmap: Bitmap? = null,
+        var colorKeyCurrentBitmapValid: Boolean = false,
         var colorKeyCurrentColor: Int? = null,
+        var colorKeyPixelScratch: IntArray? = null,
         var arithmeticSourcePixels: IntArray? = null,
         var arithmeticSourcePixelsValid: Boolean = false,
         var arithmeticDestinationPixels: IntArray? = null,
@@ -120,6 +123,10 @@ class Hsp3CanvasRenderer(
     internal var colorKeyCacheBuildCount: Int = 0
         private set
     internal var currentColorKeyCacheBuildCount: Int = 0
+        private set
+    internal var colorKeyBitmapAllocationCount: Int = 0
+        private set
+    internal var colorKeyPixelScratchAllocationCount: Int = 0
         private set
     internal var arithmeticSourceSnapshotBuildCount: Int = 0
         private set
@@ -284,8 +291,11 @@ class Hsp3CanvasRenderer(
                             bitmap = bitmap,
                             canvas = Canvas(bitmap),
                             colorKeyBlackBitmap = null,
+                            colorKeyBlackBitmapValid = false,
                             colorKeyCurrentBitmap = null,
+                            colorKeyCurrentBitmapValid = false,
                             colorKeyCurrentColor = null,
+                            colorKeyPixelScratch = null,
                             arithmeticSourcePixelsValid = false
                         ) ?: Surface(bitmap, Canvas(bitmap))
                         surfaces[targetId] = replacement
@@ -312,8 +322,11 @@ class Hsp3CanvasRenderer(
                             bitmap = replacement,
                             canvas = Canvas(replacement),
                             colorKeyBlackBitmap = null,
+                            colorKeyBlackBitmapValid = false,
                             colorKeyCurrentBitmap = null,
+                            colorKeyCurrentBitmapValid = false,
                             colorKeyCurrentColor = null,
+                            colorKeyPixelScratch = null,
                             arithmeticSourcePixelsValid = false
                         ) ?: Surface(replacement, Canvas(replacement))
                         surfaces[targetId] = replacementSurface
@@ -1076,33 +1089,72 @@ class Hsp3CanvasRenderer(
     }
 
     private fun cachedBlackKeyBitmap(source: Surface): Bitmap {
-        source.colorKeyBlackBitmap?.let { cached ->
-            if (!cached.isRecycled) return cached
+        var cached = source.colorKeyBlackBitmap
+        if (cached == null || cached.isRecycled ||
+            cached.width != source.bitmap.width || cached.height != source.bitmap.height
+        ) {
+            cached = MutableArgbBitmapDecoder.create(source.bitmap.width, source.bitmap.height)
+            source.colorKeyBlackBitmap = cached
+            source.colorKeyBlackBitmapValid = false
+            colorKeyBitmapAllocationCount++
         }
-        val cached = makeColorTransparent(source.bitmap, Color.BLACK)
-        source.colorKeyBlackBitmap = cached
-        colorKeyCacheBuildCount++
+        if (!source.colorKeyBlackBitmapValid) {
+            updateColorTransparent(source, cached, Color.BLACK)
+            source.colorKeyBlackBitmapValid = true
+            colorKeyCacheBuildCount++
+        }
         return cached
     }
 
     private fun cachedCurrentKeyBitmap(source: Surface, keyColor: Int): Bitmap {
-        source.colorKeyCurrentBitmap?.let { cached ->
-            if (!cached.isRecycled && source.colorKeyCurrentColor == keyColor) return cached
-            if (!cached.isRecycled) cached.recycle()
+        var cached = source.colorKeyCurrentBitmap
+        if (cached == null || cached.isRecycled ||
+            cached.width != source.bitmap.width || cached.height != source.bitmap.height
+        ) {
+            cached = MutableArgbBitmapDecoder.create(source.bitmap.width, source.bitmap.height)
+            source.colorKeyCurrentBitmap = cached
+            source.colorKeyCurrentBitmapValid = false
+            colorKeyBitmapAllocationCount++
         }
-        val cached = makeColorTransparent(source.bitmap, keyColor)
-        source.colorKeyCurrentBitmap = cached
-        source.colorKeyCurrentColor = keyColor
-        currentColorKeyCacheBuildCount++
+        if (!source.colorKeyCurrentBitmapValid || source.colorKeyCurrentColor != keyColor) {
+            updateColorTransparent(source, cached, keyColor)
+            source.colorKeyCurrentColor = keyColor
+            source.colorKeyCurrentBitmapValid = true
+            currentColorKeyCacheBuildCount++
+        }
         return cached
     }
 
+    /**
+     * Rebuilds a keyed mask in-place. Animated source surfaces can be modified
+     * every frame; invalidating must not recycle/reallocate a full-size Bitmap
+     * and IntArray on every subsequent gcopy/gzoom.
+     */
+    private fun updateColorTransparent(source: Surface, target: Bitmap, keyColor: Int) {
+        val bitmap = source.bitmap
+        val pixelCount = bitmap.width * bitmap.height
+        var pixels = source.colorKeyPixelScratch
+        if (pixels == null || pixels.size < pixelCount) {
+            pixels = IntArray(pixelCount)
+            source.colorKeyPixelScratch = pixels
+            colorKeyPixelScratchAllocationCount++
+        }
+        bitmap.getPixels(
+            pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height
+        )
+        val key = keyColor and 0x00FFFFFF
+        for (index in 0 until pixelCount) {
+            if ((pixels[index] and 0x00FFFFFF) == key) pixels[index] = 0
+        }
+        target.setHasAlpha(true)
+        target.setPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+    }
+
     private fun markSurfaceChanged(surface: Surface) {
-        surface.colorKeyBlackBitmap?.let { if (!it.isRecycled) it.recycle() }
-        surface.colorKeyBlackBitmap = null
-        surface.colorKeyCurrentBitmap?.let { if (!it.isRecycled) it.recycle() }
-        surface.colorKeyCurrentBitmap = null
-        surface.colorKeyCurrentColor = null
+        // Preserve allocated masks and scratch storage; the next use refreshes
+        // their contents in-place. This bounds both live bitmap count and GC churn.
+        surface.colorKeyBlackBitmapValid = false
+        surface.colorKeyCurrentBitmapValid = false
         surface.arithmeticSourcePixelsValid = false
         if (surfaces[0] === surface && surface.shouldPresent) presentationRevision++
     }
@@ -1114,8 +1166,11 @@ class Hsp3CanvasRenderer(
         surface.colorKeyCurrentBitmap?.let { if (!it.isRecycled) it.recycle() }
         surface.suspendedFrame = null
         surface.colorKeyBlackBitmap = null
+        surface.colorKeyBlackBitmapValid = false
         surface.colorKeyCurrentBitmap = null
+        surface.colorKeyCurrentBitmapValid = false
         surface.colorKeyCurrentColor = null
+        surface.colorKeyPixelScratch = null
         surface.arithmeticSourcePixelsValid = false
         surface.arithmeticSourcePixels = null
         surface.arithmeticDestinationPixels = null
@@ -1125,22 +1180,7 @@ class Hsp3CanvasRenderer(
     private fun activeSurface(): Surface =
         surfaces[activeId] ?: throw IOException("The selected HSP surface is unavailable.")
 
-    private fun makeColorTransparent(source: Bitmap, keyColor: Int): Bitmap {
-        val mutable = source.copy(Bitmap.Config.ARGB_8888, true)
-            ?: throw IOException("Could not create a transparent copy of an HSP source bitmap.")
-        // Bitmap.copy() preserves hasAlpha=false for opaque RGB assets. In that
-        // state Android treats writes with alpha=0 as opaque, restoring the black
-        // color-key rectangle. The cached mask must always be an alpha bitmap.
-        mutable.setHasAlpha(true)
-        val pixels = IntArray(mutable.width * mutable.height)
-        val key = keyColor and 0x00FFFFFF
-        mutable.getPixels(pixels, 0, mutable.width, 0, 0, mutable.width, mutable.height)
-        for (index in pixels.indices) {
-            if ((pixels[index] and 0x00FFFFFF) == key) pixels[index] = 0
-        }
-        mutable.setPixels(pixels, 0, mutable.width, 0, 0, mutable.width, mutable.height)
-        return mutable
-    }
+
 
     private fun validateDimensions(width: Int, height: Int) {
         require(width in 1..MAX_SURFACE_DIMENSION && height in 1..MAX_SURFACE_DIMENSION)
