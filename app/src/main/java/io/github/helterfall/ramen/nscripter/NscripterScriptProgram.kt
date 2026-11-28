@@ -140,9 +140,13 @@ data class NscripterScriptProgram(
                         throw IOException("Unsupported NScripter command at line " + (lineIndex + 1) + ": " + statement)
                     } else if (inDefineSection) {
                         instructions += NscripterInstruction("unsupported", statement, lineIndex + 1, speaker)
-                    } else if (command != null && arguments.isNotBlank()) {
-                        // Unknown ASCII commands with parameters are treated as
-                        // engine directives; bare words remain valid dialogue.
+                    } else if (
+                        command != null && arguments.isNotBlank() &&
+                        arguments.first().let { it.isDigit() || it in "%$*\"" || it == '-' || it.isUpperCase() }
+                    ) {
+                        // Unknown command-shaped statements with numeric, variable,
+                        // quoted, label, or constant arguments are engine directives.
+                        // Natural multi-word prose remains player-facing text.
                         instructions += NscripterInstruction(command, arguments, lineIndex + 1, speaker)
                     } else {
                         if (statement.startsWith(">")) statement = statement.drop(1)
