@@ -808,12 +808,13 @@ class SystemNnnVisualEffectMathTest {
     fun haikeiYureMoveScreenRunsAfterItsOwnLayerTenBitmap() {
         val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
         val ordered = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
-            bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 10, 12),
+            bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 12),
             effectLayers = listOf(10 to 100)
         )
         val split = SystemNnnVisualEffectMath.splitNativeLayerStackAtScreenEffect(ordered, 10)
 
         assertTrue(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(100, parameters))
+        assertEquals(listOf(1, 6, 7, 8, 9, 10), ordered)
         assertEquals(listOf(1, 6, 7, 8, 9, 10), split.beforeScreenEffect)
         assertEquals(listOf(12), split.afterScreenEffect)
     }

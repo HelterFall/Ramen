@@ -103,6 +103,10 @@ fun SystemNnnPlayerScreen(
     val inlineHaikeiYureLayerEffect = state.layerEffects.firstOrNull { effect ->
         SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(effect.effectId, effect.parameters)
     }
+    val inlineHaikeiYure = inlineHaikeiYureLayerEffect != null ||
+        SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
+            state.screenEffectId, state.screenEffectParameters
+        )
     val screenEffectKey = listOf(
         state.screenEffectId, state.screenEffectParameters, state.screenEffectCommandOffset,
         state.screenEffectLayerIndex,
@@ -693,10 +697,6 @@ fun SystemNnnPlayerScreen(
                         bitmapLayerIndices = spritesByLayer.keys,
                         effectLayers = standaloneLayerEffects.map { it.layerIndex to it.effectId }
                     )
-                    val inlineHaikeiYure = inlineHaikeiYureLayerEffect != null ||
-                        SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
-                            state.screenEffectId, state.screenEffectParameters
-                        )
                     val inlineHaikeiYureParameters =
                         inlineHaikeiYureLayerEffect?.parameters ?: state.screenEffectParameters
                     val screenEffectLayerIndex =

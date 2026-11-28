@@ -422,7 +422,9 @@ internal object SystemNnnVisualEffectMath {
             else -> false
         }
 
-    private val standaloneLayerPainterEffectIds = setOf(10, 11, 17, 29, 54, 55)
+    // HAIKEIYURE layerType=1 has no standalone pixels, but its native layer
+    // index is a real stack boundary where MoveScreen() executes.
+    private val standaloneLayerPainterEffectIds = setOf(10, 11, 17, 29, 54, 55, 100)
 
     fun hasStandaloneLayerPainter(effectId: Int): Boolean =
         effectId in standaloneLayerPainterEffectIds
