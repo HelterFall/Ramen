@@ -1,0 +1,798 @@
+package io.github.helterfall.ramen.runtime.hsp3
+
+import io.github.helterfall.ramen.parser.Hsp3BytecodeLoader
+import java.io.File
+import java.nio.file.Files
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class Hsp3BytecodeDecoderTest {
+    @Test
+    fun decodesPostfixExpressionAndOpenHspArgumentBoundaries() {
+        withProgram(createColorProgram()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+
+            assertEquals(2, instructions.size)
+            val color = instructions[0] as Hsp3Instruction.NativeCommand
+            assertEquals(Hsp3CommandIds.COLOR, color.commandId)
+            assertEquals(3, color.arguments.size)
+
+            val first = color.arguments[0]!!.evaluate(
+                variable = { Hsp3RuntimeValue.IntegerValue(0) },
+                systemVariable = { Hsp3RuntimeValue.IntegerValue(0) }
+            )
+            assertEquals(Hsp3RuntimeValue.IntegerValue(3), first)
+            assertEquals(
+                Hsp3RuntimeValue.IntegerValue(128),
+                color.arguments[1]!!.evaluate(
+                    variable = { Hsp3RuntimeValue.IntegerValue(0) },
+                    systemVariable = { Hsp3RuntimeValue.IntegerValue(0) }
+                )
+            )
+            assertEquals(
+                Hsp3RuntimeValue.IntegerValue(64),
+                color.arguments[2]!!.evaluate(
+                    variable = { Hsp3RuntimeValue.IntegerValue(0) },
+                    systemVariable = { Hsp3RuntimeValue.IntegerValue(0) }
+                )
+            )
+            assertEquals(Hsp3Instruction.End, instructions[1])
+        }
+    }
+
+    @Test
+    fun decodedGraphicsCommandExecutesThroughVm() {
+        withProgram(createColorProgram()) { program ->
+            val graphics = RecordingGraphics()
+            val vm = Hsp3VirtualMachine(graphics)
+            val snapshot = vm.runSlice(Hsp3BytecodeDecoder().decode(program))
+
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertTrue(graphics.calls.contains("color:3:128:64"))
+        }
+    }
+
+    @Test
+    fun byteTransferCommandsDecodeBufferAndFileArguments() {
+        withProgram(createBloadProgram()) { program ->
+            val transfer = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.FileTransfer
+            assertEquals(Hsp3BytecodeDecoder.INTCMD_BLOAD, transfer.commandId)
+            assertEquals(4, transfer.destinationVariable)
+            assertEquals(16, transfer.size!!.constantIntOrNull())
+            assertEquals(0, transfer.fileOffset!!.constantIntOrNull())
+        }
+    }
+
+    @Test
+    fun zoomRotateAndCellCommandsAreRecognizedAsNativeGraphicsCommands() {
+        val ids = listOf(
+            Hsp3CommandIds.GZOOM,
+            Hsp3CommandIds.GROTATE,
+            Hsp3CommandIds.CELLLOAD,
+            Hsp3CommandIds.CELDIV,
+            Hsp3CommandIds.CELPUT
+        )
+        ids.forEach { commandId ->
+            withProgram(createNativeCommandProgram(commandId)) { program ->
+                val command = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.NativeCommand
+                assertEquals(commandId, command.commandId)
+            }
+        }
+    }
+
+    @Test
+    fun getkeyCommandPreservesDestinationAndKeyExpression() {
+        withProgram(createGetKeyProgram()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+            val getKey = instructions.first() as Hsp3Instruction.GetKey
+            assertEquals(7, getKey.destinationVariable)
+            assertEquals(
+                Hsp3RuntimeValue.IntegerValue(13),
+                getKey.keyCode.evaluate(
+                    variable = { Hsp3RuntimeValue.IntegerValue(0) },
+                    systemVariable = { Hsp3RuntimeValue.IntegerValue(0) }
+                )
+            )
+        }
+    }
+
+    @Test
+    fun unaryMinusUsesOpenHspPostfixLoweringAndLeavesOneExpressionValue() {
+        withProgram(createColorWithUnaryMinus()) { program ->
+            val command = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.NativeCommand
+            val value = command.arguments[0]!!.evaluate(
+                variable = { index ->
+                    if (index == 4) Hsp3RuntimeValue.IntegerValue(7)
+                    else Hsp3RuntimeValue.IntegerValue(0)
+                },
+                systemVariable = { Hsp3RuntimeValue.IntegerValue(0) }
+            )
+
+            assertEquals(Hsp3RuntimeValue.IntegerValue(-5), value)
+        }
+    }
+
+    @Test
+    fun nestedFunctionPreservesRepeatedAndTrailingOmittedArguments() {
+        withProgram(createColorWithTrailingOmittedLimitArguments()) { program ->
+            val graphics = RecordingGraphics()
+            val snapshot = Hsp3VirtualMachine(graphics)
+                .runSlice(Hsp3BytecodeDecoder().decode(program))
+
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertTrue(graphics.calls.contains("color:10:128:64"))
+        }
+    }
+
+    @Test
+    fun decodesAndExecutesNestedBuiltinStringFunction() {
+        withProgram(createMesWithStringFunction()) { program ->
+            val graphics = RecordingGraphics()
+            val snapshot = Hsp3VirtualMachine(graphics)
+                .runSlice(Hsp3BytecodeDecoder().decode(program))
+
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertTrue(graphics.calls.contains("mes:42"))
+        }
+    }
+
+    @Test
+    fun nestedFunctionArgumentsDoNotSplitTheirOuterParameterGroup() {
+        withProgram(createMesWithNestedStringFunctions()) { program ->
+            val graphics = RecordingGraphics()
+            val snapshot = Hsp3VirtualMachine(graphics)
+                .runSlice(Hsp3BytecodeDecoder().decode(program))
+
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertTrue(graphics.calls.contains("mes:42"))
+        }
+    }
+
+    @Test
+    fun preservesAnOmittedLeadingOptionalParameter() {
+        withProgram(createGmodeWithOmittedFirstArgument()) { program ->
+            val command = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.NativeCommand
+            assertEquals(Hsp3CommandIds.GMODE, command.commandId)
+            assertEquals(2, command.arguments.size)
+            assertEquals(null, command.arguments[0])
+            assertEquals(
+                Hsp3RuntimeValue.IntegerValue(3),
+                command.arguments[1]!!.evaluate(
+                    variable = { Hsp3RuntimeValue.IntegerValue(0) },
+                    systemVariable = { Hsp3RuntimeValue.IntegerValue(0) }
+                )
+            )
+        }
+    }
+
+    @Test
+    fun assignmentCommandIsConvertedToTypedVmInstruction() {
+        withProgram(createAssignmentProgram()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+            val assignment = instructions.first() as Hsp3Instruction.Assign
+            assertEquals(4, assignment.variable)
+            assertEquals(Hsp3BytecodeDecoder.CALCCODE_EQ, assignment.operator)
+
+            val vm = Hsp3VirtualMachine(RecordingGraphics())
+            val snapshot = vm.runSlice(instructions)
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertEquals(9, snapshot.variables[4])
+        }
+    }
+
+    @Test
+    fun conditionalCommandSkipsRawBranchWordAndResolvesOtStylePc() {
+        withProgram(createIfProgram()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+            val branch = instructions.first() as Hsp3Instruction.JumpIfFalse
+            assertEquals(2, branch.targetInstruction)
+            assertEquals(Hsp3Instruction.End, instructions[1])
+            assertEquals(Hsp3Instruction.End, instructions[2])
+        }
+    }
+
+    @Test
+    fun dimensionsAndIndexedAssignmentAreExecutedByVm() {
+        withProgram(createArrayAssignmentProgram()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+            assertTrue(instructions.first() is Hsp3Instruction.Dimension)
+            val assignment = instructions[1] as Hsp3Instruction.Assign
+            assertEquals(4, assignment.variable)
+            assertEquals(1, assignment.arrayIndices.size)
+
+            val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertEquals(
+                Hsp3RuntimeValue.IntegerValue(5),
+                snapshot.arrayValues[4 to listOf(1)]
+            )
+        }
+    }
+
+    @Test
+    fun arrayElementCanBeReadInsidePostfixExpression() {
+        withProgram(createArrayReadProgram()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+            val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertEquals(7, snapshot.variables[5])
+            assertEquals(
+                Hsp3RuntimeValue.IntegerValue(5),
+                snapshot.arrayValues[4 to listOf(1)]
+            )
+        }
+    }
+
+    @Test
+    fun decodesOpenHspAwaitProgramCommandSeparatelyFromWait() {
+        withProgram(
+            createAx(
+                listOf(
+                    0x200F, Hsp3BytecodeDecoder.PROGCMD_AWAIT,
+                    0x0004, 25,
+                    0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+                )
+            )
+        ) { program ->
+            val decoded = Hsp3BytecodeDecoder().decode(program)
+            val await = decoded.first() as Hsp3Instruction.AwaitFor
+            assertEquals(25L, await.delayMillis)
+            assertEquals(null, await.delayExpression)
+        }
+    }
+
+    private fun withProgram(bytes: ByteArray, block: (io.github.helterfall.ramen.parser.Hsp3Program) -> Unit) {
+        val directory = Files.createTempDirectory("ramen-hsp3-decoder").toFile()
+        try {
+            val file = File(directory, "start.ax")
+            file.writeBytes(bytes)
+            block(Hsp3BytecodeLoader().load(file))
+        } finally {
+            directory.deleteRecursively()
+        }
+    }
+
+    private fun createBloadProgram(): ByteArray {
+        val code = listOf(
+            0x2008, Hsp3BytecodeDecoder.INTCMD_BLOAD,
+            0x0001, 3,     // filename variable
+            0x4001, 4,     // destination buffer variable
+            0x4004, 16,    // byte count
+            0x4004, 0,     // file offset
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(code)
+    }
+
+    private fun createColorWithUnaryMinus(): ByteArray = createAx(
+        listOf(
+            0x2009, Hsp3CommandIds.COLOR,
+            0x0001, 4, // variable #4
+            0x8004, 0xFFFF, 0xFFFF, // wide TYPE_INUM -1
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_MUL,
+            0x0004, 2,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_ADD,
+            0x4004, 128,
+            0x4004, 64,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+    )
+
+    private fun createColorWithTrailingOmittedLimitArguments(): ByteArray = createAx(
+        listOf(
+            0x2009, Hsp3CommandIds.COLOR,
+            0x000D, 0x0011, // TYPE_INTFUNC limit()
+            0x0000, '('.code,
+            0x0004, 10,
+            0x4000, '?'.code, // omitted second parameter, EXFLG_2 boundary
+            0x4000, '?'.code, // omitted third parameter
+            0x0000, ')'.code,
+            0x4004, 128,
+            0x4004, 64,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+    )
+
+    private fun createNativeCommandProgram(commandId: Int): ByteArray {
+        val code = listOf(
+            0x2009, commandId,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(code)
+    }
+
+    private fun createArrayReadProgram(): ByteArray {
+        val code = listOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM,
+            0x0001, 4,
+            0x4004, 3,
+            0x2001, 4,
+            0x0000, '('.code,
+            0x0004, 1,
+            0x0000, ')'.code,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0004, 5,
+            0x2001, 5,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0001, 4,
+            0x0000, '('.code,
+            0x0004, 1,
+            0x0000, ')'.code,
+            0x0004, 2,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_ADD,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(code)
+    }
+
+    private fun createArrayAssignmentProgram(): ByteArray {
+        val code = listOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM, // dim
+            0x0001, 4,                              // variable #4
+            0x4004, 3,                              // length = 3
+            0x2001, 4,                              // assignment to variable #4
+            0x0000, '('.code,
+            0x0004, 1,                              // index 1
+            0x0000, ')'.code,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0004, 5,                              // value 5
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(code)
+    }
+
+    @Test
+    fun decodesTwoDimensionalArrayAssignmentAcrossSeparateParameterGroups() {
+        withProgram(createTwoDimensionalArrayAssignment()) { program ->
+            val instructions = Hsp3BytecodeDecoder().decode(program)
+            val dimension = instructions[0] as Hsp3Instruction.Dimension
+            assertEquals(2, dimension.dimensions.size)
+            val assignment = instructions[1] as Hsp3Instruction.Assign
+            assertEquals(2, assignment.arrayIndices.size)
+            assertEquals(5, assignment.expression.constantIntOrNull())
+
+            val result = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+            assertEquals(Hsp3VmStatus.ENDED, result.status)
+            assertEquals(
+                Hsp3RuntimeValue.IntegerValue(5),
+                result.arrayValues[4 to listOf(1, 2)]
+            )
+        }
+    }
+
+    @Test
+    fun assignmentParsesTwoThroughFiveArrayIndicesAndSeparatePostfixRhs() {
+        for (dimensionCount in 2..5) {
+            withProgram(createMultiDimensionalArrayAssignment(dimensionCount)) { program ->
+                val instructions = Hsp3BytecodeDecoder().decode(program)
+                val dimension = instructions[0] as Hsp3Instruction.Dimension
+                assertEquals(dimensionCount, dimension.dimensions.size)
+
+                val scalarAssignment = instructions[1] as Hsp3Instruction.Assign
+                assertEquals(5, scalarAssignment.variable)
+                val arrayAssignment = instructions[2] as Hsp3Instruction.Assign
+                assertEquals(4, arrayAssignment.variable)
+                assertEquals(dimensionCount, arrayAssignment.arrayIndices.size)
+                assertTrue(arrayAssignment.expression.root is Hsp3ExpressionNode.Binary)
+
+                val indices = List(dimensionCount) { it % 2 }
+                val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+                assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+                assertEquals(10, snapshot.variables[5])
+                assertEquals(
+                    Hsp3RuntimeValue.IntegerValue(15),
+                    snapshot.arrayValues[4 to indices]
+                )
+            }
+        }
+    }
+
+    @Test
+    fun assignmentSplitsFiveThroughTenCommaSeparatedValuesIntoSequentialArrayCells() {
+        for (valueCount in 5..10) {
+            val words = mutableListOf(
+                0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM,
+                0x0001, 4,
+                0x5004, 2,
+                0x2001, 4,
+                0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+                0x4004, 100
+            )
+            for (value in 1 until valueCount) {
+                words += 0x5004 // EXFLG_2 | EXFLG_0: next comma-separated value
+                words += 100 + value
+            }
+            words += listOf(0x200F, Hsp3BytecodeDecoder.PROGCMD_END)
+
+            withProgram(createAx(words)) { program ->
+                val decoder = Hsp3BytecodeDecoder()
+                val instructions = decoder.decode(program)
+                assertEquals(3, instructions.size)
+                val assignment = instructions[1] as Hsp3Instruction.Assign
+                assertEquals(valueCount - 1, assignment.additionalExpressions.size)
+                assertTrue(decoder.diagnostics.none { it.message.contains("postfix expression leaves") })
+
+                val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+                assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+                for (index in 0 until valueCount) {
+                    assertEquals(
+                        Hsp3RuntimeValue.IntegerValue(100 + index),
+                        snapshot.arrayValues[4 to listOf(index)]
+                    )
+                }
+            }
+        }
+    }
+
+    @Test
+    fun indexedMultidimensionalAssignmentWritesCommaValuesAlongFirstDimension() {
+        val words = listOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM,
+            0x0001, 4,
+            0x5004, 8,
+            0x5004, 5,
+            0x2001, 4,
+            0x0000, '('.code,
+            0x1004, 2,
+            0x5004, 1,
+            0x0000, ')'.code,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x4004, 11,
+            0x5004, 22,
+            0x5004, 33,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        withProgram(createAx(words)) { program ->
+            val decoder = Hsp3BytecodeDecoder()
+            val instructions = decoder.decode(program)
+            val assignment = instructions[1] as Hsp3Instruction.Assign
+            assertEquals(2, assignment.arrayIndices.size)
+            assertEquals(2, assignment.additionalExpressions.size)
+            assertTrue(decoder.diagnostics.none { it.message.contains("postfix expression leaves") })
+
+            val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(instructions)
+            assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+            assertEquals(Hsp3RuntimeValue.IntegerValue(11), snapshot.arrayValues[4 to listOf(2, 1)])
+            assertEquals(Hsp3RuntimeValue.IntegerValue(22), snapshot.arrayValues[4 to listOf(3, 1)])
+            assertEquals(Hsp3RuntimeValue.IntegerValue(33), snapshot.arrayValues[4 to listOf(4, 1)])
+            assertEquals(null, snapshot.arrayValues[4 to listOf(3, 0)])
+        }
+    }
+
+    @Test
+    fun repeatInternalLabelDoesNotSharePostfixStackWithCountAndInitialValue() {
+        val words = listOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_REPEAT,
+            0x0007, 0, // OpenHSP's internal repeat-exit TYPE_LABEL, no EXFLG_2
+            0x0004, 2, // count, adjacent to the raw label
+            0x4004, 1, // initial value, following EXFLG_2 boundary
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        // OT label 0 points to the END command at CS word offset 8.
+        withProgram(createAx(words, objectTempWordOffsets = listOf(8))) { program ->
+            val decoder = Hsp3BytecodeDecoder()
+            val instructions = decoder.decode(program)
+            val repeat = instructions.first() as Hsp3Instruction.Repeat
+            assertEquals(2, repeat.count)
+            assertEquals(1, repeat.initialValue)
+            assertEquals(1, repeat.exitInstruction)
+            assertTrue(decoder.diagnostics.none { it.message.contains("postfix expression leaves") })
+        }
+    }
+
+    @Test
+    fun intcmdRandomize027DecodesOptionalSeedLikeOpenHsp() {
+        withProgram(
+            createAx(
+                listOf(
+                    0x2008, Hsp3BytecodeDecoder.INTCMD_RANDOMIZE,
+                    0x0004, 12345,
+                    0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+                )
+            )
+        ) { program ->
+            val randomize = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.Randomize
+            assertEquals(12345, randomize.seed!!.constantIntOrNull())
+        }
+
+        withProgram(
+            createAx(
+                listOf(
+                    0x2008, Hsp3BytecodeDecoder.INTCMD_RANDOMIZE,
+                    0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+                )
+            )
+        ) { program ->
+            val randomize = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.Randomize
+            assertEquals(null, randomize.seed)
+        }
+    }
+
+    @Test
+    fun decoderRecognizesAllSuppliedStartAxExtCommandIds() {
+        val ids = listOf(
+            0x0F, 0x10, 0x11, 0x14, 0x17, 0x18, 0x1B, 0x1C, 0x1D,
+            0x1E, 0x20, 0x23, 0x29, 0x2A, 0x31, 0x34, 0x36
+        )
+        ids.forEach { id ->
+            withProgram(createNativeCommandProgram(id)) { program ->
+                val decoded = Hsp3BytecodeDecoder().decode(program).first()
+                assertTrue("EXTCMD 0x${id.toString(16)} should decode", decoded is Hsp3Instruction.NativeCommand)
+                assertEquals(id, (decoded as Hsp3Instruction.NativeCommand).commandId)
+            }
+        }
+    }
+
+    @Test
+    fun moduleCommandHeadEndsThePreviousPostfixExpression() {
+        val code = listOf(
+            0x2009, Hsp3CommandIds.MES,
+            0x0004, 7,
+            0x200C, 1, // TYPE_MODCMD + EXFLG_1 command head
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        withProgram(createAx(code)) { program ->
+            val decoder = Hsp3BytecodeDecoder()
+            val instructions = decoder.decode(program)
+
+            assertEquals(3, instructions.size)
+            assertTrue(instructions[0] is Hsp3Instruction.NativeCommand)
+            val moduleCommand = instructions[1] as Hsp3Instruction.Unsupported
+            assertEquals(12, moduleCommand.commandType)
+            assertEquals(1, moduleCommand.commandId)
+            assertEquals(8, moduleCommand.codeOffset)
+            assertTrue(
+                decoder.diagnostics.none {
+                    it.message.contains("postfix expression leaves")
+                }
+            )
+        }
+    }
+
+    @Test
+    fun parameterBoundaryCommandShapedTokenIsNotScannedAsACommandHead() {
+        val words = listOf(
+            0x2009, Hsp3CommandIds.MES,
+            0x400F, 0x4004,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        withProgram(createAx(words)) { program ->
+            val decoder = Hsp3BytecodeDecoder()
+            val instructions = decoder.decode(program)
+            assertEquals(2, instructions.size)
+            assertTrue(instructions[0] is Hsp3Instruction.NativeCommand)
+            assertEquals(Hsp3Instruction.End, instructions[1])
+            assertTrue(decoder.diagnostics.none { it.message.contains("unsupported") })
+        }
+    }
+
+    private fun createMultiDimensionalArrayAssignment(dimensionCount: Int): ByteArray {
+        require(dimensionCount in 2..5)
+        val words = mutableListOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM,
+            0x0001, 4
+        )
+        repeat(dimensionCount) {
+            words += 0x5004 // EXFLG_2 | EXFLG_0 | TYPE_INUM
+            words += 2
+        }
+
+        words += listOf(
+            0x2001, 5, // scalar assignment: var#5 = 10
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0004, 10
+        )
+
+        words += listOf(
+            0x2001, 4, // array assignment target
+            0x0000, '('.code,
+            0x1004, 0 // first fast-path index
+        )
+        for (index in 1 until dimensionCount) {
+            words += 0x5004 // subsequent fast-path index with EXFLG_2 boundary
+            words += index % 2
+        }
+        words += listOf(
+            0x0000, ')'.code,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0001, 5, // RHS: var#5
+            0x0004, 5, // plus literal 5
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_ADD,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(words)
+    }
+
+    private fun createTwoDimensionalArrayAssignment(): ByteArray {
+        val words = listOf(
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_DIM,
+            0x0001, 4,
+            0x4004, 3,
+            0x4004, 3,
+            0x2001, 4,
+            0x0000, '('.code,
+            0x0004, 1,
+            0x4004, 2,
+            0x0000, ')'.code,
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x4004, 5,
+            0x200F, Hsp3BytecodeDecoder.PROGCMD_END
+        )
+        return createAx(words)
+    }
+
+    private fun createIfProgram(): ByteArray {
+        val code = listOf(
+            0x200B, Hsp3BytecodeDecoder.CMP_CMD_IF, // TYPE_CMPCMD + EXFLG_1
+            4,                                     // raw skip: four CS words after this field
+            0x0004, 1,                             // condition expression
+            0x200F, 0x10,                          // true branch: end
+            0x200F, 0x10                           // false branch target: end
+        )
+        return createAx(code)
+    }
+
+    private fun createMesWithNestedStringFunctions(): ByteArray {
+        // A valid nested expression: mes str(int(42)).
+        val code = listOf(
+            0x2009, Hsp3CommandIds.MES,
+            0x000D, 0x0100, // str(
+            0x0000, '('.code,
+            0x000D, 0x0000, // int(
+            0x0000, '('.code,
+            0x0004, 42,
+            0x0000, ')'.code,
+            0x0000, ')'.code,
+            0x200F, 0x10
+        )
+        return createAx(code)
+    }
+
+    private fun createMesWithStringFunction(): ByteArray {
+        val code = listOf(
+            0x2009, Hsp3CommandIds.MES,
+            0x000D, 0x0100, // TYPE_INTFUNC str()
+            0x0000, '('.code,
+            0x0004, 42,
+            0x0000, ')'.code,
+            0x200F, 0x10
+        )
+        return createAx(code)
+    }
+
+    private fun createGmodeWithOmittedFirstArgument(): ByteArray {
+        val code = listOf(
+            0x2009, Hsp3CommandIds.GMODE,
+            0x4004, 3,     // EXFLG_2: first emitted token belongs to argument 2
+            0x200F, 0x10
+        )
+        return createAx(code)
+    }
+
+    private fun createAssignmentProgram(): ByteArray {
+        val code = listOf(
+            0x2001, 4,     // TYPE_VAR + EXFLG_1: assign variable #4
+            0x0000, Hsp3BytecodeDecoder.CALCCODE_EQ,
+            0x0004, 9,
+            0x200F, 0x10
+        )
+        return createAx(code)
+    }
+
+    private fun createColorProgram(): ByteArray {
+        // extcmd color r,g,b; first argument is postfix expression 1 2 +.
+        val code = listOf(
+            0x2009, 0x18,  // TYPE_EXTCMD + EXFLG_1; COLOR command ID
+            0x0004, 1,     // first expression operand
+            0x0004, 2,     // second expression operand
+            0x0000, 0,     // TYPE_MARK + CALCCODE_ADD
+            0x4004, 128,   // next parameter begins (EXFLG_2)
+            0x4004, 64,    // next parameter begins (EXFLG_2)
+            0x200F, 0x10   // TYPE_PROGCMD + EXFLG_1; END
+        )
+        return createAx(code)
+    }
+
+    private fun createGetKeyProgram(): ByteArray {
+        val code = listOf(
+            0x2008, 0x23,  // TYPE_INTCMD + EXFLG_1; getkey
+            0x0001, 7,     // destination variable
+            0x4004, 13,    // key code argument, starts a new parameter
+            0x200F, 0x10   // TYPE_PROGCMD + EXFLG_1; END
+        )
+        return createAx(code)
+    }
+
+    private fun createAx(
+        words: List<Int>,
+        objectTempWordOffsets: List<Int> = emptyList()
+    ): ByteArray {
+        val codeSize = words.size * 2
+        val objectTempOffset = if (objectTempWordOffsets.isEmpty()) 0 else 0x60 + codeSize
+        val objectTempSize = objectTempWordOffsets.size * Int.SIZE_BYTES
+        val bytes = ByteArray(0x60 + codeSize + objectTempSize)
+        "HSP3".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0)
+        putUInt32(bytes, 4, 0x301L)
+        putUInt32(bytes, 8, 64L)
+        putUInt32(bytes, 12, bytes.size.toLong())
+        putUInt32(bytes, 16, 0x60L)
+        putUInt32(bytes, 20, codeSize.toLong())
+        putUInt32(bytes, 32, objectTempOffset.toLong())
+        putUInt32(bytes, 36, objectTempSize.toLong())
+
+        words.forEachIndexed { index, value ->
+            putUInt16(bytes, 0x60 + index * 2, value)
+        }
+        objectTempWordOffsets.forEachIndexed { index, wordOffset ->
+            putUInt32(bytes, objectTempOffset + index * Int.SIZE_BYTES, wordOffset.toLong())
+        }
+        return bytes
+    }
+
+    private fun putUInt16(target: ByteArray, offset: Int, value: Int) {
+        target[offset] = value.toByte()
+        target[offset + 1] = (value ushr 8).toByte()
+    }
+
+    private fun putUInt32(target: ByteArray, offset: Int, value: Long) {
+        for (index in 0 until 4) target[offset + index] = (value ushr (index * 8)).toByte()
+    }
+
+    private class RecordingGraphics : Hsp3Graphics {
+        val calls = mutableListOf<String>()
+
+        override fun screen(id: Int, width: Int, height: Int) = Unit
+        override fun buffer(id: Int, width: Int, height: Int) = Unit
+        override fun gsel(id: Int) = Unit
+        override fun picload(name: String) = Unit
+        override fun gcopy(
+            sourceId: Int, sourceX: Int, sourceY: Int, width: Int, height: Int, destX: Int, destY: Int
+        ) = Unit
+        override fun boxf(x1: Int, y1: Int, x2: Int, y2: Int) = Unit
+        override fun mes(value: String) {
+            calls += "mes:$value"
+        }
+        override fun pos(x: Int, y: Int) = Unit
+        override fun color(red: Int, green: Int, blue: Int) {
+            calls += "color:$red:$green:$blue"
+        }
+        override fun font(name: String, size: Int, style: Int) = Unit
+        override fun gmode(mode: Int, alpha: Int) = Unit
+        override fun redraw(enabled: Boolean) = Unit
+        override fun close() = Unit
+    }
+
+    @Test
+    fun decodesSingleTokenFastPathAsItsOwnArgument() {
+        withProgram(createFastPathColorProgram()) { program ->
+            val command = Hsp3BytecodeDecoder().decode(program).first() as Hsp3Instruction.NativeCommand
+            assertEquals(3, command.arguments.size)
+            val values = command.arguments.map { argument ->
+                argument!!.evaluate(
+                    variable = { Hsp3RuntimeValue.IntegerValue(0) },
+                    systemVariable = { Hsp3RuntimeValue.IntegerValue(0) }
+                )
+            }
+            assertEquals(
+                listOf(
+                    Hsp3RuntimeValue.IntegerValue(3),
+                    Hsp3RuntimeValue.IntegerValue(128),
+                    Hsp3RuntimeValue.IntegerValue(64)
+                ),
+                values
+            )
+        }
+    }
+
+    private fun createFastPathColorProgram(): ByteArray = createAx(
+        listOf(
+            0x2009, 0x18,  // TYPE_EXTCMD + EXFLG_1; COLOR
+            0x1004, 3,     // EXFLG_0 + TYPE_INUM; one-token first argument
+            0x4004, 128,   // EXFLG_2 + TYPE_INUM; second argument
+            0x4004, 64,    // EXFLG_2 + TYPE_INUM; third argument
+            0x200F, 0x10   // TYPE_PROGCMD + EXFLG_1; END
+        )
+    )
+
+}

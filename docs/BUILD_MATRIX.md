@@ -150,3 +150,14 @@ Decide whether Resource Inspector should be:
 If debug-only is desired, implement a dedicated product flavor/build config and UI gating, then verify the release manifest and APK do not contain or expose the Inspector. Make a separate decision for the unfinished System-NNN player.
 
 **Current audit recommendation:** use main as the canonical development base. Resource Inspector remains included by the user's explicit choice. Do not call the app a release candidate until SPT semantics and real-device playback are validated; CI #278 is a debug build/test/lint result, not release or device acceptance.
+
+
+## 7. HSP3.1 / DPMX development branch
+
+| Source | DPMX parser | HSPHED loader | VM / renderer | User-visible launch | Meaning |
+|---|---|---|---|---|---|
+| `feat/hsp3-dpmx-runtime` / PR #31 | Positional PE32+DPMX parsing and bounded decryption | 96-byte HSPHED, CS/DS/OT/DI, OpenHSP token flags and OT word offsets | Nested expressions, common built-ins, bounded arrays/sdim buffers, bload/bsave, Canvas picload/gcopy/gzoom/grotate/celload/celdiv/celput/gmode/boxf/mes/redraw | Hsp3PlayerActivity, 800x600 Canvas loop and touchscreen gamepad wired | Partial native HSP3 path; real Demonophobia playback not yet proven |
+
+The branch is based on `main` at `56534a43c76f3567ea46d0dbeb7e8ad5f8e88975`. Details and tests are in [HSP3_DPMX_STATUS.md](HSP3_DPMX_STATUS.md).
+
+Known blockers: the PE `.data` key-schedule arithmetic still requires independent validation; array object/misc-type semantics, some built-in functions, module/DLL expressions, additional graphics and platform commands remain incomplete; and no real-game Android end-to-end test has been run. HSP3 is now launchable through a native Activity after command decoding succeeds, but CI build/unit-test/lint success is not evidence of full Demonophobia playback.

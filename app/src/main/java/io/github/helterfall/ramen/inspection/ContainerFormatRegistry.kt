@@ -25,6 +25,16 @@ data class ContainerFormatDefinition(
 object ContainerFormatRegistry {
     val verified: List<ContainerFormatDefinition> = listOf(
         ContainerFormatDefinition(
+            id = "dpmx-pe32-overlay",
+            label = "PE32 executable with DPMX overlay",
+            extensions = setOf("exe"),
+            signatureHex = "4D 5A / PE\\0\\0 / DPMX at computed end of PE raw sections",
+            evidenceLevel = FormatEvidenceLevel.VERIFIED_SIGNATURE,
+            notes = "Use DpmxContainerParser to validate the PE32 headers, section table, " +
+                "dynamic overlay offset, DPMX entry table and bounded data ranges. " +
+                "The .exe extension or an MZ signature alone is not sufficient."
+        ),
+        ContainerFormatDefinition(
             id = "zip",
             label = "ZIP archive",
             extensions = setOf("zip"),

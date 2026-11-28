@@ -8,6 +8,7 @@ import io.github.helterfall.ramen.inspection.GpkImageResource
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import io.github.helterfall.ramen.inspection.ReadOnlySourceRangeInputStream
 import io.github.helterfall.ramen.inspection.ResourceArchiveParsers
+import io.github.helterfall.ramen.runtime.MutableArgbBitmapDecoder
 import java.io.IOException
 
 /**
@@ -107,7 +108,7 @@ class AndroidGpkImageDecoder(
         }
 
         val bitmap = try {
-            Bitmap.createBitmap(decoded.width, decoded.height, Bitmap.Config.ARGB_8888)
+            MutableArgbBitmapDecoder.create(decoded.width, decoded.height)
         } catch (failure: RuntimeException) {
             throw IOException("Could not allocate the decoded DWQ bitmap.", failure)
         }
@@ -164,6 +165,7 @@ class AndroidGpkImageDecoder(
         while (true) {
             val options = BitmapFactory.Options().apply {
                 inSampleSize = sampleSize
+                inMutable = true
                 inPreferredConfig = Bitmap.Config.ARGB_8888
             }
             val bitmap = ReadOnlySourceRangeInputStream(
@@ -171,7 +173,7 @@ class AndroidGpkImageDecoder(
                 resource.payloadOffset,
                 resource.payloadSizeBytes
             ).use { input ->
-                BitmapFactory.decodeStream(input, null, options)
+                MutableArgbBitmapDecoder.decodeStream(input, options)
             } ?: throw IOException("Android could not decode the GPK image payload.")
 
             val decodedPixels = bitmap.width.toLong() * bitmap.height.toLong()
@@ -232,7 +234,7 @@ class AndroidGpkImageDecoder(
         }
 
         val bitmap = try {
-            Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+            MutableArgbBitmapDecoder.create(width, height)
         } catch (failure: RuntimeException) {
             throw IOException("Could not allocate the bounded raw BMP bitmap.", failure)
         }
@@ -322,11 +324,7 @@ class AndroidGpkImageDecoder(
         }
 
         val bitmap = try {
-            Bitmap.createBitmap(
-                resource.widthPixels,
-                resource.heightPixels,
-                Bitmap.Config.ARGB_8888
-            )
+            MutableArgbBitmapDecoder.create(resource.widthPixels, resource.heightPixels)
         } catch (failure: RuntimeException) {
             throw IOException("Could not allocate the bounded BMP RLE bitmap.", failure)
         }

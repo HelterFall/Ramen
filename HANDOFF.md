@@ -518,3 +518,22 @@ Workflow `.github/workflows/android-ci.yml` запускает только:
 - System-NNN остаётся экспериментальным: запуск подключён, но semantics SPT decoder и end-to-end совместимость требуют дальнейшего исследования.
 - PR #25/#26 по-прежнему нуждаются в отдельном аудите; не считай их целиком интегрированными.
 
+
+
+## 14. HSP3.1 / DPMX development branch (PR #31)
+
+A separate work branch, `feat/hsp3-dpmx-runtime`, was created from the verified main head `56534a43c76f3567ea46d0dbeb7e8ad5f8e88975`; it is tracked in [PR #31](https://github.com/HelterFall/Ramen/pull/31).
+
+Implementation notes and boundaries are recorded in [docs/HSP3_DPMX_STATUS.md](docs/HSP3_DPMX_STATUS.md). The branch adds:
+- a streaming PE32/DPMX overlay parser and DPMX key/decryption layer under `inspection/`;
+- an HSPHED + CS/DS/OT/DI loader with OpenHSP token flags, conditional-command branch words and word-based OT offsets;
+- a CS decoder for command heads, argument boundaries, nested postfix expressions, common TYPE_INTFUNC calls, scalar/array references, core control flow and a limited graphics/input command profile;
+- a typed bounded VM with int/double/string scalars, bounded sparse arrays, `dim`/indexed reads and writes, `sdim` byte buffers, `bload`/`bsave`, expression evaluation, assignments, branches, loops, wait yields, `stick` and `getkey`;
+- a Canvas renderer dispatching `picload`, `gcopy`, `gzoom`, `grotate`, `celload`/`celdiv`/`celput`, `gmode`, `boxf`, `mes` and `redraw`, with bounded DPMX/private-folder asset and save access;
+- an Android `Hsp3PlayerActivity` with an 800x600 Canvas viewport, bounded host loop and touchscreen D-pad / Enter-Z / Esc-X / Space controls;
+- DPMX/HSP3 validation in `VisualNovelDetector`, a DPMX entry in `ContainerFormatRegistry`, and a user-visible HSP3 Launch route;
+- generated binary unit-test fixtures only; no Demonophobia executable or commercial assets are stored in Git.
+
+**Readiness boundary:** the native launch path and the specifically requested graphics/file command paths are implemented, but this remains a partial HSP3.1 runtime, not proven full Demonophobia compatibility. The exact PE `.data` key schedule still requires independent validation; array object/misc-type semantics, further built-in functions, module/DLL expressions, audio/system events and other platform APIs remain unsupported. Mode 6 of `gmode` uses a visual approximation. There is no real-game Android end-to-end test yet, and unsupported commands can still halt execution.
+
+CI build/unit-test/lint success proves source/build correctness only. It is not a physical-device test or a guarantee that the target game's full script will play.

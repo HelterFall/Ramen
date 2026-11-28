@@ -1,0 +1,546 @@
+package io.github.helterfall.ramen.runtime.hsp3
+
+import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.util.Log
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.State
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import io.github.helterfall.ramen.library.GameRecord
+import io.github.helterfall.ramen.library.LibraryRepository
+import java.io.File
+import java.io.IOException
+import java.util.concurrent.Executors
+import kotlin.math.min
+
+/** Native Android host for imported PE32/DPMX HSP3 games. */
+class Hsp3PlayerActivity : ComponentActivity() {
+    private val mainHandler = Handler(Looper.getMainLooper())
+    private val sessionState = mutableStateOf<Hsp3RuntimeSession?>(null)
+    private val errorState = mutableStateOf<String?>(null)
+    private val frameCounter = mutableStateOf(0)
+    private val inputController = Hsp3TouchInputController()
+    private lateinit var startupExecutor: java.util.concurrent.ExecutorService
+    private var activityResumed = false
+    private var frameGeneration = 0
+    private var lastPresentationRevision = -1L
+
+    private val frameRunner = object : Runnable {
+        override fun run() {
+            val session = sessionState.value ?: return
+            if (!activityResumed || isFinishing || isDestroyed) return
+            val generation = frameGeneration
+            try {
+                startupExecutor.execute {
+                    val result = session.runSlice(
+                        instructionBudget = VM_FRAME_BUDGET,
+                        includeState = false
+                    )
+                    mainHandler.post {
+                        if (generation != frameGeneration ||
+                            sessionState.value !== session ||
+                            !activityResumed || isFinishing || isDestroyed
+                        ) return@post
+
+                        val revision = session.renderer.presentationRevision()
+                        if (revision != lastPresentationRevision) {
+                            lastPresentationRevision = revision
+                            frameCounter.value += 1
+                        }
+                        when (result.status) {
+                            Hsp3VmStatus.ENDED -> mainHandler.removeCallbacks(this)
+                            Hsp3VmStatus.FAILED -> {
+                                errorState.value = result.errorMessage ?: "Ошибка выполнения HSP3."
+                                mainHandler.removeCallbacks(this)
+                            }
+                            Hsp3VmStatus.READY, Hsp3VmStatus.YIELDED -> {
+                                val delay = result.yieldDelayMillis.takeIf { it > 0L } ?: FRAME_INTERVAL_MS
+                                mainHandler.postDelayed(this, delay.coerceAtMost(MAX_HOST_DELAY_MS))
+                            }
+                        }
+                    }
+                }
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                // Activity is shutting down; no more VM work should be queued.
+            }
+        }
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val gameId = intent.getStringExtra(EXTRA_GAME_ID)
+        val game = gameId?.let { id ->
+            LibraryRepository(applicationContext).load().firstOrNull { it.id == id }
+        }
+        if (game == null || !isLaunchableGame(game)) {
+            finish()
+            return
+        }
+
+        setContent {
+            MaterialTheme {
+                Hsp3PlayerScreen(
+                    title = game.title,
+                    session = sessionState.value,
+                    error = errorState.value,
+                    frameToken = frameCounter,
+                    input = inputController,
+                    onExit = ::finish
+                )
+            }
+        }
+
+        startupExecutor = Executors.newSingleThreadExecutor()
+        startupExecutor.execute {
+            try {
+                val gameDirectory = resolvePrivateGameDirectory(game)
+                val session = prepareSession(gameDirectory)
+                mainHandler.post {
+                    if (isFinishing || isDestroyed) {
+                        session.close()
+                    } else {
+                        sessionState.value?.close()
+                        lastPresentationRevision = session.renderer.presentationRevision()
+                        sessionState.value = session
+                        mainHandler.removeCallbacks(frameRunner)
+                        if (activityResumed) mainHandler.post(frameRunner)
+                    }
+                }
+            } catch (error: Exception) {
+                mainHandler.post {
+                    if (!isFinishing && !isDestroyed) {
+                        errorState.value = error.message ?: "Не удалось запустить HSP3."
+                    }
+                }
+            }
+        }
+    }
+
+    private fun resolvePrivateGameDirectory(game: GameRecord): File {
+        val id = game.id
+        if (id.isBlank() || id.any { it.isISOControl() || it == '/' || it == '\\' }) {
+            throw IOException("Некорректный идентификатор игры.")
+        }
+        val gamesRoot = File(filesDir, "games").canonicalFile
+        val gameDirectory = File(filesDir, game.relativeDirectory).canonicalFile
+        if (gameDirectory == gamesRoot ||
+            !gameDirectory.toPath().startsWith(gamesRoot.toPath()) ||
+            gameDirectory != File(gamesRoot, id).canonicalFile ||
+            !gameDirectory.isDirectory
+        ) {
+            throw IOException("Папка игры отсутствует в приватной библиотеке Ramen.")
+        }
+        return gameDirectory
+    }
+
+    private fun prepareSession(gameDirectory: File): Hsp3RuntimeSession {
+        val executables = gameDirectory.walkTopDown()
+            .maxDepth(MAX_GAME_SCAN_DEPTH)
+            .filter { it.isFile && it.extension.equals("exe", ignoreCase = true) }
+            .take(MAX_DISCOVERED_FILES)
+            .toList()
+            .sortedWith(
+                compareBy<File> {
+                    if (it.name.equals("Demonophobia.exe", ignoreCase = true)) 0 else 1
+                }.thenBy { it.relativeTo(gameDirectory).invariantSeparatorsPath }
+            )
+        if (executables.isEmpty()) throw IOException("В папке игры не найден PE32 .exe с HSP/DPMX.")
+
+        var lastError: Exception? = null
+        for (executable in executables) {
+            try {
+                val decoder=Hsp3BytecodeDecoder()
+                val session=Hsp3RuntimeAdapter().createSession(
+                    executable = executable,
+                    instructionDecoder = decoder,
+                    input = inputController,
+                    assetRoot = gameDirectory,
+                    audio = AndroidHsp3AudioPlayer(cacheDir)
+                )
+                decoder.diagnostics.forEach { Log.w("RamenHsp3Decoder",it.asLogMessage()) }
+                return session
+            } catch (error: Exception) {
+                lastError = error
+            }
+        }
+        throw IOException(lastError?.message ?: "Ни один PE32/DPMX файл не прошёл проверку HSP3.")
+    }
+
+    override fun onPause() {
+        activityResumed = false
+        frameGeneration += 1
+        mainHandler.removeCallbacks(frameRunner)
+        super.onPause()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        activityResumed = true
+        if (sessionState.value != null && errorState.value == null) {
+            mainHandler.removeCallbacks(frameRunner)
+            mainHandler.post(frameRunner)
+        }
+    }
+
+    override fun onDestroy() {
+        activityResumed = false
+        frameGeneration += 1
+        mainHandler.removeCallbacks(frameRunner)
+        val session = sessionState.value
+        sessionState.value = null
+        if (::startupExecutor.isInitialized) {
+            if (session != null) {
+                runCatching { startupExecutor.execute { session.close() } }
+            }
+            // Let an in-flight slice finish before closing its renderer; no next slice
+            // can be queued because the generation was invalidated above.
+            startupExecutor.shutdown()
+        } else {
+            session?.close()
+        }
+        super.onDestroy()
+    }
+
+    companion object {
+        const val EXTRA_GAME_ID = "io.github.helterfall.ramen.extra.HSP3_GAME_ID"
+        private const val MAX_GAME_SCAN_DEPTH = 12
+        private const val MAX_DISCOVERED_FILES = 10_000
+        private const val VM_FRAME_BUDGET = 10_000
+        private const val FRAME_INTERVAL_MS = 16L
+        private const val MAX_HOST_DELAY_MS = 60_000L
+
+        private fun isLaunchableGame(game: GameRecord): Boolean =
+            game.id.matches(Regex("[A-Za-z0-9-]{1,64}")) &&
+                game.relativeDirectory == "games/${game.id}" &&
+                game.engineId == Hsp3RuntimeAdapter.ENGINE_ID &&
+                game.compatibilityStatus == "PARSER_AVAILABLE"
+    }
+}
+
+
+@Composable
+private fun Hsp3PlayerScreen(
+    title: String,
+    session: Hsp3RuntimeSession?,
+    error: String?,
+    frameToken: State<Int>,
+    input: Hsp3TouchInputController,
+    onExit: () -> Unit
+) {
+    BackHandler(onBack = onExit)
+    Surface(modifier = Modifier.fillMaxSize(), color = Color(0xFF08090C)) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFF191D24))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    color = Color(0xFFF4F1EA),
+                    modifier = Modifier.weight(1f),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
+                Text(
+                    text = "Закрыть",
+                    color = Color(0xFFF2B766),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Color(0xFF292E37))
+                        .clickable(onClick = onExit)
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+
+            Box(modifier = Modifier.fillMaxSize()) {
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(input) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val point = event.changes.firstOrNull()?.position ?: continue
+                                    val scale = min(
+                                        size.width.toFloat() / Hsp3CanvasRenderer.DEFAULT_WIDTH,
+                                        size.height.toFloat() / Hsp3CanvasRenderer.DEFAULT_HEIGHT
+                                    )
+                                    if (scale > 0f) {
+                                        val left = (size.width -
+                                            Hsp3CanvasRenderer.DEFAULT_WIDTH * scale) / 2f
+                                        val top = (size.height -
+                                            Hsp3CanvasRenderer.DEFAULT_HEIGHT * scale) / 2f
+                                        input.setMousePosition(
+                                            ((point.x - left) / scale).toInt(),
+                                            ((point.y - top) / scale).toInt()
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                ) {
+                    // Read the token only in the draw phase. VM frames then invalidate
+                    // this Canvas without recomposing the toolbar and touch controls.
+                    if (frameToken.value == Int.MIN_VALUE) drawRect(Color.Transparent)
+                    drawIntoCanvas { canvas ->
+                        session?.renderer?.draw(canvas.nativeCanvas)
+                            ?: canvas.nativeCanvas.drawColor(android.graphics.Color.BLACK)
+                    }
+                }
+                if (session == null && error == null) {
+                    Text(
+                        text = "Подготавливаю HSP3…",
+                        color = Color.White,
+                        modifier = Modifier.align(Alignment.Center)
+                    )
+                }
+                if (error != null) {
+                    Column(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .fillMaxWidth()
+                            .background(Color(0xE6222630))
+                            .padding(14.dp)
+                    ) {
+                        Text(
+                            text = "Остановка HSP3",
+                            color = Color(0xFFFFC5A8),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp
+                        )
+                        Text(
+                            text = error,
+                            color = Color.White,
+                            fontSize = 11.sp
+                        )
+                    }
+                }
+                GamepadOverlay(
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    input = input
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun GamepadOverlay(
+    modifier: Modifier,
+    input: Hsp3TouchInputController
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .navigationBarsPadding()
+            .displayCutoutPadding()
+            .background(Color.Transparent)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.Bottom
+    ) {
+        DpadControl(input)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ControlKey("Enter / Z", Hsp3TouchInputController.STICK_ENTER or Hsp3TouchInputController.STICK_Z, input)
+            ControlKey("Esc / X", Hsp3TouchInputController.STICK_ESCAPE or Hsp3TouchInputController.STICK_X, input)
+            ControlKey("R", Hsp3TouchInputController.STICK_R, input)
+            ControlKey("Space", Hsp3TouchInputController.STICK_SPACE, input)
+        }
+    }
+}
+
+@Composable
+private fun DpadControl(input: Hsp3TouchInputController) {
+    Box(
+        modifier = Modifier
+            .size(width = 150.dp, height = 126.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0x8020242D))
+            .pointerInput(input) {
+                val zoneWidth = size.width.toFloat()
+                val zoneHeight = size.height.toFloat()
+                awaitEachGesture {
+                    val down = awaitFirstDown(
+                        requireUnconsumed = false,
+                        pass = PointerEventPass.Initial
+                    )
+                    var activePointerId = down.id
+                    down.consume()
+                    input.setDpadPosition(down.position.x, down.position.y, zoneWidth, zoneHeight)
+                    try {
+                        var tracking = true
+                        while (tracking) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val activeChange = event.changes.firstOrNull {
+                                it.id == activePointerId
+                            } ?: continue
+                            activeChange.consume()
+                            if (activeChange.pressed) {
+                                input.setDpadPosition(
+                                    activeChange.position.x,
+                                    activeChange.position.y,
+                                    zoneWidth,
+                                    zoneHeight
+                                )
+                            } else {
+                                // Transfer to another finger still held inside the D-pad.
+                                val replacement = event.changes.firstOrNull {
+                                    it.id != activePointerId &&
+                                        it.pressed &&
+                                        it.position.x in 0f..zoneWidth &&
+                                        it.position.y in 0f..zoneHeight
+                                }
+                                if (replacement != null) {
+                                    activePointerId = replacement.id
+                                    replacement.consume()
+                                    input.setDpadPosition(
+                                        replacement.position.x,
+                                        replacement.position.y,
+                                        zoneWidth,
+                                        zoneHeight
+                                    )
+                                } else {
+                                    tracking = false
+                                }
+                            }
+                        }
+                    } finally {
+                        // Always clear on up or cancellation; action-key bits are untouched.
+                        input.setDpadMask(0)
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            DpadArrow("▲")
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                DpadArrow("◀")
+                DpadCenter()
+                DpadArrow("▶")
+            }
+            DpadArrow("▼")
+        }
+    }
+}
+
+@Composable
+private fun DpadArrow(label: String) {
+    Box(
+        modifier = Modifier
+            .size(width = 46.dp, height = 38.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(Color(0xD938414E)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = Color(0xFFF4F1EA),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
+
+@Composable
+private fun DpadCenter() {
+    Box(
+        modifier = Modifier
+            .size(width = 46.dp, height = 38.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(Color(0xD938414E))
+    )
+}
+
+@Composable
+private fun ControlKey(
+    label: String,
+    bits: Int,
+    input: Hsp3TouchInputController
+) {
+    Box(
+        modifier = Modifier
+            .size(width = if (label.length > 2) 66.dp else 46.dp, height = 42.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(Color(0xD938414E))
+            .pointerInput(input, bits) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(
+                        requireUnconsumed = false,
+                        pass = PointerEventPass.Initial
+                    )
+                    val pointerId = down.id
+                    down.consume()
+                    input.setPressed(bits, true)
+                    try {
+                        var held = true
+                        while (held) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == pointerId }
+                                ?: continue
+                            change.consume()
+                            if (!change.pressed) held = false
+                        }
+                    } finally {
+                        // This pointer releases only its own action key(s).
+                        input.setPressed(bits, false)
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = Color(0xFFF4F1EA),
+            fontSize = if (label.length > 2) 9.sp else 18.sp,
+            fontWeight = FontWeight.Bold
+        )
+    }
+}
