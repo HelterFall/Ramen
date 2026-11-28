@@ -1174,10 +1174,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
         advanceToVisibleEvent()
     }
 
-    /**
-     * Called by the screen after presenting the requested number of native DRAW frames.
-     * The next SPT command is not executed until this boundary has been displayed.
-     */
     /** Called once for each frame actually consumed by the native DRAW scheduler. */
     fun onDrawFrameProgress() {
         val current = uiState
@@ -1185,6 +1181,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
         uiState = current.advanceOverrapForNativeDrawFrame()
     }
 
+    /**
+     * Called by the screen after presenting the requested number of native DRAW frames.
+     * The next SPT command is not executed until this boundary has been displayed.
+     */
     fun onDrawFrameCompleted() {
         val current = uiState
         diagnosticLog?.recordTrace(
@@ -2066,7 +2066,9 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         if (command.effectId != 1 &&
                             SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)
                         ) {
-route-haikei-comment
+                            // FADEIN, SUNA and FILL print into the shared framebuffer
+                            // at this layer's native position. HAIKEIYURE p5=1 is also
+                            // a native layer effect and must stay in this ordered stack.
                             val explicitViewportEffect = command.layerIndex == SCREEN_EFFECT_LAYER_INDEX &&
                                 command.effectId in setOf(10, 11, 29, 54)
                             if (command.effectId in SCREEN_BUFFER_EFFECT_IDS ||
