@@ -583,6 +583,16 @@ class Hsp3CanvasRenderer(
             ?: throw IOException("Could not copy HSP surface " + id + ".")
     }
 
+    /** Snapshot of the cached RGB-black key mask for deterministic cache tests. */
+    @Synchronized
+    internal fun copyColorKeyBlackBitmap(sourceId: Int): Bitmap {
+        checkOpen()
+        val source = surfaces[sourceId]
+            ?: throw IOException("HSP source surface " + sourceId + " does not exist.")
+        return cachedBlackKeyBitmap(source).copy(Bitmap.Config.ARGB_8888, true)
+            ?: throw IOException("Could not copy HSP color-key cache for surface " + sourceId + ".")
+    }
+
     @Synchronized
     override fun boxf() {
         val bitmap = activeSurface().bitmap
