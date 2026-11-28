@@ -33,6 +33,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 
 @Composable
@@ -167,7 +168,7 @@ fun NscripterPlayerScreen(
             val window = scene.textWindow
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 Surface(
-                    color = if (scene.windowBack) Color(0xEE101216) else Color(0xCC101216),
+                    color = Color.Transparent,
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier
                         .offset(
@@ -199,13 +200,9 @@ fun NscripterPlayerScreen(
                             scene.dialogue,
                             color = runCatching { Color(android.graphics.Color.parseColor(window.color)) }
                                 .getOrDefault(Color(0xFFF4F1EA)),
-                            style = MaterialTheme.typography.bodyLarge
-                        )
-                        Text(
-                            "НАЖМИТЕ ДЛЯ ПРОДОЛЖЕНИЯ",
-                            color = Color(0xFFA8ADB7),
-                            style = MaterialTheme.typography.labelSmall,
-                            modifier = Modifier.align(Alignment.End)
+                            style = MaterialTheme.typography.bodyLarge,
+                            fontSize = window.fontSizeY.coerceAtLeast(1).sp,
+                            lineHeight = (window.fontSizeY.coerceAtLeast(1) * 1.15f).sp
                         )
                     }
                 }

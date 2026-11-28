@@ -112,7 +112,7 @@ class NscripterVirtualMachine(
             when (instruction.command) {
                 "text" -> {
                     scene = scene.copy(
-                        dialogue = interpolate(instruction.arguments),
+                        dialogue = stripInlineTextControls(interpolate(instruction.arguments)),
                         speaker = instruction.speaker ?: scene.speaker,
                         choices = emptyList()
                     )
@@ -259,11 +259,13 @@ class NscripterVirtualMachine(
                 "dwavestop" -> audioActions += NscripterAudioAction(
                     args.firstOrNull()?.let(::value) ?: 0, null, false, true
                 )
-                "mp3", "mp3loop" -> {
+                "bgm", "mp3", "mp3loop" -> {
                     val file = args.firstOrNull()?.let(::resolveString)
                     if (!file.isNullOrBlank()) {
                         audioActions += NscripterAudioAction(
-                            NSCRIPTER_BGM_CHANNEL, file, instruction.command == "mp3loop", false
+                            NSCRIPTER_BGM_CHANNEL, file,
+                            instruction.command == "mp3loop" || instruction.command == "bgm",
+                            false
                         )
                     }
                 }
@@ -272,6 +274,8 @@ class NscripterVirtualMachine(
                     waitState = WaitState.TAP
                     return NscripterVmYield.Dialogue(scene)
                 }
+                "textshow" -> scene = scene.copy(textWindowVisible = true)
+                "texthide" -> scene = scene.copy(textWindowVisible = false)
                 "stop" -> audioActions += NscripterAudioAction(-1, null, false, true)
                 "numalias" -> {
                     requireArgs(instruction, args, 2)
@@ -304,7 +308,7 @@ class NscripterVirtualMachine(
                 "jumpb" -> jumpToMarker(backward = true)
                 "jumpf" -> jumpToMarker(backward = false)
                 "tilde" -> Unit
-                "if" -> executeIf(instruction)
+                "if" -> executeIf(instruction)?.let { return it }
                 "for" -> beginFor(instruction)
                 "next" -> finishFor()
                 "goto" -> jump(args.firstOrNull())
@@ -411,18 +415,28 @@ class NscripterVirtualMachine(
     fun snapshot(): NscripterSceneState = scene
     fun saveSlots(): Int = saveCapacity
 
-    private fun executeIf(instruction: NscripterInstruction) {
+    private fun executeIf(instruction: NscripterInstruction): NscripterVmYield? {
         val (condition, actionText) = splitIfConditionAndActions(instruction.arguments)
-        if (!evaluateCondition(condition) || actionText.isNullOrBlank()) return
+        if (!evaluateCondition(condition) || actionText.isNullOrBlank()) return null
         for (rawAction in NscripterScriptProgram.splitCommandStatements(actionText)) {
             val action = rawAction.trim()
             if (action.isEmpty()) continue
             val match = Regex("^([A-Za-z_][A-Za-z0-9_]*)\\s*(.*)$").matchEntire(action)
                 ?: throw IOException("Invalid command in if at line " + instruction.sourceLine + ": " + action)
-            executeInlineIfCommand(match.groupValues[1].lowercase(Locale.ROOT), match.groupValues[2].trim(), instruction)
+            val result = executeInlineIfCommand(
+                match.groupValues[1].lowercase(Locale.ROOT),
+                match.groupValues[2].trim(),
+                instruction
+            )
+            if (result != null) return result
         }
+        return null
     }
 
+    /**
+     * Splits at the first top-level token that turns the preceding text into a
+     * valid condition. It does not depend on an explicit command allow-list.
+     */
     private fun splitIfConditionAndActions(arguments: String): Pair<String, String?> {
         var quote: Char? = null
         var escaped = false
@@ -460,24 +474,88 @@ class NscripterVirtualMachine(
                 candidateStart++
             }
             val command = Regex("^([A-Za-z_][A-Za-z0-9_]*)\\b")
-                .find(arguments.substring(candidateStart))?.groupValues?.get(1)?.lowercase(Locale.ROOT)
-            if (command != null && command in IF_ACTION_COMMANDS) {
-                return arguments.substring(0, index).trim() to arguments.substring(candidateStart).trim()
+                .find(arguments.substring(candidateStart))?.groupValues?.get(1)
+            if (command != null) {
+                val condition = arguments.substring(0, index).trim()
+                if (condition.isNotEmpty() && runCatching { evaluateCondition(condition) }.isSuccess) {
+                    return condition to arguments.substring(candidateStart).trim()
+                }
             }
         }
         return arguments.trim() to null
     }
 
-    private fun executeInlineIfCommand(command: String, arguments: String, source: NscripterInstruction) {
+    private fun executeInlineIfCommand(
+        command: String,
+        arguments: String,
+        source: NscripterInstruction
+    ): NscripterVmYield? {
+        val action = source.copy(command = command, arguments = arguments)
         val args = splitNscripterArguments(arguments)
         when (command) {
-            "lsp", "lsph" -> executeSpriteLoad(source.copy(command = command), args)
+            "bg" -> {
+                val image = args.firstOrNull()?.let(::resolveString)
+                val effect = args.getOrNull(1)?.let(::value) ?: 1
+                scene = if (image.isNullOrBlank()) {
+                    scene.copy(background = null, backgroundColor = "#000000", backgroundEffect = effect)
+                } else if (image.equals("black", true) || image.equals("white", true) || image.startsWith("#")) {
+                    scene.copy(background = null, backgroundColor = image, backgroundEffect = effect)
+                } else {
+                    scene.copy(background = image, backgroundColor = null, backgroundEffect = effect)
+                }
+            }
+            "lsp", "lsph" -> executeSpriteLoad(action, args)
+            "csp" -> {
+                val number = value(args.firstOrNull() ?: "0")
+                scene = scene.copy(sprites = if (number < 0) emptyList()
+                    else scene.sprites.filterNot { it.number == number })
+            }
+            "vsp" -> {
+                requireArgs(action, args, 2)
+                val number = value(args[0])
+                val visible = value(args[1]) != 0
+                scene = scene.copy(sprites = scene.sprites.map {
+                    if (it.number == number) it.copy(visible = visible) else it
+                })
+            }
+            "textshow" -> scene = scene.copy(textWindowVisible = true)
+            "texthide" -> scene = scene.copy(textWindowVisible = false)
+            "textclear" -> scene = scene.copy(dialogue = "", speaker = null)
+            "windowback" -> scene = scene.copy(windowBack = true)
+            "bgm", "mp3", "mp3loop" -> {
+                val file = args.firstOrNull()?.let(::resolveString)
+                if (!file.isNullOrBlank()) audioActions += NscripterAudioAction(
+                    NSCRIPTER_BGM_CHANNEL, file,
+                    command == "bgm" || command == "mp3loop",
+                    false
+                )
+            }
+            "dwave", "dwaveloop" -> {
+                val file = args.getOrNull(1)?.let(::resolveString)
+                if (!file.isNullOrBlank()) audioActions += NscripterAudioAction(
+                    args.firstOrNull()?.let(::value) ?: 0,
+                    file, command == "dwaveloop", false
+                )
+            }
+            "dwavestop" -> audioActions += NscripterAudioAction(
+                args.firstOrNull()?.let(::value) ?: 0, null, false, true
+            )
+            "bgmstop" -> audioActions += NscripterAudioAction(NSCRIPTER_BGM_CHANNEL, null, false, true)
+            "stop" -> audioActions += NscripterAudioAction(-1, null, false, true)
             "mov" -> {
-                requireArgs(source.copy(command = "mov"), args, 2)
+                requireArgs(action, args, 2)
                 val target = args[0].trim()
                 val key = normalizeVariable(target)
                 if (target.startsWith("\$")) stringVariables[key] = resolveString(args[1])
                 else setInteger(key, value(args[1]))
+            }
+            "add" -> {
+                requireArgs(action, args, 2)
+                val target = args[0].trim()
+                val key = normalizeVariable(target)
+                if (target.startsWith("\$")) stringVariables[key] =
+                    (stringVariables[key] ?: "") + resolveString(args[1])
+                else setInteger(key, (integerVariables[key] ?: 0) + value(args[1]))
             }
             "goto" -> jump(args.firstOrNull())
             "jumpb" -> jumpToMarker(backward = true)
@@ -487,17 +565,22 @@ class NscripterVirtualMachine(
                 if (callStack.isEmpty()) throw IOException("return without gosub.")
                 pc = callStack.removeLast()
             }
-            "end" -> pc = program.instructions.size
-            "add" -> {
-                requireArgs(source.copy(command = "add"), args, 2)
-                val target = args[0].trim()
-                val key = normalizeVariable(target)
-                if (target.startsWith("\$")) stringVariables[key] =
-                    (stringVariables[key] ?: "") + resolveString(args[1])
-                else setInteger(key, (integerVariables[key] ?: 0) + value(args[1]))
+            "click" -> {
+                scene = scene.copy(dialogue = "", speaker = null, choices = emptyList())
+                waitState = WaitState.TAP
+                return NscripterVmYield.Dialogue(scene)
             }
+            "wait" -> {
+                val millis = value(args.firstOrNull() ?: "0").coerceIn(0, 60000)
+                waitState = WaitState.TIMER
+                return NscripterVmYield.TimedWait(millis, scene)
+            }
+            "repaint", "print" -> return NscripterVmYield.Frame(scene)
+            "caption" -> scene = scene.copy(caption = resolveString(args.firstOrNull() ?: "Ramen"))
+            "end" -> return NscripterVmYield.Finished(scene)
             else -> Unit
         }
+        return null
     }
 
     private fun executeSpriteLoad(instruction: NscripterInstruction, args: List<String>) {
@@ -770,6 +853,11 @@ class NscripterVirtualMachine(
 
     private fun resolveString(raw: String): String = interpolate(nscripterUnquote(raw))
 
+    private fun stripInlineTextControls(raw: String): String =
+        raw.replace(Regex("(?i)!sd|!s\\s*\\d+|!w\\s*\\d+"), "")
+            .replace("^", "")
+            .replace("\\", "")
+
     private fun interpolate(raw: String): String =
         Regex("([%\\$])([A-Za-z0-9_]+)").replace(nscripterUnquote(raw)) { match ->
             val key = match.groupValues[2].lowercase(Locale.ROOT)
@@ -820,9 +908,5 @@ class NscripterVirtualMachine(
     companion object {
         private const val MAX_COMMANDS_PER_SLICE = 100_000
         private const val NSCRIPTER_BGM_CHANNEL = 50
-        private val IF_ACTION_COMMANDS = setOf(
-            "lsp", "lsph", "mov", "add", "goto", "gosub", "return", "end",
-            "jumpb", "jumpf"
-        )
     }
 }

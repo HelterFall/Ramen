@@ -26,7 +26,8 @@ data class NscripterScriptProgram(
             "gosub", "return", "wait", "caption", "game", "end", "nsa",
             "savefileexist", "savenumber", "saveon", "savetime",
             "mov", "jumpb", "jumpf", "btndef", "erasetextwindow",
-            "mp3", "mp3loop", "click", "vsp", "textclear", "repaint"
+            "bgm", "mp3", "mp3loop", "click", "vsp", "textclear", "repaint",
+            "textshow", "texthide"
         )
 
         /**
@@ -66,7 +67,7 @@ data class NscripterScriptProgram(
             "useescspc", "usewheel", "clickstr", "defaultspeed", "defmp3vol",
             "defsevol", "defvoicevol", "kidokuskip", "killmenu", "menusetwindow",
             "mode_ext", "mode_wave_demo", "selectcolor", "textgosub", "cdfadeout",
-            "textspeeddefault", "textoff", "texton", "windowchip", "btnnowindowerase",
+            "textspeeddefault", "textoff", "texton", "textshow", "texthide", "windowchip", "btnnowindowerase",
             "noteraseman", "mod", "monocro", "ofscpy", "repaint", "allsphide",
             "allspresume", "vsp", "ld", "tal", "textclear", "textspeed", "textcolor",
             "clickvoice", "autoclick", "click", "lrclick", "clickskippage",

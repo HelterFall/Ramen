@@ -352,6 +352,59 @@ class NscripterVirtualMachineTest {
         assertTrue(vm.snapshot().sprites.single().visible)
     }
     @Test
+    fun executesInlineBgmAndTextWindowVisibilityCommands() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            mov %sys_playing, 1
+            if %sys_playing == 1 bgm "bgm\3_1.mp3"
+            if %sys_playing == 1 texthide
+            hidden-window
+            if %sys_playing == 1 textshow
+            shown-window
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+
+        val hidden = vm.resume()
+        assertTrue(hidden is NscripterVmYield.Dialogue)
+        assertEquals("hidden-window", (hidden as NscripterVmYield.Dialogue).scene.dialogue)
+        assertFalse(vm.snapshot().textWindowVisible)
+        val bgm = vm.takeAudioActions().single()
+        assertEquals("bgm\3_1.mp3", bgm.fileName)
+        assertEquals(50, bgm.channel)
+        assertTrue(bgm.loop)
+
+        vm.acceptTap()
+        val shown = vm.resume()
+        assertTrue(shown is NscripterVmYield.Dialogue)
+        assertEquals("shown-window", (shown as NscripterVmYield.Dialogue).scene.dialogue)
+        assertTrue(vm.snapshot().textWindowVisible)
+    }
+
+    @Test
+    fun stripsInlineSpeedPauseAndLineMarkersFromDialogue() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            A!sd!s50!w 700^\B
+            next-line
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val first = vm.resume()
+        assertTrue(first is NscripterVmYield.Dialogue)
+        assertEquals("AB", (first as NscripterVmYield.Dialogue).scene.dialogue)
+
+        vm.acceptTap()
+        val second = vm.resume()
+        assertTrue(second is NscripterVmYield.Dialogue)
+        assertEquals("next-line", (second as NscripterVmYield.Dialogue).scene.dialogue)
+    }
+
+    @Test
     fun parserRecognizesEveryRequestedRuntimeCommand() {
         val source = """
             bg "bg.jpg", 1
@@ -399,6 +452,9 @@ class NscripterVirtualMachineTest {
             jumpf
             mp3loop "music.mp3"
             mp3 "once.mp3"
+            bgm "bgm.mp3"
+            textshow
+            texthide
             vsp 2, 1
             textclear
             repaint
