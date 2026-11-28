@@ -15,8 +15,8 @@ class Hsp3RuntimeAdapterTest {
             val prepared = Hsp3RuntimeAdapter().prepare(executable)
 
             assertEquals(0x400L, prepared.container.overlayOffset)
-            assertEquals("start.ax", prepared.scriptEntry.name)
-            assertEquals(DpmxKeyResolution.Method.VERIFIED_SAMPLE_VECTOR, prepared.scriptKey.method)
+            assertEquals("start.ax", prepared.scriptEntry?.name)
+            assertEquals(DpmxKeyResolution.Method.VERIFIED_SAMPLE_VECTOR, prepared.scriptKey?.method)
             assertEquals(0x301L, prepared.program.header.version)
             assertEquals(42L, prepared.program.tokens().single().value)
         }
@@ -44,9 +44,34 @@ class Hsp3RuntimeAdapterTest {
             )
         ) { executable ->
             val prepared = Hsp3RuntimeAdapter().prepare(executable)
-            assertEquals(DpmxKeyResolution.Method.SIGNATURE_AUTODETECT, prepared.scriptKey.method)
+            assertEquals(DpmxKeyResolution.Method.KNOWN_PLAINTEXT_HSP3, prepared.scriptKey?.method)
             assertEquals(0x301L, prepared.program.header.version)
             assertEquals(0x10L, prepared.program.tokens().single().value)
+        }
+    }
+
+    @Test
+    fun loadsUnpackedStartAxFromGameRootWhenExecutableIsNested() {
+        val gameRoot = Files.createTempDirectory("ramen-hsp3-unpacked").toFile()
+        try {
+            val executableDirectory = File(gameRoot, "bin/runtime")
+            assertTrue(executableDirectory.mkdirs())
+            val executable = File(executableDirectory, "elonaplus.exe")
+            executable.writeBytes(createExecutableFixture(includeScript = false))
+
+            val unpackedAx = File(gameRoot, "start.ax")
+            val expectedProgram = createAxFixture(validCommand = true)
+            unpackedAx.writeBytes(expectedProgram)
+
+            val prepared = Hsp3RuntimeAdapter().prepare(executable, gameRoot)
+
+            assertEquals(0x301L, prepared.program.header.version)
+            assertEquals(0x10L, prepared.program.tokens().single().value)
+            assertEquals(unpackedAx.canonicalFile, prepared.unpackedScriptFile)
+            assertEquals(null, prepared.scriptEntry)
+            assertEquals(null, prepared.scriptKey)
+        } finally {
+            gameRoot.deleteRecursively()
         }
     }
 
@@ -138,7 +163,7 @@ class Hsp3RuntimeAdapterTest {
 
     private fun encrypt(plain: ByteArray, key: DpmxTestKey): ByteArray {
         val encrypted = ByteArray(plain.size)
-        var previous = 0
+        var previous = key.initialDl and 0xFF
         for (index in plain.indices) {
             val current = plain[index].toInt() and 0xFF
             val delta = (current - previous) and 0xFF
@@ -148,7 +173,11 @@ class Hsp3RuntimeAdapterTest {
         return encrypted
     }
 
-    private data class DpmxTestKey(val al: Int, val cl: Int)
+    private data class DpmxTestKey(
+        val al: Int,
+        val cl: Int,
+        val initialDl: Int = 0
+    )
 
     private fun putUInt16(target: ByteArray, offset: Int, value: Int) {
         target[offset] = value.toByte()

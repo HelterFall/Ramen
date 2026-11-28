@@ -97,6 +97,7 @@ data class DpmxKeyResolution(
     enum class Method {
         PE_DATA_DERIVER,
         VERIFIED_SAMPLE_VECTOR,
+        KNOWN_PLAINTEXT_HSP3,
         SIGNATURE_AUTODETECT
     }
 }
@@ -199,8 +200,18 @@ class DpmxKeyResolver(
                 .also { resolvedByFileKey[entry.fileKey] = it }
         }
 
-        val detected = autoDetect(source, entry) ?: return null
-        return DpmxKeyResolution(detected, DpmxKeyResolution.Method.SIGNATURE_AUTODETECT)
+        val isStartAx = entry.name.substringAfterLast('.', "").equals("ax", ignoreCase = true)
+        val detected = if (isStartAx) {
+            recoverStartAxKey(source, entry)
+        } else {
+            autoDetect(source, entry)
+        } ?: return null
+        val method = if (isStartAx) {
+            DpmxKeyResolution.Method.KNOWN_PLAINTEXT_HSP3
+        } else {
+            DpmxKeyResolution.Method.SIGNATURE_AUTODETECT
+        }
+        return DpmxKeyResolution(detected, method)
             .also { resolvedByFileKey[entry.fileKey] = it }
     }
 
@@ -213,6 +224,57 @@ class DpmxKeyResolver(
         if (prefixLength == 0) return false
         val prefix = DpmxDecryptor.decryptPrefix(source, entry, key, prefixLength)
         return isPlausible(entry, prefix)
+    }
+
+    /**
+     * Recovers the feedback cipher parameters from the invariant HSP3 magic.
+     *
+     * For plaintext byte i > 0, (P[i] - P[i-1]) mod 256 equals
+     * ((C[i] - AL) mod 256) xor CL. The three known-byte differences therefore
+     * constrain AL/CL directly; the first known byte then determines initialDL.
+     * This avoids the old 65,536-pair search that incorrectly fixed initialDL=0.
+     */
+    private fun recoverStartAxKey(
+        source: ReadOnlyRandomAccessSource,
+        entry: DpmxFileEntry
+    ): DpmxCipherKey? {
+        val sampleLength = minOf(HSPHED_SIZE_BYTES, entry.sizeBytes.toIntSafe())
+        if (sampleLength < HSPHED_SIZE_BYTES) return null
+
+        val encrypted = ByteArray(sampleLength)
+        source.readFullyAt(entry.absoluteOffset, encrypted)
+        val known = HSP3_MAGIC
+        val delta1 = (known[1] - known[0]) and 0xFF
+        val delta2 = (known[2] - known[1]) and 0xFF
+        val delta3 = (known[3] - known[2]) and 0xFF
+
+        var candidate: DpmxCipherKey? = null
+        var candidatePlaintext: ByteArray? = null
+
+        for (al in 0..0xFF) {
+            val cl = delta1 xor (((encrypted[1].toInt() and 0xFF) - al) and 0xFF)
+            val secondDelta = (((encrypted[2].toInt() and 0xFF) - al) and 0xFF) xor cl
+            if (secondDelta != delta2) continue
+            val thirdDelta = (((encrypted[3].toInt() and 0xFF) - al) and 0xFF) xor cl
+            if (thirdDelta != delta3) continue
+
+            val firstDelta = (((encrypted[0].toInt() and 0xFF) - al) and 0xFF) xor cl
+            val initialDl = (known[0] - firstDelta) and 0xFF
+            val key = canonicalizeSymmetricKey(DpmxCipherKey(al, cl, initialDl))
+            val plaintext = DpmxDecryptor.decryptBytes(encrypted, key)
+            if (!isValidHspHeader(entry, plaintext)) continue
+
+            val previousPlaintext = candidatePlaintext
+            if (previousPlaintext != null && !previousPlaintext.contentEquals(plaintext)) {
+                // The known prefix is insufficient if distinct valid HSPHEDs survive.
+                return null
+            }
+            if (candidate == null || compareKeys(key, candidate!!) < 0) {
+                candidate = key
+                candidatePlaintext = plaintext
+            }
+        }
+        return candidate
     }
 
     private fun autoDetect(
@@ -296,11 +358,13 @@ class DpmxKeyResolver(
         val allSize = readUInt32(bytes, 12)
         if (allSize < HSPHED_SIZE_BYTES.toLong() || allSize > entry.sizeBytes) return false
 
+        if (readUInt32(bytes, 8) > MAX_HSP3_VARIABLES) return false
+
         val code = SegmentRange(readUInt32(bytes, 16), readUInt32(bytes, 20))
         val data = SegmentRange(readUInt32(bytes, 24), readUInt32(bytes, 28))
         val objectTemp = SegmentRange(readUInt32(bytes, 32), readUInt32(bytes, 36))
         val debug = SegmentRange(readUInt32(bytes, 40), readUInt32(bytes, 44))
-        if (code.size == 0L) return false
+        if (code.size == 0L || code.size % 2L != 0L) return false
 
         val ranges = listOf(code, data, objectTemp, debug)
         if (ranges.any { segment ->
@@ -378,6 +442,8 @@ class DpmxKeyResolver(
         private const val HSP3_VERSION_MIN = 0x00000300L
         private const val HSP3_VERSION_MAX = 0x00000399L
         private const val HSPHED_SIZE_BYTES = 0x60
+        private const val MAX_HSP3_VARIABLES = 1_000_000L
+        private val HSP3_MAGIC = intArrayOf(0x48, 0x53, 0x50, 0x33)
         private const val BMP_PREFIX_LENGTH = 30
         private const val TEXT_PREFIX_LENGTH = 32
         private const val MIN_SAMPLE_LENGTH = 6

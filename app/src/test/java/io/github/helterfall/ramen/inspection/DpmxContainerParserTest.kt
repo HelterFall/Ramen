@@ -125,7 +125,32 @@ class DpmxContainerParserTest {
             val container = DpmxContainerParser().parse(source)
             val resolution = DpmxKeyResolver().resolve(source, container, container.entries.single())
             assertNotNull(resolution)
-            assertEquals(DpmxCipherKey(al = 0x32, cl = 0x17), resolution!!.key)
+            assertEquals(DpmxKeyResolution.Method.KNOWN_PLAINTEXT_HSP3, resolution!!.method)
+            assertEquals(DpmxCipherKey(al = 0x32, cl = 0x17), resolution.key)
+        }
+    }
+
+    @Test
+    fun recoversStartAxKeyFromKnownHsp3MagicAndNonZeroInitialDl() {
+        val plainAx = validHspHeader(version = 0x0301L)
+        val expectedKey = DpmxCipherKey(al = 0x41, cl = 0xB3, initialDl = 0xA7)
+        val fixture = createPeDpmxFixture(
+            "start.ax",
+            encrypt(plainAx, expectedKey),
+            0xA1B2C3D4L
+        )
+        withSource(fixture.bytes) { source ->
+            val container = DpmxContainerParser().parse(source)
+            val entry = container.entries.single()
+            val resolution = DpmxKeyResolver().resolve(source, container, entry)
+
+            assertNotNull(resolution)
+            assertEquals(DpmxKeyResolution.Method.KNOWN_PLAINTEXT_HSP3, resolution!!.method)
+            assertEquals(expectedKey, resolution.key)
+            assertArrayEquals(
+                plainAx,
+                DpmxDecryptor.decryptPrefix(source, entry, resolution.key, plainAx.size)
+            )
         }
     }
 

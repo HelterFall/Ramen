@@ -34,9 +34,11 @@ fun interface Hsp3InstructionDecoder {
 data class Hsp3PreparedGame(
     val executable: File,
     val container: DpmxContainer,
-    val scriptEntry: DpmxFileEntry,
-    val scriptKey: DpmxKeyResolution,
-    val program: Hsp3Program
+    val scriptEntry: DpmxFileEntry?,
+    val scriptKey: DpmxKeyResolution?,
+    val program: Hsp3Program,
+    /** Non-null when the program was loaded from an unpacked local start.ax. */
+    val unpackedScriptFile: File? = null
 )
 
 /** Opens one DPMX resource at a time and decrypts it directly into the consumer. */
@@ -252,34 +254,65 @@ class Hsp3RuntimeAdapter(
     }
 
     @Throws(IOException::class)
-    fun prepare(executable: File): Hsp3PreparedGame =
-        prepareInternal(executable, validateRuntimeProfile = true)
+    fun prepare(executable: File, assetRoot: File? = null): Hsp3PreparedGame =
+        prepareInternal(executable, assetRoot, validateRuntimeProfile = true)
 
     /**
-     * Loads and decrypts start.ax for analysis only. The bytecode can be scanned
-     * even when this runtime profile cannot load the executable's HPI/DLL segments.
+     * Loads start.ax for analysis only. An unpacked local start.ax is preferred
+     * when present; otherwise the encrypted DPMX entry is resolved.
      */
     @Throws(IOException::class)
-    fun prepareForStaticScan(executable: File): Hsp3PreparedGame =
-        prepareInternal(executable, validateRuntimeProfile = false)
+    fun prepareForStaticScan(
+        executable: File,
+        assetRoot: File? = null
+    ): Hsp3PreparedGame =
+        prepareInternal(executable, assetRoot, validateRuntimeProfile = false)
 
     private fun prepareInternal(
         executable: File,
+        assetRoot: File?,
         validateRuntimeProfile: Boolean
     ): Hsp3PreparedGame {
         if (!executable.isFile) throw IOException("The HSP3 executable is not a regular file.")
-        FileRandomAccessSource(executable).use { source ->
+        val canonicalExecutable = executable.canonicalFile
+        FileRandomAccessSource(canonicalExecutable).use { source ->
             val container = try {
                 containerParser.parse(source)
             } catch (error: Exception) {
                 throw IOException("PE32/DPMX parsing failed: ${error.message ?: error.javaClass.simpleName}", error)
             }
-            val entry = try {
-                container.findEntry(START_SCRIPT_NAME)
-                    ?: throw IOException("The DPMX container does not contain start.ax.")
-            } catch (error: Exception) {
-                throw IOException("DPMX start.ax lookup failed: ${error.message ?: error.javaClass.simpleName}", error)
+
+            val archiveEntry = container.findEntry(START_SCRIPT_NAME)
+            var localScriptFailure: Exception? = null
+            val localScript = findLocalStartAx(canonicalExecutable, assetRoot)
+            if (localScript != null) {
+                val localProgram = try {
+                    if (localScript.length() > maxScriptSizeBytes) {
+                        throw IOException("The unpacked start.ax exceeds the configured size limit.")
+                    }
+                    bytecodeLoader.load(localScript)
+                } catch (error: Exception) {
+                    localScriptFailure = error
+                    null
+                }
+                if (localProgram != null) {
+                    validateRuntimeProfile(localProgram, validateRuntimeProfile)
+                    return Hsp3PreparedGame(
+                        executable = canonicalExecutable,
+                        container = container,
+                        scriptEntry = archiveEntry,
+                        scriptKey = null,
+                        program = localProgram,
+                        unpackedScriptFile = localScript
+                    )
+                }
             }
+
+            val entry = archiveEntry ?: throw IOException(
+                localScriptFailure?.let {
+                    "The game has no DPMX start.ax and its unpacked start.ax is invalid: ${it.message}"
+                } ?: "Neither a DPMX start.ax entry nor a valid unpacked start.ax was found."
+            )
             if (entry.sizeBytes > maxScriptSizeBytes) {
                 throw IOException("DPMX start.ax size validation failed: the decoded script exceeds the configured limit.")
             }
@@ -298,23 +331,58 @@ class Hsp3RuntimeAdapter(
                 throw IOException("HSPHED/CS/DS/OT/DI loading failed: ${error.message ?: error.javaClass.simpleName}", error)
             }
 
-            if (validateRuntimeProfile && (
+            validateRuntimeProfile(program, validateRuntimeProfile)
+            return Hsp3PreparedGame(
+                executable = canonicalExecutable,
+                container = container,
+                scriptEntry = entry,
+                scriptKey = resolution,
+                program = program
+            )
+        }
+    }
+
+    private fun findLocalStartAx(executable: File, assetRoot: File?): File? {
+        val executableDirectory = executable.canonicalFile.parentFile
+            ?: throw IOException("The HSP executable directory is unavailable.")
+        val gameRoot = (assetRoot ?: executableDirectory).canonicalFile
+        if (!gameRoot.isDirectory) throw IOException("The imported HSP game directory is unavailable.")
+        if (!gameRoot.toPath().startsWith(executableDirectory.toPath()) &&
+            !executableDirectory.toPath().startsWith(gameRoot.toPath())
+        ) {
+            throw IOException("The executable and unpacked start.ax are outside the same imported game.")
+        }
+
+        for (root in listOf(gameRoot, executableDirectory).distinctBy { it.path }) {
+            val exact = File(root, START_SCRIPT_NAME)
+            val candidate = if (exact.exists()) {
+                exact
+            } else {
+                root.listFiles()?.firstOrNull {
+                    it.name.equals(START_SCRIPT_NAME, ignoreCase = true)
+                } ?: continue
+            }
+            if (!candidate.isFile) continue
+            val canonical = candidate.canonicalFile
+            if (!canonical.toPath().startsWith(root.toPath())) {
+                throw IOException("The unpacked start.ax resolves outside the imported game directory.")
+            }
+            return canonical
+        }
+        return null
+    }
+
+    private fun validateRuntimeProfile(program: Hsp3Program, enabled: Boolean) {
+        if (enabled && (
                 program.header.libraryInfoSizeBytes != 0L ||
                     program.header.functionInfoSizeBytes != 0L ||
                     program.header.moduleInfoSizeBytes != 0L ||
                     program.header.functionInfo2SizeBytes != 0L ||
                     program.header.hasExternalPluginData
                 )
-            ) {
-                throw IOException("HSP3 external-library validation failed: this runtime profile does not load DLL/HPI plugin segments.")
-            }
-
-            return Hsp3PreparedGame(
-                executable = executable.canonicalFile,
-                container = container,
-                scriptEntry = entry,
-                scriptKey = resolution,
-                program = program
+        ) {
+            throw IOException(
+                "HSP3 external-library validation failed: this runtime profile does not load DLL/HPI plugin segments."
             )
         }
     }
@@ -327,7 +395,7 @@ class Hsp3RuntimeAdapter(
         assetRoot: File? = null,
         audio: Hsp3AudioPlayer = Hsp3UnavailableAudioPlayer
     ): Hsp3RuntimeSession {
-        val prepared = prepare(executable)
+        val prepared = prepare(executable, assetRoot)
         val assets = DpmxAssetRepository(prepared.executable, prepared.container, keyResolver, assetRoot)
         try {
             val decodedInstructions = instructionDecoder.decode(prepared.program)
