@@ -164,6 +164,23 @@ class NscripterVirtualMachineTest {
 
 
     @Test
+    fun keepsMultiWordEnglishDialogueSeparateFromUnknownCommands() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            custom_directive 42
+            A quiet day in early spring.
+            end
+            """.trimIndent()
+        )
+        assertTrue(program.instructions.none { it.command == "text" && it.arguments.startsWith("custom_directive") })
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val result = vm.resume()
+        assertTrue(result is NscripterVmYield.Dialogue)
+        assertEquals("A quiet day in early spring.", (result as NscripterVmYield.Dialogue).scene.dialogue)
+    }
+
+    @Test
     fun evaluatesLogicalAndOrComparisonsInIfConditions() {
         val program = NscripterScriptProgram.parse(
             """
