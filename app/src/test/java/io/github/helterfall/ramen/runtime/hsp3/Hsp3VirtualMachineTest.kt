@@ -12,14 +12,14 @@ class Hsp3VirtualMachineTest {
         val frame = vm.runSlice(
             listOf(
                 Hsp3Instruction.SetInt(7, 42),
-                Hsp3Instruction.End
+                Hsp3Instruction.AwaitFor(100L)
             ),
             includeState = false
         )
 
-        assertEquals(Hsp3VmStatus.ENDED, frame.status)
+        assertEquals(Hsp3VmStatus.YIELDED, frame.status)
         assertEquals(2, frame.programCounter)
-        assertEquals(0L, frame.yieldDelayMillis)
+        assertEquals(100L, frame.yieldDelayMillis)
         assertTrue(frame.variables.isEmpty())
         assertTrue(frame.values.isEmpty())
         assertTrue(frame.arrayValues.isEmpty())
