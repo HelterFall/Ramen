@@ -103,7 +103,7 @@ fun SystemNnnPlayerScreen(
     var screenEffectSourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val screenEffectKey = listOf(
         state.screenEffectId, state.screenEffectParameters, state.screenEffectCommandOffset,
-        state.drawEventId, state.frameId
+        state.screenEffectLayerIndex, state.drawEventId, state.frameId
     )
     var screenEffectFrame by remember(screenEffectKey) { mutableIntStateOf(0) }
     var overrapProgress by remember(state.overrapTransitionId) { mutableFloatStateOf(0f) }
@@ -391,7 +391,7 @@ fun SystemNnnPlayerScreen(
         }.toMutableList()
         state.screenEffectId?.let { effectId ->
             effects += mapOf(
-                "layer" to 31,
+                "layer" to (state.screenEffectLayerIndex ?: 31),
                 "effect_id" to effectId,
                 "name" to SystemNnnVisualEffectMath.observedEffectName(effectId),
                 "parameters_raw" to state.screenEffectParameters,
@@ -465,6 +465,7 @@ fun SystemNnnPlayerScreen(
                 "activeEffects" to effects,
                 "screenBuffer" to mapOf(
                     "screenEffectId" to state.screenEffectId,
+                    "screenEffectLayerIndex" to state.screenEffectLayerIndex,
                     "screenEffectFrame" to if (state.screenEffectId == null) null else screenEffectFrame,
                     "screenEffectParameters" to state.screenEffectParameters,
                     "savedGetBufferSize" to state.savedGetScreenBufferBitmap?.let {
@@ -689,11 +690,19 @@ fun SystemNnnPlayerScreen(
 
                 Box(
                     modifier = Modifier.fillMaxSize()
+                        .background(Color.Black)
                         .drawWithContent {
                             viewportCaptureLayer.record {
                                 this@drawWithContent.drawContent()
                             }
                             drawContent()
+                            if (SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
+                                    state.screenCaptureRequestId, state.screenCapturePurpose
+                                )
+                            ) {
+                                // Display-only shutter, outside viewportCaptureLayer.record.
+                                drawRect(Color.Black)
+                            }
                         }
                         .graphicsLayer {
                             translationX = viewportDpWidth.toPx() * (screenShake.x / referenceWidth.coerceAtLeast(1f))
@@ -723,14 +732,35 @@ fun SystemNnnPlayerScreen(
                         bitmapLayerIndices = spritesByLayer.keys,
                         effectLayers = standaloneLayerEffects.map { it.layerIndex to it.effectId }
                     )
-                    renderLayers.forEach { layerIndex ->
-                        val sprite = spritesByLayer[layerIndex]
-                        if (sprite != null && layerIndex !in hiddenPartnerLayers) {
-                            key("sprite-$layerIndex") {
-                                SystemNnnAnimatedSpriteLayer(
-                                    sprite = sprite,
+                    val inlineHaikeiYure = SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
+                        state.screenEffectId, state.screenEffectParameters
+                    )
+                    val screenEffectLayerIndex = state.screenEffectLayerIndex ?: 10
+                    if (inlineHaikeiYure) {
+                        val split = SystemNnnVisualEffectMath.splitNativeLayerStackAtScreenEffect(
+                            renderLayers, screenEffectLayerIndex
+                        )
+                        val movement = SystemNnnVisualEffectMath.haikeiYureOffset(
+                            screenEffectFrame, state.screenEffectParameters
+                        )
+                        // Native CEffectHaikeiYure::Print(layerType=1) calls MoveScreen()
+                        // at its layer index: shift layers below it, then draw FADEIN/text above.
+                        Box(
+                            Modifier.fillMaxSize().graphicsLayer {
+                                translationX = (viewportDpWidth.toPx() *
+                                    (movement.x / referenceWidth.coerceAtLeast(1f))).roundToInt().toFloat()
+                                translationY = (viewportDpHeight.toPx() *
+                                    (movement.y / referenceHeight.coerceAtLeast(1f))).roundToInt().toFloat()
+                            }
+                        ) {
+                            split.beforeScreenEffect.forEach { layerIndex ->
+                                SystemNnnRenderNativeLayer(
+                                    layerIndex = layerIndex,
+                                    spritesByLayer = spritesByLayer,
+                                    hiddenPartnerLayers = hiddenPartnerLayers,
+                                    changePartners = changePartners,
+                                    standaloneLayerEffects = standaloneLayerEffects,
                                     stepNumber = state.sceneStepNumber,
-                                    changePartner = changePartners[layerIndex],
                                     viewportWidth = viewportDpWidth,
                                     viewportHeight = viewportDpHeight,
                                     referenceWidth = referenceWidth,
@@ -740,53 +770,57 @@ fun SystemNnnPlayerScreen(
                                 )
                             }
                         }
-                        standaloneLayerEffects.filter { it.layerIndex == layerIndex }.forEach { effect ->
-                            key("layer-effect-${effect.layerIndex}-${effect.effectId}-${effect.commandOffset ?: 0L}") {
-                                when (effect.effectId) {
-                                    10, 11 -> SystemNnnStandaloneLayerFade(
-                                        effect = effect,
-                                        frameTimeMillis = state.nativeRuntime.frameTimeMillis
-                                    )
-                                    17 -> SystemNnnStandaloneLayerFlash(
-                                        effect = effect,
-                                        frameTimeMillis = state.nativeRuntime.frameTimeMillis
-                                    )
-                                    29 -> SystemNnnStandaloneLayerSuna(
-                                        effect = effect,
-                                        frameTimeMillis = state.nativeRuntime.frameTimeMillis,
-                                        referenceWidth = referenceWidth,
-                                        referenceHeight = referenceHeight
-                                    )
-                                    54 -> SystemNnnStandaloneLayerFill(effect = effect)
-                                    55 -> SystemNnnStandaloneLayerOldFilm(
-                                        effect = effect,
-                                        frameTimeMillis = state.nativeRuntime.frameTimeMillis,
-                                        referenceWidth = referenceWidth,
-                                        referenceHeight = referenceHeight
-                                    )
-                                }
-                            }
+                        split.afterScreenEffect.forEach { layerIndex ->
+                            SystemNnnRenderNativeLayer(
+                                layerIndex = layerIndex,
+                                spritesByLayer = spritesByLayer,
+                                hiddenPartnerLayers = hiddenPartnerLayers,
+                                changePartners = changePartners,
+                                standaloneLayerEffects = standaloneLayerEffects,
+                                stepNumber = state.sceneStepNumber,
+                                viewportWidth = viewportDpWidth,
+                                viewportHeight = viewportDpHeight,
+                                referenceWidth = referenceWidth,
+                                referenceHeight = referenceHeight,
+                                frameTimeMillis = state.nativeRuntime.frameTimeMillis,
+                                onBitmapDisposed = onBitmapDisposed
+                            )
+                        }
+                    } else {
+                        renderLayers.forEach { layerIndex ->
+                            SystemNnnRenderNativeLayer(
+                                layerIndex = layerIndex,
+                                spritesByLayer = spritesByLayer,
+                                hiddenPartnerLayers = hiddenPartnerLayers,
+                                changePartners = changePartners,
+                                standaloneLayerEffects = standaloneLayerEffects,
+                                stepNumber = state.sceneStepNumber,
+                                viewportWidth = viewportDpWidth,
+                                viewportHeight = viewportDpHeight,
+                                referenceWidth = referenceWidth,
+                                referenceHeight = referenceHeight,
+                                frameTimeMillis = state.nativeRuntime.frameTimeMillis,
+                                onBitmapDisposed = onBitmapDisposed
+                            )
                         }
                     }
                 }
-                state.screenEffectId?.let { effectId ->
-                    SystemNnnScreenEffectOverlay(
-                        effectId = effectId,
-                        parameters = state.screenEffectParameters,
-                        frame = screenEffectFrame,
-                        referenceWidth = referenceWidth,
-                        referenceHeight = referenceHeight,
-                        sourceBitmap = screenEffectSourceBitmap,
-                        savedGetBufferBitmap = state.savedGetScreenBufferBitmap,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-                if (SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
-                        state.screenCaptureRequestId, state.screenCapturePurpose
+                if (!SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
+                        state.screenEffectId, state.screenEffectParameters
                     )
                 ) {
-                    // Capture is read from viewportCaptureLayer above; this cover is display-only.
-                    Box(Modifier.fillMaxSize().background(Color.Black))
+                    state.screenEffectId?.let { effectId ->
+                        SystemNnnScreenEffectOverlay(
+                            effectId = effectId,
+                            parameters = state.screenEffectParameters,
+                            frame = screenEffectFrame,
+                            referenceWidth = referenceWidth,
+                            referenceHeight = referenceHeight,
+                            sourceBitmap = screenEffectSourceBitmap,
+                            savedGetBufferBitmap = state.savedGetScreenBufferBitmap,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    }
                 }
             }
         }
@@ -1085,6 +1119,60 @@ private fun DialogueBox(
  * Draws one native DWQ layer. SETEFFECTRECT interpolates between two
  * destination RECTs; neither RECT is a source-texture crop.
  */
+@Composable
+private fun BoxScope.SystemNnnRenderNativeLayer(
+    layerIndex: Int,
+    spritesByLayer: Map<Int, SystemNnnSpriteBitmap>,
+    hiddenPartnerLayers: Set<Int>,
+    changePartners: Map<Int, SystemNnnSpriteBitmap>,
+    standaloneLayerEffects: List<SystemNnnActiveLayerEffect>,
+    stepNumber: Long,
+    viewportWidth: androidx.compose.ui.unit.Dp,
+    viewportHeight: androidx.compose.ui.unit.Dp,
+    referenceWidth: Float,
+    referenceHeight: Float,
+    frameTimeMillis: Int,
+    onBitmapDisposed: (Bitmap) -> Unit
+) {
+    val sprite = spritesByLayer[layerIndex]
+    if (sprite != null && layerIndex !in hiddenPartnerLayers) {
+        key("sprite-" + layerIndex) {
+            SystemNnnAnimatedSpriteLayer(
+                sprite = sprite,
+                stepNumber = stepNumber,
+                changePartner = changePartners[layerIndex],
+                viewportWidth = viewportWidth,
+                viewportHeight = viewportHeight,
+                referenceWidth = referenceWidth,
+                referenceHeight = referenceHeight,
+                frameTimeMillis = frameTimeMillis,
+                onBitmapDisposed = onBitmapDisposed
+            )
+        }
+    }
+    standaloneLayerEffects.filter { it.layerIndex == layerIndex }.forEach { effect ->
+        key("layer-effect-" + effect.layerIndex + "-" + effect.effectId + "-" + (effect.commandOffset ?: 0L)) {
+            when (effect.effectId) {
+                10, 11 -> SystemNnnStandaloneLayerFade(effect = effect, frameTimeMillis = frameTimeMillis)
+                17 -> SystemNnnStandaloneLayerFlash(effect = effect, frameTimeMillis = frameTimeMillis)
+                29 -> SystemNnnStandaloneLayerSuna(
+                    effect = effect,
+                    frameTimeMillis = frameTimeMillis,
+                    referenceWidth = referenceWidth,
+                    referenceHeight = referenceHeight
+                )
+                54 -> SystemNnnStandaloneLayerFill(effect = effect)
+                55 -> SystemNnnStandaloneLayerOldFilm(
+                    effect = effect,
+                    frameTimeMillis = frameTimeMillis,
+                    referenceWidth = referenceWidth,
+                    referenceHeight = referenceHeight
+                )
+            }
+        }
+    }
+}
+
 @Composable
 private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     sprite: SystemNnnSpriteBitmap,

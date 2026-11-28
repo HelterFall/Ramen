@@ -161,6 +161,7 @@ data class SystemNnnPlayerUiState(
     val screenEffectId: Int? = null,
     val screenEffectParameters: List<Int> = emptyList(),
     val screenEffectCommandOffset: Long? = null,
+    val screenEffectLayerIndex: Int? = null,
     /** Number of native DRAW frames to present before advancing the SPT stream. */
     val pendingDrawFrameCount: Int? = null,
     /** A one-shot request for the Compose scene's actual viewport pixels. */
@@ -705,7 +706,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         backgroundMetadata: SystemNnnImageResourceMetadata? = uiState.backgroundMetadata,
         sprites: List<SystemNnnSpriteBitmap> = uiState.sprites,
         screenEffectId: Int? = uiState.screenEffectId,
-        screenEffectParameters: List<Int> = uiState.screenEffectParameters
+        screenEffectParameters: List<Int> = uiState.screenEffectParameters,
+        screenEffectLayerIndex: Int? = uiState.screenEffectLayerIndex
     ) {
         val logicalWidth = nativeGameConfig.screenWidth.coerceAtLeast(1)
         val logicalHeight = nativeGameConfig.screenHeight.coerceAtLeast(1)
@@ -773,7 +775,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
             traceEffect(effect.effectId, effect.parameters, frame = null, layer = effect.layerIndex)
         }.toMutableList()
         if (screenEffectId != null) {
-            effectList += traceEffect(screenEffectId, screenEffectParameters, frame = null, layer = SCREEN_EFFECT_LAYER_INDEX)
+            effectList += traceEffect(
+                screenEffectId, screenEffectParameters, frame = null,
+                layer = screenEffectLayerIndex ?: SCREEN_EFFECT_LAYER_INDEX
+            )
             if (SystemNnnVisualEffectMath.observedParameterCount(screenEffectId) == null) {
                 anomalies += mapOf("type" to "unknown_screen_effect", "effect_id" to screenEffectId)
             }
@@ -817,6 +822,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 "activeEffects" to effectList,
                 "screenBuffer" to linkedMapOf(
                     "screenEffectId" to screenEffectId,
+                    "screenEffectLayerIndex" to screenEffectLayerIndex,
                     "screenEffectParameters" to traceParameters16(screenEffectParameters),
                     "screenEffectRawParameters" to screenEffectParameters,
                     "screenEffectFrame" to null,
@@ -1745,6 +1751,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
             var pendingScreenEffectId = uiState.screenEffectId
             var pendingScreenEffectParameters = uiState.screenEffectParameters
             var pendingScreenEffectCommandOffset = uiState.screenEffectCommandOffset
+            var pendingScreenEffectLayerIndex = uiState.screenEffectLayerIndex
             val pendingSpriteLayers = LinkedHashMap<Int, SystemNnnSpriteReference>()
             val pendingBufferedLayerStore = SystemNnnRetainedLayerBufferStore().apply {
                 replaceWith(retainedLayerBufferStore.snapshot())
@@ -1781,6 +1788,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 pendingScreenEffectId = null
                 pendingScreenEffectParameters = emptyList()
                 pendingScreenEffectCommandOffset = null
+                pendingScreenEffectLayerIndex = null
                 pendingSpriteLayers.clear()
                 pendingLayerVisuals.clear()
                 pendingBufferedLayerStore.clear()
@@ -1938,10 +1946,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             )
                         }
                         pendingLayerVisuals.remove(command.layerIndex)
-                        if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX) {
+                        if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX ||
+                            command.layerIndex == pendingScreenEffectLayerIndex
+                        ) {
                             pendingScreenEffectId = null
                             pendingScreenEffectParameters = emptyList()
                             pendingScreenEffectCommandOffset = null
+                pendingScreenEffectLayerIndex = null
                             if (pendingSpriteLayers.remove(command.layerIndex) != null) {
                                 pendingSpriteLayersChanged = true
                             }
@@ -1962,6 +1973,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         pendingScreenEffectId = null
                         pendingScreenEffectParameters = emptyList()
                         pendingScreenEffectCommandOffset = null
+                pendingScreenEffectLayerIndex = null
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
                     }
@@ -2046,6 +2058,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 pendingScreenEffectId = command.effectId
                                 pendingScreenEffectParameters = command.parameters
                                 pendingScreenEffectCommandOffset = command.nextCommandOffset
+                                pendingScreenEffectLayerIndex = command.layerIndex
                             } else {
                                 val currentLayerVisuals = pendingLayerVisuals[command.layerIndex]
                                     ?: SystemNnnVisualLayerConfiguration()
@@ -2349,6 +2362,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            screenEffectLayerIndex = pendingScreenEffectLayerIndex,
                             pendingDrawFrameCount = if (command.overrapParameters != null && overrapPrepared) {
                                 null
                             } else {
@@ -2498,6 +2512,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            screenEffectLayerIndex = pendingScreenEffectLayerIndex,
                             nativeRuntime = nativeRuntimeState
                         )
                         recordSceneTrace(
@@ -2600,6 +2615,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            screenEffectLayerIndex = pendingScreenEffectLayerIndex,
                             nativeRuntime = nativeRuntimeState
                         )
                         recordSceneTrace(

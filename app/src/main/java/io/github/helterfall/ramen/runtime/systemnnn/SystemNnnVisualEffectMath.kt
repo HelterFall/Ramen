@@ -53,6 +53,11 @@ internal data class SystemNnnViewportBounds(
     val height: Int
 )
 
+internal data class SystemNnnNativeLayerStackSplit(
+    val beforeScreenEffect: List<Int>,
+    val afterScreenEffect: List<Int>
+)
+
 internal data class SystemNnnVisualLayerConfiguration(
     /** First destination RECT supplied to native SetImageLayerRect (dstFrom). */
     val destinationRectFrom: SystemNnnNativeRect? = null,
@@ -438,6 +443,18 @@ internal object SystemNnnVisualEffectMath {
         return layers.sorted()
     }
 
+    /** Native HAIKEIYURE layerType 1 calls MoveScreen at its own layer position. */
+    fun isInlineLayerStackScreenEffect(effectId: Int?, parameters: List<Int>): Boolean =
+        effectId == 100 && (parameters.getOrNull(5) ?: 0) == 1
+
+    fun splitNativeLayerStackAtScreenEffect(
+        orderedLayerIndices: List<Int>,
+        effectLayerIndex: Int
+    ): SystemNnnNativeLayerStackSplit = SystemNnnNativeLayerStackSplit(
+        beforeScreenEffect = orderedLayerIndices.filter { it < effectLayerIndex },
+        afterScreenEffect = orderedLayerIndices.filter { it > effectLayerIndex }
+    )
+
     /** Hide the live DrawOverrap target while the compositor snapshots its final frame. */
     fun shouldCoverViewportDuringOverrapTargetCapture(
         requestId: Long,
@@ -450,7 +467,8 @@ internal object SystemNnnVisualEffectMath {
         parameters: List<Int>
     ): Boolean = when (effectId) {
         2, 20, 22, 29, 31, 43, 50, 69, 71, 74 -> true
-        100 -> (parameters.getOrNull(5) ?: 0) == 1
+        // HAIKEIYURE mode 1 mutates the current framebuffer at its layer position.
+        100 -> false
         else -> false
     }
 

@@ -764,39 +764,56 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
-    fun haikeiYureScreenModeWaitsForTheCapturedViewportInsteadOfBeingMarkedUnsupported() {
+    fun haikeiYureScreenModeRunsAtItsNativeLayerWithoutViewportCapture() {
         val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
 
-        assertTrue(SystemNnnVisualEffectMath.requiresNativeScreenBufferCapture(100, parameters))
-        assertTrue(
+        assertTrue(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(100, parameters))
+        assertFalse(SystemNnnVisualEffectMath.requiresNativeScreenBufferCapture(100, parameters))
+        assertFalse(
             SystemNnnVisualEffectMath.isWaitingForNativeScreenBufferSource(
                 100, parameters, sourceAvailable = false
             )
         )
-        assertFalse(
-            SystemNnnVisualEffectMath.isWaitingForNativeScreenBufferSource(
-                100, parameters, sourceAvailable = true
-            )
-        )
-        assertFalse(
-            SystemNnnVisualEffectMath.requiresNativeScreenBufferCapture(
-                100, parameters.toMutableList().apply { this[5] = 0 }
-            )
-        )
+        assertFalse(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
+            100, parameters.toMutableList().apply { this[5] = 0 }
+        ))
+        assertFalse(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(55, parameters))
     }
 
     @Test
-    fun nativeFadeInBlendsTheExistingFramebufferBeforeHigherNumberedLayers() {
+    fun film18Draw131ComposesEverySceneLayerAroundHaikeiAndFadeIn() {
         val parameters = listOf(60, 0, 0, 0, 0)
         assertEquals(1f, checkNotNull(SystemNnnVisualEffectMath.screenFade(10, 0, parameters)).alpha)
         assertEquals(0.5f, checkNotNull(SystemNnnVisualEffectMath.screenFade(10, 30, parameters)).alpha)
         assertEquals(0f, checkNotNull(SystemNnnVisualEffectMath.screenFade(10, 60, parameters)).alpha)
 
         val order = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
-            bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 12),
-            effectLayers = listOf(11 to 10)
+            bitmapLayerIndices = listOf(1, 7, 9, 12),
+            effectLayers = listOf(0 to 54, 6 to 55, 8 to 29, 11 to 10, 13 to 17)
         )
-        assertEquals(listOf(1, 6, 7, 8, 9, 11, 12), order)
+        assertEquals(listOf(0, 1, 6, 7, 8, 9, 11, 12, 13), order)
+        val split = SystemNnnVisualEffectMath.splitNativeLayerStackAtScreenEffect(order, 10)
+        assertEquals(listOf(0, 1, 6, 7, 8, 9), split.beforeScreenEffect)
+        assertEquals(listOf(11, 12, 13), split.afterScreenEffect)
+
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+            65, listOf(300, 0, 0, 100, 100, 101, 101, 5, 2, 0, 100, 100, 0, 0)
+        ))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+            27, listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120)
+        ))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+            29, listOf(0, 1, 10, 30, 5, 60, 0, 0, 800, 600)
+        ))
+        assertEquals(999_999, SystemNnnVisualEffectMath.nativeEffectDurationFrames(
+            27, listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120)
+        ))
+        assertEquals(0.56f, SystemNnnVisualEffectMath.layerOpacity(8, 0, listOf(20, 56)), 0.001f)
+        assertTrue(SystemNnnVisualEffectMath.hasStandaloneLayerPainter(55))
+        assertTrue(SystemNnnVisualEffectMath.hasStandaloneLayerPainter(29))
+        assertTrue(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
+            100, listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+        ))
     }
 
     @Test
