@@ -253,7 +253,7 @@ fun SystemNnnPlayerScreen(
                 0f, 0f, 1f
             )
         } else null
-        val layerStates = renderedSprites.map { sprite ->
+        val bitmapLayerStates = renderedSprites.map { sprite ->
             val effectId = sprite.nativeEffectId
             val usesFullViewport = effectId in setOf(27, 39, 56, 63, 102)
             val usesCenteredBitmap = effectId == 64 || effectId == 65
@@ -310,6 +310,47 @@ fun SystemNnnPlayerScreen(
                 }
             )
         }
+        val effectOnlyLayerStates = state.layerEffects
+            .filter { effect ->
+                SystemNnnVisualEffectMath.hasStandaloneLayerPainter(effect.effectId) &&
+                    renderedSprites.none { it.layerIndex == effect.layerIndex }
+            }
+            .map { effect ->
+                val rect = when (effect.effectId) {
+                    29 -> SystemNnnNativeRect(
+                        (effect.parameters.getOrNull(6) ?: 0).coerceIn(0, logicalWidth),
+                        (effect.parameters.getOrNull(7) ?: 0).coerceIn(0, logicalHeight),
+                        (effect.parameters.getOrNull(8) ?: logicalWidth).coerceAtLeast(0),
+                        (effect.parameters.getOrNull(9) ?: logicalHeight).coerceAtLeast(0)
+                    )
+                    55 -> SystemNnnNativeRect(
+                        (effect.parameters.getOrNull(1) ?: 0).coerceIn(0, logicalWidth),
+                        (effect.parameters.getOrNull(2) ?: 0).coerceIn(0, logicalHeight),
+                        (effect.parameters.getOrNull(3) ?: logicalWidth).coerceAtLeast(0),
+                        (effect.parameters.getOrNull(4) ?: logicalHeight).coerceAtLeast(0)
+                    )
+                    else -> SystemNnnNativeRect(0, 0, logicalWidth, logicalHeight)
+                }
+                linkedMapOf<String, Any?>(
+                    "layerIndex" to effect.layerIndex,
+                    "resourceName" to null,
+                    "sourceSize" to null,
+                    "dstRect" to mapOf("x" to rect.x, "y" to rect.y, "w" to rect.width, "h" to rect.height),
+                    "dstRectEstimated" to false,
+                    "positioningMode" to "effect_only",
+                    "blendMode" to "SRC_OVER",
+                    "hasBitmap" to false,
+                    "effect" to mapOf(
+                        "effect_id" to effect.effectId,
+                        "name" to SystemNnnVisualEffectMath.observedEffectName(effect.effectId),
+                        "parameters_raw" to effect.parameters,
+                        "para_0_to_15" to (0 until 16).map { effect.parameters.getOrNull(it) },
+                        "currentFrame" to null
+                    )
+                )
+            }
+        val layerStates = (bitmapLayerStates + effectOnlyLayerStates)
+            .sortedBy { it["layerIndex"] as Int }
         val effectLayersByIndex = LinkedHashMap<Int, SystemNnnActiveLayerEffect>()
         state.layerEffects.forEach { effect -> effectLayersByIndex[effect.layerIndex] = effect }
         state.sprites.forEach { sprite ->
@@ -656,16 +697,14 @@ fun SystemNnnPlayerScreen(
                     // Live layers and previously blitted outputs share one native layer order.
                     val spritesByLayer = (state.bufferedSprites + state.sprites)
                         .associateBy { it.layerIndex }
-                    val standaloneFlashes = state.layerEffects.filter { effect ->
-                        effect.effectId == 17 &&
+                    val standaloneLayerEffects = state.layerEffects.filter { effect ->
+                        SystemNnnVisualEffectMath.hasStandaloneLayerPainter(effect.effectId) &&
                             spritesByLayer[effect.layerIndex]?.nativeEffectId != effect.effectId
                     }
-                    val standaloneOldFilms = state.layerEffects.filter { effect -> effect.effectId == 55 }
-                    val renderLayers = (
-                        spritesByLayer.keys +
-                            standaloneFlashes.map { it.layerIndex } +
-                            standaloneOldFilms.map { it.layerIndex }
-                        ).distinct().sorted()
+                    val renderLayers = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+                        bitmapLayerIndices = spritesByLayer.keys,
+                        effectLayers = standaloneLayerEffects.map { it.layerIndex to it.effectId }
+                    )
                     renderLayers.forEach { layerIndex ->
                         val sprite = spritesByLayer[layerIndex]
                         if (sprite != null && layerIndex !in hiddenPartnerLayers) {
@@ -683,22 +722,31 @@ fun SystemNnnPlayerScreen(
                                 )
                             }
                         }
-                        standaloneOldFilms.filter { it.layerIndex == layerIndex }.forEach { effect ->
-                            key("oldfilm-${effect.layerIndex}-${effect.commandOffset ?: 0L}") {
-                                SystemNnnStandaloneLayerOldFilm(
-                                    effect = effect,
-                                    frameTimeMillis = state.nativeRuntime.frameTimeMillis,
-                                    referenceWidth = referenceWidth,
-                                    referenceHeight = referenceHeight
-                                )
-                            }
-                        }
-                        standaloneFlashes.filter { it.layerIndex == layerIndex }.forEach { effect ->
-                            key("layer-effect-${effect.layerIndex}-${effect.commandOffset ?: 0L}") {
-                                SystemNnnStandaloneLayerFlash(
-                                    effect = effect,
-                                    frameTimeMillis = state.nativeRuntime.frameTimeMillis
-                                )
+                        standaloneLayerEffects.filter { it.layerIndex == layerIndex }.forEach { effect ->
+                            key("layer-effect-${effect.layerIndex}-${effect.effectId}-${effect.commandOffset ?: 0L}") {
+                                when (effect.effectId) {
+                                    10, 11 -> SystemNnnStandaloneLayerFade(
+                                        effect = effect,
+                                        frameTimeMillis = state.nativeRuntime.frameTimeMillis
+                                    )
+                                    17 -> SystemNnnStandaloneLayerFlash(
+                                        effect = effect,
+                                        frameTimeMillis = state.nativeRuntime.frameTimeMillis
+                                    )
+                                    29 -> SystemNnnStandaloneLayerSuna(
+                                        effect = effect,
+                                        frameTimeMillis = state.nativeRuntime.frameTimeMillis,
+                                        referenceWidth = referenceWidth,
+                                        referenceHeight = referenceHeight
+                                    )
+                                    54 -> SystemNnnStandaloneLayerFill(effect = effect)
+                                    55 -> SystemNnnStandaloneLayerOldFilm(
+                                        effect = effect,
+                                        frameTimeMillis = state.nativeRuntime.frameTimeMillis,
+                                        referenceWidth = referenceWidth,
+                                        referenceHeight = referenceHeight
+                                    )
+                                }
                             }
                         }
                     }
@@ -1031,6 +1079,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
 
     val effectId = sprite.nativeEffectId
     val parameters = sprite.nativeEffectParameters
+    val isKe = effectId == 27
     val nativeRect = sprite.nativeRect
     val fromRect = sprite.nativeDestinationRectFrom
     // Native blit receives RECT right/bottom as dimensions. Preserve invalid
@@ -1039,7 +1088,9 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val nativeFrameMillis = frameTimeMillis.coerceAtLeast(1)
     val hasRectMotion = fromRect != null && nativeRect != null && effectId != null
     val defaultDurationFrames = if (effectId == 62 || effectId == 119) 1 else 20
-    val durationFrames = (parameters.firstOrNull() ?: defaultDurationFrames).coerceIn(1, 9_999)
+    val durationFrames = SystemNnnVisualEffectMath.nativeEffectDurationFrames(
+        effectId, parameters, defaultDurationFrames
+    )
     val isHaikeiYure = effectId == 100 && (parameters.getOrNull(5) ?: 0) == 0
     val animationKey = listOf(sprite.resourceId, sprite.layerIndex, sprite.nativeEffectCommandOffset,
         fromRect, nativeRect, effectId, parameters)
@@ -1059,7 +1110,6 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         }
     }
     val cycleFrames = when (effectId) {
-        27 -> ((parameters.getOrNull(8) ?: 30) + (parameters.getOrNull(9) ?: 0)).coerceIn(1, 9_999)
         39 -> (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
         56 -> (parameters.firstOrNull()?.takeIf { it > 0 } ?: 9_999).coerceIn(1, 9_999)
         63 -> (parameters.getOrNull(14)?.takeIf { it > 0 } ?: durationFrames).coerceIn(1, 9_999)
@@ -1070,7 +1120,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val cycle = remember(animationKey) { Animatable(0f) }
     LaunchedEffect(animationKey, nativeFrameMillis) {
         if ((effectId == 39 && (parameters.getOrNull(3) ?: 0) != 0) ||
-            effectId in setOf(27, 56, 63, 102, 132)
+            effectId in setOf(56, 63, 102, 132)
         ) {
             val cycleMillis = (cycleFrames.toLong() * nativeFrameMillis).coerceIn(
                 nativeFrameMillis.toLong(), 600_000L
@@ -1082,8 +1132,18 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
         } else cycle.snapTo(1f)
     }
 
+    var keFrame by remember(animationKey) { mutableIntStateOf(0) }
+    LaunchedEffect(animationKey, nativeFrameMillis, isKe) {
+        if (isKe) {
+            while (keFrame < 10_000) {
+                delay(nativeFrameMillis.toLong())
+                keFrame += 1
+            }
+        }
+    }
     val t = progress.value.coerceIn(0f, 1f)
-    val frame = (t * durationFrames).roundToInt().coerceIn(0, durationFrames)
+    val frame = if (isKe) keFrame else
+        (t * durationFrames).roundToInt().coerceIn(0, durationFrames)
     val cycleFrame = (cycle.value * cycleFrames).roundToInt().coerceIn(0, cycleFrames)
     val movedRect = if (fromRect != null && nativeRect != null) {
         SystemNnnVisualEffectMath.moveRect(frame, durationFrames, fromRect, nativeRect)
@@ -1093,19 +1153,8 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val rectWidth = movedRect?.width ?: sprite.bitmap.width
     val rectHeight = movedRect?.height ?: sprite.bitmap.height
 
-    val alpha = when (effectId) {
-        8 -> ((parameters.getOrNull(1) ?: 50) / 100f).coerceIn(0f, 1f)
-        9 -> SystemNnnVisualEffectMath.nativeSpeedValue(
-            frame, durationFrames,
-            (parameters.getOrNull(2) ?: 100).coerceIn(0, 100),
-            (parameters.getOrNull(1) ?: 50).coerceIn(0, 100),
-            parameters.getOrNull(4) ?: 0,
-            parameters.getOrNull(3) ?: 0
-        ).coerceIn(0, 100) / 100f
-        else -> 1f
-    }
+    val alpha = SystemNnnVisualEffectMath.layerOpacity(effectId, frame, parameters)
     val isTurn = effectId == 64
-    val isKe = effectId == 27
     val isKomaAnime = effectId == 63
     val isSuna = effectId == 29
     val isRain2 = effectId == 56
@@ -1401,7 +1450,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                 val particles = SystemNnnNativeEffectRenderer.keParticles(
                     bitmapWidth = sprite.bitmap.width,
                     bitmapHeight = sprite.bitmap.height,
-                    frame = cycleFrame,
+                    frame = frame,
                     parameters = parameters,
                     screenWidth = safeReferenceWidth.roundToInt().coerceAtLeast(1),
                     screenHeight = safeReferenceHeight.roundToInt().coerceAtLeast(1)
@@ -1709,6 +1758,101 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                 dstSize = IntSize(size.width.roundToInt(), outputHeight)
             )
         }
+    }
+}
+
+@Composable
+private fun BoxScope.SystemNnnStandaloneLayerFade(
+    effect: SystemNnnActiveLayerEffect,
+    frameTimeMillis: Int
+) {
+    val parameters = effect.parameters
+    val duration = SystemNnnVisualEffectMath.nativeEffectDurationFrames(
+        effect.effectId, parameters
+    )
+    val animationKey = listOf(effect.layerIndex, effect.effectId, effect.commandOffset, parameters)
+    var frame by remember(animationKey) { mutableIntStateOf(0) }
+    LaunchedEffect(animationKey, frameTimeMillis) {
+        for (currentFrame in 0..duration) {
+            frame = currentFrame
+            if (currentFrame < duration) delay(frameTimeMillis.coerceAtLeast(1).toLong())
+        }
+    }
+    val fade = checkNotNull(SystemNnnVisualEffectMath.screenFade(effect.effectId, frame, parameters))
+    Box(
+        Modifier.fillMaxSize().background(
+            Color(
+                fade.color.red / 255f,
+                fade.color.green / 255f,
+                fade.color.blue / 255f,
+                fade.alpha
+            )
+        )
+    )
+}
+
+@Composable
+private fun BoxScope.SystemNnnStandaloneLayerFill(
+    effect: SystemNnnActiveLayerEffect
+) {
+    val color = SystemNnnVisualEffectMath.nativeScreenColor(effect.parameters)
+    Box(
+        Modifier.fillMaxSize().background(
+            Color(color.red / 255f, color.green / 255f, color.blue / 255f, 1f)
+        )
+    )
+}
+
+@Composable
+private fun BoxScope.SystemNnnStandaloneLayerSuna(
+    effect: SystemNnnActiveLayerEffect,
+    frameTimeMillis: Int,
+    referenceWidth: Float,
+    referenceHeight: Float
+) {
+    val parameters = effect.parameters
+    val animationKey = listOf(effect.layerIndex, effect.effectId, effect.commandOffset, parameters)
+    var frame by remember(animationKey) { mutableIntStateOf(0) }
+    LaunchedEffect(animationKey, frameTimeMillis) {
+        while (true) {
+            delay(frameTimeMillis.coerceAtLeast(1).toLong())
+            frame = if (frame == Int.MAX_VALUE) 0 else frame + 1
+        }
+    }
+    val bitmap = remember(animationKey, frame, referenceWidth, referenceHeight) {
+        val width = referenceWidth.roundToInt().coerceAtLeast(1)
+        val height = referenceHeight.roundToInt().coerceAtLeast(1)
+        runCatching {
+            val pixels = SystemNnnNativeEffectRenderer.sunaNoiseOverlay(
+                width = width,
+                height = height,
+                frame = frame,
+                parameters = parameters
+            )
+            if (pixels.size == width * height) {
+                Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+            } else null
+        }.onFailure { failure ->
+            SystemNnnDiagnosticLog.active?.recordException(
+                "suna_layer_overlay_failure",
+                failure,
+                "layer=" + effect.layerIndex + " params=" + parameters + " frame=" + frame
+            )
+        }.getOrNull()
+    }
+    DisposableEffect(bitmap) {
+        onDispose {
+            if (bitmap != null && !bitmap.isRecycled) bitmap.recycle()
+        }
+    }
+    bitmap?.let {
+        Image(
+            bitmap = it.asImageBitmap(),
+            contentDescription = "SUNA layer noise",
+            modifier = Modifier.fillMaxSize(),
+            contentScale = ContentScale.FillBounds,
+            alignment = Alignment.TopStart
+        )
     }
 }
 

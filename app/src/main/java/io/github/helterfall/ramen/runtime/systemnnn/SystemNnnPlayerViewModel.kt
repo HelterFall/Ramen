@@ -2035,7 +2035,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         ) {
                             val screenWideHaikeiYure = command.effectId == 100 &&
                                 (command.parameters.getOrNull(5) ?: 0) == 1
-                            if (command.effectId in SCREEN_BUFFER_EFFECT_IDS || screenWideHaikeiYure) {
+                            // FADEIN, SUNA and FILL print into the shared framebuffer
+                            // at this layer's native position. Only an explicit layer 31
+                            // command is a viewport-wide screen effect.
+                            val explicitViewportEffect = command.layerIndex == SCREEN_EFFECT_LAYER_INDEX &&
+                                command.effectId in setOf(10, 11, 29, 54)
+                            if (command.effectId in SCREEN_BUFFER_EFFECT_IDS ||
+                                explicitViewportEffect || screenWideHaikeiYure
+                            ) {
                                 pendingScreenEffectId = command.effectId
                                 pendingScreenEffectParameters = command.parameters
                                 pendingScreenEffectCommandOffset = command.nextCommandOffset
@@ -3085,7 +3092,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_IMAGE_WARNING_COUNT = 4
         private const val SCREEN_EFFECT_LAYER_INDEX = 31
         private val SCREEN_BUFFER_EFFECT_IDS = setOf(
-            2, 10, 11, 18, 20, 22, 29, 31, 43, 50, 54, 69, 71, 74
+            2, 18, 20, 22, 31, 43, 50, 69, 71, 74
         )
         private const val DEFAULT_OVERRAP_LENGTH_FRAMES = 18
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L

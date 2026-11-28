@@ -763,6 +763,71 @@ internal object SystemNnnNativeEffectRenderer {
         return result
     }
 
+    /**
+     * SUNA (29) has no source bitmap: native Print paints its random 64x64
+     * noise texture into 128x128 tiles of the shared framebuffer at this
+     * layer's position. This deterministic overlay preserves that composition
+     * point and native rectangle/strength parameters without depending on a
+     * game-provided bitmap.
+     */
+    fun sunaNoiseOverlay(
+        width: Int,
+        height: Int,
+        frame: Int,
+        parameters: List<Int>
+    ): IntArray {
+        if (width <= 0 || height <= 0) return IntArray(0)
+
+        val left = ((parameters.getOrNull(6) ?: 0) and -8).coerceIn(0, width)
+        val top = ((parameters.getOrNull(7) ?: 0) and -2).coerceIn(0, height)
+        val requestedWidth = ((parameters.getOrNull(8) ?: width) and -8).coerceAtLeast(0)
+        val requestedHeight = ((parameters.getOrNull(9) ?: height) and -2).coerceAtLeast(0)
+        val right = min(width, left + requestedWidth)
+        val bottom = min(height, top + requestedHeight)
+        if (right <= left || bottom <= top) return IntArray(width * height)
+
+        val countMax = (parameters.getOrNull(0) ?: 1).coerceAtLeast(1)
+        val count = frame.coerceIn(0, countMax)
+        val transparentMode = (parameters.getOrNull(1) ?: 0) != 0
+        val strength = if (transparentMode) {
+            SystemNnnVisualEffectMath.nativeSpeedValue(
+                count = count,
+                countMax = countMax,
+                startData = (parameters.getOrNull(3) ?: 100).coerceIn(0, 100),
+                endData = (parameters.getOrNull(2) ?: 100).coerceIn(0, 100),
+                delayCount = parameters.getOrNull(5) ?: 0,
+                speedType = parameters.getOrNull(4) ?: 0
+            ).coerceIn(0, 100)
+        } else {
+            100
+        }
+        val alpha = strength * 255 / 100
+        if (alpha == 0) return IntArray(width * height)
+
+        val output = IntArray(width * height)
+        val tileColumns = (right - left + 127) / 128
+        for (y in top until bottom) {
+            val localY = y - top
+            val tileY = localY / 128
+            val inTileY = localY % 128
+            for (x in left until right) {
+                val localX = x - left
+                val tileX = localX / 128
+                val inTileX = localX % 128
+                val tile = tileY * tileColumns + tileX
+                val tileSeed = randomMix(tile * 0x45D9F3B xor frame * 0x3449F5)
+                val sourceStartX = tileSeed and 63
+                val sourceStartY = randomMix(tileSeed xor 0x119DE1F3) and 63
+                val sourceX = sourceStartX + inTileX / 2
+                val sourceY = sourceStartY + inTileY / 2
+                val textureIndex = sourceY * 128 + sourceX
+                val gray = randomMix(textureIndex * 0x119DE1F3 xor tileSeed) and 0xFF
+                output[y * width + x] = argb(alpha, gray, gray, gray)
+            }
+        }
+        return output
+    }
+
     /** SUNA source-mask helper retained for offline tile-dissolve previews. */
     fun sunaDissolve(
         source: IntArray,

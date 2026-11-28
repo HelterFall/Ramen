@@ -417,6 +417,55 @@ internal object SystemNnnVisualEffectMath {
             else -> false
         }
 
+    private val standaloneLayerPainterEffectIds = setOf(10, 11, 17, 29, 54, 55)
+
+    fun hasStandaloneLayerPainter(effectId: Int): Boolean =
+        effectId in standaloneLayerPainterEffectIds
+
+    /** Compose the native layer stack in stable, ascending layer order. */
+    fun nativeLayerRenderOrder(
+        bitmapLayerIndices: Collection<Int>,
+        effectLayers: Collection<Pair<Int, Int>>,
+        layerCount: Int = 32
+    ): List<Int> {
+        val layers = LinkedHashSet<Int>()
+        bitmapLayerIndices.filterTo(layers) { it in 0 until layerCount }
+        effectLayers.asSequence()
+            .filter { (layerIndex, effectId) ->
+                layerIndex in 0 until layerCount && hasStandaloneLayerPainter(effectId)
+            }
+            .mapTo(layers) { it.first }
+        return layers.sorted()
+    }
+
+    /** CEffectKe::SetParam overrides the script's para[0] with 999999. */
+    fun nativeEffectDurationFrames(
+        effectId: Int?,
+        parameters: List<Int>,
+        defaultDurationFrames: Int = 20
+    ): Int = if (effectId == 27) {
+        999_999
+    } else {
+        (parameters.firstOrNull() ?: defaultDurationFrames).coerceIn(1, 9_999)
+    }
+
+    /** Native TRANS (8) and CTRANS (9) layer alpha, in source-over units. */
+    fun layerOpacity(effectId: Int?, frame: Int, parameters: List<Int>): Float = when (effectId) {
+        8 -> ((parameters.getOrNull(1) ?: 50).coerceIn(0, 100)) / 100f
+        9 -> {
+            val duration = (parameters.firstOrNull() ?: 20).coerceAtLeast(1)
+            nativeSpeedValue(
+                count = frame,
+                countMax = duration,
+                startData = (parameters.getOrNull(2) ?: 100).coerceIn(0, 100),
+                endData = (parameters.getOrNull(1) ?: 50).coerceIn(0, 100),
+                delayCount = parameters.getOrNull(4) ?: 0,
+                speedType = parameters.getOrNull(3) ?: 0
+            ).coerceIn(0, 100) / 100f
+        }
+        else -> 1f
+    }
+
     fun scrollUsesLoopFrame(parameters: List<Int>): Boolean =
         (parameters.getOrNull(3) ?: 0) != 0
 

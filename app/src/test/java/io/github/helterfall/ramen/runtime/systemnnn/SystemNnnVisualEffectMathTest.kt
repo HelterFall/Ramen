@@ -38,6 +38,51 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
+    fun bitmaplessNativeEffectsJoinTheLayerStackInStrictLayerOrder() {
+        val order = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+            bitmapLayerIndices = listOf(7, 9, 12, 1),
+            effectLayers = listOf(
+                0 to 54,
+                6 to 55,
+                8 to 29,
+                11 to 10,
+                13 to 17,
+                14 to 66
+            )
+        )
+
+        assertEquals(listOf(0, 1, 6, 7, 8, 9, 11, 12, 13), order)
+        for (effectId in listOf(10, 11, 17, 29, 54, 55)) {
+            assertTrue(SystemNnnVisualEffectMath.hasStandaloneLayerPainter(effectId))
+        }
+        assertFalse(SystemNnnVisualEffectMath.hasStandaloneLayerPainter(66))
+    }
+
+    @Test
+    fun nativeKeUsesTheRuntimeCountMaximumInsteadOfScriptParameterZero() {
+        val introParameters = listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120)
+
+        assertEquals(
+            999_999,
+            SystemNnnVisualEffectMath.nativeEffectDurationFrames(27, introParameters)
+        )
+    }
+
+    @Test
+    fun translucentLayerRetainsItsNativeOpacityDuringSourceOverComposition() {
+        assertEquals(
+            0.56f,
+            SystemNnnVisualEffectMath.layerOpacity(8, 0, listOf(20, 56)),
+            0.001f
+        )
+        assertEquals(
+            1f,
+            SystemNnnVisualEffectMath.layerOpacity(0, 0, emptyList()),
+            0.001f
+        )
+    }
+
+    @Test
     fun nativeEffectContinuationAndUnregisteredIdsDoNotReplaceThePreviousEffect() {
         for (effectId in listOf(-1, 4, 5, 6, 7)) {
             assertFalse(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))

@@ -4,6 +4,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -46,6 +47,53 @@ class SystemNnnNativeEffectRendererTest {
         assertEquals(5, result[10])
         assertEquals(6, result[11])
         assertArrayEquals(original, source)
+    }
+
+    @Test
+    fun sunaWithoutABitmapProducesAnAnimatedTransparentLayerOverlay() {
+        val width = 256
+        val height = 256
+        val parameters = listOf(0, 1, 10, 30, 5, 60, 8, 4, 128, 128)
+
+        val first = SystemNnnNativeEffectRenderer.sunaNoiseOverlay(
+            width, height, frame = 0, parameters = parameters
+        )
+        val next = SystemNnnNativeEffectRenderer.sunaNoiseOverlay(
+            width, height, frame = 1, parameters = parameters
+        )
+
+        assertEquals(width * height, first.size)
+        assertEquals(0, first[0])
+        assertEquals(0, first[7 * width + 8])
+        assertEquals(76, first[4 * width + 8] ushr 24)
+        assertTrue(!first.contentEquals(next))
+    }
+
+    @Test
+    fun keParticlesAdvanceThroughTheNativeSpriteSheetCells() {
+        val parameters = listOf(1, 32, 32, 16, 0, 10, 5, 1, 100, 0, 4, 120)
+        val first = SystemNnnNativeEffectRenderer.keParticles(
+            bitmapWidth = 320,
+            bitmapHeight = 160,
+            frame = 0,
+            parameters = parameters,
+            screenWidth = 800,
+            screenHeight = 600
+        )
+        val next = SystemNnnNativeEffectRenderer.keParticles(
+            bitmapWidth = 320,
+            bitmapHeight = 160,
+            frame = 1,
+            parameters = parameters,
+            screenWidth = 800,
+            screenHeight = 600
+        )
+
+        assertEquals(16, first.size)
+        assertEquals(16, next.size)
+        assertTrue(first.all { it.sourceRect.top == 0 })
+        assertTrue(next.all { it.sourceRect.top == 32 })
+        assertNotEquals(first, next)
     }
 
     @Test

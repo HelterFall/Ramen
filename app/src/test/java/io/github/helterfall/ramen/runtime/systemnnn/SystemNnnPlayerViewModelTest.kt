@@ -752,6 +752,61 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun bitmaplessIntroEffectsStayOnTheirNativeLayersInsteadOfBecomingGlobalOverlays() {
+        val lengths = List(6) { 3 }
+        val offsets = recordOffsets(lengths)
+        val fadeParameters = listOf(60, 0, 0, 0, 0)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 0,
+                    effectId = 54
+                ),
+                offsets[1] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[2],
+                    layerIndex = 6,
+                    effectId = 55,
+                    parameters = listOf(20, 0, 0, 800, 600, 5, 1, 21, 19, 9, 200, 80, 30)
+                ),
+                offsets[2] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[3],
+                    layerIndex = 8,
+                    effectId = 29,
+                    parameters = listOf(0, 1, 10, 30, 5, 60, 0, 0, 800, 600)
+                ),
+                offsets[3] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[4],
+                    layerIndex = 11,
+                    effectId = 10,
+                    parameters = fadeParameters
+                ),
+                offsets[4] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[5],
+                    layerIndex = 13,
+                    effectId = 17,
+                    parameters = listOf(40, 2, 21, 0, 0, 0)
+                ),
+                offsets[5] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets.last() + 12L,
+                    textEntryOffset = testTextStartOffset(lengths)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(lengths), decoder, EmptyAssets)
+
+        assertEquals(
+            listOf(0 to 54, 6 to 55, 8 to 29, 11 to 10, 13 to 17),
+            viewModel.uiState.layerEffects.map { it.layerIndex to it.effectId }
+        )
+        assertNull(viewModel.uiState.screenEffectId)
+        assertTrue(viewModel.uiState.sprites.isEmpty())
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
+    @Test
     fun screenLayerFadeIsPublishedAsAViewportEffect() {
         val offsets = recordOffsets()
         val parameters = listOf(24, 16, 32, 48, 0, 0)
