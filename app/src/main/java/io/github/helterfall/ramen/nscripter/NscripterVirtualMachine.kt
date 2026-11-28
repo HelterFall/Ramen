@@ -510,7 +510,7 @@ class NscripterVirtualMachine(
         private var cursor = 0
 
         init {
-            val pattern = Regex("\\|\\||&&|==|!=|>=|<=|[()!<>=]|-?0[xX][0-9A-Fa-f]+|-?\\d+|[%$]?[A-Za-z_][A-Za-z0-9_]*")
+            val pattern = Regex("\\|\\||&&|==|!=|>=|<=|[()!<>=]|-?0[xX][0-9A-Fa-f]+|-?\\d+|%[A-Za-z0-9_]+|[$][A-Za-z0-9_]+|[A-Za-z_][A-Za-z0-9_]*")
             var offset = 0
             for (match in pattern.findAll(expression)) {
                 if (expression.substring(offset, match.range.first).isNotBlank()) {
