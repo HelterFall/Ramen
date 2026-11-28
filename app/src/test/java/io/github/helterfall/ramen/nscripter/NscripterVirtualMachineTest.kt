@@ -40,6 +40,37 @@ class NscripterVirtualMachineTest {
     }
 
     @Test
+    fun skipsDefineHeaderPluginsVersionAndEffectsBeforeFirstScene() {
+        val source = """
+            *define
+            caption "NarcissuRus"
+            spi "jpgplgin.dll|jpg"
+            versionstr "NarcissuRus 1.0"
+            effect 2,6,500
+            effect 3,10,600
+            effect 4,13,3000
+            effect 5,10,800
+            effect 6,6,500
+            header_custom 1
+            game
+            *start
+            bg "scene.jpg",1
+            Первая настоящая сцена.
+            end
+        """.trimIndent()
+
+        val program = NscripterScriptProgram.parse(source)
+        assertTrue(program.instructions.none { it.command == "text" && it.sourceLine in 3..10 })
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+
+        val first = vm.resume()
+        assertTrue(first is NscripterVmYield.Dialogue)
+        assertEquals("Первая настоящая сцена.", (first as NscripterVmYield.Dialogue).scene.dialogue)
+        assertEquals("NarcissuRus", first.scene.caption)
+        assertEquals("scene.jpg", first.scene.background)
+    }
+
+    @Test
     fun executesAliasesLimitsForIfAndGosubReturnUntilTheDialogue() {
         val program = NscripterScriptProgram.parse(
             """

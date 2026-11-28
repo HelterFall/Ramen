@@ -27,6 +27,43 @@ data class NscripterScriptProgram(
             "savefileexist", "savenumber", "saveon", "savetime"
         )
 
+        /**
+         * NScripter/ONScripter command vocabulary. This is intentionally wider
+         * than supportedCommands: recognized-but-unimplemented commands must
+         * never be mistaken for dialogue, especially in the *define section.
+         */
+        val knownCommands = supportedCommands + setOf(
+            "addf", "and", "avi", "aviout", "bgcopy", "bgm", "bgmfadein",
+            "bgmfadeout", "bgmloop", "bgmonce", "bgmstop", "bgoverlay",
+            "break", "cell", "csp2", "deffont", "definereset", "delay",
+            "delete", "div", "dwaveloop2", "dwaveload", "dwaveplay",
+            "dwavestopfadeout", "dwaveseek", "dwavevol", "else", "endif",
+            "endloop", "fileexist", "filelog", "getcursor", "getmousepos",
+            "getparam", "getreg", "getversion", "gosubstr", "inc", "itoa",
+            "itoa2", "labelexist", "len", "linepage", "loadgame", "locate",
+            "lookbackcolor", "lookbackflush", "lookbackoff", "lookbackon",
+            "lsp2", "lsp2sub", "lspfont", "lspstr", "msp", "msp2", "mul",
+            "n", "nsadir", "ofscopy", "open", "page", "play", "playonce",
+            "playstop", "print2", "printbutton", "printstr", "prnum",
+            "prnumclear", "puttext", "quake", "readfile", "readkey", "readreg",
+            "readstr", "reset", "rnd", "savegame", "saveoff", "savename",
+            "savepoint", "se", "seplay", "select", "selgosub", "setcursor",
+            "setwindow3", "shell", "skip", "spchar", "spfont", "spstr",
+            "stralias", "strcat", "strcmp", "strcpy", "strsp", "strsub", "sub",
+            "title", "transmode", "transbtn", "tateyoko", "timer", "trap",
+            "voicedelay", "waittimer", "wave", "waveloop", "wavestop",
+            "windowerase", "windowlock", "windowunlock", "writefile",
+            "writestr", "yesnobox", "zenkakko", "br", "cl", "clreload",
+            "color", "cont", "deldigit", "delsp", "dim", "draw", "drawsp",
+            "edit", "font", "fontcolor", "humanorder", "logsp",
+            "lookbackbutton", "lookbacksp", "lookbackvoice", "numalias2",
+            "save", "effect", "spi", "versionstr", "automode_time",
+            "autosaveoff", "autosaveon", "effectblank", "effectcut",
+            "effectdown", "effectleft", "effectright", "effectup",
+            "effectwave", "english", "globalon", "mode800", "mode320",
+            "useescspc", "usewheel"
+        )
+
         @Throws(IOException::class)
         fun parse(source: String): NscripterScriptProgram {
             val instructions = ArrayList<NscripterInstruction>()
@@ -34,6 +71,7 @@ data class NscripterScriptProgram(
             var defineInstruction: Int? = null
             var startInstruction = -1
             var speaker: String? = null
+            var inDefineSection = false
 
             source.lineSequence().forEachIndexed { lineIndex, original ->
                 var line = original.trim()
@@ -45,6 +83,8 @@ data class NscripterScriptProgram(
                 if (line.startsWith("*")) {
                     val label = line.drop(1).trim().substringBefore(' ').lowercase()
                     if (label.isNotBlank()) {
+                        if (label == "define") inDefineSection = true
+                        if (label == "start") inDefineSection = false
                         if (labels.put(label, instructions.size) != null) {
                             throw IOException("Duplicate NScripter label '*" + label + "' at line " + (lineIndex + 1))
                         }
@@ -72,8 +112,27 @@ data class NscripterScriptProgram(
                             lineIndex + 1,
                             speaker
                         )
+                    } else if (command != null && command in knownCommands) {
+                        // Preserve the command as a non-dialogue instruction. The
+                        // VM currently treats unimplemented commands as no-ops.
+                        instructions += NscripterInstruction(
+                            command,
+                            match.groupValues.getOrElse(2) { "" }.trim(),
+                            lineIndex + 1,
+                            speaker
+                        )
                     } else if (forced) {
                         throw IOException("Unsupported NScripter command at line " + (lineIndex + 1) + ": " + statement)
+                    } else if (inDefineSection) {
+                        // Every non-empty statement before "game" in *define is
+                        // setup syntax, never player-facing dialogue. Keep unknown
+                        // directives non-interactive rather than yielding TAP.
+                        instructions += NscripterInstruction(
+                            "unsupported",
+                            statement,
+                            lineIndex + 1,
+                            speaker
+                        )
                     } else {
                         if (statement.startsWith(">")) statement = statement.drop(1)
                         if (statement.endsWith("@")) statement = statement.dropLast(1)

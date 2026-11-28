@@ -347,33 +347,67 @@ class NscripterStaticScanner(
         commandCounts: MutableMap<String, Int>,
         unsupported: MutableMap<Pair<String, String>, MutableList<Int>>
     ) {
+        var inDefineSection = false
         text.lineSequence().forEachIndexed { lineIndex, sourceLine ->
             val line = removeComment(sourceLine).trim()
-            if (line.isEmpty() || line.startsWith("*")) return@forEachIndexed
+            if (line.isEmpty()) return@forEachIndexed
 
-            var body = line
-            var explicitDirective = false
-            when (body.first()) {
-                ':', '@' -> {
-                    explicitDirective = true
-                    body = body.substring(1).trimStart()
-                }
-                '#' -> {
-                    explicitDirective = true
-                    body = body.substring(1).trimStart()
-                }
+            if (line.startsWith("*")) {
+                val label = line.drop(1).trim().substringBefore(Regex("\\s")).lowercase(Locale.ROOT)
+                if (label == "define") inDefineSection = true
+                if (label == "start") inDefineSection = false
+                return@forEachIndexed
             }
 
-            val token = body.takeWhile { it.isLetterOrDigit() || it == '_' || it == '!' }
-            if (token.isEmpty()) return@forEachIndexed
-            val command = token.lowercase(Locale.ROOT)
-            if (command in KNOWN_COMMANDS) {
+            // Hash-prefixed lines are speaker names in NScripter scripts.
+            if (line.startsWith("#")) return@forEachIndexed
+
+            val inlineDirective = line.startsWith(":")
+            val statements = if (inlineDirective) splitStatements(line.drop(1)) else listOf(line)
+            for (statementValue in statements) {
+                var body = statementValue.trim()
+                if (body.isEmpty()) continue
+
+                var explicitDirective = inlineDirective
+                if (body.startsWith("@")) {
+                    explicitDirective = true
+                    body = body.drop(1).trimStart()
+                }
+
+                val token = body.takeWhile { it.isLetterOrDigit() || it == '_' || it == '!' }
+                if (token.isEmpty()) continue
+                val command = token.lowercase(Locale.ROOT)
+                val isKnownCommand = command in NscripterScriptProgram.knownCommands
+                if (!isKnownCommand && !explicitDirective && !inDefineSection) continue
+
+                // Count every command-like statement, including unknown custom
+                // directives in *define and explicitly prefixed commands.
                 commandCounts[command] = (commandCounts[command] ?: 0) + 1
-            } else if (explicitDirective) {
-                val key = sourcePath to command
-                unsupported.getOrPut(key) { mutableListOf() } += lineIndex + 1
+                if (command !in NscripterScriptProgram.supportedCommands) {
+                    val key = sourcePath to command
+                    unsupported.getOrPut(key) { mutableListOf() } += lineIndex + 1
+                }
             }
         }
+    }
+
+    private fun splitStatements(value: String): List<String> {
+        val parts = ArrayList<String>()
+        var quote: Char? = null
+        var escaped = false
+        var start = 0
+        value.forEachIndexed { index, char ->
+            if (escaped) escaped = false
+            else if (char == '\\') escaped = true
+            else if (quote != null && char == quote) quote = null
+            else if (quote == null && (char == '"' || char.toInt() == 96)) quote = char
+            else if (quote == null && char == ':') {
+                parts += value.substring(start, index)
+                start = index + 1
+            }
+        }
+        parts += value.substring(start)
+        return parts
     }
 
     /**
@@ -502,36 +536,6 @@ class NscripterStaticScanner(
         private val AUDIO_EXTENSIONS = setOf(
             "wav", "ogg", "mp3", "mid", "midi", "flac", "m4a", "aac",
             "wma", "opus", "mp2"
-        )
-        private val KNOWN_COMMANDS = setOf(
-            "add", "addf", "and", "avi", "aviout", "bg", "bgcopy", "bgm",
-            "bgmfadein", "bgmfadeout", "bgmloop", "bgmonce", "bgmstop",
-            "bgoverlay", "break", "btn", "btnwait", "caption", "cell", "csel",
-            "csp", "csp2", "deffont", "definereset", "delay", "delete", "div",
-            "dwave", "dwaveloop", "dwaveloop2", "dwaveload", "dwaveplay",
-            "dwavestop", "dwavestopfadeout", "dwaveseek", "dwavevol", "else",
-            "endif", "end", "endloop", "exbtn", "exbtn_d", "fileexist",
-            "filelog", "for", "game", "getcursor", "getmousepos", "getparam",
-            "getreg", "getversion", "goto", "gosub", "gosubstr", "if", "inc",
-            "intlimit", "itoa", "itoa2", "labelexist", "len", "linepage",
-            "loadgame", "locate", "lookbackcolor", "lookbackflush", "lookbackoff",
-            "lookbackon", "lsp", "lsp2", "lsp2sub", "lspfont", "lspstr", "lsph",
-            "msp", "msp2", "mul", "n", "next", "nsadir", "numalias", "ofscopy",
-            "open", "page", "play", "playonce", "playstop", "print", "print2",
-            "printbutton", "printstr", "prnum", "prnumclear", "puttext", "quake",
-            "readfile", "readkey", "readreg", "readstr", "reset", "return", "rmenu",
-            "rnd", "savefileexist", "savegame", "saveoff", "saveon", "savenumber",
-            "savename", "savepoint", "savetime", "se", "seplay", "select",
-            "selgosub", "setcursor", "setwindow", "setwindow3", "shell", "skip",
-            "spbtn", "spchar", "spfont", "spstr", "stop", "stralias", "strcat",
-            "strcmp", "strcpy", "strsp", "strsub", "sub", "textbtnwait", "title",
-            "transmode", "transbtn", "tateyoko", "timer", "trap", "voicedelay",
-            "wait", "waittimer", "wave", "waveloop", "wavestop", "windowerase",
-            "windowback", "windoweffect", "windowlock", "windowunlock", "writefile",
-            "writestr", "yesnobox", "zenkakko", "br", "cl", "clreload", "color",
-            "cont", "deldigit", "delsp", "dim", "draw", "drawsp", "edit",
-            "font", "fontcolor", "humanorder", "logsp", "lookbackbutton",
-            "lookbacksp", "lookbackvoice", "nsa", "numalias2", "save"
         )
     }
 }

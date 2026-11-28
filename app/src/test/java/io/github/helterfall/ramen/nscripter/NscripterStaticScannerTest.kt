@@ -65,6 +65,54 @@ class NscripterStaticScannerTest {
     }
 
     @Test
+    fun countsAllDefineHeaderDirectivesIncludingUnprefixedOnes() {
+        val root = Files.createTempDirectory("nscripter-define-header").toFile()
+        try {
+            File(root, "0.utf").writeText(
+                "*define\n" +
+                    "caption \"NarcissuRus\"\n" +
+                    "spi \"jpgplgin.dll|jpg\"\n" +
+                    "versionstr \"NarcissuRus 1.0\"\n" +
+                    "effect 2,6,500\n" +
+                    "effect 3,10,600\n" +
+                    "effect 4,13,3000\n" +
+                    "effect 5,10,800\n" +
+                    "effect 6,6,500\n" +
+                    "custom_header_directive 1\n" +
+                    "game\n" +
+                    "*start\n" +
+                    "bg \"scene.jpg\",1\n" +
+                    "Первая сцена\n"
+            )
+
+            val scanner = NscripterStaticScanner()
+            val report = scanner.scan(root)
+
+            assertEquals(1, report.commandCounts["spi"])
+            assertEquals(1, report.commandCounts["versionstr"])
+            assertEquals(5, report.commandCounts["effect"])
+            assertEquals(1, report.commandCounts["custom_header_directive"])
+            assertEquals(1, report.commandCounts["game"])
+            assertEquals(1, report.commandCounts["bg"])
+
+            val unsupported = report.unsupportedDirectives.associateBy { it.directive }
+            assertEquals(listOf(3), unsupported["spi"]?.lineNumbers)
+            assertEquals(listOf(4), unsupported["versionstr"]?.lineNumbers)
+            assertEquals(listOf(5, 6, 7, 8, 9), unsupported["effect"]?.lineNumbers)
+            assertEquals(listOf(10), unsupported["custom_header_directive"]?.lineNumbers)
+
+            val json = scanner.toJson(report)
+            assertTrue(json.contains("\\"spi\\": 1"))
+            assertTrue(json.contains("\\"versionstr\\": 1"))
+            assertTrue(json.contains("\\"effect\\": 5"))
+            assertTrue(json.contains("\\"directive\\": \\"spi\\""))
+            assertTrue(json.contains("\\"directive\\": \\"versionstr\\""))
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun keepsArchiveAndScriptFailuresVisibleInReport() {
         val root = Files.createTempDirectory("nscripter-errors").toFile()
         try {

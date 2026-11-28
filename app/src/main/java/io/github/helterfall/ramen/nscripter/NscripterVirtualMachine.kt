@@ -316,6 +316,11 @@ class NscripterVirtualMachine(
                         setInteger(normalizeVariable(pair.first), pair.second)
                     }
                 }
+                else -> {
+                    // Static parser recognized a valid NScripter command whose
+                    // runtime behavior is not implemented yet. Skip it safely;
+                    // it must never be displayed as a dialogue line.
+                }
             }
         }
 
