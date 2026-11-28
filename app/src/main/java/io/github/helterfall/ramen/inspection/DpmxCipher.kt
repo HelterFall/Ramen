@@ -614,6 +614,8 @@ class DpmxKeyResolver {
         false
     }
 
+    private data class SegmentRange(val offset: Long, val size: Long)
+
     private fun isValidHspHeader(entry: DpmxFileEntry, bytes: ByteArray): Boolean {
         if (bytes.size < HSPHED_SIZE_BYTES || !bytes.copyOfRange(0, 4).contentEquals(HSP3_MAGIC)) {
             return false
@@ -700,7 +702,7 @@ class DpmxKeyResolver {
             .decode(ByteBuffer.wrap(bytes))
             .toString()
         decoded.isNotEmpty() && decoded.all { character ->
-            character == '\\r' || character == '\\n' || character == '\\t' ||
+            character.code == 13 || character.code == 10 || character.code == 9 ||
                 !Character.isISOControl(character)
         }
     } catch (_: CharacterCodingException) {
