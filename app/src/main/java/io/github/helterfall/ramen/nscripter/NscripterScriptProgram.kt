@@ -25,7 +25,8 @@ data class NscripterScriptProgram(
             "stop", "numalias", "intlimit", "add", "if", "for", "next", "goto",
             "gosub", "return", "wait", "caption", "game", "end", "nsa",
             "savefileexist", "savenumber", "saveon", "savetime",
-            "mov", "jumpb", "jumpf", "btndef", "erasetextwindow"
+            "mov", "jumpb", "jumpf", "btndef", "erasetextwindow",
+            "mp3", "mp3loop", "click", "vsp", "textclear", "repaint"
         )
 
         /**
