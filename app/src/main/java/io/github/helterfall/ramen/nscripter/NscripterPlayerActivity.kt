@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -25,10 +26,14 @@ class NscripterPlayerActivity : ComponentActivity() {
     private var ended by mutableStateOf(false)
     private var error by mutableStateOf<String?>(null)
     private var timedWait by mutableStateOf<Int?>(null)
+    private var menuVisible by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
+            BackHandler(enabled = scene.menu.isNotEmpty() && !ended) {
+                menuVisible = !menuVisible
+            }
             androidx.compose.material3.MaterialTheme {
                 NscripterPlayerScreen(
                     scene = scene,
@@ -44,8 +49,11 @@ class NscripterPlayerActivity : ComponentActivity() {
                     onChoice = { vm?.acceptChoice(it); advance() },
                     onMenu = { action ->
                         vm?.performMenuAction(action)
+                        menuVisible = false
                         advance()
                     },
+                    menuVisible = menuVisible,
+                    onToggleMenu = { menuVisible = !menuVisible },
                     onTimedWaitComplete = {
                         vm?.completeTimedWait()
                         timedWait = null
@@ -87,6 +95,7 @@ class NscripterPlayerActivity : ComponentActivity() {
                         vm = virtualMachine
                         audioPlayer = audio
                         loading = false
+                        menuVisible = false
                         advance()
                     }
                 }
