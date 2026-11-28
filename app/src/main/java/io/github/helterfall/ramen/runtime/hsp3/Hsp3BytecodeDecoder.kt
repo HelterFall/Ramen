@@ -284,6 +284,8 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                     is Hsp3ExpressionNode.Variable -> "variable(${node.index})"
                     is Hsp3ExpressionNode.SystemVariable -> "sysvar(${node.index})"
                     is Hsp3ExpressionNode.Function -> "function(0x${node.id.toString(16)})"
+                    is Hsp3ExpressionNode.ExternalFunction ->
+                        "external-function(type=${node.commandType}, id=0x${node.id.toString(16)})"
                     is Hsp3ExpressionNode.Binary -> "binary(${node.operator})"
                     is Hsp3ExpressionNode.Opaque -> "opaque(type=${node.tokenType},value=${node.tokenValue})"
                 }
