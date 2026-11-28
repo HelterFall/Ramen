@@ -276,7 +276,7 @@ class Hsp3RuntimeAdapter(
 
     @Throws(IOException::class)
     fun prepare(executable: File, assetRoot: File? = null): Hsp3PreparedGame =
-        prepareInternal(executable, assetRoot, validateRuntimeProfile = true)
+        prepareInternal(executable, assetRoot)
 
     /**
      * Loads start.ax for analysis only. An unpacked local start.ax is preferred
@@ -287,12 +287,11 @@ class Hsp3RuntimeAdapter(
         executable: File,
         assetRoot: File? = null
     ): Hsp3PreparedGame =
-        prepareInternal(executable, assetRoot, validateRuntimeProfile = false)
+        prepareInternal(executable, assetRoot)
 
     private fun prepareInternal(
         executable: File,
-        assetRoot: File?,
-        validateRuntimeProfile: Boolean
+        assetRoot: File?
     ): Hsp3PreparedGame {
         if (!executable.isFile) throw IOException("The HSP3 executable is not a regular file.")
         val canonicalExecutable = executable.canonicalFile
@@ -324,7 +323,6 @@ class Hsp3RuntimeAdapter(
                     null
                 }
                 if (localProgram != null) {
-                    validateRuntimeProfile(localProgram, validateRuntimeProfile)
                     keyResolver.preferHspCipherVersion(container, localProgram.header.version)
                     val resourceValidation = keyResolver.verifyArchiveResources(source, container)
                     return Hsp3PreparedGame(
@@ -370,7 +368,6 @@ class Hsp3RuntimeAdapter(
                 throw IOException("HSPHED/CS/DS/OT/DI loading failed: ${error.message ?: error.javaClass.simpleName}", error)
             }
 
-            validateRuntimeProfile(program, validateRuntimeProfile)
             val resourceValidation = keyResolver.verifyArchiveResources(source, container)
             return Hsp3PreparedGame(
                 executable = canonicalExecutable,
