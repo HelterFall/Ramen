@@ -9,6 +9,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -40,7 +42,6 @@ import io.github.helterfall.ramen.library.LibraryRepository
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.min
 
 /** Native Android host for imported PE32/DPMX HSP3 games. */
@@ -244,56 +245,6 @@ class Hsp3PlayerActivity : ComponentActivity() {
     }
 }
 
-private class Hsp3TouchInputController : Hsp3InputProvider {
-    private val mask = AtomicInteger(0)
-    private val mouseX = AtomicInteger(0)
-    private val mouseY = AtomicInteger(0)
-
-    override fun stickMask(): Int = mask.get()
-
-    override fun mousePosition(): Pair<Int, Int> = mouseX.get() to mouseY.get()
-
-    fun setMousePosition(x: Int, y: Int) {
-        mouseX.set(x.coerceIn(0, Hsp3CanvasRenderer.DEFAULT_WIDTH - 1))
-        mouseY.set(y.coerceIn(0, Hsp3CanvasRenderer.DEFAULT_HEIGHT - 1))
-    }
-
-    fun setPressed(bits: Int, pressed: Boolean) {
-        while (true) {
-            val previous = mask.get()
-            val next = if (pressed) previous or bits else previous and bits.inv()
-            if (mask.compareAndSet(previous, next)) return
-        }
-    }
-
-    override fun isKeyDown(keyCode: Int): Boolean {
-        val bit = when (keyCode) {
-            37 -> STICK_LEFT
-            38 -> STICK_UP
-            39 -> STICK_RIGHT
-            40 -> STICK_DOWN
-            13 -> STICK_ENTER
-            27 -> STICK_ESCAPE
-            32 -> STICK_SPACE
-            90 -> STICK_Z
-            88 -> STICK_X
-            else -> 0
-        }
-        return bit != 0 && mask.get() and bit != 0
-    }
-
-    companion object {
-        const val STICK_LEFT = 1
-        const val STICK_UP = 2
-        const val STICK_RIGHT = 4
-        const val STICK_DOWN = 8
-        const val STICK_SPACE = 16
-        const val STICK_ENTER = 32
-        const val STICK_ESCAPE = 128
-        const val STICK_Z = 2048
-        const val STICK_X = 4096
-    }
-}
 
 @Composable
 private fun Hsp3PlayerScreen(
@@ -427,14 +378,7 @@ private fun GamepadOverlay(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Bottom
     ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            ControlKey("▲", Hsp3TouchInputController.STICK_UP, input)
-            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                ControlKey("◀", Hsp3TouchInputController.STICK_LEFT, input)
-                ControlKey("▼", Hsp3TouchInputController.STICK_DOWN, input)
-                ControlKey("▶", Hsp3TouchInputController.STICK_RIGHT, input)
-            }
-        }
+        DpadControl(input)
         Row(
             horizontalArrangement = Arrangement.spacedBy(7.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -443,6 +387,82 @@ private fun GamepadOverlay(
             ControlKey("Esc / X", Hsp3TouchInputController.STICK_ESCAPE or Hsp3TouchInputController.STICK_X, input)
             ControlKey("Space", Hsp3TouchInputController.STICK_SPACE, input)
         }
+    }
+}
+
+@Composable
+private fun DpadControl(input: Hsp3TouchInputController) {
+    Box(
+        modifier = Modifier
+            .size(width = 154.dp, height = 108.dp)
+            .clip(RoundedCornerShape(18.dp))
+            .background(Color(0x8020242D))
+            .pointerInput(input) {
+                val zoneWidth = size.width.toFloat()
+                val zoneHeight = size.height.toFloat()
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    val pointerId = down.id
+                    try {
+                        down.consume()
+                        input.setDpadPosition(
+                            down.position.x,
+                            down.position.y,
+                            zoneWidth,
+                            zoneHeight
+                        )
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                            if (!change.pressed) {
+                                change.consume()
+                                break
+                            }
+                            input.setDpadPosition(
+                                change.position.x,
+                                change.position.y,
+                                size.width.toFloat(),
+                                size.height.toFloat()
+                            )
+                            change.consume()
+                        }
+                    } finally {
+                        // Also runs for pointer cancellation or gesture interruption.
+                        input.setDpadMask(0)
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            DpadArrow("▲")
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                DpadArrow("◀")
+                DpadArrow("▼")
+                DpadArrow("▶")
+            }
+        }
+    }
+}
+
+@Composable
+private fun DpadArrow(label: String) {
+    Box(
+        modifier = Modifier
+            .size(width = 46.dp, height = 42.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xD938414E)),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = label,
+            color = Color(0xFFF4F1EA),
+            fontSize = 18.sp,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 

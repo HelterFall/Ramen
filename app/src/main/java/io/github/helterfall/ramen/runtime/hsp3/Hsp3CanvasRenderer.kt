@@ -15,7 +15,6 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.Locale
 import kotlin.math.min
-import kotlin.math.roundToInt
 
 interface Hsp3Graphics : Closeable {
     fun screen(id: Int, width: Int, height: Int)
@@ -78,6 +77,12 @@ class Hsp3CanvasRenderer(
         var shouldPresent: Boolean = true,
         var suspendedFrame: Bitmap? = null,
         var colorKeyBlackBitmap: Bitmap? = null,
+        var colorKeyCurrentBitmap: Bitmap? = null,
+        var colorKeyCurrentColor: Int? = null,
+        var arithmeticSourcePixels: IntArray? = null,
+        var arithmeticSourcePixelsValid: Boolean = false,
+        var arithmeticDestinationPixels: IntArray? = null,
+        var fillScanline: IntArray? = null,
         var cursorX: Int = 0,
         var cursorY: Int = 0,
         var currentColor: Int = Color.WHITE,
@@ -113,6 +118,12 @@ class Hsp3CanvasRenderer(
     private var closed = false
     private var presentationRevision = 0L
     internal var colorKeyCacheBuildCount: Int = 0
+        private set
+    internal var currentColorKeyCacheBuildCount: Int = 0
+        private set
+    internal var arithmeticSourceSnapshotBuildCount: Int = 0
+        private set
+    internal var arithmeticScratchAllocationCount: Int = 0
         private set
 
     @Synchronized
@@ -270,7 +281,12 @@ class Hsp3CanvasRenderer(
                     0 -> {
                         val old = surfaces[targetId]
                         val replacement = old?.copy(
-                            bitmap = bitmap, canvas = Canvas(bitmap), colorKeyBlackBitmap = null
+                            bitmap = bitmap,
+                            canvas = Canvas(bitmap),
+                            colorKeyBlackBitmap = null,
+                            colorKeyCurrentBitmap = null,
+                            colorKeyCurrentColor = null,
+                            arithmeticSourcePixelsValid = false
                         ) ?: Surface(bitmap, Canvas(bitmap))
                         surfaces[targetId] = replacement
                         old?.let { previous ->
@@ -295,7 +311,10 @@ class Hsp3CanvasRenderer(
                         val replacementSurface = old?.copy(
                             bitmap = replacement,
                             canvas = Canvas(replacement),
-                            colorKeyBlackBitmap = null
+                            colorKeyBlackBitmap = null,
+                            colorKeyCurrentBitmap = null,
+                            colorKeyCurrentColor = null,
+                            arithmeticSourcePixelsValid = false
                         ) ?: Surface(replacement, Canvas(replacement))
                         surfaces[targetId] = replacementSurface
                         old?.let { previous ->
@@ -502,11 +521,16 @@ class Hsp3CanvasRenderer(
 
         // HSP boxf uses inclusive integer coordinates. Write exact pixels rather
         // than a filtered Canvas primitive so one-pixel edges are never softened.
-        val scanline = IntArray(right - left) { currentColor }
+        val surface = activeSurface()
+        val scanlineWidth = right - left
+        val scanline = surface.fillScanline
+            ?.takeIf { it.size >= scanlineWidth }
+            ?: IntArray(scanlineWidth).also { surface.fillScanline = it }
+        scanline.fill(currentColor, 0, scanlineWidth)
         for (row in top until bottom) {
-            bitmap.setPixels(scanline, 0, scanline.size, left, row, scanline.size, 1)
+            bitmap.setPixels(scanline, 0, scanlineWidth, left, row, scanlineWidth, 1)
         }
-        markSurfaceChanged(activeSurface())
+        markSurfaceChanged(surface)
     }
 
     @Synchronized
@@ -600,6 +624,16 @@ class Hsp3CanvasRenderer(
             ?: throw IOException("HSP source surface " + sourceId + " does not exist.")
         return cachedBlackKeyBitmap(source).copy(Bitmap.Config.ARGB_8888, true)
             ?: throw IOException("Could not copy HSP color-key cache for surface " + sourceId + ".")
+    }
+
+    @Synchronized
+    internal fun copyColorKeyCurrentBitmap(sourceId: Int, keyColor: Int): Bitmap {
+        checkOpen()
+        val source = surfaces[sourceId]
+            ?: throw IOException("HSP source surface " + sourceId + " does not exist.")
+        return cachedCurrentKeyBitmap(source, keyColor and 0x00FFFFFF)
+            .copy(Bitmap.Config.ARGB_8888, true)
+            ?: throw IOException("Could not copy HSP current-color key cache for surface " + sourceId + ".")
     }
 
     @Synchronized
@@ -780,6 +814,7 @@ class Hsp3CanvasRenderer(
     }
 
     /** HSP modes 2/4 use exact RGB color keys; mode 4 then applies gfrate. */
+    /** HSP modes 2/4 use cached alpha masks; mode 4 applies gfrate in Canvas. */
     private fun drawColorKeyBlend(
         source: Surface,
         sourceRect: Rect,
@@ -790,38 +825,55 @@ class Hsp3CanvasRenderer(
         rotationPivotY: Float?,
         mode: Int
     ) {
-        if (mode == COLOR_KEY_BLACK) {
-            val keyedBitmap = cachedBlackKeyBitmap(source)
-            bitmapPaint.color = Color.WHITE
-            bitmapPaint.alpha = 255
-            bitmapPaint.isFilterBitmap = filter
-            bitmapPaint.xfermode = null
-            val canvas = activeSurface().canvas
-            val saveCount = canvas.save()
-            try {
-                if (rotationDegrees != 0f) {
-                    canvas.rotate(
-                        rotationDegrees,
-                        rotationPivotX ?: destinationRect.centerX(),
-                        rotationPivotY ?: destinationRect.centerY()
-                    )
-                }
-                canvas.drawBitmap(keyedBitmap, sourceRect, destinationRect, bitmapPaint)
-            } finally {
-                canvas.restoreToCount(saveCount)
-                bitmapPaint.alpha = 255
-                bitmapPaint.xfermode = null
-                bitmapPaint.isFilterBitmap = true
-            }
-            return
+        val rate = blendAlpha.coerceIn(0, 256)
+        if (mode == COLOR_KEY_CURRENT && rate == 0) return
+        val keyedBitmap = if (mode == COLOR_KEY_BLACK) {
+            cachedBlackKeyBitmap(source)
+        } else {
+            cachedCurrentKeyBitmap(source, currentColor and 0x00FFFFFF)
         }
 
-        val destination = activeSurface().bitmap
-        val sourceBitmap = source.bitmap
-        val keyColor = currentColor and 0x00FFFFFF
+        bitmapPaint.color = Color.WHITE
+        bitmapPaint.alpha = if (mode == COLOR_KEY_BLACK) 255
+            else ((rate * 255) / 256).coerceIn(0, 255)
+        bitmapPaint.isFilterBitmap = filter
+        bitmapPaint.xfermode = null
+        val canvas = activeSurface().canvas
+        val saveCount = canvas.save()
+        try {
+            if (rotationDegrees != 0f) {
+                canvas.rotate(
+                    rotationDegrees,
+                    rotationPivotX ?: destinationRect.centerX(),
+                    rotationPivotY ?: destinationRect.centerY()
+                )
+            }
+            canvas.drawBitmap(keyedBitmap, sourceRect, destinationRect, bitmapPaint)
+        } finally {
+            canvas.restoreToCount(saveCount)
+            bitmapPaint.alpha = 255
+            bitmapPaint.xfermode = null
+            bitmapPaint.isFilterBitmap = true
+        }
+    }
+
+    /** HSP modes 5/6 are channel arithmetic, not Porter-Duff blend approximations. */
+    private fun drawArithmeticBlend(
+        source: Surface,
+        sourceRect: Rect,
+        destinationRect: RectF,
+        filter: Boolean,
+        rotationDegrees: Float,
+        rotationPivotX: Float?,
+        rotationPivotY: Float?,
+        mode: Int
+    ) {
         val rate = blendAlpha.coerceIn(0, 256)
         if (rate == 0) return
 
+        val destinationSurface = activeSurface()
+        val destination = destinationSurface.bitmap
+        val sourceBitmap = source.bitmap
         val pivotX = rotationPivotX ?: destinationRect.centerX()
         val pivotY = rotationPivotY ?: destinationRect.centerY()
         val radians = Math.toRadians(rotationDegrees.toDouble())
@@ -846,179 +898,26 @@ class Hsp3CanvasRenderer(
 
         val regionWidth = right - left
         val regionHeight = bottom - top
-        val destinationPixels = IntArray(regionWidth * regionHeight)
-        destination.getPixels(destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight)
-
-        val sourceWidth = sourceRect.width().toDouble()
-        val sourceHeight = sourceRect.height().toDouble()
-        val targetWidth = destinationRect.width().toDouble()
-        val targetHeight = destinationRect.height().toDouble()
-        if (sourceWidth <= 0.0 || sourceHeight <= 0.0 || targetWidth <= 0.0 || targetHeight <= 0.0) return
-
-        for (row in 0 until regionHeight) {
-            for (column in 0 until regionWidth) {
-                val destinationX = left + column + 0.5
-                val destinationY = top + row + 0.5
-                val dx = destinationX - pivotX.toDouble()
-                val dy = destinationY - pivotY.toDouble()
-                val unrotatedX = if (rotationDegrees == 0f) destinationX
-                    else pivotX + dx * cosine + dy * sine
-                val unrotatedY = if (rotationDegrees == 0f) destinationY
-                    else pivotY - dx * sine + dy * cosine
-                val u = (unrotatedX - destinationRect.left) / targetWidth
-                val v = (unrotatedY - destinationRect.top) / targetHeight
-                if (u < 0.0 || u >= 1.0 || v < 0.0 || v >= 1.0) continue
-
-                val sourceX = sourceRect.left + u * sourceWidth
-                val sourceY = sourceRect.top + v * sourceHeight
-                if (sourceX < 0.0 || sourceY < 0.0 ||
-                    sourceX >= sourceBitmap.width || sourceY >= sourceBitmap.height
-                ) continue
-
-                val sourcePixel = sampleColorKeySourcePixel(
-                    sourceBitmap, sourceX, sourceY, filter, keyColor
-                )
-                val sourceAlpha = (sourcePixel ushr 24) and 0xFF
-                if (sourceAlpha == 0) continue
-                val effectiveRate = (rate * sourceAlpha + 127) / 255
-                if (effectiveRate == 0) continue
-
-                val pixelIndex = row * regionWidth + column
-                val destinationPixel = destinationPixels[pixelIndex]
-                fun channel(shift: Int): Int {
-                    val destinationValue = (destinationPixel ushr shift) and 0xFF
-                    val sourceValue = (sourcePixel ushr shift) and 0xFF
-                    val destinationPart = (destinationValue * (256 - effectiveRate)) ushr 8
-                    val sourcePart = (sourceValue * effectiveRate) ushr 8
-                    return (destinationPart + sourcePart).coerceAtMost(255)
-                }
-                val destinationAlpha = (destinationPixel ushr 24) and 0xFF
-                val sourceOpacity = ((effectiveRate * 255) + 128) / 256
-                val outputAlpha = (sourceOpacity +
-                    (destinationAlpha * (255 - sourceOpacity) + 127) / 255).coerceAtMost(255)
-                destinationPixels[pixelIndex] = (outputAlpha shl 24) or
-                    (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
-            }
-        }
-        destination.setPixels(destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight)
-    }
-
-    /** Samples after treating keyed source pixels as transparent, with premultiplied-alpha filtering. */
-    private fun sampleColorKeySourcePixel(
-        bitmap: Bitmap,
-        sourceX: Double,
-        sourceY: Double,
-        filter: Boolean,
-        keyColor: Int
-    ): Int {
-        fun keyedPixel(x: Int, y: Int): Int {
-            val pixel = bitmap.getPixel(x.coerceIn(0, bitmap.width - 1), y.coerceIn(0, bitmap.height - 1))
-            return if ((pixel and 0x00FFFFFF) == keyColor) 0 else pixel
-        }
-        if (!filter) return keyedPixel(sourceX.toInt(), sourceY.toInt())
-
-        val sampleX = sourceX - 0.5
-        val sampleY = sourceY - 0.5
-        val floorX = kotlin.math.floor(sampleX)
-        val floorY = kotlin.math.floor(sampleY)
-        val x0 = floorX.toInt().coerceIn(0, bitmap.width - 1)
-        val y0 = floorY.toInt().coerceIn(0, bitmap.height - 1)
-        val x1 = (floorX.toInt() + 1).coerceIn(0, bitmap.width - 1)
-        val y1 = (floorY.toInt() + 1).coerceIn(0, bitmap.height - 1)
-        val fractionX = (sampleX - floorX).coerceIn(0.0, 1.0)
-        val fractionY = (sampleY - floorY).coerceIn(0.0, 1.0)
-        val pixels = arrayOf(
-            keyedPixel(x0, y0), keyedPixel(x1, y0),
-            keyedPixel(x0, y1), keyedPixel(x1, y1)
+        val destinationPixels = arithmeticDestinationPixels(
+            destinationSurface, regionWidth * regionHeight
         )
-        val weights = doubleArrayOf(
-            (1.0 - fractionX) * (1.0 - fractionY),
-            fractionX * (1.0 - fractionY),
-            (1.0 - fractionX) * fractionY,
-            fractionX * fractionY
-        )
-        var alpha = 0.0
-        var redPremultiplied = 0.0
-        var greenPremultiplied = 0.0
-        var bluePremultiplied = 0.0
-        for (index in pixels.indices) {
-            val pixelAlpha = ((pixels[index] ushr 24) and 0xFF).toDouble()
-            val weightedAlpha = pixelAlpha * weights[index]
-            alpha += weightedAlpha
-            redPremultiplied += ((pixels[index] ushr 16) and 0xFF) * weightedAlpha
-            greenPremultiplied += ((pixels[index] ushr 8) and 0xFF) * weightedAlpha
-            bluePremultiplied += (pixels[index] and 0xFF) * weightedAlpha
-        }
-        if (alpha <= 0.0) return 0
-        val alphaByte = alpha.roundToInt().coerceIn(0, 255)
-        fun channel(value: Double): Int =
-            (value / alpha + 0.5).toInt().coerceIn(0, 255)
-        return (alphaByte shl 24) or
-            (channel(redPremultiplied) shl 16) or
-            (channel(greenPremultiplied) shl 8) or
-            channel(bluePremultiplied)
-    }
-
-    /** HSP modes 5/6 are channel arithmetic, not Porter-Duff blend approximations. */
-    private fun drawArithmeticBlend(
-        source: Surface,
-        sourceRect: Rect,
-        destinationRect: RectF,
-        filter: Boolean,
-        rotationDegrees: Float,
-        rotationPivotX: Float?,
-        rotationPivotY: Float?,
-        mode: Int
-    ) {
-        val destination = activeSurface().bitmap
-        val sourceBitmap = source.bitmap
-        val pivotX = rotationPivotX ?: destinationRect.centerX()
-        val pivotY = rotationPivotY ?: destinationRect.centerY()
-        val radians = Math.toRadians(rotationDegrees.toDouble())
-        val cosine = kotlin.math.cos(radians)
-        val sine = kotlin.math.sin(radians)
-        val corners = listOf(
-            destinationRect.left.toDouble() to destinationRect.top.toDouble(),
-            destinationRect.right.toDouble() to destinationRect.top.toDouble(),
-            destinationRect.right.toDouble() to destinationRect.bottom.toDouble(),
-            destinationRect.left.toDouble() to destinationRect.bottom.toDouble()
-        )
-        val rotated: List<Pair<Double, Double>> = if (rotationDegrees == 0f) {
-            corners
-        } else {
-            corners.map { (x, y) ->
-                val dx = x - pivotX.toDouble()
-                val dy = y - pivotY.toDouble()
-                (pivotX + dx * cosine - dy * sine) to
-                    (pivotY + dx * sine + dy * cosine)
-            }
-        }
-        val left = kotlin.math.floor(rotated.minOf { it.first }).toInt().coerceAtLeast(0)
-        val top = kotlin.math.floor(rotated.minOf { it.second }).toInt().coerceAtLeast(0)
-        val right = kotlin.math.ceil(rotated.maxOf { it.first }).toInt().coerceAtMost(destination.width)
-        val bottom = kotlin.math.ceil(rotated.maxOf { it.second }).toInt().coerceAtMost(destination.height)
-        if (right <= left || bottom <= top) return
-
-        val regionWidth = right - left
-        val regionHeight = bottom - top
-        val destinationPixels = IntArray(regionWidth * regionHeight)
         destination.getPixels(
             destinationPixels, 0, regionWidth, left, top, regionWidth, regionHeight
         )
+        val sourcePixels = arithmeticSourcePixels(source)
 
         val sourceWidth = sourceRect.width().toDouble()
         val sourceHeight = sourceRect.height().toDouble()
         val targetWidth = destinationRect.width().toDouble()
         val targetHeight = destinationRect.height().toDouble()
-        val rate = blendAlpha.coerceIn(0, 256)
+        if (sourceWidth <= 0.0 || sourceHeight <= 0.0 ||
+            targetWidth <= 0.0 || targetHeight <= 0.0
+        ) return
 
         for (row in 0 until regionHeight) {
             for (column in 0 until regionWidth) {
                 val destinationX = left + column + 0.5
                 val destinationY = top + row + 0.5
-
-                // Undo the destination rotation to locate the corresponding point
-                // inside the unrotated destination rectangle.
                 val dx = destinationX - pivotX.toDouble()
                 val dy = destinationY - pivotY.toDouble()
                 val unrotatedX = if (rotationDegrees == 0f) destinationX
@@ -1036,7 +935,8 @@ class Hsp3CanvasRenderer(
                 ) continue
 
                 val sourcePixel = sampleBlendSourcePixel(
-                    sourceBitmap, sourceX, sourceY, filter
+                    sourcePixels, sourceBitmap.width, sourceBitmap.height,
+                    sourceX, sourceY, filter
                 )
                 val sourceAlpha = (sourcePixel ushr 24) and 0xFF
                 val effectiveRate = (rate * sourceAlpha + 127) / 255
@@ -1044,20 +944,20 @@ class Hsp3CanvasRenderer(
 
                 val pixelIndex = row * regionWidth + column
                 val destinationPixel = destinationPixels[pixelIndex]
-                fun channel(shift: Int): Int {
-                    val destinationValue = (destinationPixel ushr shift) and 0xFF
-                    val sourceValue = (sourcePixel ushr shift) and 0xFF
-                    // OpenHSP: (source channel * gfrate) >> 8.
-                    val contribution = (sourceValue * effectiveRate) ushr 8
-                    return if (mode == ADDITIVE_BLEND) {
-                        (destinationValue + contribution).coerceAtMost(255)
-                    } else {
-                        (destinationValue - contribution).coerceAtLeast(0)
-                    }
-                }
-                val alpha = destinationPixel and -0x1000000
-                destinationPixels[pixelIndex] = alpha or
-                    (channel(16) shl 16) or (channel(8) shl 8) or channel(0)
+                val red = blendArithmeticChannel(
+                    (destinationPixel ushr 16) and 0xFF,
+                    (sourcePixel ushr 16) and 0xFF, effectiveRate, mode
+                )
+                val green = blendArithmeticChannel(
+                    (destinationPixel ushr 8) and 0xFF,
+                    (sourcePixel ushr 8) and 0xFF, effectiveRate, mode
+                )
+                val blue = blendArithmeticChannel(
+                    destinationPixel and 0xFF,
+                    sourcePixel and 0xFF, effectiveRate, mode
+                )
+                destinationPixels[pixelIndex] = (destinationPixel and -0x1000000) or
+                    (red shl 16) or (green shl 8) or blue
             }
         }
         destination.setPixels(
@@ -1065,35 +965,73 @@ class Hsp3CanvasRenderer(
         )
     }
 
-    /**
-     * Samples one source pixel at bitmap coordinates. The same-size path is
-     * exact; scaled copies use bilinear interpolation to avoid nearest-neighbour
-     * jaggies while rotation and blending are evaluated in destination space.
-     */
+    private fun blendArithmeticChannel(
+        destinationValue: Int,
+        sourceValue: Int,
+        effectiveRate: Int,
+        mode: Int
+    ): Int {
+        val contribution = (sourceValue * effectiveRate) ushr 8
+        return if (mode == ADDITIVE_BLEND) {
+            (destinationValue + contribution).coerceAtMost(255)
+        } else {
+            (destinationValue - contribution).coerceAtLeast(0)
+        }
+    }
+
+    private fun arithmeticSourcePixels(source: Surface): IntArray {
+        val bitmap = source.bitmap
+        val required = bitmap.width * bitmap.height
+        var pixels = source.arithmeticSourcePixels
+        if (pixels == null || pixels.size < required) {
+            pixels = IntArray(required)
+            source.arithmeticSourcePixels = pixels
+            source.arithmeticSourcePixelsValid = false
+        }
+        if (!source.arithmeticSourcePixelsValid) {
+            bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
+            source.arithmeticSourcePixelsValid = true
+            arithmeticSourceSnapshotBuildCount++
+        }
+        return pixels
+    }
+
+    private fun arithmeticDestinationPixels(destination: Surface, required: Int): IntArray {
+        var pixels = destination.arithmeticDestinationPixels
+        if (pixels == null || pixels.size < required) {
+            pixels = IntArray(required)
+            destination.arithmeticDestinationPixels = pixels
+            arithmeticScratchAllocationCount++
+        }
+        return pixels
+    }
+
     private fun sampleBlendSourcePixel(
-        bitmap: Bitmap,
+        pixels: IntArray,
+        bitmapWidth: Int,
+        bitmapHeight: Int,
         sourceX: Double,
         sourceY: Double,
         filter: Boolean
     ): Int {
         if (!filter) {
-            return bitmap.getPixel(sourceX.toInt(), sourceY.toInt())
+            return pixels[sourceY.toInt() * bitmapWidth + sourceX.toInt()]
         }
 
         val sampleX = sourceX - 0.5
         val sampleY = sourceY - 0.5
         val floorX = kotlin.math.floor(sampleX)
         val floorY = kotlin.math.floor(sampleY)
-        val x0 = floorX.toInt().coerceIn(0, bitmap.width - 1)
-        val y0 = floorY.toInt().coerceIn(0, bitmap.height - 1)
-        val x1 = (floorX.toInt() + 1).coerceIn(0, bitmap.width - 1)
-        val y1 = (floorY.toInt() + 1).coerceIn(0, bitmap.height - 1)
+        val x0 = floorX.toInt().coerceIn(0, bitmapWidth - 1)
+        val y0 = floorY.toInt().coerceIn(0, bitmapHeight - 1)
+        val x1 = (floorX.toInt() + 1).coerceIn(0, bitmapWidth - 1)
+        val y1 = (floorY.toInt() + 1).coerceIn(0, bitmapHeight - 1)
         val fractionX = (sampleX - floorX).coerceIn(0.0, 1.0)
         val fractionY = (sampleY - floorY).coerceIn(0.0, 1.0)
-        val topLeft = bitmap.getPixel(x0, y0)
-        val topRight = bitmap.getPixel(x1, y0)
-        val bottomLeft = bitmap.getPixel(x0, y1)
-        val bottomRight = bitmap.getPixel(x1, y1)
+        val topLeft = pixels[y0 * bitmapWidth + x0]
+        val topRight = pixels[y0 * bitmapWidth + x1]
+        val bottomLeft = pixels[y1 * bitmapWidth + x0]
+        val bottomRight = pixels[y1 * bitmapWidth + x1]
 
         fun channel(shift: Int): Int {
             val top = ((topLeft ushr shift) and 0xFF) * (1.0 - fractionX) +
@@ -1148,9 +1086,25 @@ class Hsp3CanvasRenderer(
         return cached
     }
 
+    private fun cachedCurrentKeyBitmap(source: Surface, keyColor: Int): Bitmap {
+        source.colorKeyCurrentBitmap?.let { cached ->
+            if (!cached.isRecycled && source.colorKeyCurrentColor == keyColor) return cached
+            if (!cached.isRecycled) cached.recycle()
+        }
+        val cached = makeColorTransparent(source.bitmap, keyColor)
+        source.colorKeyCurrentBitmap = cached
+        source.colorKeyCurrentColor = keyColor
+        currentColorKeyCacheBuildCount++
+        return cached
+    }
+
     private fun markSurfaceChanged(surface: Surface) {
         surface.colorKeyBlackBitmap?.let { if (!it.isRecycled) it.recycle() }
         surface.colorKeyBlackBitmap = null
+        surface.colorKeyCurrentBitmap?.let { if (!it.isRecycled) it.recycle() }
+        surface.colorKeyCurrentBitmap = null
+        surface.colorKeyCurrentColor = null
+        surface.arithmeticSourcePixelsValid = false
         if (surfaces[0] === surface && surface.shouldPresent) presentationRevision++
     }
 
@@ -1158,8 +1112,15 @@ class Hsp3CanvasRenderer(
         if (!surface.bitmap.isRecycled) surface.bitmap.recycle()
         surface.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
         surface.colorKeyBlackBitmap?.let { if (!it.isRecycled) it.recycle() }
+        surface.colorKeyCurrentBitmap?.let { if (!it.isRecycled) it.recycle() }
         surface.suspendedFrame = null
         surface.colorKeyBlackBitmap = null
+        surface.colorKeyCurrentBitmap = null
+        surface.colorKeyCurrentColor = null
+        surface.arithmeticSourcePixelsValid = false
+        surface.arithmeticSourcePixels = null
+        surface.arithmeticDestinationPixels = null
+        surface.fillScanline = null
     }
 
     private fun activeSurface(): Surface =

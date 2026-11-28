@@ -76,6 +76,53 @@ class Hsp3CanvasBlendTest {
     }
 
     @Test
+    fun gmodeFourUsesAReusableCurrentColorKeyBitmap() {
+        val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
+        try {
+            prepareBlackAndGreenSource(renderer)
+            renderer.gsel(0)
+            renderer.color(255, 0, 0)
+            renderer.boxf(0, 0, 5, 3)
+            renderer.color(0, 0, 0)
+            renderer.gmode(4, 2, 2, 256)
+
+            renderer.gcopy(1, 0, 0, 2, 2, 0, 0)
+            assertPixel(renderer, 255, 0, 0, 0, 0)
+            assertPixel(renderer, 0, 255, 0, 1, 1)
+            assertEquals(1, renderer.currentColorKeyCacheBuildCount)
+
+            renderer.pos(2, 0)
+            renderer.gzoom(2, 2, 1, 0, 0, 2, 2, 0)
+            assertEquals(1, renderer.currentColorKeyCacheBuildCount)
+
+            val blackMask = renderer.copyColorKeyCurrentBitmap(1, Color.BLACK)
+            try {
+                assertEquals(0, blackMask.getPixel(0, 0) ushr 24)
+                assertEquals(255, blackMask.getPixel(1, 1) ushr 24)
+            } finally {
+                blackMask.recycle()
+            }
+
+            // The mode-4 cache is bounded to one current key per source. A key
+            // color change replaces rather than accumulating another bitmap.
+            renderer.color(0, 0, 255)
+            renderer.gcopy(1, 0, 0, 2, 2, 4, 0)
+            assertEquals(2, renderer.currentColorKeyCacheBuildCount)
+
+            // Mutating the source invalidates that current-key bitmap.
+            renderer.gsel(1)
+            renderer.color(0, 0, 255)
+            renderer.boxf(0, 1, 0, 1)
+            renderer.gsel(0)
+            renderer.color(0, 0, 0)
+            renderer.gcopy(1, 0, 0, 2, 2, 4, 2)
+            assertEquals(3, renderer.currentColorKeyCacheBuildCount)
+        } finally {
+            renderer.close()
+        }
+    }
+
+    @Test
     fun gcopyModeTwoCachesNonBlackSourcePixelsAsOpaque() {
         val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
         try {
@@ -140,6 +187,30 @@ class Hsp3CanvasBlendTest {
             assertEquals(2, renderer.colorKeyCacheBuildCount)
             assertCachedPixel(renderer, 1, 0, 0, 255, 0, 0)
         } finally { renderer.close() }
+    }
+
+    @Test
+    fun arithmeticBlendReusesSourceSnapshotAndDestinationScratchUntilSourceChanges() {
+        val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
+        try {
+            prepareBlackAndGreenSource(renderer)
+            renderer.gsel(0)
+            renderer.gmode(5, 2, 2, 128)
+            renderer.gcopy(1, 0, 0, 2, 2, 0, 0)
+            renderer.gcopy(1, 0, 0, 2, 2, 2, 0)
+            assertEquals(1, renderer.arithmeticSourceSnapshotBuildCount)
+            assertEquals(1, renderer.arithmeticScratchAllocationCount)
+
+            renderer.gsel(1)
+            renderer.color(0, 0, 255)
+            renderer.boxf(0, 0, 0, 0)
+            renderer.gsel(0)
+            renderer.gcopy(1, 0, 0, 2, 2, 4, 0)
+            assertEquals(2, renderer.arithmeticSourceSnapshotBuildCount)
+            assertEquals(1, renderer.arithmeticScratchAllocationCount)
+        } finally {
+            renderer.close()
+        }
     }
 
     @Test
