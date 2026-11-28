@@ -9,11 +9,90 @@ import org.junit.Test
 class SystemNnnVisualEffectMathTest {
 
     @Test
+    fun observedNativeEffectCatalogMatchesAllThirtyThreeGameEffectSignatures() {
+        val expected = mapOf(
+            0 to 0, 1 to 0, 2 to 5, 8 to 2, 9 to 13, 10 to 5, 11 to 4,
+            17 to 6, 20 to 6, 22 to 16, 27 to 12, 29 to 9, 31 to 5, 39 to 4,
+            40 to 8, 43 to 7, 50 to 15, 52 to 1, 54 to 0, 55 to 13, 56 to 8,
+            63 to 15, 64 to 16, 65 to 14, 66 to 0, 69 to 13, 71 to 18, 73 to 1,
+            74 to 13, 82 to 14, 99 to 10, 100 to 13, 102 to 9
+        )
+        val actual = SystemNnnVisualEffectMath.observedGameEffectSignatures.associate {
+            it.effectId to it.parameterCount
+        }
+        assertEquals(expected, actual)
+        assertEquals(33, actual.size)
+    }
+    @Test
+    fun targetGameShortFormSunaAndRain2SamplesHaveNativeLayerPaths() {
+        assertTrue(
+            SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+                29, listOf(9_999, 1, 14, 14)
+            )
+        )
+        assertTrue(
+            SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+                56, listOf(0, 0, 270, 4)
+            )
+        )
+    }
+
+    @Test
+    fun bitmaplessNativeEffectsJoinTheLayerStackInStrictLayerOrder() {
+        val order = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+            bitmapLayerIndices = listOf(7, 9, 12, 1),
+            effectLayers = listOf(
+                0 to 54,
+                6 to 55,
+                8 to 29,
+                11 to 10,
+                13 to 17,
+                14 to 66
+            )
+        )
+
+        assertEquals(listOf(0, 1, 6, 7, 8, 9, 11, 12, 13), order)
+        for (effectId in listOf(10, 11, 17, 29, 54, 55)) {
+            assertTrue(SystemNnnVisualEffectMath.hasStandaloneLayerPainter(effectId))
+        }
+        assertFalse(SystemNnnVisualEffectMath.hasStandaloneLayerPainter(66))
+    }
+
+    @Test
+    fun nativeKeUsesTheRuntimeCountMaximumInsteadOfScriptParameterZero() {
+        val introParameters = listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120)
+
+        assertEquals(
+            999_999,
+            SystemNnnVisualEffectMath.nativeEffectDurationFrames(27, introParameters)
+        )
+    }
+
+    @Test
+    fun translucentLayerRetainsItsNativeOpacityDuringSourceOverComposition() {
+        assertEquals(
+            0.56f,
+            SystemNnnVisualEffectMath.layerOpacity(8, 0, listOf(20, 56)),
+            0.001f
+        )
+        assertEquals(
+            1f,
+            SystemNnnVisualEffectMath.layerOpacity(0, 0, emptyList()),
+            0.001f
+        )
+    }
+
+    @Test
     fun nativeEffectContinuationAndUnregisteredIdsDoNotReplaceThePreviousEffect() {
-        for (effectId in listOf(-1, 1, 4, 5, 6, 7)) {
+        for (effectId in listOf(-1, 4, 5, 6, 7)) {
             assertFalse(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))
         }
-        for (effectId in listOf(0, 8, 9, 66, 82)) {
+        assertTrue(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(1))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25)))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 1)))
+        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 2)))
+        for (effectId in listOf(0, 1, 8, 9, 66, 82)) {
             assertTrue(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(effectId))
         }
     }
@@ -39,7 +118,7 @@ class SystemNnnVisualEffectMathTest {
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(100, listOf(20, 20, 0, 25, 25, 1)))
 
         val fallbackEffects = listOf(
-            8, 9, 19, 27, 40, 54, 61, 90,
+            8, 9, 19, 40, 54, 61, 90,
             93, 94, 95, 107, 110, 113, 124, 125, 126, 127, 131, 132
         )
         for (effectId in fallbackEffects) {
@@ -52,7 +131,7 @@ class SystemNnnVisualEffectMathTest {
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(null, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(0, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(17, emptyList()))
-        assertTrue(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(29, emptyList()))
+        assertFalse(SystemNnnVisualEffectMath.shouldDrawPlainLayerBitmap(29, listOf(90, 1, 20, 20, 0, 0, 0, 800, 600)))
     }
 
 
@@ -61,11 +140,11 @@ class SystemNnnVisualEffectMathTest {
     @Test
     fun colorAddSubUsesNativeStartAndEndRgbParameterOrder() {
         val parameters = listOf(80, -130, -255, -255, -230, -255, -255, 1, 0, 0)
-        assertEquals(SystemNnnVisualColor(-230, -255, -255),
+        assertEquals(SystemNnnVisualColor(-229, -254, -254),
             SystemNnnVisualEffectMath.colorAddSubOffset(0, parameters))
-        assertEquals(SystemNnnVisualColor(-180, -255, -255),
+        assertEquals(SystemNnnVisualColor(-179, -254, -254),
             SystemNnnVisualEffectMath.colorAddSubOffset(40, parameters))
-        assertEquals(SystemNnnVisualColor(-130, -255, -255),
+        assertEquals(SystemNnnVisualColor(-129, -254, -254),
             SystemNnnVisualEffectMath.colorAddSubOffset(80, parameters))
     }
 
@@ -96,6 +175,7 @@ class SystemNnnVisualEffectMathTest {
         assertEquals(SystemNnnVisualColor(0, 0, 0),
             SystemNnnVisualEffectMath.stretchBltColorOffset(5, alphaParameters))
         val colorParameters = alphaParameters.toMutableList().apply {
+            while (size <= 20) add(0)
             this[14] = 1
             this[15] = 30; this[16] = 20; this[17] = 10
             this[18] = 0; this[19] = 0; this[20] = 0
@@ -112,7 +192,7 @@ class SystemNnnVisualEffectMathTest {
             100, 100, 0, 0, 0, 0, 0, 0
         )
         assertEquals(312f, SystemNnnVisualEffectMath.turnRotationDegrees(0, parameters), 0.001f)
-        assertEquals(375f, SystemNnnVisualEffectMath.turnRotationDegrees(700, parameters), 0.001f)
+        assertEquals(15f, SystemNnnVisualEffectMath.turnRotationDegrees(700, parameters), 0.001f)
         assertEquals(3f, SystemNnnVisualEffectMath.turnScale(0, parameters), 0.001f)
         assertEquals(2.2f, SystemNnnVisualEffectMath.turnScale(700, parameters), 0.001f)
         assertEquals(1f, SystemNnnVisualEffectMath.turnAlpha(350, parameters), 0.001f)
@@ -471,13 +551,13 @@ class SystemNnnVisualEffectMathTest {
 
         val firstAdvance = store.snapshot()
         firstAdvance[7] = SystemNnnVisualLayerConfiguration(
-            sourceRect = from,
+            destinationRectFrom = from,
             destinationRect = to
         )
         store.replaceWith(firstAdvance)
 
         val secondAdvance = store.snapshot()
-        assertEquals(from, secondAdvance[7]?.sourceRect)
+        assertEquals(from, secondAdvance[7]?.destinationRectFrom)
         assertEquals(to, secondAdvance[7]?.destinationRect)
 
         secondAdvance[7] = checkNotNull(secondAdvance[7]).copy(
@@ -488,7 +568,7 @@ class SystemNnnVisualEffectMathTest {
         store.replaceWith(secondAdvance)
 
         val afterImageLoad = checkNotNull(store.snapshot()[7])
-        assertEquals(from, afterImageLoad.sourceRect)
+        assertEquals(from, afterImageLoad.destinationRectFrom)
         assertEquals(to, afterImageLoad.destinationRect)
         assertEquals(52, afterImageLoad.effectId)
         assertEquals(listOf(24), afterImageLoad.effectParameters)
@@ -510,6 +590,19 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
+    fun flashUsesTheIntroVectorAndNativeCountMaxFillTransition() {
+        val parameters = listOf(40, 2, 21, 0, 0, 0)
+        assertTrue(SystemNnnVisualEffectMath.flashState(0, parameters).drawsFill)
+        assertTrue(SystemNnnVisualEffectMath.flashState(1, parameters).drawsFill)
+        assertFalse(SystemNnnVisualEffectMath.flashState(2, parameters).drawsFill)
+        assertFalse(SystemNnnVisualEffectMath.flashState(22, parameters).drawsFill)
+        assertTrue(SystemNnnVisualEffectMath.flashState(23, parameters).drawsFill)
+        assertTrue(SystemNnnVisualEffectMath.flashState(40, parameters).drawsFill)
+        assertEquals(SystemNnnVisualColor(0, 0, 0),
+            SystemNnnVisualEffectMath.flashState(40, parameters).color)
+    }
+
+    @Test
     fun haikeiYureMatchesNativeLayerLocalWaveAndStopsAtCountMax() {
         val parameters = listOf(20, 20, 0, 25, 25, 0, 0, 0)
         assertEquals(SystemNnnVisualOffset(20f, 0f),
@@ -522,6 +615,34 @@ class SystemNnnVisualEffectMathTest {
             SystemNnnVisualEffectMath.haikeiYureOffset(20, parameters))
         assertEquals(SystemNnnVisualOffset(0f, 0f),
             SystemNnnVisualEffectMath.haikeiYureOffset(0, listOf(0, 20, 0, 25, 25)))
+    }
+
+    @Test
+    fun setImageLayerRectKeepsThe800By89LayerYAsDestinationOnly() {
+        val rect = SystemNnnNativeRect(x = 0, y = 250, width = 800, height = 89)
+        val configuration = SystemNnnVisualLayerConfiguration()
+            .withSetImageLayerRect(fromRect = rect, toRect = rect)
+
+        assertEquals(rect, configuration.destinationRectFrom)
+        assertEquals(rect, configuration.destinationRect)
+        assertEquals(
+            rect,
+            SystemNnnVisualEffectMath.moveRect(
+                0, 630, configuration.destinationRectFrom!!, configuration.destinationRect!!
+            )
+        )
+    }
+
+    @Test
+    fun haikeiYureUsesNativeScreenBufferWaveForObservedIntroParameters() {
+        val parameters = listOf(9999, 2, 1, 17, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+
+        assertEquals(SystemNnnVisualOffset(2f, 1f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(0, parameters))
+        assertEquals(SystemNnnVisualOffset(0f, -1f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(1, parameters))
+        assertEquals(SystemNnnVisualOffset(-2f, 0f),
+            SystemNnnVisualEffectMath.haikeiYureOffset(273, parameters))
     }
 
     @Test
@@ -555,6 +676,29 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
+    fun cloudMovesHorizontallyByNativeHundredthsPerFrame() {
+        val width = 16
+        val height = 8
+        val source = IntArray(width * height) { index ->
+            val x = index % width
+            val y = index / width
+            -0x1000000 or (x shl 16) or (y shl 8) or (x + y)
+        }
+        val parameters = listOf(0, 4, 13, 0, 100, 1, 2, 100, 0, 0, 0, 0, 0, 0)
+        val atStart = checkNotNull(
+            SystemNnnVisualEffectMath.cloudWarpPixels(
+                0L, parameters, source, width, height, 8, 4
+            )
+        )
+        val afterOneHundredFrames = checkNotNull(
+            SystemNnnVisualEffectMath.cloudWarpPixels(
+                100L, parameters, source, width, height, 8, 4
+            )
+        )
+        assertFalse(atStart.pixels.contentEquals(afterOneHundredFrames.pixels))
+    }
+
+    @Test
     fun cloudAppliesNativePerRowSaturatingRgbAddAfterTheStartRow() {
         val source = IntArray(12) { 0xff112233.toInt() }
         val parameters = listOf(0, 3, 0, 0, 100, 1, 2, 100, 0, 1, 10, 0, 0, 1)
@@ -577,6 +721,183 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
+    fun overrapSnapshotReplacesOnlyTheCenteredGameViewport() {
+        val wide = SystemNnnVisualEffectMath.aspectFitViewportBounds(
+            canvasWidth = 1_920,
+            canvasHeight = 1_080,
+            sceneWidth = 800,
+            sceneHeight = 600
+        )
+        assertEquals(SystemNnnViewportBounds(240, 0, 1_440, 1_080), wide)
+
+        val portrait = SystemNnnVisualEffectMath.aspectFitViewportBounds(
+            canvasWidth = 1_080,
+            canvasHeight = 1_920,
+            sceneWidth = 800,
+            sceneHeight = 600
+        )
+        assertEquals(SystemNnnViewportBounds(0, 555, 1_080, 810), portrait)
+    }
+
+    @Test
+    fun overrapTargetCaptureCoversTheLiveViewportButNotOtherCapturePurposes() {
+        assertTrue(
+            SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
+                1L, SystemNnnScreenCapturePurpose.OVERRAP_TARGET
+            )
+        )
+        assertFalse(
+            SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
+                0L, SystemNnnScreenCapturePurpose.OVERRAP_TARGET
+            )
+        )
+        assertFalse(
+            SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
+                1L, SystemNnnScreenCapturePurpose.PREPARE_OVERRAP
+            )
+        )
+        assertFalse(
+            SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
+                1L, SystemNnnScreenCapturePurpose.GET_BUFFER
+            )
+        )
+    }
+
+    @Test
+    fun drawOneThenDrawSixtyFinishesOverrapAndLeavesFilm18LayersUncovered() {
+        val duration = 60
+        var elapsed = 0
+
+        // The initial OVERRAP boundary consumes DRAW(1), followed by DRAW(60).
+        elapsed = SystemNnnVisualEffectMath.advanceOverrapFrames(elapsed, 1, duration)
+        assertEquals(1f / 60f, SystemNnnVisualEffectMath.overrapProgress(elapsed, duration), 0.0001f)
+        elapsed = SystemNnnVisualEffectMath.advanceOverrapFrames(elapsed, 60, duration)
+
+        assertEquals(duration, elapsed)
+        assertEquals(1f, SystemNnnVisualEffectMath.overrapProgress(elapsed, duration), 0f)
+        assertFalse(SystemNnnVisualEffectMath.shouldRenderOverrapFrame(
+            sourceAvailable = false,
+            targetAvailable = false
+        ))
+
+        val step131Layers = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+            bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 12),
+            effectLayers = emptyList()
+        )
+        assertEquals(listOf(1, 6, 7, 8, 9, 12), step131Layers)
+    }
+
+    @Test
+    fun haikeiYureScreenModeRunsAtItsNativeLayerWithoutViewportCapture() {
+        val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+
+        assertTrue(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(100, parameters))
+        assertFalse(SystemNnnVisualEffectMath.requiresNativeScreenBufferCapture(100, parameters))
+        assertFalse(
+            SystemNnnVisualEffectMath.isWaitingForNativeScreenBufferSource(
+                100, parameters, sourceAvailable = false
+            )
+        )
+        assertFalse(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
+            100, parameters.toMutableList().apply { this[5] = 0 }
+        ))
+        assertFalse(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(55, parameters))
+    }
+
+    @Test
+    fun haikeiYureMoveScreenUsesNativeLayerTenEvenWithoutLayerBitmap() {
+        val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+        val ordered = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+            bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 12),
+            effectLayers = listOf(10 to 100)
+        )
+        val split = SystemNnnVisualEffectMath.splitNativeLayerStackAtScreenEffect(ordered, 10)
+
+        assertTrue(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(100, parameters))
+        assertEquals(listOf(1, 6, 7, 8, 9, 10, 12), ordered)
+        assertEquals(listOf(1, 6, 7, 8, 9, 10), split.beforeScreenEffect)
+        assertEquals(listOf(12), split.afterScreenEffect)
+    }
+
+    @Test
+    fun clearingImageLayerOnlyClearsTheScreenEffectAtItsActualNativeLayer() {
+        assertTrue(SystemNnnVisualEffectMath.shouldClearNativeScreenEffect(10, 10))
+        assertFalse(SystemNnnVisualEffectMath.shouldClearNativeScreenEffect(31, 10))
+        assertTrue(SystemNnnVisualEffectMath.shouldClearNativeScreenEffect(31, null))
+        assertFalse(SystemNnnVisualEffectMath.shouldClearNativeScreenEffect(10, null))
+    }
+
+    @Test
+    fun film18Draw131ComposesEverySceneLayerAroundHaikeiAndFadeIn() {
+        val parameters = listOf(60, 0, 0, 0, 0)
+        assertEquals(1f, checkNotNull(SystemNnnVisualEffectMath.screenFade(10, 0, parameters)).alpha)
+        assertEquals(0.5f, checkNotNull(SystemNnnVisualEffectMath.screenFade(10, 30, parameters)).alpha)
+        assertEquals(0f, checkNotNull(SystemNnnVisualEffectMath.screenFade(10, 60, parameters)).alpha)
+
+        val order = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+            bitmapLayerIndices = listOf(1, 7, 9, 12),
+            effectLayers = listOf(0 to 54, 6 to 55, 8 to 29, 11 to 10, 13 to 17)
+        )
+        assertEquals(listOf(0, 1, 6, 7, 8, 9, 11, 12, 13), order)
+        val split = SystemNnnVisualEffectMath.splitNativeLayerStackAtScreenEffect(order, 10)
+        assertEquals(listOf(0, 1, 6, 7, 8, 9), split.beforeScreenEffect)
+        assertEquals(listOf(11, 12, 13), split.afterScreenEffect)
+
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+            65, listOf(300, 0, 0, 100, 100, 101, 101, 5, 2, 0, 100, 100, 0, 0)
+        ))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+            27, listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120)
+        ))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+            29, listOf(0, 1, 10, 30, 5, 60, 0, 0, 800, 600)
+        ))
+        assertEquals(999_999, SystemNnnVisualEffectMath.nativeEffectDurationFrames(
+            27, listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120)
+        ))
+        assertEquals(0.56f, SystemNnnVisualEffectMath.layerOpacity(8, 0, listOf(20, 56)), 0.001f)
+        assertTrue(SystemNnnVisualEffectMath.hasStandaloneLayerPainter(55))
+        assertTrue(SystemNnnVisualEffectMath.hasStandaloneLayerPainter(29))
+        assertTrue(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
+            100, listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+        ))
+    }
+
+    @Test
+    fun oldFilmPaintsIndependentLayerScratchesWithoutAteBitmap() {
+        val parameters = listOf(20, 0, 0, 800, 600, 5, 1, 21, 19, 9, 200, 80, 100)
+        val first = SystemNnnVisualEffectMath.oldFilmMarks(
+            frame = 0L, parameters = parameters, screenWidth = 800, screenHeight = 600, seed = 6
+        )
+        val repeated = SystemNnnVisualEffectMath.oldFilmMarks(
+            frame = 0L, parameters = parameters, screenWidth = 800, screenHeight = 600, seed = 6
+        )
+        val later = SystemNnnVisualEffectMath.oldFilmMarks(
+            frame = 80L, parameters = parameters, screenWidth = 800, screenHeight = 600, seed = 6
+        )
+
+        assertEquals(5, first.size)
+        assertEquals(first, repeated)
+        assertNotEquals(first, later)
+        assertTrue(first.all { it.x in 0 until 800 && it.y == 0 && it.height == 600 })
+        assertTrue(first.all { it.width == 1 && it.color == SystemNnnVisualColor(21, 19, 9) })
+        assertTrue(first.all { it.alpha == 1f })
+        assertTrue(SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(55))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(55, parameters))
+    }
+
+    @Test
+    fun destinationRectsAreClippedAtTheViewportInsteadOfFlaggedForPartialOverflow() {
+        val text = SystemNnnNativeRect(x = 1, y = 250, width = 800, height = 89)
+        val stretch = SystemNnnNativeRect(x = -85, y = 0, width = 900, height = 600)
+        val outside = SystemNnnNativeRect(x = 800, y = 0, width = 20, height = 600)
+
+        assertFalse(SystemNnnVisualEffectMath.isNativeRectFullyOutsideViewport(text, 800, 600))
+        assertFalse(SystemNnnVisualEffectMath.isNativeRectFullyOutsideViewport(stretch, 800, 600))
+        assertTrue(SystemNnnVisualEffectMath.isNativeRectFullyOutsideViewport(outside, 800, 600))
+    }
+
+    @Test
     fun nativeLayerSupportIsParameterGatedAndNoOpIsNotWarned() {
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(0, emptyList()))
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(17, listOf(20, 2, 3, 20, 30, 40)))
@@ -587,9 +908,13 @@ class SystemNnnVisualEffectMathTest {
             82, listOf(20, 300, 13, 4, 9_999, 200, 1362, 200, 0, 1, 255, 160, 110, 50)
         ))
         assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 0)))
-        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 1)))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(100, listOf(20, 20, 0, 25, 25, 1)))
         assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(27, emptyList()))
         assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(29, emptyList()))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(29, listOf(9_999, 1, 14, 14)))
+        assertTrue(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(56, listOf(0, 0, 270, 4)))
+        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(29, listOf(1, 2, 3)))
+        assertFalse(SystemNnnVisualEffectMath.hasNativeLayerEffectPath(56, listOf(1, 2, 3)))
     }
 
     @Test

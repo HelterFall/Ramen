@@ -17,12 +17,23 @@ import java.io.IOException
 import java.util.IdentityHashMap
 import java.util.Locale
 import java.util.concurrent.Executors
+import kotlin.math.roundToInt
 
 data class SystemNnnNativeRect(
     val x: Int,
     val y: Int,
     val width: Int,
     val height: Int
+)
+
+data class SystemNnnImageResourceMetadata(
+    val resourceName: String,
+    val widthPixels: Int,
+    val heightPixels: Int,
+    val packType: Int?,
+    val format: String?,
+    val hasAlphaMask: Boolean,
+    val blockOffset: Long? = null
 )
 
 data class SystemNnnSpriteBitmap(
@@ -37,11 +48,50 @@ data class SystemNnnSpriteBitmap(
     val nativeRect: SystemNnnNativeRect? = null,
     val nativeBankNamespace: String? = null,
     val nativeBankSlot: Int? = null,
-    val nativeRectFrom: SystemNnnNativeRect? = null,
+    val nativeDestinationRectFrom: SystemNnnNativeRect? = null,
     val nativeEffectId: Int? = null,
     val nativeEffectParameters: List<Int> = emptyList(),
-    val nativeEffectCommandOffset: Long? = null
+    val nativeEffectCommandOffset: Long? = null,
+    val sourceMetadata: SystemNnnImageResourceMetadata? = null
 )
+
+data class SystemNnnActiveLayerEffect(
+    val layerIndex: Int,
+    val effectId: Int,
+    val parameters: List<Int>,
+    val commandOffset: Long? = null
+)
+
+/** Native effects that blit before CLEAREFFECTLAYER leave a separate buffer contribution. */
+internal class SystemNnnRetainedLayerBufferStore {
+    private val references = LinkedHashMap<Int, SystemNnnSpriteReference>()
+
+    fun snapshot(): LinkedHashMap<Int, SystemNnnSpriteReference> = LinkedHashMap(references)
+
+    fun replaceWith(values: Map<Int, SystemNnnSpriteReference>) {
+        references.clear()
+        references.putAll(values)
+    }
+
+    fun retainOnClear(
+        reference: SystemNnnSpriteReference,
+        effectId: Int,
+        parameters: List<Int>,
+        commandOffset: Long?
+    ): Boolean {
+        if (effectId != 65 && effectId != 82) return false
+        references[reference.layerIndex] = reference.copy(
+            nativeEffectId = effectId,
+            nativeEffectParameters = parameters,
+            nativeEffectCommandOffset = commandOffset
+        )
+        return true
+    }
+
+    fun clear() {
+        references.clear()
+    }
+}
 
 data class SystemNnnChoiceOption(
     val id: String,
@@ -49,16 +99,54 @@ data class SystemNnnChoiceOption(
     val targetCommandOffset: Long
 )
 
+enum class SystemNnnScreenCapturePurpose {
+    GET_BUFFER,
+    PREPARE_OVERRAP,
+    OVERRAP_TARGET
+}
+
+data class SystemNnnNativeRuntimeState(
+    val messageWindowPrintFlag: Boolean = true,
+    val nextMessageType: Int = 3,
+    val nextMessageWindowPrintMode: Int = -1,
+    val lastMessageId: Int = -1,
+    val messageHaveVoiceFlag: Boolean = false,
+    val autoMessage: Int = 0,
+    val cannotClick: Int = 0,
+    val cannotSkip: Int = 0,
+    val optionOff: Int = 0,
+    val dontPlayMode: Int = 0,
+    val configMask: Int = 0,
+    val frameTimeMillis: Int = SystemNnnGameConfig.DEFAULT_FRAME_TIME_MILLIS,
+    val maxSkipFrame: Int = SystemNnnGameConfig.DEFAULT_MAX_SKIP_FRAME,
+    val maxSkipFrameBackScript: Int = SystemNnnGameConfig.DEFAULT_MAX_SKIP_FRAME,
+    val skipAdjustFrame: Int = SystemNnnGameConfig.DEFAULT_SKIP_ADJUST_FRAME,
+    val cgFlags: Set<Pair<Int, Int>> = emptySet(),
+    val faceControlGeneration: Long = 0L
+)
+
 data class SystemNnnPlayerUiState(
     /** Changes only when a dialogue/choice frame is published. */
     val frameId: Long = 0L,
+    /** Monotonic SPT command execution counter, independent of visible dialogue frames. */
+    val sceneStepNumber: Long = 0L,
+    val lastCommandOffset: Long? = null,
     /** Monotonic identifier for native DRAW events; never restarts typewriter text. */
     val drawEventId: Long = 0L,
     val isLoading: Boolean = false,
     /** One-based module-local film number from the latest validated SETFILM record. */
     val currentFilmNumber: Int? = null,
     val backgroundBitmap: Bitmap? = null,
+    val backgroundResourceId: String? = null,
+    val backgroundMetadata: SystemNnnImageResourceMetadata? = null,
+    /** Logical game viewport; auxiliary image-layer sizes never redefine this. */
+    val logicalWidth: Int = SystemNnnGameConfig.DEFAULT_SCREEN_WIDTH,
+    val logicalHeight: Int = SystemNnnGameConfig.DEFAULT_SCREEN_HEIGHT,
     val sprites: List<SystemNnnSpriteBitmap> = emptyList(),
+    /** Native effect output already copied into the shared compositor buffer. */
+    val bufferedSprites: List<SystemNnnSpriteBitmap> = emptyList(),
+    /** Active native layer effects, including bitmap-less and retained outputs. */
+    val layerEffects: List<SystemNnnActiveLayerEffect> = emptyList(),
     val speakerName: String? = null,
     val dialogueText: String = "",
     val visibleCharacterCount: Int = 0,
@@ -73,9 +161,48 @@ data class SystemNnnPlayerUiState(
     val screenEffectId: Int? = null,
     val screenEffectParameters: List<Int> = emptyList(),
     val screenEffectCommandOffset: Long? = null,
+    val screenEffectLayerIndex: Int? = null,
     /** Number of native DRAW frames to present before advancing the SPT stream. */
-    val pendingDrawFrameCount: Int? = null
+    val pendingDrawFrameCount: Int? = null,
+    /** A one-shot request for the Compose scene's actual viewport pixels. */
+    val screenCaptureRequestId: Long = 0L,
+    val screenCapturePurpose: SystemNnnScreenCapturePurpose? = null,
+    /** Native CEffectGet buffer, exposed only while PUT restores it. */
+    val savedGetScreenBufferBitmap: Bitmap? = null,
+    /** The pair of full-scene snapshots blended during a native OVERRAP. */
+    val overrapFromBitmap: Bitmap? = null,
+    val overrapToBitmap: Bitmap? = null,
+    val overrapTransitionId: Long = 0L,
+    val overrapTransitionType: Int = 0,
+    val overrapTransitionDurationFrames: Int = 0,
+    /** Frames consumed by the same native DRAW scheduler that presents the scene. */
+    val overrapFramesElapsed: Int = 0,
+    /** 1f means the transition is finished; snapshots are released at that boundary. */
+    val overrapProgress: Float = 1f,
+    val overrapOptionButtonPrintFlag: Int = 1,
+    val overrapSceneButtonPrintFlag: Int = 1,
+    val nativeRuntime: SystemNnnNativeRuntimeState = SystemNnnNativeRuntimeState()
 )
+
+/** Advance one native ShakinHensai frame; completion releases both snapshot bitmaps. */
+internal fun SystemNnnPlayerUiState.advanceOverrapForNativeDrawFrame(): SystemNnnPlayerUiState {
+    val duration = overrapTransitionDurationFrames
+    if (overrapTransitionId == 0L || duration <= 0) return this
+
+    val elapsed = SystemNnnVisualEffectMath.advanceOverrapFrames(
+        elapsedFrames = overrapFramesElapsed,
+        drawFrames = 1,
+        durationFrames = duration
+    )
+    val finished = elapsed >= duration
+    return copy(
+        overrapFramesElapsed = elapsed,
+        overrapProgress = SystemNnnVisualEffectMath.overrapProgress(elapsed, duration),
+        overrapFromBitmap = if (finished) null else overrapFromBitmap,
+        overrapToBitmap = if (finished) null else overrapToBitmap,
+        overrapTransitionDurationFrames = if (finished) 0 else duration
+    )
+}
 
 /**
  * Resource lookup contract used by scene commands. Scene resources may be
@@ -89,9 +216,31 @@ fun interface SystemNnnSceneAssetResolver : Closeable {
     @Throws(IOException::class)
     fun loadBitmapByIndex(index: Long): Bitmap? = null
 
+    @Throws(IOException::class)
+    fun imageMetadataByIndex(index: Long): SystemNnnImageResourceMetadata? = null
+
+
     /** Resolves a named image in one explicit native DWQ namespace/slot. */
     @Throws(IOException::class)
     fun loadBitmapFromNativeBank(namespace: String, slot: Int, resourceId: String): Bitmap? = null
+
+    /** Metadata for the same resource lookup, without decoding or allocating its bitmap. */
+    @Throws(IOException::class)
+    fun imageMetadata(resourceId: String): SystemNnnImageResourceMetadata? = null
+
+    @Throws(IOException::class)
+    fun imageMetadata(
+        namespace: String,
+        slot: Int,
+        resourceId: String
+    ): SystemNnnImageResourceMetadata? = imageMetadata(resourceId)
+
+    @Throws(IOException::class)
+    fun imageMetadataByNativeBankIndex(
+        namespace: String,
+        slot: Int,
+        index: Long
+    ): SystemNnnImageResourceMetadata? = imageMetadataByIndex(index)
 
     /** Resolves a row in one explicit native DWQ namespace/slot. */
     @Throws(IOException::class)
@@ -217,11 +366,25 @@ sealed interface SystemNnnDecodedCommand {
     data class Draw(
         val nextCommandOffset: Long,
         /** Native DRAW count: zero continues immediately; a nonzero value yields a draw boundary. */
-        val frameCount: Int
+        val frameCount: Int,
+        /** Present when ExecScript returns an OVERRAP transition boundary. */
+        val overrapParameters: List<Int>? = null
+    ) : SystemNnnDecodedCommand
+
+    data class NativeSystemFunction(
+        val nextCommandOffset: Long,
+        val functionId: Int,
+        val parameters: List<Int> = emptyList(),
+        val textValue: String? = null
     ) : SystemNnnDecodedCommand
 
     data class Skip(
-        val nextCommandOffset: Long
+        val nextCommandOffset: Long,
+        val reason: String? = null,
+        val unsupported: Boolean = false,
+        val rawRecordIdentifier: Long? = null,
+        val rawCode: Long? = null,
+        val recordKind: String? = null
     ) : SystemNnnDecodedCommand
 
     /** A validated non-sequential local control transfer within the current SPT. */
@@ -271,7 +434,7 @@ data class SystemNnnSpriteReference(
     val layerIndex: Int = -1,
     val nativeRect: SystemNnnNativeRect? = null,
     val nativeEffectId: Int? = null,
-    val nativeRectFrom: SystemNnnNativeRect? = null,
+    val nativeDestinationRectFrom: SystemNnnNativeRect? = null,
     val nativeEffectParameters: List<Int> = emptyList(),
     val nativeEffectCommandOffset: Long? = null
 )
@@ -286,6 +449,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
     var uiState by mutableStateOf(SystemNnnPlayerUiState())
         private set
 
+    private var nativeRuntimeState = SystemNnnNativeRuntimeState()
+    private var nativeGameConfig = SystemNnnGameConfig()
     private var script: SystemNnnScript? = null
     private var commandStream: SystemNnnCommandStream? = null
     private var decoder: SystemNnnCommandDecoder? = null
@@ -293,7 +458,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private val bitmapOwners = IdentityHashMap<Bitmap, SystemNnnSceneAssetResolver>()
     private var nextCommandOffset: Long = 0L
     private var frameCounter: Long = 0L
+    private var traceStepCounter: Long = 0L
     private var drawEventCounter: Long = 0L
+    private var screenCaptureRequestCounter: Long = 0L
+    private var savedGetScreenBufferBitmap: Bitmap? = null
+    private var preparedOverrapBitmap: Bitmap? = null
+    private var overrapPrepared: Boolean = false
+    private var pendingOverrapType: Int = 0
+    private var pendingOverrapLengthFrames: Int = DEFAULT_OVERRAP_LENGTH_FRAMES
     private var currentModuleName: String? = null
     private var currentFilmNumber: Int? = null
     private var projectModules: Map<String, SystemNnnPlayerModuleProgram> = emptyMap()
@@ -304,6 +476,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     private var sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList()
     private var sceneReplayFilmCursor: Int = 0
     private val visualLayerConfigurationStore = SystemNnnVisualLayerConfigurationStore()
+    private val retainedLayerBufferStore = SystemNnnRetainedLayerBufferStore()
     private var diagnosticLog: SystemNnnDiagnosticLog? = null
 
     private data class ModuleCallFrame(
@@ -330,6 +503,386 @@ class SystemNnnPlayerViewModel : ViewModel() {
     fun setDiagnosticLog(log: SystemNnnDiagnosticLog) {
         diagnosticLog = log
         diagnosticLog?.record("player", "diagnostic recorder attached")
+    }
+
+    private fun traceParameters16(parameters: List<Int>): List<Int?> =
+        (0 until 16).map { index -> parameters.getOrNull(index) }
+
+    private fun traceRect(rect: SystemNnnNativeRect?): Map<String, Int>? = rect?.let {
+        linkedMapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height)
+    }
+
+    private fun traceEffect(
+        effectId: Int,
+        parameters: List<Int>,
+        frame: Int? = null,
+        layer: Int? = null
+    ): Map<String, Any?> = linkedMapOf(
+        "layer" to layer,
+        "effect_id" to effectId,
+        "name" to SystemNnnVisualEffectMath.observedEffectName(effectId),
+        "parameters_raw" to parameters,
+        "para_0_to_15" to traceParameters16(parameters),
+        "currentFrame" to frame
+    )
+
+    private fun traceCommandDetails(command: SystemNnnDecodedCommand): Map<String, Any?> =
+        when (command) {
+            is SystemNnnDecodedCommand.SetImageLayerEffect -> linkedMapOf(
+                "layer" to command.layerIndex,
+                "effect_id" to command.effectId,
+                "effect_name" to SystemNnnVisualEffectMath.observedEffectName(command.effectId),
+                "parameters_raw" to command.parameters,
+                "para_0_to_15" to traceParameters16(command.parameters),
+                "knownEffect" to (SystemNnnVisualEffectMath.observedParameterCount(command.effectId) != null),
+                "nativeCommandAccepted" to SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId),
+                "rendererPath" to SystemNnnVisualEffectMath.hasNativeLayerEffectPath(command.effectId, command.parameters)
+            )
+            is SystemNnnDecodedCommand.NativeSystemFunction -> linkedMapOf(
+                "function_id" to command.functionId,
+                "function_id_hex" to "0x" + command.functionId.toString(16),
+                "parameters_raw" to command.parameters,
+                "para_0_to_15" to traceParameters16(command.parameters),
+                "textValue" to command.textValue
+            )
+            is SystemNnnDecodedCommand.Skip -> linkedMapOf(
+                "reason" to command.reason,
+                "unsupported" to command.unsupported,
+                "rawRecordIdentifier" to command.rawRecordIdentifier,
+                "rawCode" to command.rawCode,
+                "recordKind" to command.recordKind
+            )
+            is SystemNnnDecodedCommand.Draw -> linkedMapOf(
+                "frameCount" to command.frameCount,
+                "overrapParameters" to command.overrapParameters
+            )
+            is SystemNnnDecodedCommand.Dialogue -> linkedMapOf(
+                "textEntryOffset" to command.textEntryOffset,
+                "speaker" to command.speakerName,
+                "voiceResourceId" to command.voiceResourceId,
+                "dialogueStepIndex" to command.dialogueStepIndex
+            )
+            is SystemNnnDecodedCommand.Choice -> linkedMapOf(
+                "promptTextEntryOffset" to command.promptTextEntryOffset,
+                "optionCount" to command.options.size,
+                "options" to command.options.map {
+                    mapOf("id" to it.id, "targetCommandOffset" to it.targetCommandOffset, "label" to it.label)
+                }
+            )
+            is SystemNnnDecodedCommand.LoadImageLayer -> linkedMapOf(
+                "layer" to command.layerIndex, "resourceName" to command.resourceId
+            )
+            is SystemNnnDecodedCommand.ClearImageLayer -> mapOf("layer" to command.layerIndex)
+            is SystemNnnDecodedCommand.SetImageLayerRect -> mapOf(
+                "layer" to command.layerIndex,
+                "dstRectFrom" to traceRect(command.fromRect),
+                "dstRect" to traceRect(command.toRect)
+            )
+            is SystemNnnDecodedCommand.SceneUpdate -> mapOf(
+                "backgroundResourceId" to command.backgroundResourceId,
+                "backgroundResourceIndex" to command.backgroundResourceIndex,
+                "spriteCount" to command.sprites.size
+            )
+            is SystemNnnDecodedCommand.Music -> mapOf(
+                "musicNumber" to command.musicNumber, "loopCount" to command.loopCount
+            )
+            is SystemNnnDecodedCommand.Voice -> mapOf(
+                "resourceId" to command.resourceId, "channel" to command.channel
+            )
+            is SystemNnnDecodedCommand.Sound -> mapOf(
+                "soundNumber" to command.soundNumber, "channel" to command.channel
+            )
+            is SystemNnnDecodedCommand.Jump -> mapOf("targetCommandOffset" to command.targetCommandOffset)
+            is SystemNnnDecodedCommand.SetFilm -> mapOf("filmNumber" to command.filmNumber)
+            is SystemNnnDecodedCommand.EndFilm -> mapOf("nextCommandOffset" to command.nextCommandOffset)
+            is SystemNnnDecodedCommand.ModuleTransfer -> mapOf(
+                "targetModuleName" to command.targetModuleName, "kind" to command.kind.name
+            )
+            else -> emptyMap()
+        }
+
+    private fun traceLayer(
+        sprite: SystemNnnSpriteBitmap,
+        logicalWidth: Int,
+        logicalHeight: Int
+    ): Map<String, Any?> {
+        val bitmap = sprite.bitmap
+        val fallbackWidth = (logicalWidth * sprite.widthFraction.coerceIn(0.1f, 1f))
+            .roundToInt().coerceAtLeast(1)
+        val fallbackHeight = (logicalHeight * sprite.heightFraction.coerceIn(0.1f, 1f))
+            .roundToInt().coerceAtLeast(1)
+        val effectId = sprite.nativeEffectId
+        val dst = when {
+            effectId in setOf(27, 39, 56, 63, 102) ->
+                SystemNnnNativeRect(0, 0, logicalWidth, logicalHeight)
+            effectId == 64 || effectId == 65 ->
+                SystemNnnNativeRect(
+                    (logicalWidth - bitmap.width) / 2,
+                    (logicalHeight - bitmap.height) / 2,
+                    bitmap.width,
+                    bitmap.height
+                )
+            sprite.nativeRect != null -> sprite.nativeRect
+            else -> SystemNnnNativeRect(
+                x = (logicalWidth * sprite.centerXFraction - fallbackWidth / 2f).roundToInt(),
+                y = logicalHeight - fallbackHeight,
+                width = fallbackWidth,
+                height = fallbackHeight
+            )
+        }
+        val metadata = sprite.sourceMetadata
+        return linkedMapOf(
+            "layerIndex" to sprite.layerIndex,
+            "resourceName" to sprite.resourceId,
+            "bankNamespace" to sprite.nativeBankNamespace,
+            "bankSlot" to sprite.nativeBankSlot,
+            "sourceSize" to mapOf("width" to bitmap.width, "height" to bitmap.height),
+            "declaredSize" to metadata?.let {
+                mapOf("width" to it.widthPixels, "height" to it.heightPixels)
+            },
+            "dstRect" to traceRect(dst),
+            "dstRectEstimated" to (sprite.nativeRect == null),
+            "positioningMode" to when {
+                effectId in setOf(27, 39, 56, 63, 102) -> "full_viewport"
+                effectId == 64 || effectId == 65 -> "centered_bitmap"
+                sprite.nativeRect != null -> "native_rect"
+                else -> "bottom_center_default"
+            },
+            "dstRectFrom" to traceRect(sprite.nativeDestinationRectFrom),
+            "nativeRectWasExplicit" to (sprite.nativeRect != null),
+            "packType" to metadata?.packType,
+            "format" to metadata?.format,
+            "hasAlphaMask" to metadata?.hasAlphaMask,
+            "hasPerPixelAlpha" to bitmap.hasAlpha(),
+            "alphaPremultiplied" to bitmap.isPremultiplied,
+            "blendMode" to "SRC_OVER",
+            "globalOpacity" to 1.0,
+            "effect" to sprite.nativeEffectId?.let {
+                traceEffect(it, sprite.nativeEffectParameters, frame = null, layer = sprite.layerIndex)
+            },
+            "effectCommandOffset" to sprite.nativeEffectCommandOffset
+        )
+    }
+
+    private fun queryImageMetadata(
+        resolver: SystemNnnSceneAssetResolver,
+        resourceId: String?,
+        resourceIndex: Long?,
+        namespace: String?,
+        slot: Int?
+    ): SystemNnnImageResourceMetadata? {
+        return runCatching {
+            when {
+                namespace != null && slot != null && resourceId != null ->
+                    resolver.imageMetadata(namespace, slot, resourceId)
+                namespace != null && slot != null && resourceIndex != null ->
+                    resolver.imageMetadataByNativeBankIndex(namespace, slot, resourceIndex)
+                resourceId != null -> resolver.imageMetadata(resourceId)
+                resourceIndex != null -> resolver.imageMetadataByIndex(resourceIndex)
+                else -> null
+            }
+        }.onFailure { failure ->
+            diagnosticLog?.recordException(
+                "image_metadata_lookup_failure",
+                failure,
+                "resource=${resourceId ?: "none"} index=${resourceIndex ?: "none"} " +
+                    "bank=${namespace ?: "none"} slot=${slot ?: "none"}"
+            )
+        }.getOrNull()
+    }
+
+    private fun activeLayerEffectSnapshot(
+        configurations: Map<Int, SystemNnnVisualLayerConfiguration>,
+        sprites: List<SystemNnnSpriteBitmap>,
+        bufferedSprites: List<SystemNnnSpriteBitmap> = emptyList()
+    ): List<SystemNnnActiveLayerEffect> {
+        val byLayer = LinkedHashMap<Int, SystemNnnActiveLayerEffect>()
+        configurations.forEach { (layerIndex, configuration) ->
+            val effectId = configuration.effectId ?: return@forEach
+            byLayer[layerIndex] = SystemNnnActiveLayerEffect(
+                layerIndex = layerIndex,
+                effectId = effectId,
+                parameters = configuration.effectParameters,
+                commandOffset = configuration.effectCommandOffset
+            )
+        }
+        (sprites + bufferedSprites).forEach { sprite ->
+            val effectId = sprite.nativeEffectId ?: return@forEach
+            if (sprite.layerIndex !in byLayer) {
+                byLayer[sprite.layerIndex] = SystemNnnActiveLayerEffect(
+                    layerIndex = sprite.layerIndex,
+                    effectId = effectId,
+                    parameters = sprite.nativeEffectParameters,
+                    commandOffset = sprite.nativeEffectCommandOffset
+                )
+            }
+        }
+        return byLayer.values.sortedBy { it.layerIndex }
+    }
+
+    private fun recordSceneTrace(
+        event: String,
+        commandOffset: Long? = null,
+        commandName: String? = null,
+        commandDetails: Map<String, Any?> = emptyMap(),
+        backgroundBitmap: Bitmap? = uiState.backgroundBitmap,
+        backgroundResourceId: String? = uiState.backgroundResourceId,
+        backgroundMetadata: SystemNnnImageResourceMetadata? = uiState.backgroundMetadata,
+        sprites: List<SystemNnnSpriteBitmap> = uiState.sprites,
+        screenEffectId: Int? = uiState.screenEffectId,
+        screenEffectParameters: List<Int> = uiState.screenEffectParameters,
+        screenEffectLayerIndex: Int? = uiState.screenEffectLayerIndex
+    ) {
+        val logicalWidth = nativeGameConfig.screenWidth.coerceAtLeast(1)
+        val logicalHeight = nativeGameConfig.screenHeight.coerceAtLeast(1)
+        val anomalies = ArrayList<Map<String, Any?>>()
+        if (backgroundBitmap != null && backgroundMetadata != null &&
+            (backgroundBitmap.width != backgroundMetadata.widthPixels ||
+                backgroundBitmap.height != backgroundMetadata.heightPixels)
+        ) {
+            anomalies += mapOf(
+                "type" to "background_declared_size_mismatch",
+                "resourceName" to backgroundResourceId,
+                "bitmap" to "${backgroundBitmap.width}x${backgroundBitmap.height}",
+                "declared" to "${backgroundMetadata.widthPixels}x${backgroundMetadata.heightPixels}"
+            )
+        }
+        sprites.forEach { sprite ->
+            val bitmap = sprite.bitmap
+            val metadata = sprite.sourceMetadata
+            if (metadata != null &&
+                (metadata.widthPixels != bitmap.width || metadata.heightPixels != bitmap.height)
+            ) {
+                anomalies += mapOf(
+                    "type" to "layer_declared_size_mismatch",
+                    "layerIndex" to sprite.layerIndex,
+                    "resourceName" to sprite.resourceId,
+                    "bitmap" to "${bitmap.width}x${bitmap.height}",
+                    "declared" to "${metadata.widthPixels}x${metadata.heightPixels}"
+                )
+            }
+            val destination = sprite.nativeRect
+            if (destination != null) {
+                if (destination.width <= 0 || destination.height <= 0) {
+                    anomalies += mapOf(
+                        "type" to "invalid_dst_rect",
+                        "layerIndex" to sprite.layerIndex,
+                        "dstRect" to traceRect(destination)
+                    )
+                }
+                if (SystemNnnVisualEffectMath.isNativeRectFullyOutsideViewport(
+                        destination, logicalWidth, logicalHeight
+                    )
+                ) {
+                    anomalies += mapOf(
+                        "type" to "dst_rect_out_of_bounds",
+                        "layerIndex" to sprite.layerIndex,
+                        "dstRect" to traceRect(destination),
+                        "logicalResolution" to mapOf("width" to logicalWidth, "height" to logicalHeight)
+                    )
+                }
+            }
+            // SETEFFECTRECT configures dstFrom/dstTo, not a source crop.
+            // A destination y may therefore lie outside the texture's height.
+}
+        val effectsByLayer = LinkedHashMap<Int, SystemNnnActiveLayerEffect>()
+        uiState.layerEffects.forEach { effectsByLayer[it.layerIndex] = it }
+        sprites.forEach { sprite ->
+            val effectId = sprite.nativeEffectId ?: return@forEach
+            if (sprite.layerIndex !in effectsByLayer) {
+                effectsByLayer[sprite.layerIndex] = SystemNnnActiveLayerEffect(
+                    sprite.layerIndex, effectId, sprite.nativeEffectParameters, sprite.nativeEffectCommandOffset
+                )
+            }
+        }
+        val effectList = effectsByLayer.values.sortedBy { it.layerIndex }.map { effect ->
+            traceEffect(effect.effectId, effect.parameters, frame = null, layer = effect.layerIndex)
+        }.toMutableList()
+        if (screenEffectId != null) {
+            effectList += traceEffect(
+                screenEffectId, screenEffectParameters, frame = null,
+                layer = screenEffectLayerIndex ?: SCREEN_EFFECT_LAYER_INDEX
+            )
+            if (SystemNnnVisualEffectMath.observedParameterCount(screenEffectId) == null) {
+                anomalies += mapOf("type" to "unknown_screen_effect", "effect_id" to screenEffectId)
+            }
+        }
+        val savedBuffer = uiState.savedGetScreenBufferBitmap
+        val from = uiState.overrapFromBitmap
+        val to = uiState.overrapToBitmap
+        diagnosticLog?.recordTrace(
+            event,
+            linkedMapOf(
+                "step" to traceStepCounter,
+                "frameId" to uiState.frameId,
+                "drawEventId" to uiState.drawEventId,
+                "commandOffset" to commandOffset,
+                "commandName" to commandName,
+                "module" to currentModuleName,
+                "film" to currentFilmNumber,
+                "command" to commandDetails,
+                "dialogue" to linkedMapOf(
+                    "speaker" to uiState.speakerName,
+                    "text" to uiState.dialogueText,
+                    "visibleCharacters" to uiState.visibleCharacterCount,
+                    "isComplete" to uiState.isTextComplete
+                ),
+                "logicalResolution" to mapOf("width" to logicalWidth, "height" to logicalHeight),
+                "canvas" to null,
+                "viewport" to null,
+                "scaleMatrix" to null,
+                "background" to backgroundBitmap?.let {
+                    mapOf(
+                        "resourceName" to backgroundResourceId,
+                        "sourceSize" to mapOf("width" to it.width, "height" to it.height),
+                        "packType" to backgroundMetadata?.packType,
+                        "format" to backgroundMetadata?.format,
+                        "hasAlphaMask" to backgroundMetadata?.hasAlphaMask,
+                        "hasPerPixelAlpha" to it.hasAlpha(),
+                        "alphaPremultiplied" to it.isPremultiplied
+                    )
+                },
+                "layers" to (sprites + uiState.bufferedSprites).map { traceLayer(it, logicalWidth, logicalHeight) },
+                "activeEffects" to effectList,
+                "screenBuffer" to linkedMapOf(
+                    "screenEffectId" to screenEffectId,
+                    "screenEffectLayerIndex" to screenEffectLayerIndex,
+                    "screenEffectParameters" to traceParameters16(screenEffectParameters),
+                    "screenEffectRawParameters" to screenEffectParameters,
+                    "screenEffectFrame" to null,
+                    "savedGetBuffer" to savedBuffer?.let {
+                        mapOf("width" to it.width, "height" to it.height, "recycled" to it.isRecycled)
+                    }
+                ),
+                "overrap" to linkedMapOf(
+                    "transitionId" to uiState.overrapTransitionId,
+                    "transitionType" to uiState.overrapTransitionType,
+                    "durationFrames" to uiState.overrapTransitionDurationFrames,
+                    "fromBitmap" to from?.let { "${it.width}x${it.height}" },
+                    "toBitmap" to to?.let { "${it.width}x${it.height}" },
+                    "progress" to null,
+                    "prepared" to overrapPrepared,
+                    "optionButtonPrintFlag" to uiState.overrapOptionButtonPrintFlag,
+                    "sceneButtonPrintFlag" to uiState.overrapSceneButtonPrintFlag
+                ),
+                "pendingDrawFrameCount" to uiState.pendingDrawFrameCount,
+                "anomalies" to anomalies
+            ),
+            summary = "step=$traceStepCounter module=${currentModuleName ?: "standalone"} " +
+                "film=${currentFilmNumber ?: "none"} offset=${commandOffset?.let { "0x" + it.toString(16) } ?: "none"} " +
+                "command=${commandName ?: event} layers=${sprites.size} effects=${effectList.size} anomalies=${anomalies.size}"
+        )
+        anomalies.forEach { anomaly ->
+            diagnosticLog?.recordTrace(
+                "scene_anomaly",
+                mapOf(
+                    "step" to traceStepCounter,
+                    "commandOffset" to commandOffset,
+                    "anomaly" to anomaly
+                ),
+                summary = anomaly.toString()
+            )
+        }
     }
 
     private fun updateDiagnosticSnapshot(commandOffset: Long, commandName: String) {
@@ -381,10 +934,19 @@ class SystemNnnPlayerViewModel : ViewModel() {
         controllerModuleName: String? = null,
         initialFilmNumber: Int? = null,
         sceneReplayModuleName: String? = null,
-        sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList()
+        sceneReplayFilms: List<SystemNnnSceneReplayFilm> = emptyList(),
+        initialGameConfig: SystemNnnGameConfig = SystemNnnGameConfig()
     ) {
         releaseAssets()
+        nativeGameConfig = initialGameConfig
+        nativeRuntimeState = SystemNnnNativeRuntimeState(
+            frameTimeMillis = initialGameConfig.frameTimeMillis,
+            maxSkipFrame = initialGameConfig.maxSkipFrame,
+            maxSkipFrameBackScript = initialGameConfig.maxSkipFrameBackScript,
+            skipAdjustFrame = initialGameConfig.skipAdjustFrame
+        )
         visualLayerConfigurationStore.clear()
+        retainedLayerBufferStore.clear()
 
         moduleCallStack.clear()
         this.sceneReplayModuleName = null
@@ -450,9 +1012,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
             initialCommandOffset
         }
         this.frameCounter = 0L
+        this.traceStepCounter = 0L
         this.audioRequestId += 1L
 
-        uiState = SystemNnnPlayerUiState(isLoading = true)
+        uiState = SystemNnnPlayerUiState(isLoading = true, nativeRuntime = nativeRuntimeState)
         startAudio(initialAudioTrack, initialAudioResourceName)
 
         if (commandDecoder == null) {
@@ -474,7 +1037,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         assetResolver: SystemNnnSceneAssetResolver,
         decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder,
         audioRepository: SystemNnnAudioResourceRepository? = null,
-        initialSceneRoute: SystemNnnSceneRoute? = null
+        initialSceneRoute: SystemNnnSceneRoute? = null,
+        initialGameConfig: SystemNnnGameConfig = SystemNnnGameConfig()
     ) {
         val orderedModules = modules.toList()
         val moduleMap = orderedModules.associateBy { it.name.lowercase(Locale.ROOT) }
@@ -544,12 +1108,38 @@ class SystemNnnPlayerViewModel : ViewModel() {
             controllerModuleName = control.name,
             initialFilmNumber = replayFilms.firstOrNull()?.filmIndex?.plus(1),
             sceneReplayModuleName = initialSceneRoute?.moduleName,
-            sceneReplayFilms = replayFilms
+            sceneReplayFilms = replayFilms,
+            initialGameConfig = initialGameConfig
         )
     }
 
     /** Alias used by the player screen to advance to the next frame. */
     fun onNextTap() = onScreenTap()
+
+    /** Native global AUTO and SKIP advance without passing through manual click gates. */
+    fun onAutomaticAdvance() {
+        val current = uiState
+        if (current.isLoading || current.isEnded || current.choices.isNotEmpty() ||
+            current.pendingDrawFrameCount != null || !current.isTextComplete
+        ) return
+        advanceToVisibleEvent()
+    }
+
+    /** AUTOMESSAGE has its own message timer, separate from NNNPARAM_AUTOMODE. */
+    fun onAutoMessageTimerElapsed() {
+        val current = uiState
+        if (current.nativeRuntime.autoMessage <= 0 || current.isLoading ||
+            current.isEnded || current.choices.isNotEmpty() ||
+            current.pendingDrawFrameCount != null || !current.isTextComplete
+        ) return
+        advanceToVisibleEvent()
+    }
+
+    /** Mirrors CGameCallBack::SetDontPlay and NNNPARAM_AUTOMODE. */
+    fun setNativeAutoMode(enabled: Boolean) {
+        nativeRuntimeState = nativeRuntimeState.copy(dontPlayMode = if (enabled) 1 else 0)
+        uiState = uiState.copy(nativeRuntime = nativeRuntimeState)
+    }
 
     /**
      * A tap first completes the current typewriter line. Only a subsequent tap
@@ -557,7 +1147,18 @@ class SystemNnnPlayerViewModel : ViewModel() {
      */
     fun onScreenTap() {
         val current = uiState
-        if (current.isLoading || current.isEnded || current.choices.isNotEmpty() ||
+        diagnosticLog?.recordTrace(
+            "screen_tap",
+            mapOf(
+                "step" to traceStepCounter,
+                "commandOffset" to nextCommandOffset,
+                "frameId" to current.frameId,
+                "dialogue" to current.dialogueText,
+                "visibleCharacters" to current.visibleCharacterCount
+            )
+        )
+        if (current.nativeRuntime.cannotClick > 0 || current.nativeRuntime.autoMessage > 0 ||
+            current.isLoading || current.isEnded || current.choices.isNotEmpty() ||
             current.pendingDrawFrameCount != null
         ) return
 
@@ -573,15 +1174,155 @@ class SystemNnnPlayerViewModel : ViewModel() {
         advanceToVisibleEvent()
     }
 
+    /** Called once for each frame actually consumed by the native DRAW scheduler. */
+    fun onDrawFrameProgress() {
+        val current = uiState
+        if (current.pendingDrawFrameCount == null || current.isLoading || current.isEnded) return
+        uiState = current.advanceOverrapForNativeDrawFrame()
+    }
+
     /**
      * Called by the screen after presenting the requested number of native DRAW frames.
      * The next SPT command is not executed until this boundary has been displayed.
      */
     fun onDrawFrameCompleted() {
         val current = uiState
+        diagnosticLog?.recordTrace(
+            "draw_frame_presented",
+            mapOf(
+                "step" to current.sceneStepNumber,
+                "commandOffset" to current.lastCommandOffset,
+                "drawEventId" to current.drawEventId,
+                "pendingFrames" to current.pendingDrawFrameCount
+            )
+        )
         if (current.pendingDrawFrameCount == null || current.isLoading || current.isEnded) return
         uiState = current.copy(pendingDrawFrameCount = null)
         advanceToVisibleEvent()
+    }
+
+    /** Applies the optional native init/Overrap.xtx button flags to the current player. */
+    fun setOverrapConfig(config: SystemNnnOverrapConfig) {
+        uiState = uiState.copy(
+            overrapOptionButtonPrintFlag = config.optionButtonPrintFlag,
+            overrapSceneButtonPrintFlag = config.sceneButtonPrintFlag
+        )
+        diagnosticLog?.record(
+            "overrap_setup",
+            "configured=${config.isConfigured} optionButtonPrintFlag=${config.optionButtonPrintFlag} " +
+                "sceneButtonPrintFlag=${config.sceneButtonPrintFlag}"
+        )
+    }
+
+    /** Requests a frame capture and pauses the interpreter until Compose returns it. */
+    private fun requestScreenCapture(
+        purpose: SystemNnnScreenCapturePurpose,
+        overrapParameters: List<Int> = emptyList()
+    ) {
+        if (purpose == SystemNnnScreenCapturePurpose.OVERRAP_TARGET) {
+            pendingOverrapType = overrapParameters.getOrNull(0) ?: 0
+            pendingOverrapLengthFrames = (overrapParameters.getOrNull(1)
+                ?: DEFAULT_OVERRAP_LENGTH_FRAMES).coerceIn(1, 9_999)
+        }
+        screenCaptureRequestCounter += 1L
+        uiState = uiState.copy(
+            isLoading = false,
+            pendingDrawFrameCount = null,
+            screenCaptureRequestId = screenCaptureRequestCounter,
+            screenCapturePurpose = purpose
+        )
+    }
+
+    /** Completes GET/PREPAREOVERRAP/OVERRAP using the exact scene pixels recorded by Compose. */
+    fun onScreenCaptureReady(requestId: Long, bitmap: Bitmap?) {
+        val current = uiState
+        if (requestId == 0L || requestId != current.screenCaptureRequestId) {
+            bitmap?.takeIf { !it.isRecycled }?.recycle()
+            return
+        }
+        val purpose = current.screenCapturePurpose
+        if (bitmap == null || bitmap.isRecycled) {
+            diagnosticLog?.recordTrace(
+                "screen_capture_error",
+                mapOf("requestId" to requestId, "purpose" to purpose?.name),
+                summary = "Compose screen capture returned no bitmap"
+            )
+            uiState = current.copy(
+                isLoading = false,
+                screenCaptureRequestId = 0L,
+                screenCapturePurpose = null,
+                errorMessage = "Не удалось получить снимок буфера System-NNN."
+            )
+            when (purpose) {
+                SystemNnnScreenCapturePurpose.OVERRAP_TARGET -> {
+                    overrapPrepared = false
+                    preparedOverrapBitmap = null
+                    advanceToVisibleEvent()
+                }
+                else -> advanceToVisibleEvent()
+            }
+            return
+        }
+
+        when (purpose) {
+            SystemNnnScreenCapturePurpose.GET_BUFFER -> {
+                savedGetScreenBufferBitmap = bitmap
+                uiState = current.copy(
+                    isLoading = false,
+                    screenCaptureRequestId = 0L,
+                    screenCapturePurpose = null,
+                    savedGetScreenBufferBitmap = bitmap
+                )
+                advanceToVisibleEvent()
+            }
+            SystemNnnScreenCapturePurpose.PREPARE_OVERRAP -> {
+                preparedOverrapBitmap = bitmap
+                overrapPrepared = true
+                uiState = current.copy(
+                    isLoading = false,
+                    screenCaptureRequestId = 0L,
+                    screenCapturePurpose = null
+                )
+                advanceToVisibleEvent()
+            }
+            SystemNnnScreenCapturePurpose.OVERRAP_TARGET -> {
+                val from = preparedOverrapBitmap
+                preparedOverrapBitmap = null
+                overrapPrepared = false
+                if (from == null || from.isRecycled) {
+                    uiState = current.copy(
+                        isLoading = false,
+                        screenCaptureRequestId = 0L,
+                        screenCapturePurpose = null,
+                        pendingDrawFrameCount = 1
+                    )
+                } else {
+                    uiState = current.copy(
+                        isLoading = false,
+                        screenCaptureRequestId = 0L,
+                        screenCapturePurpose = null,
+                        overrapFromBitmap = from,
+                        overrapToBitmap = bitmap,
+                        overrapTransitionId = current.overrapTransitionId + 1L,
+                        overrapTransitionType = pendingOverrapType,
+                        overrapTransitionDurationFrames = pendingOverrapLengthFrames,
+                        overrapFramesElapsed = 0,
+                        overrapProgress = 0f,
+                        // ExecScript's OVERRAP boundary still consumes its initial DRAW(1).
+                        pendingDrawFrameCount = 1
+                    )
+                }
+            }
+            null -> {
+                bitmap.recycle()
+                uiState = current.copy(
+                    isLoading = false,
+                    screenCaptureRequestId = 0L,
+                    screenCapturePurpose = null
+                )
+                advanceToVisibleEvent()
+            }
+        }
     }
 
     /**
@@ -918,6 +1659,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
     }
 
     fun onChoiceSelected(choiceId: String) {
+        if (uiState.nativeRuntime.cannotClick > 0 || uiState.nativeRuntime.autoMessage > 0) return
         val choice = uiState.choices.firstOrNull { it.id == choiceId } ?: return
         val currentScript = script ?: return
         if (!isValidCommandOffset(currentScript, choice.targetCommandOffset)) {
@@ -930,6 +1672,77 @@ class SystemNnnPlayerViewModel : ViewModel() {
         nextCommandOffset = choice.targetCommandOffset
         uiState = uiState.copy(choices = emptyList(), errorMessage = null, isLoading = true)
         advanceToVisibleEvent()
+    }
+
+    private fun applyNativeSystemFunction(functionId: Int, parameters: List<Int>): Boolean {
+        val current = nativeRuntimeState
+        val first = parameters.firstOrNull() ?: 0
+        val normalizedMinusOne = if (first == -1) 0 else first
+
+        nativeRuntimeState = when (functionId) {
+            0x0017 -> current.copy(messageWindowPrintFlag = true)
+            0x0018 -> {
+                val player = parameters.getOrNull(0) ?: return true
+                val cgNumber = parameters.getOrNull(1) ?: return true
+                if (player <= 0 || cgNumber <= 0) current
+                else current.copy(cgFlags = current.cgFlags + ((player - 1) to (cgNumber - 1)))
+            }
+            0x001B -> {
+                val messageId = parameters.getOrNull(0)
+                val nextMode = when {
+                    parameters.size > 1 -> when (parameters[1]) {
+                        0 -> -1
+                        1 -> 0
+                        2 -> 1
+                        else -> current.nextMessageWindowPrintMode
+                    }
+                    parameters.size == 1 -> -1
+                    else -> current.nextMessageWindowPrintMode
+                }
+                current.copy(
+                    lastMessageId = messageId?.takeIf { it >= 0 } ?: current.lastMessageId,
+                    nextMessageWindowPrintMode = nextMode,
+                    messageHaveVoiceFlag = false
+                )
+            }
+            0x001C -> {
+                val base = current.copy(faceControlGeneration = current.faceControlGeneration + 1L)
+                if (parameters.isEmpty()) {
+                    base
+                } else {
+                    val nextType = parameters.getOrNull(1) ?: 3
+                    val nextWindowMode = parameters.getOrNull(2) ?: -1
+                    var windowVisible = nextType == 0
+                    if (nextWindowMode == 1) windowVisible = false
+                    if (nextWindowMode == 2) windowVisible = true
+                    base.copy(
+                        nextMessageType = nextType,
+                        nextMessageWindowPrintMode = nextWindowMode,
+                        messageWindowPrintFlag = windowVisible
+                    )
+                }
+            }
+            0x001E -> current.copy(dontPlayMode = if (first == 2) 0 else first)
+            0x0028 -> when {
+                first > 0 -> current.copy(frameTimeMillis = first)
+                first == 0 -> current.copy(frameTimeMillis = nativeGameConfig.frameTimeMillis)
+                else -> current
+            }
+            0x0029 -> current.copy(frameTimeMillis = nativeGameConfig.frameTimeMillis)
+            0x0053 -> when {
+                first > 0 -> current.copy(configMask = first)
+                first < 0 -> current.copy(configMask = 0)
+                else -> current
+            }
+            0x0057 -> current.copy(autoMessage = normalizedMinusOne)
+            0x0058 -> current.copy(cannotClick = normalizedMinusOne)
+            0x0059 -> current.copy(cannotSkip = normalizedMinusOne)
+            0x005A -> current.copy(optionOff = normalizedMinusOne)
+            else -> return false
+        }
+
+        uiState = uiState.copy(nativeRuntime = nativeRuntimeState)
+        return true
     }
 
     private fun advanceToVisibleEvent() {
@@ -947,7 +1760,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
         try {
             var sceneBackground = uiState.backgroundBitmap
+            var sceneBackgroundResourceId = uiState.backgroundResourceId
+            var sceneBackgroundMetadata = uiState.backgroundMetadata
             var sceneSprites = uiState.sprites
+            var sceneBufferedSprites = uiState.bufferedSprites
             var pendingBackgroundResourceId: String? = null
             var pendingBackgroundResourceIndex: Long? = null
             var pendingBackgroundBankNamespace: String? = null
@@ -955,7 +1771,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
             var pendingScreenEffectId = uiState.screenEffectId
             var pendingScreenEffectParameters = uiState.screenEffectParameters
             var pendingScreenEffectCommandOffset = uiState.screenEffectCommandOffset
+            var pendingScreenEffectLayerIndex = uiState.screenEffectLayerIndex
             val pendingSpriteLayers = LinkedHashMap<Int, SystemNnnSpriteReference>()
+            val pendingBufferedLayerStore = SystemNnnRetainedLayerBufferStore().apply {
+                replaceWith(retainedLayerBufferStore.snapshot())
+            }
             val pendingLayerVisuals = visualLayerConfigurationStore.snapshot()
             sceneSprites.forEach { sprite ->
                 pendingSpriteLayers[sprite.layerIndex] = SystemNnnSpriteReference(
@@ -968,7 +1788,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     nativeBankSlot = sprite.nativeBankSlot,
                     layerIndex = sprite.layerIndex,
                     nativeRect = sprite.nativeRect,
-                    nativeRectFrom = sprite.nativeRectFrom,
+                    nativeDestinationRectFrom = sprite.nativeDestinationRectFrom,
                     nativeEffectId = sprite.nativeEffectId,
                     nativeEffectParameters = sprite.nativeEffectParameters,
                     nativeEffectCommandOffset = sprite.nativeEffectCommandOffset
@@ -979,6 +1799,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
 
             fun clearPendingSceneVisuals() {
                 sceneBackground = null
+                sceneBackgroundResourceId = null
+                sceneBackgroundMetadata = null
                 pendingBackgroundResourceId = null
                 pendingBackgroundResourceIndex = null
                 pendingBackgroundBankNamespace = null
@@ -986,15 +1808,47 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 pendingScreenEffectId = null
                 pendingScreenEffectParameters = emptyList()
                 pendingScreenEffectCommandOffset = null
+                pendingScreenEffectLayerIndex = null
                 pendingSpriteLayers.clear()
                 pendingLayerVisuals.clear()
+                pendingBufferedLayerStore.clear()
+                sceneBufferedSprites = emptyList()
                 pendingSpriteLayersChanged = true
             }
 
             fun appendImageStatusMessage(message: String?) {
                 if (message.isNullOrBlank()) return
+                message.lines().filter { it.isNotBlank() }.forEach { warning ->
+                    diagnosticLog?.recordTrace(
+                        "scene_warning",
+                        mapOf(
+                            "step" to traceStepCounter,
+                            "module" to currentModuleName,
+                            "film" to currentFilmNumber,
+                            "commandOffset" to nextCommandOffset,
+                            "message" to warning
+                        ),
+                        summary = warning
+                    )
+                }
                 imageStatusMessage = listOfNotNull(imageStatusMessage, message)
                     .joinToString(separator = "\n")
+            }
+
+            fun resolvePendingBufferedSprites() {
+                val retainedReferences = pendingBufferedLayerStore.snapshot().values
+                    .sortedBy { it.layerIndex }
+                if (retainedReferences.isEmpty()) {
+                    sceneBufferedSprites = emptyList()
+                    return
+                }
+                val resolution = resolveSprites(
+                    references = retainedReferences,
+                    existingSprites = sceneBufferedSprites,
+                    resolver = resolver
+                )
+                sceneBufferedSprites = resolution.sprites
+                appendImageStatusMessage(resolution.statusMessage)
             }
 
             var commandsWithoutVisibleOutput = 0
@@ -1008,10 +1862,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 }
 
                 val command = currentDecoder.decodeNext(currentScript, commandOffset)
+                traceStepCounter += 1L
                 diagnosticLog?.record(
                     "command",
                     "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
-                        "offset=0x${commandOffset.toString(16)} type=${command.javaClass.simpleName}"
+                        "step=$traceStepCounter offset=0x${commandOffset.toString(16)} type=${command.javaClass.simpleName}"
+                )
+                recordSceneTrace(
+                    event = "script_step",
+                    commandOffset = commandOffset,
+                    commandName = command.javaClass.simpleName,
+                    commandDetails = traceCommandDetails(command)
                 )
                 updateDiagnosticSnapshot(commandOffset, command.javaClass.simpleName)
                 when (command) {
@@ -1075,7 +1936,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             layerIndex = command.layerIndex,
                             nativeRect = layerVisuals?.destinationRect,
                             nativeEffectId = layerVisuals?.effectId,
-                            nativeRectFrom = layerVisuals?.sourceRect,
+                            nativeDestinationRectFrom = layerVisuals?.destinationRectFrom,
                             nativeEffectParameters = layerVisuals?.effectParameters.orEmpty(),
                             nativeEffectCommandOffset = layerVisuals?.effectCommandOffset
                         )
@@ -1093,11 +1954,26 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             throw IOException("CLEAREFFECTLAYER supplied an invalid layer.")
                         }
                         nextCommandOffset = command.nextCommandOffset
+                        val clearedVisuals = pendingLayerVisuals[command.layerIndex]
+                        val clearedReference = pendingSpriteLayers[command.layerIndex]
+                        val clearedEffectId = clearedVisuals?.effectId ?: clearedReference?.nativeEffectId
+                        if (clearedReference != null && clearedEffectId != null) {
+                            pendingBufferedLayerStore.retainOnClear(
+                                clearedReference,
+                                clearedEffectId,
+                                clearedVisuals?.effectParameters ?: clearedReference.nativeEffectParameters,
+                                clearedVisuals?.effectCommandOffset ?: clearedReference.nativeEffectCommandOffset
+                            )
+                        }
                         pendingLayerVisuals.remove(command.layerIndex)
-                        if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX) {
+                        if (SystemNnnVisualEffectMath.shouldClearNativeScreenEffect(
+                                command.layerIndex, pendingScreenEffectLayerIndex
+                            )
+                        ) {
                             pendingScreenEffectId = null
                             pendingScreenEffectParameters = emptyList()
                             pendingScreenEffectCommandOffset = null
+                            pendingScreenEffectLayerIndex = null
                             if (pendingSpriteLayers.remove(command.layerIndex) != null) {
                                 pendingSpriteLayersChanged = true
                             }
@@ -1113,9 +1989,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         nextCommandOffset = command.nextCommandOffset
                         pendingSpriteLayers.clear()
                         pendingLayerVisuals.clear()
+                        pendingBufferedLayerStore.clear()
+                        sceneBufferedSprites = emptyList()
                         pendingScreenEffectId = null
                         pendingScreenEffectParameters = emptyList()
                         pendingScreenEffectCommandOffset = null
+                        pendingScreenEffectLayerIndex = null
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
                     }
@@ -1130,13 +2009,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         nextCommandOffset = command.nextCommandOffset
                         val currentLayerVisuals = pendingLayerVisuals[command.layerIndex]
                             ?: SystemNnnVisualLayerConfiguration()
-                        pendingLayerVisuals[command.layerIndex] = currentLayerVisuals.copy(
-                            sourceRect = command.fromRect,
-                            destinationRect = command.toRect
+                        pendingLayerVisuals[command.layerIndex] = currentLayerVisuals.withSetImageLayerRect(
+                            fromRect = command.fromRect,
+                            toRect = command.toRect
                         )
                         pendingSpriteLayers[command.layerIndex]?.let { reference ->
                             pendingSpriteLayers[command.layerIndex] = reference.copy(
-                                nativeRectFrom = command.fromRect,
+                                nativeDestinationRectFrom = command.fromRect,
                                 nativeRect = command.toRect
                             )
                         }
@@ -1154,19 +2033,51 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 "previous=${previousEffect ?: "none"} accepted=" +
                                 SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)
                         )
+                        val effectKnown = SystemNnnVisualEffectMath.observedParameterCount(command.effectId) != null
+                        val effectCommandAccepted = SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)
+                        val effectRendererPath = SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
+                            command.effectId, command.parameters
+                        )
+                        if (!effectKnown || !effectCommandAccepted) {
+                            appendImageStatusMessage(
+                                "UNSUPPORTED EFFECT id=${command.effectId} name=${SystemNnnVisualEffectMath.observedEffectName(command.effectId)} " +
+                                    "layer=${command.layerIndex} parameters=${command.parameters}"
+                            )
+                        } else if (!effectRendererPath) {
+                            appendImageStatusMessage(
+                                "FALLBACK EFFECT id=${command.effectId} name=${SystemNnnVisualEffectMath.observedEffectName(command.effectId)} " +
+                                    "layer=${command.layerIndex}: no complete native renderer path"
+                            )
+                        }
+
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
 
-                        // Native MAE is a continuation marker, while IDs 4..7 are
-                        // unregistered native effects. Neither replaces the layer's
-                        // currently active effect.
-                        if (SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)) {
-                            if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX &&
-                                command.effectId in SCREEN_BUFFER_EFFECT_IDS
+                        // GET (73) copies the actual composed viewport. The script
+                        // cannot continue until the frame has been captured by Compose.
+                        if (command.effectId == 73) {
+                            requestScreenCapture(SystemNnnScreenCapturePurpose.GET_BUFFER)
+                            return
+                        }
+
+                        // Native CAllEffect::SetEffectScript handles MAE (1) as
+                        // a continuation marker: it returns TRUE without SetParam,
+                        // preserving the current effect on that layer.
+                        if (command.effectId != 1 &&
+                            SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)
+                        ) {
+                            // FADEIN, SUNA and FILL print into the shared framebuffer
+                            // at this layer's native position. HAIKEIYURE p5=1 is also
+                            // a native layer effect and must stay in this ordered stack.
+                            val explicitViewportEffect = command.layerIndex == SCREEN_EFFECT_LAYER_INDEX &&
+                                command.effectId in setOf(10, 11, 29, 54)
+                            if (command.effectId in SCREEN_BUFFER_EFFECT_IDS ||
+                                explicitViewportEffect
                             ) {
                                 pendingScreenEffectId = command.effectId
                                 pendingScreenEffectParameters = command.parameters
                                 pendingScreenEffectCommandOffset = command.nextCommandOffset
+                                pendingScreenEffectLayerIndex = command.layerIndex
                             } else {
                                 val currentLayerVisuals = pendingLayerVisuals[command.layerIndex]
                                     ?: SystemNnnVisualLayerConfiguration()
@@ -1190,24 +2101,12 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 }
                                 pendingSpriteLayersChanged = true
                             }
-                            when {
-                                command.effectId == 55 ->
-                                    appendImageStatusMessage(
-                                        "OLDFILM (55) is a deterministic screen-scratch approximation; native randomized scratch timing is not exact."
-                                    )
-                                command.effectId == 132 ->
-                                    appendImageStatusMessage(
-                                        "CHARABURE (132) uses repeatable jitter; its random sequence does not match the original runtime."
-                                    )
-                            }
-                            if (!SystemNnnVisualEffectMath.hasNativeLayerEffectPath(
-                                    command.effectId, command.parameters
-                                )
-                            ) {
+                            if (command.effectId == 132) {
                                 appendImageStatusMessage(
-                                    "Эффект слоя " + command.layerIndex + " (" + command.effectId + ") пока не поддерживается полностью."
+                                    "CHARABURE (132) uses repeatable jitter; its random sequence does not match the original runtime."
                                 )
                             }
+
                         }
                         commandsWithoutVisibleOutput += 1
                     }
@@ -1267,9 +2166,75 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         commandsWithoutVisibleOutput += 1
                     }
 
+                    is SystemNnnDecodedCommand.NativeSystemFunction -> {
+                        validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
+                        nextCommandOffset = command.nextCommandOffset
+                        diagnosticLog?.record(
+                            "native_system_function",
+                            "module=" + (currentModuleName ?: "standalone") + " film=" + (currentFilmNumber ?: "none") +
+                                " offset=0x" + commandOffset.toString(16) + " code=0x" + command.functionId.toString(16) +
+                                " params=" + command.parameters.joinToString(";") + " text=" + (command.textValue ?: "none")
+                        )
+                        if (command.functionId == 0x0011) {
+                            requestScreenCapture(SystemNnnScreenCapturePurpose.PREPARE_OVERRAP)
+                            return
+                        } else if (!applyNativeSystemFunction(command.functionId, command.parameters)) {
+                            val functionName = when (command.functionId) {
+                                0x0050 -> "FILMNAME"
+                                0x0051 -> "STORYNAME"
+                                0x0052 -> "FILMTYPETIME"
+                                else -> "UNKNOWN"
+                            }
+                            diagnosticLog?.recordTrace(
+                                "fallback_system_function",
+                                mapOf(
+                                    "step" to traceStepCounter,
+                                    "commandOffset" to commandOffset,
+                                    "functionId" to command.functionId,
+                                    "functionIdHex" to "0x" + command.functionId.toString(16),
+                                    "functionName" to functionName,
+                                    "parameters" to command.parameters,
+                                    "textValue" to command.textValue,
+                                    "reason" to "No player-side behavior is implemented for this opcode"
+                                ),
+                                summary = "System function fallback " + functionName +
+                                    " (0x" + command.functionId.toString(16) + ")"
+                            )
+                            appendImageStatusMessage(
+                                "FALLBACK SYSTEM FUNCTION " + functionName +
+                                    " (0x" + command.functionId.toString(16) + ") is decoded but not applied."
+                            )
+                        }
+                        commandsWithoutVisibleOutput += 1
+                    }
+
                     is SystemNnnDecodedCommand.Skip -> {
                         validateNextOffset(currentScript, commandOffset, command.nextCommandOffset)
                         nextCommandOffset = command.nextCommandOffset
+                        if (command.unsupported) {
+                            diagnosticLog?.recordTrace(
+                                "unsupported_command",
+                                mapOf(
+                                    "step" to traceStepCounter,
+                                    "commandOffset" to commandOffset,
+                                    "reason" to command.reason,
+                                    "rawRecordIdentifier" to command.rawRecordIdentifier,
+                                    "rawCode" to command.rawCode,
+                                    "recordKind" to command.recordKind
+                                ),
+                                summary = "Unsupported SPT record at 0x" + commandOffset.toString(16) +
+                                    ": " + (command.reason ?: "unknown reason")
+                            )
+                            appendImageStatusMessage(
+                                "UNSUPPORTED COMMAND at 0x" + commandOffset.toString(16) +
+                                    ": " + (command.reason ?: "unknown record")
+                            )
+                        } else if (!command.reason.isNullOrBlank()) {
+                            diagnosticLog?.recordTrace(
+                                "skipped_command",
+                                mapOf("step" to traceStepCounter, "commandOffset" to commandOffset, "reason" to command.reason)
+                            )
+                        }
                         commandsWithoutVisibleOutput += 1
                     }
 
@@ -1343,6 +2308,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             pendingBackgroundBankSlot
                         )
                         if (pendingBackgroundResourceId != null) {
+                            sceneBackgroundResourceId = pendingBackgroundResourceId
+                            sceneBackgroundMetadata = queryImageMetadata(
+                                resolver, pendingBackgroundResourceId, null,
+                                pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                            )
                             sceneBackground = resolveBackground(
                                 pendingBackgroundResourceId!!,
                                 pendingBackgroundBankNamespace,
@@ -1350,6 +2320,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 resolver
                             )
                         } else if (pendingBackgroundResourceIndex != null) {
+                            sceneBackgroundResourceId = "index:" + pendingBackgroundResourceIndex
+                            sceneBackgroundMetadata = queryImageMetadata(
+                                resolver, null, pendingBackgroundResourceIndex,
+                                pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                            )
                             sceneBackground = resolveBackgroundIndex(
                                 pendingBackgroundResourceIndex!!,
                                 pendingBackgroundBankNamespace,
@@ -1368,11 +2343,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             appendImageStatusMessage(resolution.statusMessage)
                             pendingSpriteLayersChanged = false
                         }
+                        resolvePendingBufferedSprites()
 
                         // These visual commands are accumulated until DRAW. Publish
                         // that exact scene now, rather than running ahead into the
                         // CLEAR commands that commonly follow the animation frames.
                         visualLayerConfigurationStore.replaceWith(pendingLayerVisuals)
+                        retainedLayerBufferStore.replaceWith(pendingBufferedLayerStore.snapshot())
                         pendingBackgroundResourceId = null
                         pendingBackgroundResourceIndex = null
                         pendingBackgroundBankNamespace = null
@@ -1383,19 +2360,52 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             "module=${currentModuleName ?: "standalone"} film=${currentFilmNumber ?: "none"} " +
                                 "offset=0x${commandOffset.toString(16)} frames=$drawFrames"
                         )
-                        updateDiagnosticSnapshot(command.nextCommandOffset, "DrawFrame")
+                        updateDiagnosticSnapshot(command.nextCommandOffset, if (command.overrapParameters == null) "DrawFrame" else "OverrapBoundary")
                         uiState = uiState.copy(
+                            sceneStepNumber = traceStepCounter,
+                            lastCommandOffset = commandOffset,
                             drawEventId = drawEventId,
                             isLoading = false,
                             backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
                             sprites = sceneSprites,
+                            bufferedSprites = sceneBufferedSprites,
+                            logicalWidth = nativeGameConfig.screenWidth,
+                            logicalHeight = nativeGameConfig.screenHeight,
+                            layerEffects = activeLayerEffectSnapshot(
+                                pendingLayerVisuals, sceneSprites, sceneBufferedSprites
+                            ),
                             currentFilmNumber = currentFilmNumber,
                             statusMessage = imageStatusMessage ?: uiState.statusMessage,
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
                             screenEffectCommandOffset = pendingScreenEffectCommandOffset,
-                            pendingDrawFrameCount = drawFrames
+                            screenEffectLayerIndex = pendingScreenEffectLayerIndex,
+                            pendingDrawFrameCount = if (command.overrapParameters != null && overrapPrepared) {
+                                null
+                            } else {
+                                drawFrames
+                            }
                         )
+                        recordSceneTrace(
+                            event = "scene_frame",
+                            commandOffset = commandOffset,
+                            commandName = if (command.overrapParameters == null) "Draw" else "DrawOverrap",
+                            commandDetails = traceCommandDetails(command),
+                            backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
+                            sprites = sceneSprites,
+                            screenEffectId = pendingScreenEffectId,
+                            screenEffectParameters = pendingScreenEffectParameters
+                        )
+                        if (command.overrapParameters != null && overrapPrepared) {
+                            requestScreenCapture(
+                                SystemNnnScreenCapturePurpose.OVERRAP_TARGET,
+                                command.overrapParameters
+                            )
+                        }
                         return
                     }
 
@@ -1428,6 +2438,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             throw IOException("A native image bank identity requires a background resource.")
                         }
                         if (pendingBackgroundResourceId != null) {
+                            sceneBackgroundResourceId = pendingBackgroundResourceId
+                            sceneBackgroundMetadata = queryImageMetadata(
+                                resolver, pendingBackgroundResourceId, null,
+                                pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                            )
                             sceneBackground = resolveBackground(
                                 pendingBackgroundResourceId!!,
                                 pendingBackgroundBankNamespace,
@@ -1438,6 +2453,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             val backgroundIndex =
                                 pendingBackgroundResourceIndex ?: command.backgroundResourceIndex
                             if (backgroundIndex != null) {
+                                sceneBackgroundResourceId = "index:" + backgroundIndex
+                                sceneBackgroundMetadata = queryImageMetadata(
+                                    resolver, null, backgroundIndex,
+                                    pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                                )
                                 sceneBackground = resolveBackgroundIndex(
                                     backgroundIndex,
                                     pendingBackgroundBankNamespace,
@@ -1469,15 +2489,38 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             sceneSprites = resolution.sprites
                             appendImageStatusMessage(resolution.statusMessage)
                         }
+                        resolvePendingBufferedSprites()
 
                         visualLayerConfigurationStore.replaceWith(pendingLayerVisuals)
+                        retainedLayerBufferStore.replaceWith(pendingBufferedLayerStore.snapshot())
                         val dialogueStepIndex = command.dialogueStepIndex
+                        val pendingWindowMode = nativeRuntimeState.nextMessageWindowPrintMode
+                        if (pendingWindowMode != -1) {
+                            nativeRuntimeState = nativeRuntimeState.copy(
+                                messageWindowPrintFlag = when (pendingWindowMode) {
+                                    0 -> false
+                                    1 -> true
+                                    else -> nativeRuntimeState.messageWindowPrintFlag
+                                },
+                                nextMessageWindowPrintMode = -1
+                            )
+                        }
                         frameCounter += 1L
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter,
+                            sceneStepNumber = traceStepCounter,
+                            lastCommandOffset = commandOffset,
                             isLoading = false,
                             backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
+                            logicalWidth = nativeGameConfig.screenWidth,
+                            logicalHeight = nativeGameConfig.screenHeight,
                             sprites = sceneSprites,
+                            bufferedSprites = sceneBufferedSprites,
+                            layerEffects = activeLayerEffectSnapshot(
+                                pendingLayerVisuals, sceneSprites, sceneBufferedSprites
+                            ),
                             speakerName = command.speakerName,
                             dialogueText = text,
                             visibleCharacterCount = 0,
@@ -1487,7 +2530,21 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             statusMessage = imageStatusMessage,
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
-                            screenEffectCommandOffset = pendingScreenEffectCommandOffset
+                            screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            screenEffectLayerIndex = pendingScreenEffectLayerIndex,
+                            nativeRuntime = nativeRuntimeState
+                        )
+                        recordSceneTrace(
+                            event = "dialogue_frame",
+                            commandOffset = commandOffset,
+                            commandName = "Dialogue",
+                            commandDetails = traceCommandDetails(command),
+                            backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
+                            sprites = sceneSprites,
+                            screenEffectId = pendingScreenEffectId,
+                            screenEffectParameters = pendingScreenEffectParameters
                         )
                         playVoice(dialogueStepIndex, command.voiceResourceId)
                         return
@@ -1513,6 +2570,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         }
 
                         if (pendingBackgroundResourceIndex != null) {
+                            sceneBackgroundResourceId = "index:" + pendingBackgroundResourceIndex
+                            sceneBackgroundMetadata = queryImageMetadata(
+                                resolver, null, pendingBackgroundResourceIndex,
+                                pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                            )
                             sceneBackground = resolveBackgroundIndex(
                                 pendingBackgroundResourceIndex!!,
                                 pendingBackgroundBankNamespace,
@@ -1520,6 +2582,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                                 resolver
                             )
                         } else if (pendingBackgroundResourceId != null) {
+                            sceneBackgroundResourceId = pendingBackgroundResourceId
+                            sceneBackgroundMetadata = queryImageMetadata(
+                                resolver, pendingBackgroundResourceId, null,
+                                pendingBackgroundBankNamespace, pendingBackgroundBankSlot
+                            )
                             sceneBackground = resolveBackground(
                                 pendingBackgroundResourceId!!,
                                 pendingBackgroundBankNamespace,
@@ -1536,14 +2603,26 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             sceneSprites = resolution.sprites
                             appendImageStatusMessage(resolution.statusMessage)
                         }
+                        resolvePendingBufferedSprites()
 
                         visualLayerConfigurationStore.replaceWith(pendingLayerVisuals)
+                        retainedLayerBufferStore.replaceWith(pendingBufferedLayerStore.snapshot())
                         frameCounter += 1L
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter,
+                            sceneStepNumber = traceStepCounter,
+                            lastCommandOffset = commandOffset,
                             isLoading = false,
                             backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
                             sprites = sceneSprites,
+                            bufferedSprites = sceneBufferedSprites,
+                            logicalWidth = nativeGameConfig.screenWidth,
+                            logicalHeight = nativeGameConfig.screenHeight,
+                            layerEffects = activeLayerEffectSnapshot(
+                                pendingLayerVisuals, sceneSprites, sceneBufferedSprites
+                            ),
                             speakerName = command.speakerName,
                             dialogueText = promptText,
                             visibleCharacterCount = promptText.length,
@@ -1554,7 +2633,21 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             statusMessage = imageStatusMessage,
                             screenEffectId = pendingScreenEffectId,
                             screenEffectParameters = pendingScreenEffectParameters,
-                            screenEffectCommandOffset = pendingScreenEffectCommandOffset
+                            screenEffectCommandOffset = pendingScreenEffectCommandOffset,
+                            screenEffectLayerIndex = pendingScreenEffectLayerIndex,
+                            nativeRuntime = nativeRuntimeState
+                        )
+                        recordSceneTrace(
+                            event = "choice_frame",
+                            commandOffset = commandOffset,
+                            commandName = "Choice",
+                            commandDetails = traceCommandDetails(command),
+                            backgroundBitmap = sceneBackground,
+                            backgroundResourceId = sceneBackgroundResourceId,
+                            backgroundMetadata = sceneBackgroundMetadata,
+                            sprites = sceneSprites,
+                            screenEffectId = pendingScreenEffectId,
+                            screenEffectParameters = pendingScreenEffectParameters
                         )
                         return
                     }
@@ -1563,8 +2656,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         stopAllAudio()
                         uiState = SystemNnnPlayerUiState(
                             frameId = frameCounter + 1L,
+                            sceneStepNumber = traceStepCounter,
+                            lastCommandOffset = commandOffset,
                             isEnded = true,
-                            currentFilmNumber = currentFilmNumber
+                            currentFilmNumber = currentFilmNumber,
+                            nativeRuntime = nativeRuntimeState
+                        )
+                        recordSceneTrace(
+                            event = "scene_end",
+                            commandOffset = commandOffset,
+                            commandName = "End",
+                            commandDetails = traceCommandDetails(command)
                         )
                         return
                     }
@@ -1693,7 +2795,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
         uiState = SystemNnnPlayerUiState(
             frameId = frameCounter + 1L,
             isEnded = true,
-            currentFilmNumber = currentFilmNumber
+            currentFilmNumber = currentFilmNumber,
+            nativeRuntime = nativeRuntimeState
         )
     }
 
@@ -1710,7 +2813,8 @@ class SystemNnnPlayerViewModel : ViewModel() {
             uiState = SystemNnnPlayerUiState(
                 frameId = frameCounter + 1L,
                 isEnded = true,
-                currentFilmNumber = currentFilmNumber
+                currentFilmNumber = currentFilmNumber,
+                nativeRuntime = nativeRuntimeState
             )
             return
         }
@@ -1779,10 +2883,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 existing.nativeBankNamespace == reference.nativeBankNamespace &&
                 existing.nativeBankSlot == reference.nativeBankSlot &&
                 existing.nativeRect == reference.nativeRect &&
-                existing.nativeRectFrom == reference.nativeRectFrom &&
+                existing.nativeDestinationRectFrom == reference.nativeDestinationRectFrom &&
                 existing.nativeEffectId == reference.nativeEffectId &&
                 existing.nativeEffectParameters == reference.nativeEffectParameters &&
-                existing.nativeEffectCommandOffset == reference.nativeEffectCommandOffset
+                existing.nativeEffectCommandOffset == reference.nativeEffectCommandOffset &&
+                existing.sourceMetadata == queryImageMetadata(
+                    resolver,
+                    reference.resourceId,
+                    null,
+                    reference.nativeBankNamespace,
+                    reference.nativeBankSlot
+                )
             ) {
                 diagnosticLog?.record(
                     "layer_render_state",
@@ -1797,6 +2908,25 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 return@forEach
             }
 
+            val metadata = queryImageMetadata(
+                resolver,
+                reference.resourceId,
+                null,
+                reference.nativeBankNamespace,
+                reference.nativeBankSlot
+            )
+            if (metadata == null) {
+                diagnosticLog?.recordTrace(
+                    "image_metadata_unavailable",
+                    mapOf(
+                        "layerIndex" to layer,
+                        "resourceName" to reference.resourceId,
+                        "bankNamespace" to reference.nativeBankNamespace,
+                        "bankSlot" to reference.nativeBankSlot,
+                        "reason" to "Resolver supplied no indexed DWQ metadata; bitmap dimensions remain authoritative"
+                    )
+                )
+            }
             val bitmap = runCatching {
                 validateNativeBankIdentity(reference.nativeBankNamespace, reference.nativeBankSlot)
                 if (reference.nativeBankNamespace == null) {
@@ -1827,11 +2957,36 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 }
                 return@forEach
             }
+            if (metadata != null &&
+                (metadata.widthPixels != bitmap.width || metadata.heightPixels != bitmap.height)
+            ) {
+                diagnosticLog?.recordTrace(
+                    "scene_anomaly",
+                    mapOf(
+                        "type" to "decoded_image_size_mismatch",
+                        "layerIndex" to layer,
+                        "resourceName" to reference.resourceId,
+                        "declared" to "${metadata.widthPixels}x${metadata.heightPixels}",
+                        "decoded" to "${bitmap.width}x${bitmap.height}"
+                    )
+                )
+            }
             val bitmapPixels = bitmap.width.toLong() * bitmap.height.toLong()
             if (bitmapPixels > MAX_ACTIVE_SPRITE_PIXELS - activePixelCount) {
                 bitmapOwners.remove(bitmap)
-                runCatching { resolver.releaseBitmap(bitmap) }
-                warnings += "Layer " + layer + " ('" + reference.resourceId + "') was skipped: active sprite pixel budget exceeded."
+                runCatching { resolver.releaseBitmap(bitmap) }.onFailure { failure ->
+                    diagnosticLog?.recordException(
+                        "bitmap_release_failure",
+                        failure,
+                        "layer=$layer resource=${reference.resourceId}"
+                    )
+                }
+                val warning = "Layer " + layer + " ('" + reference.resourceId + "') was skipped: active sprite pixel budget exceeded."
+                diagnosticLog?.recordTrace(
+                    "scene_fallback",
+                    mapOf("kind" to "active_sprite_pixel_budget", "layerIndex" to layer, "resourceName" to reference.resourceId, "pixels" to bitmapPixels)
+                )
+                warnings += warning
                 return@forEach
             }
             activePixelCount += bitmapPixels
@@ -1855,16 +3010,17 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 } else null,
                 nativeBankNamespace = reference.nativeBankNamespace,
                 nativeBankSlot = reference.nativeBankSlot,
-                nativeRectFrom = reference.nativeRectFrom,
+                nativeDestinationRectFrom = reference.nativeDestinationRectFrom,
                 nativeEffectId = reference.nativeEffectId,
                 nativeEffectParameters = reference.nativeEffectParameters,
-                nativeEffectCommandOffset = reference.nativeEffectCommandOffset
+                nativeEffectCommandOffset = reference.nativeEffectCommandOffset,
+                sourceMetadata = metadata
             )
         }
 
         val resolvedByLayer = resolved.associateBy { it.layerIndex }
         references.filter { it.nativeEffectId == 52 }.forEach { reference ->
-            if (reference.nativeRectFrom == null || reference.nativeRect == null) {
+            if (reference.nativeDestinationRectFrom == null || reference.nativeRect == null) {
                 warnings += "MOVE (52) on layer ${reference.layerIndex} has no SETEFFECTRECT destination and cannot move yet."
             }
         }
@@ -1885,9 +3041,16 @@ class SystemNnnPlayerViewModel : ViewModel() {
                     "CHANGE (40) on layer ${reference.layerIndex} cannot run: both layer images must have the same dimensions."
             }
         }
+        warnings.forEach { warning ->
+            diagnosticLog?.recordTrace(
+                "scene_fallback",
+                mapOf("step" to traceStepCounter, "warning" to warning),
+                summary = warning
+            )
+        }
         return SpriteResolution(
             sprites = resolved.sortedBy { it.layerIndex },
-            statusMessage = warnings.take(MAX_IMAGE_WARNING_COUNT).takeIf { it.isNotEmpty() }
+            statusMessage = warnings.takeIf { it.isNotEmpty() }
                 ?.joinToString(separator = "\n")
         )
     }
@@ -1928,16 +3091,26 @@ class SystemNnnPlayerViewModel : ViewModel() {
         musicRequestId += 1L
         val player = audioPlayer
         audioPlayer = null
-        runCatching { player?.close() }
-        channelAudioPlayers.values.forEach { channelPlayer -> runCatching { channelPlayer.close() } }
+        runCatching { player?.close() }.onFailure { failure ->
+            diagnosticLog?.recordException("audio_player_close_failure", failure)
+        }
+        channelAudioPlayers.values.forEach { channelPlayer ->
+            runCatching { channelPlayer.close() }.onFailure { failure ->
+                diagnosticLog?.recordException("channel_audio_player_close_failure", failure)
+            }
+        }
         channelAudioPlayers.clear()
         channelAudioRequestIds.clear()
 
         val audio = audioRepository
         audioRepository = null
-        runCatching { audio?.close() }
+        runCatching { audio?.close() }.onFailure { failure ->
+            diagnosticLog?.recordException("audio_repository_close_failure", failure)
+        }
 
-        runCatching { assets?.close() }
+        runCatching { assets?.close() }.onFailure { failure ->
+            diagnosticLog?.recordException("asset_resolver_close_failure", failure)
+        }
         assets = null
     }
 
@@ -1953,7 +3126,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
         private const val MAX_IMAGE_LAYERS = 32
         private const val MAX_IMAGE_WARNING_COUNT = 4
         private const val SCREEN_EFFECT_LAYER_INDEX = 31
-        private val SCREEN_BUFFER_EFFECT_IDS = setOf(10, 11, 18, 54, 55)
+        private val SCREEN_BUFFER_EFFECT_IDS = setOf(
+            2, 18, 20, 22, 31, 43, 50, 69, 71, 74
+        )
+        private const val DEFAULT_OVERRAP_LENGTH_FRAMES = 18
         private const val MAX_ACTIVE_SPRITE_PIXELS = 24_000_000L
         // Native gss.exe exposes run-mode slots 0..2: sys/controller, main,
         // and one nested SPT executor. A direct scene starts in slot 1.

@@ -12,7 +12,7 @@ class SystemNnnVisualLayerConfigurationStoreTest {
     fun snapshotIsIndependentAndCanBeCommittedAtDialogueBoundary() {
         val store = SystemNnnVisualLayerConfigurationStore()
         val configuration = SystemNnnVisualLayerConfiguration(
-            sourceRect = SystemNnnNativeRect(10, 20, 100, 200),
+            destinationRectFrom = SystemNnnNativeRect(10, 20, 100, 200),
             destinationRect = SystemNnnNativeRect(40, 50, 100, 200),
             effectId = 52,
             effectParameters = listOf(24),
@@ -31,6 +31,19 @@ class SystemNnnVisualLayerConfigurationStoreTest {
 
         assertFalse(store.snapshot().containsKey(3))
         assertEquals(40, store.snapshot()[5]?.effectId)
+    }
+
+    @Test
+    fun setImageLayerRectPreservesY250AsDestinationForAn800By89Texture() {
+        val rect = SystemNnnNativeRect(x = 0, y = 250, width = 800, height = 89)
+        val store = SystemNnnVisualLayerConfigurationStore()
+        store.replaceWith(
+            mapOf(12 to SystemNnnVisualLayerConfiguration().withSetImageLayerRect(rect, rect))
+        )
+
+        val layer = checkNotNull(store.snapshot()[12])
+        assertEquals(rect, layer.destinationRectFrom)
+        assertEquals(rect, layer.destinationRect)
     }
 
     @Test

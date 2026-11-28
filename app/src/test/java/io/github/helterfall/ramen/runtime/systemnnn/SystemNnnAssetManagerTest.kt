@@ -54,6 +54,27 @@ class SystemNnnAssetManagerTest {
     }
 
     @Test
+    fun excludesBackupAndLocalFixtureDirectoriesFromResourceBanks() {
+        val root = Files.createTempDirectory("ramen-systemnnn-ignore-backups").toFile()
+        try {
+            createImageBank(File(root, "dwq/sc0"))
+            createImageBank(File(root, "!eng files/dwq/backup0"))
+            createImageBank(File(root, "testdata/dwq/fixture0"))
+            createImageBank(File(root, "local-tests/dwq/local0"))
+
+            SystemNnnAssetManager.forGameDirectory(
+                gameDirectory = root,
+                cacheDirectory = File(root, "cache")
+            ).use { manager ->
+                assertEquals(listOf("dwq/sc0.gtb"), manager.catalog.imageBanks.map { it.id })
+                assertEquals(1, manager.catalog.totalIndexedImageResources)
+            }
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
     fun fallsBackToSameStemWgqWhenPreferredGpkIsInvalid() {
         val root = Files.createTempDirectory("ramen-systemnnn-image-fallback").toFile()
         try {

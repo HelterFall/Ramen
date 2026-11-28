@@ -2,6 +2,7 @@ package io.github.helterfall.ramen.runtime.systemnnn
 
 import kotlin.math.cos
 import kotlin.math.pow
+import kotlin.math.roundToInt
 import kotlin.math.sqrt
 
 internal data class SystemNnnVisualOffset(
@@ -36,12 +37,43 @@ internal data class SystemNnnCloudPixels(
     val pixels: IntArray
 )
 
+internal data class SystemNnnOldFilmMark(
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int,
+    val color: SystemNnnVisualColor,
+    val alpha: Float
+)
+
+internal data class SystemNnnViewportBounds(
+    val x: Int,
+    val y: Int,
+    val width: Int,
+    val height: Int
+)
+
+internal data class SystemNnnNativeLayerStackSplit(
+    val beforeScreenEffect: List<Int>,
+    val afterScreenEffect: List<Int>
+)
+
 internal data class SystemNnnVisualLayerConfiguration(
-    val sourceRect: SystemNnnNativeRect? = null,
+    /** First destination RECT supplied to native SetImageLayerRect (dstFrom). */
+    val destinationRectFrom: SystemNnnNativeRect? = null,
+    /** Target/current destination RECT supplied to native SetImageLayerRect. */
     val destinationRect: SystemNnnNativeRect? = null,
     val effectId: Int? = null,
     val effectParameters: List<Int> = emptyList(),
     val effectCommandOffset: Long? = null
+)
+
+internal fun SystemNnnVisualLayerConfiguration.withSetImageLayerRect(
+    fromRect: SystemNnnNativeRect,
+    toRect: SystemNnnNativeRect
+): SystemNnnVisualLayerConfiguration = copy(
+    destinationRectFrom = fromRect,
+    destinationRect = toRect
 )
 
 /**
@@ -68,7 +100,53 @@ internal class SystemNnnVisualLayerConfigurationStore {
  * Pure calculations mirrored from the pinned System-NNN family compositor.
  * Time is expressed in native effect frames, not wall-clock milliseconds.
  */
+internal data class SystemNnnNativeEffectSignature(val effectId: Int, val nativeName: String, val parameterCount: Int)
+
 internal object SystemNnnVisualEffectMath {
+    val observedGameEffectSignatures = listOf(
+        SystemNnnNativeEffectSignature(0, "NOP", 0),
+        SystemNnnNativeEffectSignature(1, "MAE", 0),
+        SystemNnnNativeEffectSignature(2, "PUT", 5),
+        SystemNnnNativeEffectSignature(8, "TRANS", 2),
+        SystemNnnNativeEffectSignature(9, "CTRANS", 13),
+        SystemNnnNativeEffectSignature(10, "FADEIN", 5),
+        SystemNnnNativeEffectSignature(11, "FADEOUT", 4),
+        SystemNnnNativeEffectSignature(17, "FLASH", 6),
+        SystemNnnNativeEffectSignature(20, "LIGHT", 6),
+        SystemNnnNativeEffectSignature(22, "KAGEROU", 16),
+        SystemNnnNativeEffectSignature(27, "KE", 12),
+        SystemNnnNativeEffectSignature(29, "SUNA", 9),
+        SystemNnnNativeEffectSignature(31, "NEGA", 5),
+        SystemNnnNativeEffectSignature(39, "SCROLL", 4),
+        SystemNnnNativeEffectSignature(40, "CHANGE", 8),
+        SystemNnnNativeEffectSignature(43, "MOZAIC", 7),
+        SystemNnnNativeEffectSignature(50, "GRADATION", 15),
+        SystemNnnNativeEffectSignature(52, "MOVE", 1),
+        SystemNnnNativeEffectSignature(54, "FILL", 0),
+        SystemNnnNativeEffectSignature(55, "OLDFILM", 13),
+        SystemNnnNativeEffectSignature(56, "RAIN2", 8),
+        SystemNnnNativeEffectSignature(63, "KOMAANIME", 15),
+        SystemNnnNativeEffectSignature(64, "TURN", 16),
+        SystemNnnNativeEffectSignature(65, "STRETCHBLT", 14),
+        SystemNnnNativeEffectSignature(66, "BUFFER", 0),
+        SystemNnnNativeEffectSignature(69, "HAMON", 13),
+        SystemNnnNativeEffectSignature(71, "HOTARU", 18),
+        SystemNnnNativeEffectSignature(73, "GET", 1),
+        SystemNnnNativeEffectSignature(74, "BURA", 13),
+        SystemNnnNativeEffectSignature(82, "CLOUD", 14),
+        SystemNnnNativeEffectSignature(99, "COLORADDSUB", 10),
+        SystemNnnNativeEffectSignature(100, "HAIKEIYURE", 13),
+        SystemNnnNativeEffectSignature(102, "RAIN4", 9)
+    )
+
+    fun observedParameterCount(effectId: Int): Int? =
+        observedGameEffectSignatures.firstOrNull { it.effectId == effectId }?.parameterCount
+
+    fun observedEffectName(effectId: Int): String =
+        observedGameEffectSignatures.firstOrNull { it.effectId == effectId }?.nativeName
+            ?: "UNKNOWN"
+
+
     private val shakePattern = intArrayOf(-16, -12, 16, 12)
 
     fun nativeScreenColor(parameters: List<Int>): SystemNnnVisualColor {
@@ -328,23 +406,257 @@ internal object SystemNnnVisualEffectMath {
      */
     fun hasNativeLayerEffectPath(effectId: Int, parameters: List<Int>): Boolean =
         when (effectId) {
-            0, 8, 9, 10, 11, 17, 18, 39, 40, 52, 54, 55, 62, 64, 65, 66, 99, 119, 132 -> true
             82 -> (parameters.getOrNull(0) ?: 9_999) == 0 &&
                 (parameters.getOrNull(8) ?: 0) == 0
-            100 -> (parameters.getOrNull(5) ?: 0) == 0
+            // Native SetParam supplies defaults for omitted operands; both layer-local
+            // (0) and screen-buffer (1) modes are supported by the renderer.
+            100 -> (parameters.getOrNull(5) ?: 0) in 0..1
+            27 -> parameters.size >= 12
+            // SUNA and RAIN2 SetParam() supply native defaults for omitted operands.
+            29 -> parameters.size in 4..10
+            56 -> parameters.size in 4..8
+            63 -> parameters.size >= 15
+            102 -> parameters.size >= 9
+            0, 1, 2, 8, 9, 10, 11, 17, 18, 20, 22, 31, 39, 40, 43,
+            50, 52, 54, 55, 62, 64, 65, 66, 69, 71, 73, 74, 99, 119, 132 -> true
             else -> false
         }
+
+    // HAIKEIYURE layerType=1 has no standalone pixels, but its native layer
+    // index is a real stack boundary where MoveScreen() executes.
+    private val standaloneLayerPainterEffectIds = setOf(10, 11, 17, 29, 54, 55, 100)
+
+    fun hasStandaloneLayerPainter(effectId: Int): Boolean =
+        effectId in standaloneLayerPainterEffectIds
+
+    /** Compose the native layer stack in stable, ascending layer order. */
+    fun nativeLayerRenderOrder(
+        bitmapLayerIndices: Collection<Int>,
+        effectLayers: Collection<Pair<Int, Int>>,
+        layerCount: Int = 32
+    ): List<Int> {
+        val layers = LinkedHashSet<Int>()
+        bitmapLayerIndices.filterTo(layers) { it in 0 until layerCount }
+        effectLayers.asSequence()
+            .filter { (layerIndex, effectId) ->
+                layerIndex in 0 until layerCount && hasStandaloneLayerPainter(effectId)
+            }
+            .mapTo(layers) { it.first }
+        return layers.sorted()
+    }
+
+    /** Native HAIKEIYURE layerType 1 calls MoveScreen at its own layer position. */
+    fun isInlineLayerStackScreenEffect(effectId: Int?, parameters: List<Int>): Boolean =
+        effectId == 100 && (parameters.getOrNull(5) ?: 0) == 1
+
+    fun splitNativeLayerStackAtScreenEffect(
+        orderedLayerIndices: List<Int>,
+        effectLayerIndex: Int
+    ): SystemNnnNativeLayerStackSplit = SystemNnnNativeLayerStackSplit(
+        // Native Print() blits the layer bitmap first, then calls the layer effect.
+        // Therefore a MoveScreen effect at layer N includes layer N in the shifted set.
+        beforeScreenEffect = orderedLayerIndices.filter { it <= effectLayerIndex },
+        afterScreenEffect = orderedLayerIndices.filter { it > effectLayerIndex }
+    )
+
+    /** Consume only frames advanced by DRAW/ShakinHensai, never wall-clock time. */
+    fun advanceOverrapFrames(
+        elapsedFrames: Int,
+        drawFrames: Int,
+        durationFrames: Int
+    ): Int {
+        if (durationFrames <= 0) return 0
+        return (
+            elapsedFrames.coerceAtLeast(0).toLong() + drawFrames.coerceAtLeast(0).toLong()
+        ).coerceAtMost(durationFrames.toLong()).toInt()
+    }
+
+    fun overrapProgress(elapsedFrames: Int, durationFrames: Int): Float =
+        if (durationFrames <= 0) 1f
+        else (elapsedFrames.coerceIn(0, durationFrames).toFloat() / durationFrames.toFloat())
+
+    fun shouldRenderOverrapFrame(sourceAvailable: Boolean, targetAvailable: Boolean): Boolean =
+        sourceAvailable && targetAvailable
+
+    fun shouldClearNativeScreenEffect(
+        clearLayerIndex: Int,
+        screenEffectLayerIndex: Int?
+    ): Boolean = clearLayerIndex == (screenEffectLayerIndex ?: 31)
+
+    /** Hide the live DrawOverrap target while the compositor snapshots its final frame. */
+    fun shouldCoverViewportDuringOverrapTargetCapture(
+        requestId: Long,
+        purpose: SystemNnnScreenCapturePurpose?
+    ): Boolean = requestId > 0L && purpose == SystemNnnScreenCapturePurpose.OVERRAP_TARGET
+
+    /** True only for effects whose native screen-mode implementation reads the current framebuffer. */
+    fun requiresNativeScreenBufferCapture(
+        effectId: Int?,
+        parameters: List<Int>
+    ): Boolean = when (effectId) {
+        2, 20, 22, 29, 31, 43, 50, 69, 71, 74 -> true
+        // HAIKEIYURE mode 1 mutates the current framebuffer at its layer position.
+        100 -> false
+        else -> false
+    }
+
+    fun isWaitingForNativeScreenBufferSource(
+        effectId: Int,
+        parameters: List<Int>,
+        sourceAvailable: Boolean
+    ): Boolean = requiresNativeScreenBufferCapture(effectId, parameters) && !sourceAvailable
+
+    /** CEffectKe::SetParam overrides the script's para[0] with 999999. */
+    fun nativeEffectDurationFrames(
+        effectId: Int?,
+        parameters: List<Int>,
+        defaultDurationFrames: Int = 20
+    ): Int = if (effectId == 27) {
+        999_999
+    } else {
+        (parameters.firstOrNull() ?: defaultDurationFrames).coerceIn(1, 9_999)
+    }
+
+    /** Native TRANS (8) and CTRANS (9) layer alpha, in source-over units. */
+    fun layerOpacity(effectId: Int?, frame: Int, parameters: List<Int>): Float = when (effectId) {
+        8 -> ((parameters.getOrNull(1) ?: 50).coerceIn(0, 100)) / 100f
+        9 -> {
+            val duration = (parameters.firstOrNull() ?: 20).coerceAtLeast(1)
+            nativeSpeedValue(
+                count = frame,
+                countMax = duration,
+                startData = (parameters.getOrNull(2) ?: 100).coerceIn(0, 100),
+                endData = (parameters.getOrNull(1) ?: 50).coerceIn(0, 100),
+                delayCount = parameters.getOrNull(4) ?: 0,
+                speedType = parameters.getOrNull(3) ?: 0
+            ).coerceIn(0, 100) / 100f
+        }
+        else -> 1f
+    }
 
     fun scrollUsesLoopFrame(parameters: List<Int>): Boolean =
         (parameters.getOrNull(3) ?: 0) != 0
 
     /**
-     * Native CAllEffect::SetEffectScript treats MAE as a continuation marker.
-     * IDs 4..7 have no registered native effect object and are rejected without
-     * replacing the layer's previous effect.
+     * CEffectOldFilm::Print paints independently of a layer bitmap. Its
+     * per-line scratch state is seeded here so Compose can reproduce the
+     * native moving scratches deterministically between frames.
+     */
+    fun oldFilmMarks(
+        frame: Long,
+        parameters: List<Int>,
+        screenWidth: Int,
+        screenHeight: Int,
+        seed: Int = 0
+    ): List<SystemNnnOldFilmMark> {
+        if (screenWidth <= 0 || screenHeight <= 0) return emptyList()
+        val pointX = (parameters.getOrNull(1) ?: 0).coerceIn(0, screenWidth - 1)
+        val pointY = (parameters.getOrNull(2) ?: 0).coerceIn(0, screenHeight - 1)
+        val areaWidth = (parameters.getOrNull(3) ?: screenWidth).coerceAtLeast(1)
+            .coerceAtMost(screenWidth - pointX)
+        val areaHeight = (parameters.getOrNull(4) ?: screenHeight).coerceAtLeast(1)
+            .coerceAtMost(screenHeight - pointY)
+        val count = (parameters.getOrNull(5) ?: 3).coerceIn(0, 10)
+        val lineWidth = (parameters.getOrNull(6) ?: 1).coerceIn(1, 4)
+            .coerceAtMost(areaWidth)
+        val red = (parameters.getOrNull(7) ?: 128).coerceIn(0, 255)
+        val green = (parameters.getOrNull(8) ?: 128).coerceIn(0, 255)
+        val blue = (parameters.getOrNull(9) ?: 128).coerceIn(0, 255)
+        val lifeBase = (parameters.getOrNull(10) ?: 200).coerceAtLeast(1)
+        val lifeRandom = (parameters.getOrNull(11) ?: 80).coerceAtLeast(0)
+        val printChance = (parameters.getOrNull(12) ?: 30).coerceIn(0, 100)
+        val alphaMin = (parameters.getOrNull(13) ?: 100).coerceIn(0, 100)
+        val alphaMax = (parameters.getOrNull(14) ?: 100).coerceIn(0, 100)
+        val lowerAlpha = minOf(alphaMin, alphaMax)
+        val upperAlpha = maxOf(alphaMin, alphaMax)
+        val marks = ArrayList<SystemNnnOldFilmMark>(count)
+        val elapsed = frame.coerceAtLeast(0L)
+        val maxX = (areaWidth - lineWidth).coerceAtLeast(0)
+
+        fun random(value: Int): Int = mix(value) and Int.MAX_VALUE
+        repeat(count) { line ->
+            val lineSeed = seed xor (line * 0x45d9f3b)
+            val lifeSpread = if (lifeRandom == 0) 0 else random(lineSeed xor 0x13579bdf) % lifeRandom
+            val life = (lifeBase + lifeSpread).coerceAtLeast(1)
+            val lineFrame = elapsed % life.toLong()
+            val initialX = if (maxX == 0) 0 else random(lineSeed xor 0x2468ace) % (maxX + 1)
+            val velocity = 128 + random(lineSeed xor 0x1020304) % 1_024
+            val direction = if ((random(lineSeed xor 0x556677) and 1) == 0) 1 else -1
+            val period = 10 + random(lineSeed xor 0x7654321) % 20
+            val reversals = (lineFrame / period.toLong()).toInt()
+            val segmentFrame = (lineFrame % period.toLong()).toInt()
+            // Alternating native direction segments cancel in pairs.
+            val completedDistance256 = if (reversals % 2 == 0) 0L else {
+                direction.toLong() * velocity.toLong() * period.toLong()
+            }
+            val currentSign = if (reversals % 2 == 0) direction else -direction
+            val distance256 = completedDistance256 +
+                currentSign.toLong() * velocity.toLong() * segmentFrame.toLong()
+            val range256 = maxX.toLong() * 256L
+            val unfolded = initialX.toLong() * 256L + distance256
+            val folded = if (range256 <= 0L) 0L else {
+                val period256 = range256 * 2L
+                val wrapped = Math.floorMod(unfolded, period256)
+                if (wrapped <= range256) wrapped else period256 - wrapped
+            }
+            val x = pointX + (folded / 256L).toInt()
+            if (random(lineSeed xor elapsed.toInt() xor (line * 0x9e3779b)) % 100 < printChance) {
+                val alpha = if (upperAlpha == lowerAlpha) lowerAlpha else {
+                    lowerAlpha + random(lineSeed xor elapsed.toInt() xor 0x6a09e667) %
+                        (upperAlpha - lowerAlpha + 1)
+                }
+                marks += SystemNnnOldFilmMark(
+                    x = x.coerceIn(pointX, pointX + maxX),
+                    y = pointY,
+                    width = lineWidth,
+                    height = areaHeight,
+                    color = SystemNnnVisualColor(red, green, blue),
+                    alpha = alpha / 100f
+                )
+            }
+        }
+        return marks
+    }
+
+    /** Aspect-fit bounds shared by the live scene and native OVERrap snapshot. */
+    fun aspectFitViewportBounds(
+        canvasWidth: Int,
+        canvasHeight: Int,
+        sceneWidth: Int,
+        sceneHeight: Int
+    ): SystemNnnViewportBounds {
+        if (canvasWidth <= 0 || canvasHeight <= 0 || sceneWidth <= 0 || sceneHeight <= 0) {
+            return SystemNnnViewportBounds(0, 0, 0, 0)
+        }
+        val canvasAspect = canvasWidth.toFloat() / canvasHeight.toFloat()
+        val sceneAspect = sceneWidth.toFloat() / sceneHeight.toFloat()
+        return if (canvasAspect > sceneAspect) {
+            val width = (canvasHeight.toFloat() * sceneAspect).roundToInt().coerceIn(1, canvasWidth)
+            SystemNnnViewportBounds((canvasWidth - width) / 2, 0, width, canvasHeight)
+        } else {
+            val height = (canvasWidth.toFloat() / sceneAspect).roundToInt().coerceIn(1, canvasHeight)
+            SystemNnnViewportBounds(0, (canvasHeight - height) / 2, canvasWidth, height)
+        }
+    }
+
+    /** True when a native blit is wholly outside the clipped game viewport. */
+    fun isNativeRectFullyOutsideViewport(
+        rect: SystemNnnNativeRect,
+        screenWidth: Int,
+        screenHeight: Int
+    ): Boolean =
+        rect.x.toLong() >= screenWidth.toLong() ||
+            rect.y.toLong() >= screenHeight.toLong() ||
+            rect.x.toLong() + rect.width.toLong() <= 0L ||
+            rect.y.toLong() + rect.height.toLong() <= 0L
+
+    /**
+     * Native CAllEffect::SetEffectScript treats MAE (id=1) as a continuation
+     * marker: it returns TRUE without calling SetParam, so the current effect
+     * stays active. IDs 4..7 remain unregistered and are rejected.
      */
     fun shouldApplyNativeLayerEffectCommand(effectId: Int): Boolean =
-        effectId !in setOf(-1, 1, 4, 5, 6, 7)
+        effectId !in setOf(-1, 4, 5, 6, 7)
 
     /**
      * Whether the Compose renderer should draw the source bitmap as a fallback.
@@ -359,7 +671,7 @@ internal object SystemNnnVisualEffectMath {
      */
     fun shouldDrawPlainLayerBitmap(effectId: Int?, parameters: List<Int>): Boolean =
         when (effectId) {
-            39, 64, 65, 66, 99 -> false
+            27, 29, 39, 56, 63, 64, 65, 66, 99, 102 -> false
             82 -> (parameters.getOrNull(0) ?: 9_999) != 0 ||
                 (parameters.getOrNull(8) ?: 0) != 0
             100 -> (parameters.getOrNull(5) ?: 0) != 0

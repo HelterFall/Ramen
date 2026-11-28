@@ -21,7 +21,7 @@ class SystemNnnCommandDecoderImplTest {
             val script = testScript(
                 records = listOf(
                     record(3, 0x66660008u, 0x55560005u),
-                    record(3, SYSTEM_COMMAND, 0x22220005u),
+                    record(3, SYSTEM_COMMAND, 0x22220099u),
                     record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
                 ),
                 textCount = 1
@@ -33,14 +33,20 @@ class SystemNnnCommandDecoderImplTest {
             val unknownIdentifierEnd = RECORD_START + 12L
             val unsupportedCommandEnd = unknownIdentifierEnd + 12L
 
-            assertEquals(
-                SystemNnnDecodedCommand.Skip(unknownIdentifierEnd),
-                decoder.decodeNext(script, RECORD_START)
-            )
-            assertEquals(
-                SystemNnnDecodedCommand.Skip(unsupportedCommandEnd),
-                decoder.decodeNext(script, unknownIdentifierEnd)
-            )
+            val unknownIdentifier = decoder.decodeNext(script, RECORD_START)
+                as SystemNnnDecodedCommand.Skip
+            assertEquals(unknownIdentifierEnd, unknownIdentifier.nextCommandOffset)
+            assertTrue(unknownIdentifier.unsupported)
+            assertTrue(unknownIdentifier.reason.orEmpty().isNotBlank())
+            assertEquals(0x66660008L, unknownIdentifier.rawRecordIdentifier)
+            assertEquals(0x55560005L, unknownIdentifier.rawCode)
+
+            val unsupportedCommand = decoder.decodeNext(script, unknownIdentifierEnd)
+                as SystemNnnDecodedCommand.Skip
+            assertEquals(unsupportedCommandEnd, unsupportedCommand.nextCommandOffset)
+            assertTrue(unsupportedCommand.unsupported)
+            assertTrue(unsupportedCommand.reason.orEmpty().isNotBlank())
+            assertEquals(0x22220099L, unsupportedCommand.rawCode)
             assertEquals(
                 SystemNnnDecodedCommand.Dialogue(
                     nextCommandOffset = unsupportedCommandEnd + 20L,
@@ -51,7 +57,7 @@ class SystemNnnCommandDecoderImplTest {
 
             val log = logFile.readText()
             assertTrue(log.contains("address=0x50 identifier=0x66660008 code=0x55560005"))
-            assertTrue(log.contains("address=0x5c identifier=0x66660006 code=0x22220005"))
+            assertTrue(log.contains("address=0x5c identifier=0x66660006 code=0x22220099"))
         } finally {
             logFile.delete()
         }
@@ -105,6 +111,33 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
+    fun decodedSetEffectIsNotWrittenToTheUnsupportedCommandLog() {
+        val logFile = File.createTempFile("ramen-supported-effect-", ".log").apply { delete() }
+        try {
+            val script = testScript(
+                records = listOf(
+                    record(7, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SETEFFECT, 3u, 0u, 54u, 20u)
+                ),
+                textCount = 0
+            )
+            val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8, debugLogFile = logFile)
+
+            assertEquals(
+                SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = RECORD_START + 28L,
+                    layerIndex = 0,
+                    effectId = 54,
+                    parameters = listOf(20)
+                ),
+                decoder.decodeNext(script, RECORD_START)
+            )
+            assertTrue(!logFile.exists() || logFile.length() == 0L)
+        } finally {
+            logFile.delete()
+        }
+    }
+
+    @Test
     fun decodesSetEffectRectRightAndBottomAsAbsoluteEdges() {
         val script = testScript(
             records = listOf(
@@ -133,7 +166,7 @@ class SystemNnnCommandDecoderImplTest {
     }
 
     @Test
-    fun malformedSetEffectRectIsSkippedInsteadOfStoppingTheScript() {
+    fun setEffectRectPreservesZeroAndNegativeExtentsLikeTheNativeCallback() {
         val script = testScript(
             records = listOf(
                 record(
@@ -143,14 +176,19 @@ class SystemNnnCommandDecoderImplTest {
                     9u,
                     3u,
                     100u, 100u, 0u, 50u,
-                    10u, 20u, 410u, 320u
+                    10u, 20u, 410u, 0u
                 )
             ),
             textCount = 0
         )
 
         assertEquals(
-            SystemNnnDecodedCommand.Skip(RECORD_START + 52L),
+            SystemNnnDecodedCommand.SetImageLayerRect(
+                nextCommandOffset = RECORD_START + 52L,
+                layerIndex = 3,
+                fromRect = SystemNnnNativeRect(100, 100, 0, 50),
+                toRect = SystemNnnNativeRect(10, 20, 410, 0)
+            ),
             decoder().decodeNext(script, RECORD_START)
         )
     }
@@ -260,7 +298,7 @@ class SystemNnnCommandDecoderImplTest {
         val script = testScript(
             listOf(
                 record(4, DATA, 0x55550002u, 0xABCDu),
-                record(5, SYSTEM_FUNCTION, 0x33330051u, 1u, 0u),
+                record(5, SYSTEM_FUNCTION, 0x33330054u, 1u, 0u),
                 record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 1u)
             ),
             textCount = 1
@@ -271,8 +309,11 @@ class SystemNnnCommandDecoderImplTest {
         val second = decoder.decodeNext(script, RECORD_START + 16L)
         val third = decoder.decodeNext(script, RECORD_START + 36L)
 
-        assertEquals(SystemNnnDecodedCommand.Skip(RECORD_START + 16L), first)
-        assertEquals(SystemNnnDecodedCommand.Skip(RECORD_START + 36L), second)
+        assertEquals(RECORD_START + 16L, (first as SystemNnnDecodedCommand.Skip).nextCommandOffset)
+        val unsupportedFunction = second as SystemNnnDecodedCommand.Skip
+        assertEquals(RECORD_START + 36L, unsupportedFunction.nextCommandOffset)
+        assertTrue(unsupportedFunction.unsupported)
+        assertTrue(unsupportedFunction.reason.orEmpty().isNotBlank())
         assertEquals(script.textPool[0].offset, (third as SystemNnnDecodedCommand.Dialogue).textEntryOffset)
     }
 
@@ -334,6 +375,115 @@ class SystemNnnCommandDecoderImplTest {
         )
         org.junit.Assert.assertThrows(IOException::class.java) {
             decoder().decodeNext(script, RECORD_START)
+        }
+    }
+
+    @Test
+    fun decodesAllThirtyThreeObservedSetEffectParameterVectorsExactly() {
+        val vectors = listOf(
+            0 to emptyList(), 1 to emptyList(), 2 to listOf(9999, 0, 0, 0, 1),
+            8 to listOf(0, 20), 9 to listOf(2000, 100, 0, 2, 100, 0, 0, 800, 600, 0, 0, 800, 600),
+            10 to listOf(150, 0, 0, 0, 0), 11 to listOf(30, 255, 255, 255),
+            17 to listOf(20, 1, 4, 255, 255, 255), 20 to listOf(40, 255, 255, 255, 3, 0),
+            22 to listOf(120, 0, 600, 0, 100, 100, 100, 9, 7, 11, 4, 17, 6, 30, 2, -5),
+            27 to listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120),
+            29 to listOf(90, 1, 20, 20, 0, 0, 0, 800, 600), 31 to listOf(20, 5, 5, 100, 0),
+            39 to listOf(20, 32, 0, 1), 40 to listOf(60, 9, 100, 100, 0, 0, 0, 0),
+            43 to listOf(50, 5, 2, 0, 0, 800, 600),
+            50 to listOf(9999, 255, 255, 255, 255, 239, 237, 2, 245, 80, 90, 70, 100, 50, 110),
+            52 to listOf(90), 54 to emptyList(),
+            55 to listOf(9999, 10, 0, 800, 600, 7, 1, 140, 100, 70, 200, 80, 40),
+            56 to listOf(0, 0, 170, 3, 5, 0, 50, 100),
+            63 to listOf(9999, 300, 244, 10, 332, 88, 332, 88, 0, 2, 100, 100, 0, 0, 9999),
+            64 to listOf(700, 375, 312, 0, 0, 220, 300, 2, 100, 100, 0, 0, 0, 0, 0, 0),
+            65 to listOf(30, 0, 0, 50, 50, 100, 100, 0, 0, 2, 100, 0, 5, 5),
+            66 to emptyList(), 69 to listOf(230, 8, 400, 300, 40, 220, 4, 18, 10, 100, 0, 0, 300),
+            71 to listOf(0, 50, 0, 0, 900, 800, -1, -2, 185, 130, 120, 1, 0, 0, 100, 135, 169, 16),
+            73 to listOf(20), 74 to listOf(90, 1, 200, 400, 400, 70, 100, 0, 0, 0, 0, 430, 1),
+            82 to listOf(0, 300, 13, 4, 9999, 200, 1362, 200, 0, 1, 100, 60, 50, 50),
+            99 to listOf(20, -189, -255, -255, -189, -255, -255, 1, 0, 0),
+            100 to listOf(20, 20, 30, 55, 30, 1, 0, 0, 0, 0, 0, 0, 0),
+            102 to listOf(0, 3, 500, 20, -2, 400, 300, 30, 200)
+        )
+        assertEquals(33, vectors.size)
+        val records = vectors.map { pair ->
+            val effectId = pair.first
+            val parameters = pair.second
+            record(6 + parameters.size, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SETEFFECT,
+                (parameters.size + 2).toUInt(), 0u, effectId.toUInt(), *parameters.map { it.toUInt() }.toUIntArray())
+        }
+        val script = testScript(records, 0)
+        var offset = RECORD_START
+        vectors.zip(records).forEach { pair ->
+            val effectId = pair.first.first
+            val parameters = pair.first.second
+            val recordWords = pair.second
+            assertEquals(
+                SystemNnnDecodedCommand.SetImageLayerEffect(
+                    offset + recordWords.size * DWORD_BYTES, 0, effectId, parameters
+                ),
+                decoder().decodeNext(script, offset)
+            )
+            offset += recordWords.size * DWORD_BYTES
+        }
+    }
+    @Test
+    fun decodesOverrapAsAVisibleBoundaryAndPreservesItsArguments() {
+        val script = testScript(listOf(record(6, SYSTEM_COMMAND, 0x22220005u, 2u, 40u, 5u)), 0)
+        assertEquals(
+            SystemNnnDecodedCommand.Draw(RECORD_START + 24L, 1, overrapParameters = listOf(40, 5)),
+            decoder().decodeNext(script, RECORD_START)
+        )
+    }
+
+    @Test
+    fun decodesAllRequestedNativeSystemFunctionsAndResolvesNameStrings() {
+        val records = mutableListOf<List<UInt>>()
+        records += record(3, SYSTEM_FUNCTION, 0x33330011u)
+        for (code in listOf(0x18u, 0x1Bu, 0x1Cu, 0x1Eu, 0x52u, 0x57u, 0x58u, 0x59u, 0x5Au)) {
+            records += record(5, SYSTEM_FUNCTION, 0x33330000u or code, 1u, 77u)
+        }
+        records += record(5, SYSTEM_FUNCTION, 0x33330050u, 1u, 0u)
+        records += record(5, SYSTEM_FUNCTION, 0x33330051u, 1u, 1u)
+        val script = testScript(records, 0, listOf("Film title", "Story title"))
+        val expected = listOf(
+            0x11 to (emptyList<Int>() to null),
+            0x18 to (listOf(77) to null), 0x1B to (listOf(77) to null), 0x1C to (listOf(77) to null),
+            0x1E to (listOf(77) to null), 0x52 to (listOf(77) to null), 0x57 to (listOf(77) to null),
+            0x58 to (listOf(77) to null), 0x59 to (listOf(77) to null), 0x5A to (listOf(77) to null),
+            0x50 to (listOf(0) to "Film title"), 0x51 to (listOf(1) to "Story title")
+        )
+        var offset = RECORD_START
+        records.zip(expected).forEach { pair ->
+            val rec = pair.first
+            val exp = pair.second
+            assertEquals(
+                SystemNnnDecodedCommand.NativeSystemFunction(
+                    offset + rec.size * DWORD_BYTES, exp.first, exp.second.first, exp.second.second
+                ),
+                decoder().decodeNext(script, offset)
+            )
+            offset += rec.size * DWORD_BYTES
+        }
+    }
+    @Test
+    fun decodesNoMessageWindowConfigMaskAndFrameControl() {
+        val records = listOf(
+            record(3, SYSTEM_FUNCTION, 0x33330017u),
+            record(5, SYSTEM_FUNCTION, 0x33330053u, 1u, 77u),
+            record(5, SYSTEM_FUNCTION, 0x33330028u, 1u, 45u)
+        )
+        val script = testScript(records, 0)
+        var offset = RECORD_START
+        val expected = listOf(
+            SystemNnnDecodedCommand.NativeSystemFunction(offset + 12L, 0x17, emptyList()).also { offset += 12L },
+            SystemNnnDecodedCommand.NativeSystemFunction(offset + 20L, 0x53, listOf(77)).also { offset += 20L },
+            SystemNnnDecodedCommand.NativeSystemFunction(offset + 20L, 0x28, listOf(45)).also { offset += 20L }
+        )
+        offset = RECORD_START
+        expected.forEach { command ->
+            assertEquals(command, decoder().decodeNext(script, offset))
+            offset = command.nextCommandOffset
         }
     }
 
@@ -818,6 +968,118 @@ class SystemNnnCommandDecoderImplTest {
         )
     }
 
+    @Test
+    fun decodesMusicVoiceAndSoundSystemFunctions() {
+        val music = testScript(
+            records = listOf(record(5, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_MUSIC, 1u, 1u)),
+            textCount = 0
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Music(RECORD_START + 20L, musicNumber = 1, loopCount = 0),
+            decoder().decodeNext(music, RECORD_START)
+        )
+
+        val voice = testScript(
+            records = listOf(record(6, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_VOICE, 2u, 0u, 3u)),
+            textCount = 0,
+            secondaryTexts = listOf("voice001")
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Voice(RECORD_START + 24L, resourceId = "voice001", channel = 3),
+            decoder().decodeNext(voice, RECORD_START)
+        )
+
+        val sound = testScript(
+            records = listOf(record(6, SYSTEM_FUNCTION, CODE_SYSTEMFUNCTION_SOUND, 2u, 1u, 2u)),
+            textCount = 0
+        )
+        assertEquals(
+            SystemNnnDecodedCommand.Sound(RECORD_START + 24L, soundNumber = 1, channel = 2),
+            decoder().decodeNext(sound, RECORD_START)
+        )
+    }
+
+    @Test
+    fun logsUnsupportedSystemFunctionCodesWithoutCorruptingTheRecordCursor() {
+        val logFile = File.createTempFile("ramen-system-function-audit-", ".log").apply { delete() }
+        try {
+            val unsupported = listOf(
+                0x33330054u, 0x33330056u, 0x33330060u
+            )
+            val records = unsupported.map { code -> record(3, SYSTEM_FUNCTION, code) }
+            val script = testScript(records, textCount = 0)
+            val decoder = SystemNnnCommandDecoderImpl(gtbResourceCount = 8, debugLogFile = logFile)
+            unsupported.forEachIndexed { index, code ->
+                val offset = RECORD_START + index * 12L
+                val skipped = decoder.decodeNext(script, offset) as SystemNnnDecodedCommand.Skip
+                assertEquals(offset + 12L, skipped.nextCommandOffset)
+                assertTrue(skipped.unsupported)
+                assertTrue(skipped.reason.orEmpty().isNotBlank())
+                assertEquals(code.toLong(), skipped.rawCode)
+            }
+            val log = logFile.readText()
+            unsupported.forEach { code ->
+                assertTrue(log.contains("code=0x" + code.toString(16)))
+            }
+        } finally {
+            logFile.delete()
+        }
+    }
+
+    @Test
+    fun decodesAllThreeNativeModuleTransferControlCodes() {
+        val transfers = listOf(
+            0x5556000Au to SystemNnnModuleTransferKind.SCRIPT,
+            0x55560016u to SystemNnnModuleTransferKind.SUBSCRIPT,
+            0x55560015u to SystemNnnModuleTransferKind.SCRIPTJUMP
+        )
+        transfers.forEach { (code, kind) ->
+            val script = testScript(
+                records = listOf(record(4, CONTROL, code, 0u)),
+                textCount = 0,
+                secondaryTexts = listOf("day")
+            )
+            assertEquals(
+                SystemNnnDecodedCommand.ModuleTransfer(
+                    nextCommandOffset = RECORD_START + 16L,
+                    targetModuleName = "day",
+                    kind = kind
+                ),
+                decoder().decodeNext(script, RECORD_START)
+            )
+        }
+    }
+
+    @Test
+    fun gotoUsesAbsoluteDwordTargetAndRejectsPayloadOffsets() {
+        val targetOffset = RECORD_START + 16L
+        val validScript = testScript(
+            records = listOf(
+                record(4, CONTROL, CODE_CONTROL_GOTO, (targetOffset / DWORD_BYTES).toUInt()),
+                record(3, CONTROL, CODE_CONTROL_NOP),
+                record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
+            ),
+            textCount = 1
+        )
+
+        assertEquals(
+            SystemNnnDecodedCommand.Jump(targetOffset),
+            decoder().decodeNext(validScript, RECORD_START)
+        )
+
+        val invalidScript = testScript(
+            records = listOf(
+                record(4, CONTROL, CODE_CONTROL_GOTO, ((RECORD_START + 4L) / DWORD_BYTES).toUInt()),
+                record(3, CONTROL, CODE_CONTROL_NOP),
+                record(5, SYSTEM_COMMAND, CODE_PRINT, 0u, 0u)
+            ),
+            textCount = 1
+        )
+        assertThrows(IOException::class.java) {
+            decoder().decodeNext(invalidScript, RECORD_START)
+        }
+    }
+
     private fun localSubroutineScript(
         subTableIndex: UInt = 1u,
         returnPayload: List<UInt> = emptyList(),
@@ -1030,6 +1292,10 @@ class SystemNnnCommandDecoderImplTest {
         const val CODE_CONTROL_ENDIF = 0x55560013u
         const val CODE_CONTROL_CASE = 0x55560008u
         const val CODE_CONTROL_RETURN = 0x55560007u
+        const val CODE_CONTROL_GOTO = 0x55560020u
+        const val CODE_SYSTEMFUNCTION_MUSIC = 0x33330007u
+        const val CODE_SYSTEMFUNCTION_VOICE = 0x33330008u
+        const val CODE_SYSTEMFUNCTION_SOUND = 0x33330009u
         const val CODE_CONTROL_SUB = 0x55560009u
         const val CODE_OPEN_BRACE = 0xA000007Bu
         const val CODE_CLOSE_BRACE = 0xA000007Du

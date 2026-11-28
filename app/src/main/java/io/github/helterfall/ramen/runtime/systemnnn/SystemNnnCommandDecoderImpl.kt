@@ -26,7 +26,8 @@ class SystemNnnCommandDecoderImpl(
     private val gtbResourceCount: Int,
     private val streamReader: SystemNnnCommandStreamReader = SystemNnnCommandStreamReader(),
     private val variables: MutableMap<Int, Int> = HashMap(),
-    private val debugLogFile: File? = null
+    private val debugLogFile: File? = null,
+    private val diagnosticsEnabled: Boolean = true
 ) : SystemNnnCommandDecoder {
 
     private var cachedScript: SystemNnnScript? = null
@@ -130,6 +131,8 @@ class SystemNnnCommandDecoderImpl(
                     SystemNnnDecodedCommand.Draw(record.endOffsetExclusive, frameCount)
                 }
             }
+
+            CODE_OVERRAP -> decodeOverrap(script, record)
 
             CODE_SELECT -> decodeSelect(script, streamFor(script), record)
 
@@ -355,6 +358,41 @@ class SystemNnnCommandDecoderImpl(
         }
 
         return when (record.codeId) {
+            CODE_SYSTEMFUNCTION_PREPAREOVERRAP,
+            CODE_SYSTEMFUNCTION_NOMESSAGEWINDOW ->
+                SystemNnnDecodedCommand.NativeSystemFunction(record.endOffsetExclusive, record.codeId, emptyList())
+            CODE_SYSTEMFUNCTION_SETCG,
+            CODE_SYSTEMFUNCTION_STARTMESSAGE,
+            CODE_SYSTEMFUNCTION_STARTKOMA,
+            CODE_SYSTEMFUNCTION_SETDEMOFLAG,
+            CODE_SYSTEMFUNCTION_AUTOMESSAGE,
+            CODE_SYSTEMFUNCTION_CANNOTCLICK,
+            CODE_SYSTEMFUNCTION_CANNOTSKIP,
+            CODE_SYSTEMFUNCTION_OPTIONOFF,
+            CODE_SYSTEMFUNCTION_CONFIGMASK,
+            CODE_SYSTEMFUNCTION_FRAMECONTROL -> decodeCountedNativeSystemFunction(script, record)
+            CODE_SYSTEMFUNCTION_FILMTYPETIME -> {
+                if (isDescriptorThreeContinuation(script, stream, record)) {
+                    SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+                } else {
+                    decodeCountedNativeSystemFunction(script, record)
+                }
+            }
+            CODE_SYSTEMFUNCTION_FILMNAME,
+            CODE_SYSTEMFUNCTION_STORYNAME -> {
+                val hasDescriptorThreeTargets =
+                    script.offsetTables.getOrNull(2)?.entryCount?.let { it > 0u } == true
+                val isDescriptorThreeEntry = hasDescriptorThreeTargets &&
+                    filmTableEntriesFor(script, stream).any { it.targetCommandOffset == record.offset }
+                if (isDescriptorThreeEntry) {
+                    // These 0x3333/0x50 and /0x51 entry stubs are pointer-table
+                    // markers, not film/story metadata callbacks. The descriptor-3
+                    // contract validates their adjacent continuation records.
+                    SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+                } else {
+                    decodeStringNativeSystemFunction(script, record)
+                }
+            }
             CODE_SYSTEMFUNCTION_MUSIC -> decodeMusic(script, record)
             CODE_SYSTEMFUNCTION_VOICE -> decodeVoice(script, record)
             CODE_SYSTEMFUNCTION_SOUND -> decodeSound(script, record)
@@ -385,7 +423,7 @@ class SystemNnnCommandDecoderImpl(
         maximum: Int,
         label: String
     ): Int {
-        if (record.payloadWordCount < 2) {
+        if (record.payloadWordCount < minimum + 1) {
             throw IOException("A System-NNN $label record has no argument payload.")
         }
         val count = readPayloadWord(script, record, 0).toLong()
@@ -397,6 +435,34 @@ class SystemNnnCommandDecoderImpl(
         return count.toInt()
     }
 
+    private fun decodeOverrap(script: SystemNnnScript, record: SystemNnnCommandRecord): SystemNnnDecodedCommand.Draw {
+        val count = readDeclaredArgumentCount(script, record, 0, MAX_EFFECT_ARGUMENTS, "OVERRAP")
+        val arguments = List(count) { index -> readPayloadWord(script, record, index + 1).toInt() }
+        return SystemNnnDecodedCommand.Draw(record.endOffsetExclusive, 1, overrapParameters = arguments)
+    }
+
+    private fun decodeCountedNativeSystemFunction(
+        script: SystemNnnScript, record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.NativeSystemFunction {
+        val count = readDeclaredArgumentCount(script, record, 0, MAX_EFFECT_ARGUMENTS, "native system function")
+        val args = List(count) { index -> readPayloadWord(script, record, index + 1).toInt() }
+        if (record.codeId !in setOf(CODE_SYSTEMFUNCTION_SETCG, CODE_SYSTEMFUNCTION_STARTMESSAGE, CODE_SYSTEMFUNCTION_STARTKOMA) && count == 0) {
+            throw IOException("A System-NNN system function has no required parameter.")
+        }
+        return SystemNnnDecodedCommand.NativeSystemFunction(record.endOffsetExclusive, record.codeId, args)
+    }
+
+    private fun decodeStringNativeSystemFunction(
+        script: SystemNnnScript, record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.NativeSystemFunction {
+        val count = readDeclaredArgumentCount(script, record, 1, MAX_EFFECT_ARGUMENTS, "film/story name")
+        val args = List(count) { index -> readPayloadWord(script, record, index + 1).toInt() }
+        val poolIndex = args.first()
+        val text = script.secondaryTextPool.getOrNull(poolIndex)
+            ?.takeIf { poolIndex >= 0 && !it.hasDecodingErrors && it.text.none { ch -> ch.isISOControl() } }
+            ?.text ?: throw IOException("A System-NNN film/story name references a missing Pool 2 string.")
+        return SystemNnnDecodedCommand.NativeSystemFunction(record.endOffsetExclusive, record.codeId, args, text)
+    }
     private fun decodeMusic(
         script: SystemNnnScript,
         record: SystemNnnCommandRecord
@@ -478,10 +544,23 @@ class SystemNnnCommandDecoderImpl(
         val parameters = List(argumentCount - 2) { index ->
             readPayloadWord(script, record, index + 3).toInt()
         }
-        appendDebugLog(
-            record,
-            "SETEFFECT layer=$layer effect=$effect parameters=${parameters.joinToString(",")}"
-        )
+        // This record was successfully decoded. It must never be routed
+        // through appendDebugLog(), which deliberately classifies records as
+        // unsupported and writes them to ramen_debug.log.
+        if (diagnosticsEnabled) {
+            SystemNnnDiagnosticLog.active?.recordTrace(
+                "decoded_system_function",
+                mapOf(
+                    "commandOffset" to record.offset,
+                    "functionId" to record.codeId,
+                    "functionName" to "SETEFFECT",
+                    "layer" to layer,
+                    "effectId" to effect,
+                    "parameters" to parameters
+                ),
+                summary = "Decoded SETEFFECT layer=$layer effect=$effect"
+            )
+        }
         return SystemNnnDecodedCommand.SetImageLayerEffect(
             nextCommandOffset = record.endOffsetExclusive,
             layerIndex = layer.toInt(),
@@ -510,31 +589,22 @@ class SystemNnnCommandDecoderImpl(
                 return skipUnsupported(record, "SETEFFECTRECT layer is outside the supported range")
             }
 
-            fun readRect(start: Int): SystemNnnNativeRect? {
-                // The native engine stores Win32 RECT edges (left, top, right, bottom).
-                val left = readPayloadWord(script, record, start).toInt()
-                val top = readPayloadWord(script, record, start + 1).toInt()
-                val right = readPayloadWord(script, record, start + 2).toInt()
-                val bottom = readPayloadWord(script, record, start + 3).toInt()
-                // The family renderer stores left/top as the origin and right/bottom
-                // as width/height. CAllEffect::CalcuOnly interpolates only left/top;
-                // PrintLayers passes right/bottom directly as the picture dimensions.
-                val width = right.toLong()
-                val height = bottom.toLong()
-                if (left !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
-                    top !in -MAX_EFFECT_RECT_COORD..MAX_EFFECT_RECT_COORD ||
-                    width !in 1L..MAX_EFFECT_RECT_DIMENSION.toLong() ||
-                    height !in 1L..MAX_EFFECT_RECT_DIMENSION.toLong()
-                ) {
-                    return null
-                }
-                return SystemNnnNativeRect(left, top, width.toInt(), height.toInt())
+            fun readRect(start: Int): SystemNnnNativeRect {
+                // In CGameCallBack::SystemFunctionSetEffectRect the native
+                // callback calls SetMyRect(layer, 2, &from), SetMyRect(layer, 3, &to),
+                // and SetMyRect(layer, 5, &from): these are dstFrom/dstTo/dst,
+                // not source-texture coordinates. RECT.right/bottom are blit dimensions;
+                // zero or negative extents are native no-draw rectangles.
+                return SystemNnnNativeRect(
+                    x = readPayloadWord(script, record, start).toInt(),
+                    y = readPayloadWord(script, record, start + 1).toInt(),
+                    width = readPayloadWord(script, record, start + 2).toInt(),
+                    height = readPayloadWord(script, record, start + 3).toInt()
+                )
             }
 
             val fromRect = readRect(2)
-                ?: return skipUnsupported(record, "SETEFFECTRECT source RECT is not renderable")
             val toRect = readRect(6)
-                ?: return skipUnsupported(record, "SETEFFECTRECT destination RECT is not renderable")
 
             SystemNnnDecodedCommand.SetImageLayerRect(
                 nextCommandOffset = record.endOffsetExclusive,
@@ -675,6 +745,8 @@ class SystemNnnCommandDecoderImpl(
                 skipFollowingBranch(script, stream, record)
             )
 
+            CODE_CONTROL_GOTO -> decodeGoto(script, stream, record)
+
             CODE_CONTROL_SUB -> decodeLocalSubroutine(script, stream, record)
 
             CODE_CONTROL_RETURN -> returnFromLocalSubroutine(stream, record)
@@ -720,6 +792,30 @@ class SystemNnnCommandDecoderImpl(
      * through descriptor 3. The target archive confirms the same two operands
      * and valid 0x3333/0x50 or 0x3333/0x51 function targets for every SUB.
      */
+    /**
+     * Native CODE_CONTROL_GOTO stores an absolute DWORD offset into the
+     * demasked SPT image. Convert it to a byte offset and accept only an
+     * already validated command-record boundary; never jump into a payload.
+     */
+    private fun decodeGoto(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
+        record: SystemNnnCommandRecord
+    ): SystemNnnDecodedCommand.Jump {
+        if (record.payloadWordCount != GOTO_PAYLOAD_WORD_COUNT) {
+            throw IOException("A System-NNN GOTO record must contain exactly one DWORD target.")
+        }
+        val targetWordOffset = readPayloadWord(script, record, GOTO_TARGET_PAYLOAD).toLong()
+        if (targetWordOffset > Long.MAX_VALUE / DWORD_BYTES) {
+            throw IOException("A System-NNN GOTO target overflows the byte-offset range.")
+        }
+        val targetByteOffset = targetWordOffset * DWORD_BYTES
+        if (stream.records.binarySearchBy(targetByteOffset) { it.offset } < 0) {
+            throw IOException("A System-NNN GOTO target is not a validated command boundary.")
+        }
+        return SystemNnnDecodedCommand.Jump(targetByteOffset)
+    }
+
     private fun decodeLocalSubroutine(
         script: SystemNnnScript,
         stream: SystemNnnCommandStream,
@@ -787,6 +883,18 @@ class SystemNnnCommandDecoderImpl(
         return SystemNnnDecodedCommand.Jump(frame.returnCommandOffset)
     }
 
+    private fun isDescriptorThreeContinuation(
+        script: SystemNnnScript,
+        stream: SystemNnnCommandStream,
+        record: SystemNnnCommandRecord
+    ): Boolean {
+        val table = script.offsetTables.getOrNull(2) ?: return false
+        if (table.entryCount == 0u) return false
+        return filmTableEntriesFor(script, stream).any { entry ->
+            val targetIndex = stream.records.binarySearchBy(entry.targetCommandOffset) { it.offset }
+            targetIndex >= 0 && stream.records.getOrNull(targetIndex + 1)?.offset == record.offset
+        }
+    }
     private fun filmTableEntriesFor(
         script: SystemNnnScript,
         stream: SystemNnnCommandStream
@@ -1089,7 +1197,14 @@ class SystemNnnCommandDecoderImpl(
         reason: String
     ): SystemNnnDecodedCommand.Skip {
         appendDebugLog(record, reason)
-        return SystemNnnDecodedCommand.Skip(record.endOffsetExclusive)
+        return SystemNnnDecodedCommand.Skip(
+            nextCommandOffset = record.endOffsetExclusive,
+            reason = reason,
+            unsupported = true,
+            rawRecordIdentifier = record.identifier.toLong(),
+            rawCode = record.code.toLong(),
+            recordKind = record.recordKind?.name
+        )
     }
 
     /**
@@ -1097,8 +1212,20 @@ class SystemNnnCommandDecoderImpl(
      * a visible runtime failure.
      */
     private fun appendDebugLog(record: SystemNnnCommandRecord, reason: String) {
-        val destination = debugLogFile ?: return
+        if (!diagnosticsEnabled) return
         val safeReason = reason.replace('\n', ' ').replace('\r', ' ')
+        SystemNnnDiagnosticLog.active?.recordTrace(
+            "unsupported_command",
+            mapOf(
+                "commandOffset" to record.offset,
+                "recordIdentifier" to record.identifier,
+                "rawCode" to record.code,
+                "recordKind" to record.recordKind?.name,
+                "reason" to safeReason
+            ),
+            summary = "unsupported SPT record at 0x" + record.offset.toString(16) + ": " + safeReason
+        )
+        val destination = debugLogFile ?: return
         val line = "unsupported_record address=0x${record.offset.toString(16)} " +
             "identifier=0x${record.identifier.toString(16)} " +
             "code=0x${record.code.toString(16)} " +
@@ -1107,13 +1234,21 @@ class SystemNnnCommandDecoderImpl(
         runCatching {
             synchronized(DEBUG_LOG_LOCK) {
                 destination.parentFile?.let { parent ->
-                    if (!parent.exists()) parent.mkdirs()
+                    if (!parent.exists() && !parent.mkdirs()) {
+                        throw IOException("Could not create decoder debug log directory.")
+                    }
                 }
                 if (destination.exists() && destination.length() >= MAX_DEBUG_LOG_BYTES) {
-                    destination.writeText("ramen_debug.log rotated after reaching the size limit.\n", Charsets.UTF_8)
+                    destination.writeText("ramen_debug.log rotated after reaching the size limit.\\n", Charsets.UTF_8)
                 }
                 destination.appendText(line, Charsets.UTF_8)
             }
+        }.onFailure { failure ->
+            SystemNnnDiagnosticLog.active?.recordException(
+                "decoder_debug_log_failure",
+                failure,
+                "offset=0x" + record.offset.toString(16)
+            )
         }
     }
 
@@ -1128,11 +1263,26 @@ class SystemNnnCommandDecoderImpl(
         const val USER_FUNCTION_ARGUMENT_COUNT_WORDS = 1
         const val USER_FUNCTION_ARGUMENT_COUNT_PAYLOAD = 0
         const val SYSTEM_FUNCTION_FAMILY = 0x3333
+        const val CODE_SYSTEMFUNCTION_PREPAREOVERRAP = 0x0011
+        const val CODE_SYSTEMFUNCTION_SETCG = 0x0018
+        const val CODE_SYSTEMFUNCTION_STARTMESSAGE = 0x001B
+        const val CODE_SYSTEMFUNCTION_STARTKOMA = 0x001C
+        const val CODE_SYSTEMFUNCTION_SETDEMOFLAG = 0x001E
+        const val CODE_SYSTEMFUNCTION_FILMNAME = 0x0050
+        const val CODE_SYSTEMFUNCTION_STORYNAME = 0x0051
+        const val CODE_SYSTEMFUNCTION_FILMTYPETIME = 0x0052
+        const val CODE_SYSTEMFUNCTION_AUTOMESSAGE = 0x0057
+        const val CODE_SYSTEMFUNCTION_CANNOTCLICK = 0x0058
+        const val CODE_SYSTEMFUNCTION_CANNOTSKIP = 0x0059
+        const val CODE_SYSTEMFUNCTION_OPTIONOFF = 0x005A
         const val CODE_SYSTEMFUNCTION_MUSIC = 0x0007
         const val CODE_SYSTEMFUNCTION_VOICE = 0x0008
         const val CODE_SYSTEMFUNCTION_SOUND = 0x0009
         const val CODE_SYSTEMFUNCTION_SETEFFECT = 0x0013
         const val CODE_SYSTEMFUNCTION_SETEFFECTRECT = 0x0016
+        const val CODE_SYSTEMFUNCTION_NOMESSAGEWINDOW = 0x0017
+        const val CODE_SYSTEMFUNCTION_FRAMECONTROL = 0x0028
+        const val CODE_SYSTEMFUNCTION_CONFIGMASK = 0x0053
         const val CODE_SYSTEMFUNCTION_SETFILM = 0x001A
         const val CODE_SYSTEMFUNCTION_CLEARALLEFFECT = 0x0012
         const val CODE_SYSTEMFUNCTION_CLEAREFFECTLAYER = 0x0014
@@ -1158,6 +1308,7 @@ class SystemNnnCommandDecoderImpl(
         const val EXPRESSION_FAMILY = 0xA000
 
         const val CODE_PRINT = 0x0001
+        const val CODE_OVERRAP = 0x0005
         const val CODE_LPRINT = 0x0002
         const val CODE_APPEND = 0x0003
         const val CODE_DRAW = 0x0004
@@ -1181,6 +1332,9 @@ class SystemNnnCommandDecoderImpl(
         const val CODE_CONTROL_CASE = 0x0008
         const val CODE_CONTROL_SUB = 0x0009
         const val CODE_CONTROL_RETURN = 0x0007
+        const val CODE_CONTROL_GOTO = 0x0020
+        const val GOTO_PAYLOAD_WORD_COUNT = 1
+        const val GOTO_TARGET_PAYLOAD = 0
         const val LOCAL_SUB_PAYLOAD_WORD_COUNT = 2
         const val LOCAL_SUB_TABLE_INDEX_PAYLOAD = 0
         const val LOCAL_SUB_ID_PAYLOAD = 1

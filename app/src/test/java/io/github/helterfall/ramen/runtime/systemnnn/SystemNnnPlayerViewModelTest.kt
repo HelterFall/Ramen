@@ -13,6 +13,43 @@ import org.junit.Test
 class SystemNnnPlayerViewModelTest {
 
     @Test
+    fun drawFramesDriveOverrapProgressAndReleaseSnapshotsAtDuration() {
+        var state = SystemNnnPlayerUiState(
+            pendingDrawFrameCount = 1,
+            overrapTransitionId = 1L,
+            overrapTransitionType = 0,
+            overrapTransitionDurationFrames = 60,
+            overrapProgress = 0f
+        )
+
+        state = state.advanceOverrapForNativeDrawFrame()
+        assertEquals(1, state.overrapFramesElapsed)
+        assertEquals(1f / 60f, state.overrapProgress, 0.0001f)
+
+        // DRAW(1) completes; the following DRAW(60) is the next native frame block.
+        state = state.copy(pendingDrawFrameCount = null).copy(pendingDrawFrameCount = 60)
+        repeat(60) { state = state.advanceOverrapForNativeDrawFrame() }
+
+        assertEquals(60, state.overrapFramesElapsed)
+        assertEquals(1f, state.overrapProgress, 0f)
+        assertEquals(0, state.overrapTransitionDurationFrames)
+        assertNull(state.overrapFromBitmap)
+        assertNull(state.overrapToBitmap)
+        assertFalse(SystemNnnVisualEffectMath.shouldRenderOverrapFrame(
+            state.overrapFromBitmap != null,
+            state.overrapToBitmap != null
+        ))
+
+        assertEquals(
+            listOf(1, 6, 7, 8, 9, 12),
+            SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+                bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 12),
+                effectLayers = emptyList()
+            )
+        )
+    }
+
+    @Test
     fun waitsForTypewriterThenShowsChoiceAndBranchesToSelectedTarget() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(
@@ -30,7 +67,7 @@ class SystemNnnPlayerViewModelTest {
                     )
                 ),
                 offsets[2] to SystemNnnDecodedCommand.Dialogue(
-                    nextCommandOffset = offsets[3],
+                    nextCommandOffset = offsets[2] + 12L,
                     textEntryOffset = textOffset(2)
                 ),
                 offsets[3] to SystemNnnDecodedCommand.End
@@ -626,6 +663,218 @@ class SystemNnnPlayerViewModelTest {
     }
 
     @Test
+    fun maeContinuesThePreviousNativeEffectAndNativeClearStillHidesThePicture() {
+        val lengths = List(8) { 3 }
+        val offsets = recordOffsets(lengths)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.LoadImageLayer(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 1,
+                    resourceId = "ev0601a"
+                ),
+                offsets[1] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[2],
+                    layerIndex = 1,
+                    effectId = 1
+                ),
+                offsets[2] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[3],
+                    layerIndex = 7,
+                    effectId = 27,
+                    parameters = listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120)
+                ),
+                offsets[3] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[4],
+                    layerIndex = 7,
+                    effectId = 1
+                ),
+                offsets[4] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[5],
+                    layerIndex = 9,
+                    effectId = 8,
+                    parameters = listOf(20, 56)
+                ),
+                offsets[5] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[6],
+                    layerIndex = 9,
+                    effectId = 1
+                ),
+                offsets[6] to SystemNnnDecodedCommand.ClearImageLayer(
+                    nextCommandOffset = offsets[7],
+                    layerIndex = 1
+                ),
+                offsets[7] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets.last() + 12L,
+                    textEntryOffset = testTextStartOffset(lengths)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(lengths), decoder, EmptyAssets)
+
+        assertTrue(viewModel.uiState.sprites.none { it.layerIndex == 1 })
+        assertEquals(27, viewModel.uiState.layerEffects.single { it.layerIndex == 7 }.effectId)
+        assertEquals(8, viewModel.uiState.layerEffects.single { it.layerIndex == 9 }.effectId)
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
+    @Test
+    fun flashWithoutAPictureIsPublishedAsAnActiveNativeLayerEffect() {
+        val offsets = recordOffsets()
+        val parameters = listOf(40, 2, 21, 0, 0, 0)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 13,
+                    effectId = 17,
+                    parameters = parameters
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = textOffset(0)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(), decoder, EmptyAssets)
+
+        assertTrue(viewModel.uiState.sprites.none { it.layerIndex == 13 })
+        val flash = viewModel.uiState.layerEffects.single { it.layerIndex == 13 }
+        assertEquals(17, flash.effectId)
+        assertEquals(parameters, flash.parameters)
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
+    @Test
+    fun stretchBltAndCloudOutputsSurviveSourceLayerClearAsBufferedContributions() {
+        val store = SystemNnnRetainedLayerBufferStore()
+        val stretchParameters = listOf(300, 0, 0, 100, 100, 101, 101, 5, 2, 0, 100, 100, 0, 0)
+        val stretch = SystemNnnSpriteReference(
+            resourceId = "ev0601a",
+            layerIndex = 1,
+            nativeEffectId = 65,
+            nativeEffectParameters = stretchParameters,
+            nativeEffectCommandOffset = 0x0ac0L
+        )
+
+        assertTrue(store.retainOnClear(stretch, 65, stretchParameters, 0x0ac0L))
+        assertFalse(store.retainOnClear(stretch, 1, emptyList(), null))
+        assertEquals(65, store.snapshot()[1]?.nativeEffectId)
+        assertEquals(stretchParameters, store.snapshot()[1]?.nativeEffectParameters)
+
+        val cloudParameters = listOf(0, 300, 13, 4, 9_999, 200, 1362, 200, 0, 1, 255, 160, 110, 50)
+        val cloud = SystemNnnSpriteReference(
+            resourceId = "bgkhy",
+            layerIndex = 1,
+            nativeEffectId = 82,
+            nativeEffectParameters = cloudParameters,
+            nativeEffectCommandOffset = 0x13b4L
+        )
+        assertTrue(store.retainOnClear(cloud, 82, cloudParameters, 0x13b4L))
+        assertEquals(82, store.snapshot()[1]?.nativeEffectId)
+        assertEquals("bgkhy", store.snapshot()[1]?.resourceId)
+        assertEquals(cloudParameters, store.snapshot()[1]?.nativeEffectParameters)
+
+        assertFalse(
+            store.retainOnClear(
+                cloud.copy(nativeEffectId = 66, nativeEffectParameters = emptyList()),
+                66, emptyList(), 0x1400L
+            )
+        )
+        assertEquals(82, store.snapshot()[1]?.nativeEffectId)
+    }
+
+    @Test
+    fun bitmaplessIntroEffectsStayOnTheirNativeLayersInsteadOfBecomingGlobalOverlays() {
+        val lengths = List(6) { 3 }
+        val offsets = recordOffsets(lengths)
+        val fadeParameters = listOf(60, 0, 0, 0, 0)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 0,
+                    effectId = 54
+                ),
+                offsets[1] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[2],
+                    layerIndex = 6,
+                    effectId = 55,
+                    parameters = listOf(20, 0, 0, 800, 600, 5, 1, 21, 19, 9, 200, 80, 30)
+                ),
+                offsets[2] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[3],
+                    layerIndex = 8,
+                    effectId = 29,
+                    parameters = listOf(0, 1, 10, 30, 5, 60, 0, 0, 800, 600)
+                ),
+                offsets[3] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[4],
+                    layerIndex = 11,
+                    effectId = 10,
+                    parameters = fadeParameters
+                ),
+                offsets[4] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[5],
+                    layerIndex = 13,
+                    effectId = 17,
+                    parameters = listOf(40, 2, 21, 0, 0, 0)
+                ),
+                offsets[5] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets.last() + 12L,
+                    textEntryOffset = testTextStartOffset(lengths)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(lengths), decoder, EmptyAssets)
+
+        assertEquals(
+            listOf(0 to 54, 6 to 55, 8 to 29, 11 to 10, 13 to 17),
+            viewModel.uiState.layerEffects.map { it.layerIndex to it.effectId }
+        )
+        assertNull(viewModel.uiState.screenEffectId)
+        assertTrue(viewModel.uiState.sprites.isEmpty())
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
+    @Test
+    fun haikeiYureLayerTypeOneStaysOnNativeLayerTenInsteadOfScreenBufferLayerThirtyOne() {
+        val lengths = List(3) { 3 }
+        val offsets = recordOffsets(lengths)
+        val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 10,
+                    effectId = 100,
+                    parameters = parameters
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = testTextStartOffset(lengths)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(lengths), decoder, EmptyAssets)
+
+        assertEquals(listOf(10 to 100), viewModel.uiState.layerEffects.map { it.layerIndex to it.effectId })
+        assertNull(viewModel.uiState.screenEffectId)
+        assertNull(viewModel.uiState.screenEffectLayerIndex)
+        assertTrue(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(100, parameters))
+        assertFalse(SystemNnnVisualEffectMath.requiresNativeScreenBufferCapture(100, parameters))
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
+    @Test
     fun screenLayerFadeIsPublishedAsAViewportEffect() {
         val offsets = recordOffsets()
         val parameters = listOf(24, 16, 32, 48, 0, 0)
@@ -706,6 +955,141 @@ class SystemNnnPlayerViewModelTest {
         viewModel.start(testScript(), decoder, EmptyAssets)
 
         assertNull(viewModel.uiState.screenEffectId)
+    }
+
+    @Test
+    fun nativeSystemFunctionsUpdateRuntimeStateAndGatePlayerInput() {
+        val offsets = recordOffsets(List(12) { 3 })
+        val commandMap = linkedMapOf<Long, SystemNnnDecodedCommand>()
+        val functions = listOf(
+            0x001B to listOf(42, 1),
+            0x001C to listOf(42, 3, 1),
+            0x0018 to listOf(2, 7, -1),
+            0x0057 to listOf(-1),
+            0x0058 to listOf(1),
+            0x005A to listOf(4),
+            0x001E to listOf(2),
+            0x0059 to listOf(1),
+            0x0017 to emptyList(),
+            0x0053 to listOf(3),
+            0x0028 to listOf(75)
+        )
+        functions.forEachIndexed { index, entry ->
+            commandMap[offsets[index]] = SystemNnnDecodedCommand.NativeSystemFunction(
+                nextCommandOffset = offsets[index + 1],
+                functionId = entry.first,
+                parameters = entry.second
+            )
+        }
+        val textStart = testTextStartOffset(List(12) { 3 })
+        commandMap[offsets[11]] = SystemNnnDecodedCommand.Dialogue(
+            nextCommandOffset = offsets.last() + 12L,
+            textEntryOffset = textStart
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(
+            script = testScript(List(12) { 3 }),
+            commandDecoder = FakeDecoder(commandMap),
+            assetResolver = EmptyAssets
+        )
+
+        val native = viewModel.uiState.nativeRuntime
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertEquals(42, native.lastMessageId)
+        assertEquals(3, native.nextMessageType)
+        assertEquals(-1, native.nextMessageWindowPrintMode)
+        assertTrue(native.messageWindowPrintFlag)
+        assertFalse(native.messageHaveVoiceFlag)
+        assertEquals(setOf(1 to 6), native.cgFlags)
+        assertEquals(0, native.autoMessage)
+        assertEquals(1, native.cannotClick)
+        assertEquals(1, native.cannotSkip)
+        assertEquals(4, native.optionOff)
+        assertEquals(0, native.dontPlayMode)
+        assertEquals(3, native.configMask)
+        assertEquals(75, native.frameTimeMillis)
+
+        viewModel.onScreenTap()
+        assertFalse(viewModel.uiState.isTextComplete)
+    }
+
+    @Test
+    fun startMessageWithoutParametersPreservesPendingMessageWindowMode() {
+        val lengths = List(3) { 3 }
+        val offsets = recordOffsets(lengths)
+        val textStart = testTextStartOffset(lengths)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.NativeSystemFunction(
+                    nextCommandOffset = offsets[1],
+                    functionId = 0x001B,
+                    parameters = listOf(42, 1)
+                ),
+                offsets[1] to SystemNnnDecodedCommand.NativeSystemFunction(
+                    nextCommandOffset = offsets[2],
+                    functionId = 0x001B,
+                    parameters = emptyList()
+                ),
+                offsets[2] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2] + 12L,
+                    textEntryOffset = textStart
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(lengths), decoder, EmptyAssets)
+
+        assertEquals("First line", viewModel.uiState.dialogueText)
+        assertFalse(viewModel.uiState.nativeRuntime.messageWindowPrintFlag)
+        assertEquals(-1, viewModel.uiState.nativeRuntime.nextMessageWindowPrintMode)
+    }
+
+    @Test
+    fun autoMessageBlocksManualInputButAdvancesAfterItsNativeTimer() {
+        val lengths = List(4) { 3 }
+        val offsets = recordOffsets(lengths)
+        val textStart = testTextStartOffset(lengths)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.NativeSystemFunction(
+                    nextCommandOffset = offsets[1],
+                    functionId = 0x0057,
+                    parameters = listOf(1)
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = textStart
+                ),
+                offsets[2] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[3],
+                    textEntryOffset = textStart + 0x0CL
+                ),
+                offsets[3] to SystemNnnDecodedCommand.End
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+        viewModel.start(testScript(lengths), decoder, EmptyAssets)
+
+        assertEquals(1, viewModel.uiState.nativeRuntime.autoMessage)
+        viewModel.onScreenTap()
+        assertFalse(viewModel.uiState.isTextComplete)
+        viewModel.onTypewriterFinished()
+        viewModel.onScreenTap()
+        assertEquals("First line", viewModel.uiState.dialogueText)
+
+        viewModel.onAutoMessageTimerElapsed()
+        assertEquals("Choose a path", viewModel.uiState.dialogueText)
+    }
+
+    @Test
+    fun setDemoFlagRuntimeCanToggleTheNativeGlobalAutoParameter() {
+        val viewModel = SystemNnnPlayerViewModel()
+        viewModel.setNativeAutoMode(true)
+        assertEquals(1, viewModel.uiState.nativeRuntime.dontPlayMode)
+        viewModel.setNativeAutoMode(false)
+        assertEquals(0, viewModel.uiState.nativeRuntime.dontPlayMode)
     }
 
     @Test

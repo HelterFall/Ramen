@@ -22,6 +22,14 @@ class SystemNnnDiagnosticLogTest {
         diagnostics.record("effect", "layer=3 id=66 parameters=1,2,3")
         diagnostics.updateRuntimeSnapshot("module=main film=2 commandOffset=0x1234")
         diagnostics.recordException("decode_failure", IllegalStateException("test failure"), "offset=0x1234")
+        diagnostics.recordTrace(
+            "scene_frame",
+            linkedMapOf(
+                "step" to 7,
+                "dialogue" to "woman says \"hello\"",
+                "layers" to listOf(mapOf("layer" to 10, "packType" to 7, "alpha" to 0.4))
+            )
+        )
 
         val archive = diagnostics.createArchive(File(root, "export.zip"))
         assertTrue(archive.isFile)
@@ -29,6 +37,7 @@ class SystemNnnDiagnosticLogTest {
         ZipFile(archive).use { zip ->
             val names = zip.entries().asSequence().map { it.name }.toSet()
             assertTrue(names.contains("system-nnn-diagnostics.log"))
+            assertTrue(names.contains("ramen_scene_trace.jsonl"))
             assertTrue(names.contains("system-nnn-runtime-snapshot.txt"))
             assertTrue(names.contains("system-nnn-crashes.txt"))
             assertTrue(names.contains("ramen_debug.log"))
@@ -37,6 +46,11 @@ class SystemNnnDiagnosticLogTest {
             val log = zip.getInputStream(zip.getEntry("system-nnn-diagnostics.log"))
                 .bufferedReader().readText()
             assertTrue(log.contains("layer=3 id=66"))
+            val trace = zip.getInputStream(zip.getEntry("ramen_scene_trace.jsonl"))
+                .bufferedReader().readText()
+            assertTrue(trace.contains("\"event\":\"scene_frame\""))
+            assertTrue(trace.contains("\"step\":7"))
+            assertTrue(trace.contains("woman says \\\"hello\\\""))
             val snapshot = zip.getInputStream(zip.getEntry("system-nnn-runtime-snapshot.txt"))
                 .bufferedReader().readText()
             assertTrue(snapshot.contains("commandOffset=0x1234"))
@@ -61,6 +75,7 @@ class SystemNnnDiagnosticLogTest {
                 .bufferedReader().readText()
             assertTrue(log.contains("first line second line"))
             assertFalse(zip.entries().asSequence().any { it.name == "ramen_debug.log" })
+            assertTrue(zip.entries().asSequence().any { it.name == "ramen_scene_trace.jsonl" })
         }
     }
 }

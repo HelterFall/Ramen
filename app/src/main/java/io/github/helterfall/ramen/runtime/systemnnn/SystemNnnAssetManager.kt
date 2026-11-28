@@ -7,6 +7,7 @@ import io.github.helterfall.ramen.runtime.nativeaudio.AndroidGpkImageDecoder
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
+import java.util.Locale
 
 enum class SystemNnnAssetBankType {
     INDEXED_IMAGE,
@@ -25,6 +26,21 @@ data class SystemNnnAssetBankInfo(
     val nativeNamespace: String? = null,
     /** Numeric suffix in dwq/<namespace><slot>.gtb/.gpk, when recognized. */
     val bankSlot: Int? = null
+)
+
+data class SystemNnnAudioResourceInventoryEntry(
+    val bankId: String,
+    val rowIndex: Int,
+    val resourceName: String,
+    val blockOffsetBytes: Long,
+    val blockSizeBytes: Long,
+    val oggPayloadOffsetBytes: Long,
+    val oggPayloadSizeBytes: Long,
+    val sampleRateHz: Int,
+    val channels: Int,
+    val bitsPerSample: Int,
+    val decodedPcmSizeBytes: Long,
+    val oggPageCount: Int
 )
 
 data class SystemNnnAssetCatalog(
@@ -182,6 +198,80 @@ class SystemNnnAssetManager private constructor(
         }
     }
 
+    override fun imageMetadata(resourceId: String): SystemNnnImageResourceMetadata? {
+        checkOpen()
+        val matchingBanks = imageBanks.filter { it.repository.hasResourceName(resourceId) }
+        if (matchingBanks.size > 1) {
+            throw IOException(
+                "Image metadata name '" + resourceId +
+                    "' exists in multiple banks; use a bank-qualified lookup."
+            )
+        }
+        return when {
+            matchingBanks.size == 1 -> matchingBanks.single().repository.imageMetadata(resourceId)
+            imageBanks.size == 1 -> imageBanks.single().repository.imageMetadata(resourceId)
+            else -> null
+        }
+    }
+
+    override fun imageMetadata(
+        namespace: String,
+        slot: Int,
+        resourceId: String
+    ): SystemNnnImageResourceMetadata? {
+        checkOpen()
+        if (namespace.isBlank() || slot < 0) {
+            throw IOException("A native image namespace and non-negative slot are required.")
+        }
+        val matches = imageBanks.filter {
+            it.info.nativeNamespace.equals(namespace.trim(), ignoreCase = true) &&
+                it.info.bankSlot == slot
+        }
+        return when (matches.size) {
+            0 -> null
+            1 -> matches.single().repository.imageMetadata(resourceId)
+            else -> throw IOException(
+                "Native image bank " + namespace + slot +
+                    " is ambiguous while reading image metadata."
+            )
+        }
+    }
+
+    override fun imageMetadataByIndex(index: Long): SystemNnnImageResourceMetadata? {
+        checkOpen()
+        return when (imageBanks.size) {
+            0 -> null
+            1 -> imageBanks.single().repository.imageMetadataByIndex(index)
+            else -> throw IOException(
+                "Image metadata index is ambiguous across " + imageBanks.size +
+                    " banks; use a bank-qualified lookup."
+            )
+        }
+    }
+
+    override fun imageMetadataByNativeBankIndex(
+        namespace: String,
+        slot: Int,
+        index: Long
+    ): SystemNnnImageResourceMetadata? {
+        checkOpen()
+        if (namespace.isBlank() || slot < 0) {
+            throw IOException("A native image namespace and non-negative slot are required.")
+        }
+        val matches = imageBanks.filter {
+            it.info.nativeNamespace.equals(namespace.trim(), ignoreCase = true) &&
+                it.info.bankSlot == slot
+        }
+        return when (matches.size) {
+            0 -> null
+            1 -> matches.single().repository.imageMetadataByIndex(index)
+            else -> throw IOException(
+                "Native image bank " + namespace + slot +
+                    " is ambiguous while reading image metadata."
+            )
+        }
+    }
+
     /** Resolves a zero-based resource row in an explicitly selected native bank. */
     @Throws(IOException::class)
     override fun loadBitmapByNativeBankIndex(namespace: String, slot: Int, index: Long): Bitmap? {
@@ -215,6 +305,44 @@ class SystemNnnAssetManager private constructor(
         // The ViewModel retains the manager as the bitmap owner and invokes
         // release only after the corresponding Compose Image leaves composition.
         if (!bitmap.isRecycled) bitmap.recycle()
+    }
+
+    /** Full index metadata without staging or decoding any image/audio payload. */
+    fun imageResourceInventory(): List<SystemNnnImageResourceInventoryEntry> {
+        checkOpen()
+        return imageBanks.flatMap { bank -> bank.repository.inventory(bank.info.id) }
+    }
+
+    fun audioResourceInventory(): List<SystemNnnAudioResourceInventoryEntry> {
+        checkOpen()
+        return audioBanks.flatMap { bank ->
+            bank.repository.entries.mapIndexed { index, entry ->
+                SystemNnnAudioResourceInventoryEntry(
+                    bankId = bank.info.id,
+                    rowIndex = index,
+                    resourceName = entry.name,
+                    blockOffsetBytes = entry.blockOffset,
+                    blockSizeBytes = entry.blockSizeBytes,
+                    oggPayloadOffsetBytes = entry.oggPayloadOffset,
+                    oggPayloadSizeBytes = entry.oggPayloadSizeBytes,
+                    sampleRateHz = entry.sampleRateHz,
+                    channels = entry.channels,
+                    bitsPerSample = entry.bitsPerSample,
+                    decodedPcmSizeBytes = entry.decodedPcmSizeBytes,
+                    oggPageCount = entry.oggPageCount
+                )
+            }
+        }
+    }
+
+    fun musicNameListInventory(): List<Pair<Int, String>> {
+        checkOpen()
+        return musicResourceNames.mapIndexed { index, name -> index to name }
+    }
+
+    fun soundNameListInventory(): List<Pair<Int, String>> {
+        checkOpen()
+        return soundResourceNames.mapIndexed { index, name -> index to name }
     }
 
     override fun findResource(resourceId: String): VpkAudioResource? {
@@ -395,6 +523,18 @@ class SystemNnnAssetManager private constructor(
         private const val MAX_NAME_LIST_ENTRIES = 100_000
         private const val MAX_MML_BYTES = 4L * 1024L * 1024L
         private const val ALTERNATE_PROJECT_DIRECTORY = "!eng files"
+        private val IGNORED_RESOURCE_DIRECTORY_NAMES = setOf(
+            ALTERNATE_PROJECT_DIRECTORY,
+            "test",
+            "tests",
+            "testdata",
+            "__tests__",
+            "fixtures",
+            "local-test",
+            "local-tests",
+            "local_test",
+            "local_tests"
+        )
 
         private fun normalizeNativeResourceToken(value: String, kind: String): String {
             val token = value.trim().replace('\\', '/')
@@ -649,8 +789,8 @@ class SystemNnnAssetManager private constructor(
                     !Files.isSymbolicLink(directory.toPath()) &&
                         (
                             directory == root ||
-                                directory.name.equals(ALTERNATE_PROJECT_DIRECTORY, ignoreCase = true) ||
-                                !hasDirectSystemNnnProject(directory)
+                                (!isIgnoredResourceDirectory(directory) &&
+                                    !hasDirectSystemNnnProject(directory))
                             )
                 }
                 .filter { file ->
@@ -666,6 +806,20 @@ class SystemNnnAssetManager private constructor(
                 warnings += "Asset discovery for .$extension was truncated at $MAX_DISCOVERED_FILES files."
             }
             return discovered.take(MAX_DISCOVERED_FILES)
+        }
+
+        /**
+         * Backup and developer fixture folders are adjacent to some imported game
+         * roots. They are not part of the selected installation's resource banks.
+         * Prune them before walking so same-stem indexes cannot cross-contaminate.
+         */
+        private fun isIgnoredResourceDirectory(directory: File): Boolean {
+            val name = directory.name.lowercase(Locale.ROOT)
+            if (name in IGNORED_RESOURCE_DIRECTORY_NAMES) return true
+            return name.startsWith("test_") ||
+                name.startsWith("test-") ||
+                name.endsWith("_test") ||
+                name.endsWith("-test")
         }
 
         /**

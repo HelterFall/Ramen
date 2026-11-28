@@ -61,6 +61,14 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         }
     }
 
+    private val traceExportLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/x-ndjson")
+    ) { uri ->
+        if (uri != null && ::diagnosticLog.isInitialized) {
+            exportSceneTrace(uri)
+        }
+    }
+
     private fun exportDiagnostics(destination: Uri) {
         try {
             val archive = diagnosticLog.createArchive(File(cacheDir, "ramen-system-nnn-diagnostics.zip"))
@@ -79,6 +87,26 @@ class SystemNnnPlayerActivity : ComponentActivity() {
             android.widget.Toast.makeText(
                 this,
                 "Не удалось сохранить отчёт: " + (failure.message ?: "ошибка файла."),
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun exportSceneTrace(destination: Uri) {
+        try {
+            val output = contentResolver.openOutputStream(destination)
+                ?: throw IOException("Android did not provide an output stream for the trace.")
+            output.use { stream -> diagnosticLog.writeTraceTo(stream) }
+            android.widget.Toast.makeText(
+                this,
+                "Трасса сохранена как ramen_scene_trace.jsonl.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+        } catch (failure: Exception) {
+            diagnosticLog.recordException("scene_trace_export_failure", failure)
+            android.widget.Toast.makeText(
+                this,
+                "Не удалось сохранить трассу: " + (failure.message ?: "ошибка файла."),
                 android.widget.Toast.LENGTH_LONG
             ).show()
         }
@@ -107,13 +135,21 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                 SystemNnnPlayerScreen(
                     state = playerViewModel.uiState,
                     onScreenTap = playerViewModel::onNextTap,
+                    onAutomaticAdvance = playerViewModel::onAutomaticAdvance,
+                    onAutoMessageTimerElapsed = playerViewModel::onAutoMessageTimerElapsed,
+                    onAutoModeChanged = playerViewModel::setNativeAutoMode,
+                    onDrawFrameProgress = playerViewModel::onDrawFrameProgress,
                     onDrawFrameCompleted = playerViewModel::onDrawFrameCompleted,
+                    onScreenCaptureReady = playerViewModel::onScreenCaptureReady,
                     onChoiceSelected = playerViewModel::onChoiceSelected,
                     onTypewriterProgress = playerViewModel::onTypewriterProgress,
                     onTypewriterFinished = playerViewModel::onTypewriterFinished,
                     onBitmapDisposed = playerViewModel::onBitmapDisposed,
                     onExportDiagnostics = {
                         diagnosticsExportLauncher.launch("ramen-system-nnn-diagnostics.zip")
+                    },
+                    onExportTrace = {
+                        traceExportLauncher.launch("ramen_scene_trace.jsonl")
                     },
                     onQuickAction = { action ->
                         val message = when (action) {
@@ -150,6 +186,14 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     commandStreamReader = commandStreamReader
                 )
                 val initialSceneRoute = resolveRequestedSceneRoute(launch)
+                val overrapConfig = runCatching {
+                    SystemNnnOverrapConfig.load(launch.assetRootDirectory)
+                }.onFailure { diagnosticLog.recordException("overrap_setup", it) }
+                    .getOrDefault(SystemNnnOverrapConfig())
+                val gameConfig = runCatching {
+                    SystemNnnGameConfig.load(launch.assetRootDirectory)
+                }.onFailure { diagnosticLog.recordException("native_game_config", it) }
+                    .getOrDefault(SystemNnnGameConfig())
                 val assetManagerToTransfer = SystemNnnAssetManager.forGameDirectory(
                     gameDirectory = launch.assetRootDirectory,
                     cacheDirectory = File(cacheDir, "systemnnn-audio")
@@ -160,6 +204,7 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                     if (isFinishing || isDestroyed) {
                         assetManagerToTransfer.close()
                     } else {
+                        playerViewModel.setOverrapConfig(overrapConfig)
                         val projectVariables = launch.initialVariables.toMutableMap()
                         val decoderFactory: (SystemNnnPlayerModuleProgram) -> SystemNnnCommandDecoder = {
                             SystemNnnCommandDecoderImpl(
@@ -176,7 +221,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                                 assetResolver = assetManagerToTransfer,
                                 decoderFactory = decoderFactory,
                                 audioRepository = assetManagerToTransfer,
-                                initialSceneRoute = initialSceneRoute
+                                initialSceneRoute = initialSceneRoute,
+                                initialGameConfig = gameConfig
                             )
                         } else {
                             playerViewModel.start(
@@ -188,7 +234,8 @@ class SystemNnnPlayerActivity : ComponentActivity() {
                                 ),
                                 assetResolver = assetManagerToTransfer,
                                 initialCommandOffset = launch.initialCommandOffset,
-                                audioRepository = assetManagerToTransfer
+                                audioRepository = assetManagerToTransfer,
+                                initialGameConfig = gameConfig
                             )
                         }
                     }
@@ -464,18 +511,50 @@ class SystemNnnPlayerActivity : ComponentActivity() {
     }
 
     override fun onPause() {
-        if (::diagnosticLog.isInitialized) diagnosticLog.record("lifecycle", "activity_paused")
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.recordTrace(
+                "android_lifecycle_pause_enter",
+                mapOf("sdk" to Build.VERSION.SDK_INT)
+            )
+        }
         if (::playerViewModel.isInitialized) {
-            playerViewModel.onHostPaused()
+            try {
+                playerViewModel.onHostPaused()
+            } catch (failure: Exception) {
+                if (::diagnosticLog.isInitialized) {
+                    diagnosticLog.recordException("activity_pause_failure", failure)
+                } else {
+                    System.err.println("Ramen pause failure: " + (failure.message ?: failure.javaClass.simpleName))
+                }
+            }
+        }
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.recordTrace("android_lifecycle_pause_complete", emptyMap())
         }
         super.onPause()
     }
 
     override fun onResume() {
         super.onResume()
-        if (::diagnosticLog.isInitialized) diagnosticLog.record("lifecycle", "activity_resumed")
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.recordTrace(
+                "android_lifecycle_resume_enter",
+                mapOf("sdk" to Build.VERSION.SDK_INT)
+            )
+        }
         if (::playerViewModel.isInitialized) {
-            playerViewModel.onHostResumed()
+            try {
+                playerViewModel.onHostResumed()
+            } catch (failure: Exception) {
+                if (::diagnosticLog.isInitialized) {
+                    diagnosticLog.recordException("activity_resume_failure", failure)
+                } else {
+                    System.err.println("Ramen resume failure: " + (failure.message ?: failure.javaClass.simpleName))
+                }
+            }
+        }
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.recordTrace("android_lifecycle_resume_complete", emptyMap())
         }
     }
 
@@ -483,9 +562,14 @@ class SystemNnnPlayerActivity : ComponentActivity() {
         if (::startupExecutor.isInitialized) {
             startupExecutor.shutdownNow()
         }
+        if (::diagnosticLog.isInitialized) {
+            diagnosticLog.record("lifecycle", "activity_destroyed")
+            // Let the bounded daemon writer drain without blocking Android's main thread.
+            diagnosticLog.shutdownAfterPendingWrites()
+        }
         runCatching { crashHandlerRegistration?.close() }
         crashHandlerRegistration = null
-        if (SystemNnnDiagnosticLog.active === diagnosticLog) {
+        if (::diagnosticLog.isInitialized && SystemNnnDiagnosticLog.active === diagnosticLog) {
             SystemNnnDiagnosticLog.active = null
         }
         super.onDestroy()

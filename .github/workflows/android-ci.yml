@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main, docs/system-nnn-launch-roadmap]
+    branches: [main, docs/system-nnn-launch-roadmap, audit/system-nnn-compat-20261126]
   pull_request:
     branches: [main]
   workflow_dispatch:

@@ -10,6 +10,23 @@ import io.github.helterfall.ramen.runtime.nativeaudio.AndroidGpkImageDecoder
 import java.io.File
 import java.io.IOException
 
+data class SystemNnnImageResourceInventoryEntry(
+    val bankId: String,
+    val rowIndex: Int,
+    val resourceName: String,
+    val format: String,
+    val blockOffsetBytes: Long?,
+    val blockSizeBytes: Long,
+    val payloadOffsetBytes: Long?,
+    val payloadSizeBytes: Long,
+    val widthPixels: Int?,
+    val heightPixels: Int?,
+    val packType: Int?,
+    val hasAlphaMask: Boolean?,
+    val isValid: Boolean,
+    val validationError: String? = null
+)
+
 /**
  * Resolves indexed GPK images or Black Cyc WGQ/DWQ resources.
  *
@@ -91,6 +108,52 @@ class SystemNnnGpkBitmapRepository private constructor(
 
     fun loadBitmap(index: Int): Bitmap? = loadBitmapByIndex(index.toLong())
 
+    /**
+     * Returns structural index metadata only. No image payload is decoded or copied.
+     * Standalone WGQ rows expose their filename and size; indexed GTB/GPK rows
+     * expose the validated dimensions, packing type, and byte ranges.
+     */
+    fun inventory(bankId: String): List<SystemNnnImageResourceInventoryEntry> {
+        if (wgqFiles.isNotEmpty()) {
+            return wgqFiles.mapIndexed { index, file ->
+                val size = file.length().coerceAtLeast(0L)
+                SystemNnnImageResourceInventoryEntry(
+                    bankId = bankId,
+                    rowIndex = index,
+                    resourceName = file.name,
+                    format = "STANDALONE_WGQ",
+                    blockOffsetBytes = null,
+                    blockSizeBytes = size,
+                    payloadOffsetBytes = null,
+                    payloadSizeBytes = size,
+                    widthPixels = null,
+                    heightPixels = null,
+                    packType = null,
+                    hasAlphaMask = null,
+                    isValid = true
+                )
+            }
+        }
+        return archive.entries.mapIndexed { index, entry ->
+            SystemNnnImageResourceInventoryEntry(
+                bankId = bankId,
+                rowIndex = index,
+                resourceName = entry.name,
+                format = entry.format.name,
+                blockOffsetBytes = entry.blockOffset,
+                blockSizeBytes = entry.blockSizeBytes,
+                payloadOffsetBytes = entry.payloadOffset,
+                payloadSizeBytes = entry.payloadSizeBytes,
+                widthPixels = entry.widthPixels.takeIf { it > 0 },
+                heightPixels = entry.heightPixels.takeIf { it > 0 },
+                packType = entry.packType.takeIf { it >= 0 },
+                hasAlphaMask = entry.hasAlpha,
+                isValid = entry.isValid,
+                validationError = entry.validationError
+            )
+        }
+    }
+
     /** Exact, case-insensitive name lookup used by the project-level asset catalog. */
     fun hasResourceName(resourceId: String): Boolean {
         if (wgqFiles.isNotEmpty()) {
@@ -132,6 +195,36 @@ class SystemNnnGpkBitmapRepository private constructor(
                 trimmed.substring(2).toLongOrNull(16)
             else -> trimmed.toLongOrNull()
         }
+    }
+
+    /** Returns validated DWQ metadata for the resource token without decoding pixels. */
+    override fun imageMetadata(resourceId: String): SystemNnnImageResourceMetadata? {
+        if (wgqFiles.isNotEmpty()) return null
+        val entry = findEntry(resourceId) ?: return null
+        return SystemNnnImageResourceMetadata(
+            resourceName = entry.name,
+            widthPixels = entry.widthPixels,
+            heightPixels = entry.heightPixels,
+            packType = entry.packType.takeIf { it >= 0 },
+            format = entry.format.name,
+            hasAlphaMask = entry.hasAlpha,
+            blockOffset = entry.blockOffset
+        )
+    }
+
+
+    override fun imageMetadataByIndex(index: Long): SystemNnnImageResourceMetadata? {
+        if (wgqFiles.isNotEmpty() || index < 0L || index >= archive.entries.size.toLong()) return null
+        val entry = archive.entries[index.toInt()]
+        return SystemNnnImageResourceMetadata(
+            resourceName = entry.name,
+            widthPixels = entry.widthPixels,
+            heightPixels = entry.heightPixels,
+            packType = entry.packType.takeIf { it >= 0 },
+            format = entry.format.name,
+            hasAlphaMask = entry.hasAlpha,
+            blockOffset = entry.blockOffset
+        )
     }
 
     private fun decode(entry: GpkImageResource): Bitmap {
