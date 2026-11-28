@@ -24,7 +24,8 @@ data class NscripterScriptProgram(
             "textbtnwait", "csel", "rmenu", "dwave", "dwaveloop", "dwavestop",
             "stop", "numalias", "intlimit", "add", "if", "for", "next", "goto",
             "gosub", "return", "wait", "caption", "game", "end", "nsa",
-            "savefileexist", "savenumber", "saveon", "savetime"
+            "savefileexist", "savenumber", "saveon", "savetime",
+            "mov", "jumpb", "jumpf", "btndef", "erasetextwindow"
         )
 
         /**
@@ -61,7 +62,19 @@ data class NscripterScriptProgram(
             "autosaveoff", "autosaveon", "effectblank", "effectcut",
             "effectdown", "effectleft", "effectright", "effectup",
             "effectwave", "english", "globalon", "mode800", "mode320",
-            "useescspc", "usewheel"
+            "useescspc", "usewheel", "clickstr", "defaultspeed", "defmp3vol",
+            "defsevol", "defvoicevol", "kidokuskip", "killmenu", "menusetwindow",
+            "mode_ext", "mode_wave_demo", "selectcolor", "textgosub", "cdfadeout",
+            "textspeeddefault", "textoff", "texton", "windowchip", "btnnowindowerase",
+            "noteraseman", "mod", "monocro", "ofscpy", "repaint", "allsphide",
+            "allspresume", "vsp", "ld", "tal", "textclear", "textspeed", "textcolor",
+            "clickvoice", "autoclick", "click", "lrclick", "clickskippage",
+            "mousecursor", "mousemode", "movemousecursor", "abssetcursor",
+            "getnextline", "defaultfont", "shadedistance", "setwindow2", "setwindow4",
+            "setkinsoku", "addkinsoku", "kinsoku", "language", "systemcall",
+            "table", "tablegoto", "r_trap", "lr_trap", "textbtnwait2", "btnwait2",
+            "btntime", "btntime2", "automode", "mp3", "mp3loop", "mp3stop",
+            "mp3save", "bgmvol", "sevol", "voicevol", "cdfadein", "cdplay", "cdstop"
         )
 
         @Throws(IOException::class)
@@ -96,43 +109,41 @@ data class NscripterScriptProgram(
 
                 val inline = line.startsWith(":")
                 if (inline) line = line.drop(1)
-                val statements = if (inline) splitStatements(line) else listOf(line)
+                val isIfStatement = Regex("^if\\b", RegexOption.IGNORE_CASE).containsMatchIn(line)
+                val firstToken = Regex("^([A-Za-z_][A-Za-z0-9_]*)").find(line)?.groupValues?.get(1)
+                val commandLine = firstToken != null && firstToken.lowercase() in knownCommands
+                // ':' separates NScripter statements. Keep if conditions intact; the
+                // VM separates their condition from the following command chain.
+                val statements = when {
+                    isIfStatement -> listOf(line)
+                    inline || commandLine -> splitStatements(line)
+                    else -> listOf(line)
+                }
                 for (statementValue in statements) {
                     var statement = statementValue.trim()
                     if (statement.isEmpty() || statement.startsWith(";")) continue
+                    if (statement == "~") {
+                        instructions += NscripterInstruction("tilde", "", lineIndex + 1, speaker)
+                        continue
+                    }
                     val forced = statement.startsWith("@")
                     if (forced) statement = statement.drop(1).trim()
                     val match = Regex("^([A-Za-z_][A-Za-z0-9_]*)(?:\\s+(.*))?$")
                         .matchEntire(statement)
                     val command = match?.groupValues?.get(1)?.lowercase()
+                    val arguments = match?.groupValues?.getOrElse(2) { "" }?.trim().orEmpty()
                     if (command != null && command in supportedCommands) {
-                        instructions += NscripterInstruction(
-                            command,
-                            match.groupValues.getOrElse(2) { "" }.trim(),
-                            lineIndex + 1,
-                            speaker
-                        )
+                        instructions += NscripterInstruction(command, arguments, lineIndex + 1, speaker)
                     } else if (command != null && command in knownCommands) {
-                        // Preserve the command as a non-dialogue instruction. The
-                        // VM currently treats unimplemented commands as no-ops.
-                        instructions += NscripterInstruction(
-                            command,
-                            match.groupValues.getOrElse(2) { "" }.trim(),
-                            lineIndex + 1,
-                            speaker
-                        )
+                        instructions += NscripterInstruction(command, arguments, lineIndex + 1, speaker)
                     } else if (forced) {
                         throw IOException("Unsupported NScripter command at line " + (lineIndex + 1) + ": " + statement)
                     } else if (inDefineSection) {
-                        // Every non-empty statement before "game" in *define is
-                        // setup syntax, never player-facing dialogue. Keep unknown
-                        // directives non-interactive rather than yielding TAP.
-                        instructions += NscripterInstruction(
-                            "unsupported",
-                            statement,
-                            lineIndex + 1,
-                            speaker
-                        )
+                        instructions += NscripterInstruction("unsupported", statement, lineIndex + 1, speaker)
+                    } else if (command != null) {
+                        // An ASCII command-shaped line is an engine directive, not
+                        // player-facing dialogue. Unsupported directives are skipped.
+                        instructions += NscripterInstruction(command, arguments, lineIndex + 1, speaker)
                     } else {
                         if (statement.startsWith(">")) statement = statement.drop(1)
                         if (statement.endsWith("@")) statement = statement.dropLast(1)
