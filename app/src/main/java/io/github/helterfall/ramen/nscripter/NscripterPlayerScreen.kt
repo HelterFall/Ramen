@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -66,16 +67,25 @@ fun NscripterPlayerScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(Color(scene.backgroundColor?.let(::parseSceneColor) ?: 0xFF000000.toInt()))
-            .clickable(
-                interactionSource = screenInteractionSource,
-                indication = null,
-                enabled = scene.buttons.isEmpty() && scene.choices.isEmpty() &&
-                    timedWaitMillis == null && !isEnded,
-                onClick = onTap
-            )
+            .background(Color.Black)
     ) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
+        BoxWithConstraints(
+            Modifier
+                .align(Alignment.Center)
+                .aspectRatio(
+                    screenWidth.coerceAtLeast(1).toFloat() / screenHeight.coerceAtLeast(1),
+                    matchHeightConstraintsFirst = true
+                )
+                .background(Color(scene.backgroundColor?.let(::parseSceneColor) ?: 0xFF000000.toInt()))
+                .clickable(
+                    interactionSource = screenInteractionSource,
+                    indication = null,
+                    enabled = scene.buttons.isEmpty() && scene.choices.isEmpty() &&
+                        timedWaitMillis == null && !isEnded,
+                    onClick = onTap
+                )
+        ) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
             val background = remember(scene.background, resources) {
                 scene.background?.let { resources?.loadBitmap(it) }
             }
@@ -85,7 +95,7 @@ fun NscripterPlayerScreen(
                     bitmap = background.asImageBitmap(),
                     contentDescription = "NScripter background",
                     modifier = Modifier.fillMaxSize(),
-                    contentScale = ContentScale.FillBounds
+                    contentScale = ContentScale.Fit
                 )
             }
 
@@ -259,6 +269,7 @@ fun NscripterPlayerScreen(
                 modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(12.dp)) {
                 Text(message, color = Color.White, modifier = Modifier.padding(12.dp))
             }
+        }
         }
     }
 }
