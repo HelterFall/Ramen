@@ -170,9 +170,11 @@ class NscripterVirtualMachineTest {
             *start
             mov %a, 2
             mov %b, 0
+            mov %102, 2
+            if %102 == 2 mov %index_ok, 1
             if %a == 2 && %b == 0 mov %result, 1
             if %a != 0 || %b == 1 mov %or_result, 1
-            if %result == 1 && %or_result == 1
+            if %result == 1 && %or_result == 1 && %index_ok == 1
             logical-condition-ok
             end
             """.trimIndent()
