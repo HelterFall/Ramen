@@ -285,7 +285,7 @@ class NscripterVirtualMachineTest {
             """
             *start
             mov %save_num, 2
-            mov ${'
+            mov ${'$'}save_str, "menu.bmp"
             if %save_num <= 10 lsp %save_num+130,${'$'}save_str,84,35 + ( (%save_num - 10) * 49)
             mov %save_num, 11
             if %save_num >= 11 lsp %save_num+130,${'$'}save_str,440,18 + ( (%save_num - 10) * 49)
