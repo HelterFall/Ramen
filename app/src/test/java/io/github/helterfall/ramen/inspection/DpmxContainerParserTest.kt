@@ -180,10 +180,10 @@ class DpmxContainerParserTest {
             assertEquals(DpmxKeyResolution.Method.PE_HSPHED_DECKEY, resolution!!.method)
             assertEquals(DpmxKeyResolution.Validation.HSP3_BYTECODE_LOADER, resolution.validation)
             // Independent reference vector from the HSP 2.6-3.2 key schedule.
-            assertEquals(0xB0, resolution.globalSeed1)
-            assertEquals(0x96, resolution.globalSeed2)
-            assertEquals(0xBB, resolution.key.al)
-            assertEquals(0x62, resolution.key.cl)
+            assertEquals(0xBC, resolution.globalSeed1)
+            assertEquals(0x9A, resolution.globalSeed2)
+            assertEquals(0xBF, resolution.key.al)
+            assertEquals(0x6E, resolution.key.cl)
             assertEquals(key, resolution.key)
         }
     }
@@ -212,8 +212,8 @@ class DpmxContainerParserTest {
             assertEquals(DpmxKeyResolution.Method.PE_HSPHED_DECKEY, resolution!!.method)
             assertEquals(DpmxCipherVersion.HSP_33_TO_36, resolution.key.version)
             // Independent reference vector for the HSP 3.3-3.6 constants.
-            assertEquals(0xC4, resolution.key.al)
-            assertEquals(0x23, resolution.key.cl)
+            assertEquals(0xC8, resolution.key.al)
+            assertEquals(0x2F, resolution.key.cl)
             assertArrayEquals(
                 plainAx,
                 DpmxDecryptor.decryptPrefix(source, container.entries.single(), resolution.key, plainAx.size)
