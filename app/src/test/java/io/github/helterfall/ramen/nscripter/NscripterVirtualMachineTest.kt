@@ -285,10 +285,10 @@ class NscripterVirtualMachineTest {
             """
             *start
             mov %save_num, 2
-            mov ${', "menu.bmp"
-            if %save_num <= 10 lsp %save_num+130,$save_str,84,35 + ( (%save_num - 10) * 49)
+            mov ${'
+            if %save_num <= 10 lsp %save_num+130,${'$'}save_str,84,35 + ( (%save_num - 10) * 49)
             mov %save_num, 11
-            if %save_num >= 11 lsp %save_num+130,$save_str,440,18 + ( (%save_num - 10) * 49)
+            if %save_num >= 11 lsp %save_num+130,${'$'}save_str,440,18 + ( (%save_num - 10) * 49)
             ready
             end
             """.trimIndent()
@@ -417,7 +417,519 @@ class NscripterVirtualMachineTest {
 }save_str, "menu.bmp"
             if %save_num <= 10 lsp %save_num+130,${',84,35 + ( (%save_num - 10) * 49)
             mov %save_num, 11
-            if %save_num >= 11 lsp %save_num+130,$save_str,440,18 + ( (%save_num - 10) * 49)
+            if %save_num >= 11 lsp %save_num+130,${'$'}save_str,440,18 + ( (%save_num - 10) * 49)
+            ready
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val result = vm.resume()
+        assertTrue(result is NscripterVmYield.Dialogue)
+        val sprites = vm.snapshot().sprites.associateBy { it.number }
+        assertEquals("menu.bmp", sprites[132]?.image)
+        assertEquals(84, sprites[132]?.x)
+        assertEquals(-357, sprites[132]?.y)
+        assertEquals("menu.bmp", sprites[141]?.image)
+        assertEquals(440, sprites[141]?.x)
+        assertEquals(67, sprites[141]?.y)
+    }
+
+    @Test
+    fun supportsMp3ClickVspTextclearAndRepaintCommands() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            mp3loop "music/title.mp3"
+            mp3 "music/sting.mp3"
+            lsp 7, "menu.bmp", 0, 0
+            text-before-clear
+            vsp 7, 0
+            textclear
+            repaint
+            click
+            vsp 7, 1
+            after-click
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val first = vm.resume()
+        assertTrue(first is NscripterVmYield.Dialogue)
+        assertEquals("text-before-clear", (first as NscripterVmYield.Dialogue).scene.dialogue)
+        val audio = vm.takeAudioActions()
+        assertEquals(2, audio.size)
+        assertEquals("music/title.mp3", audio[0].fileName)
+        assertEquals(50, audio[0].channel)
+        assertTrue(audio[0].loop)
+        assertEquals("music/sting.mp3", audio[1].fileName)
+        assertEquals(50, audio[1].channel)
+        assertFalse(audio[1].loop)
+
+        vm.acceptTap()
+        val cleared = vm.resume()
+        assertTrue(cleared is NscripterVmYield.Frame)
+        assertEquals("", (cleared as NscripterVmYield.Frame).scene.dialogue)
+        assertFalse(vm.snapshot().sprites.single().visible)
+
+        val clickWait = vm.resume()
+        assertTrue(clickWait is NscripterVmYield.Dialogue)
+        assertEquals("", (clickWait as NscripterVmYield.Dialogue).scene.dialogue)
+        vm.acceptTap()
+        val afterClick = vm.resume()
+        assertTrue(afterClick is NscripterVmYield.Dialogue)
+        assertEquals("after-click", (afterClick as NscripterVmYield.Dialogue).scene.dialogue)
+        assertTrue(vm.snapshot().sprites.single().visible)
+    }
+    @Test
+    fun parserRecognizesEveryRequestedRuntimeCommand() {
+        val source = """
+            bg "bg.jpg", 1
+            lsp 1, "sprite.png", 0, 0, :c
+            lsph 2, "hidden.png", 2, 2, :a
+            csp 1
+            print
+            windowback
+            windoweffect 10, 200
+            setwindow 16, 16, 20, 4, 26, 26, 0, 0, 0, 0, 0, "#ffffff", 0, 320, 639, 479
+            btn 1, "OK", 10, 10, 100, 40
+            spbtn 2, 3
+            exbtn 2, 3, "P2"
+            exbtn_d "C2"
+            btnwait %0
+            textbtnwait %1
+            csel "Yes", *yes, "No", *no
+            rmenu "Save", save, "Load", load
+            dwave 0, "a.wav"
+            dwaveloop 1, "b.mp3"
+            dwavestop 1
+            stop
+            numalias zero, 0
+            intlimit %0, 0, 5
+            add %0, 1
+            if %0 > 0 goto *yes
+            for %1 = 1 to 2
+            next
+            goto *yes
+            gosub *yes
+            return
+            wait 10
+            caption "title"
+            game
+            end
+            nsa
+            savefileexist %2, 0
+            savenumber 8
+            saveon
+            savetime 0, %3, %4, %5, %6
+            btndef "～"
+            erasetextwindow 1
+            mov 0, 99
+            jumpb
+            jumpf
+            mp3loop "music.mp3"
+            mp3 "once.mp3"
+            vsp 2, 1
+            textclear
+            repaint
+            click
+            *yes
+            end
+            *no
+            end
+        """.trimIndent()
+        val program = NscripterScriptProgram.parse(source)
+        val recognized = program.instructions.map { it.command }.toSet()
+        assertTrue(NscripterScriptProgram.supportedCommands.all { it in recognized })
+        assertTrue(program.instructions.none { it.command == "text" })
+    }
+}
+}save_str,84,35 + ( (%save_num - 10) * 49)
+            mov %save_num, 11
+            if %save_num >= 11 lsp %save_num+130,${',440,18 + ( (%save_num - 10) * 49)
+            ready
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val result = vm.resume()
+        assertTrue(result is NscripterVmYield.Dialogue)
+        val sprites = vm.snapshot().sprites.associateBy { it.number }
+        assertEquals("menu.bmp", sprites[132]?.image)
+        assertEquals(84, sprites[132]?.x)
+        assertEquals(-357, sprites[132]?.y)
+        assertEquals("menu.bmp", sprites[141]?.image)
+        assertEquals(440, sprites[141]?.x)
+        assertEquals(67, sprites[141]?.y)
+    }
+
+    @Test
+    fun supportsMp3ClickVspTextclearAndRepaintCommands() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            mp3loop "music/title.mp3"
+            mp3 "music/sting.mp3"
+            lsp 7, "menu.bmp", 0, 0
+            text-before-clear
+            vsp 7, 0
+            textclear
+            repaint
+            click
+            vsp 7, 1
+            after-click
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val first = vm.resume()
+        assertTrue(first is NscripterVmYield.Dialogue)
+        assertEquals("text-before-clear", (first as NscripterVmYield.Dialogue).scene.dialogue)
+        val audio = vm.takeAudioActions()
+        assertEquals(2, audio.size)
+        assertEquals("music/title.mp3", audio[0].fileName)
+        assertEquals(50, audio[0].channel)
+        assertTrue(audio[0].loop)
+        assertEquals("music/sting.mp3", audio[1].fileName)
+        assertEquals(50, audio[1].channel)
+        assertFalse(audio[1].loop)
+
+        vm.acceptTap()
+        val cleared = vm.resume()
+        assertTrue(cleared is NscripterVmYield.Frame)
+        assertEquals("", (cleared as NscripterVmYield.Frame).scene.dialogue)
+        assertFalse(vm.snapshot().sprites.single().visible)
+
+        val clickWait = vm.resume()
+        assertTrue(clickWait is NscripterVmYield.Dialogue)
+        assertEquals("", (clickWait as NscripterVmYield.Dialogue).scene.dialogue)
+        vm.acceptTap()
+        val afterClick = vm.resume()
+        assertTrue(afterClick is NscripterVmYield.Dialogue)
+        assertEquals("after-click", (afterClick as NscripterVmYield.Dialogue).scene.dialogue)
+        assertTrue(vm.snapshot().sprites.single().visible)
+    }
+    @Test
+    fun parserRecognizesEveryRequestedRuntimeCommand() {
+        val source = """
+            bg "bg.jpg", 1
+            lsp 1, "sprite.png", 0, 0, :c
+            lsph 2, "hidden.png", 2, 2, :a
+            csp 1
+            print
+            windowback
+            windoweffect 10, 200
+            setwindow 16, 16, 20, 4, 26, 26, 0, 0, 0, 0, 0, "#ffffff", 0, 320, 639, 479
+            btn 1, "OK", 10, 10, 100, 40
+            spbtn 2, 3
+            exbtn 2, 3, "P2"
+            exbtn_d "C2"
+            btnwait %0
+            textbtnwait %1
+            csel "Yes", *yes, "No", *no
+            rmenu "Save", save, "Load", load
+            dwave 0, "a.wav"
+            dwaveloop 1, "b.mp3"
+            dwavestop 1
+            stop
+            numalias zero, 0
+            intlimit %0, 0, 5
+            add %0, 1
+            if %0 > 0 goto *yes
+            for %1 = 1 to 2
+            next
+            goto *yes
+            gosub *yes
+            return
+            wait 10
+            caption "title"
+            game
+            end
+            nsa
+            savefileexist %2, 0
+            savenumber 8
+            saveon
+            savetime 0, %3, %4, %5, %6
+            btndef "～"
+            erasetextwindow 1
+            mov 0, 99
+            jumpb
+            jumpf
+            mp3loop "music.mp3"
+            mp3 "once.mp3"
+            vsp 2, 1
+            textclear
+            repaint
+            click
+            *yes
+            end
+            *no
+            end
+        """.trimIndent()
+        val program = NscripterScriptProgram.parse(source)
+        val recognized = program.instructions.map { it.command }.toSet()
+        assertTrue(NscripterScriptProgram.supportedCommands.all { it in recognized })
+        assertTrue(program.instructions.none { it.command == "text" })
+    }
+}
+}save_str,440,18 + ( (%save_num - 10) * 49)
+            ready
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val result = vm.resume()
+        assertTrue(result is NscripterVmYield.Dialogue)
+        val sprites = vm.snapshot().sprites.associateBy { it.number }
+        assertEquals("menu.bmp", sprites[132]?.image)
+        assertEquals(84, sprites[132]?.x)
+        assertEquals(-357, sprites[132]?.y)
+        assertEquals("menu.bmp", sprites[141]?.image)
+        assertEquals(440, sprites[141]?.x)
+        assertEquals(67, sprites[141]?.y)
+    }
+
+    @Test
+    fun supportsMp3ClickVspTextclearAndRepaintCommands() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            mp3loop "music/title.mp3"
+            mp3 "music/sting.mp3"
+            lsp 7, "menu.bmp", 0, 0
+            text-before-clear
+            vsp 7, 0
+            textclear
+            repaint
+            click
+            vsp 7, 1
+            after-click
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val first = vm.resume()
+        assertTrue(first is NscripterVmYield.Dialogue)
+        assertEquals("text-before-clear", (first as NscripterVmYield.Dialogue).scene.dialogue)
+        val audio = vm.takeAudioActions()
+        assertEquals(2, audio.size)
+        assertEquals("music/title.mp3", audio[0].fileName)
+        assertEquals(50, audio[0].channel)
+        assertTrue(audio[0].loop)
+        assertEquals("music/sting.mp3", audio[1].fileName)
+        assertEquals(50, audio[1].channel)
+        assertFalse(audio[1].loop)
+
+        vm.acceptTap()
+        val cleared = vm.resume()
+        assertTrue(cleared is NscripterVmYield.Frame)
+        assertEquals("", (cleared as NscripterVmYield.Frame).scene.dialogue)
+        assertFalse(vm.snapshot().sprites.single().visible)
+
+        val clickWait = vm.resume()
+        assertTrue(clickWait is NscripterVmYield.Dialogue)
+        assertEquals("", (clickWait as NscripterVmYield.Dialogue).scene.dialogue)
+        vm.acceptTap()
+        val afterClick = vm.resume()
+        assertTrue(afterClick is NscripterVmYield.Dialogue)
+        assertEquals("after-click", (afterClick as NscripterVmYield.Dialogue).scene.dialogue)
+        assertTrue(vm.snapshot().sprites.single().visible)
+    }
+    @Test
+    fun parserRecognizesEveryRequestedRuntimeCommand() {
+        val source = """
+            bg "bg.jpg", 1
+            lsp 1, "sprite.png", 0, 0, :c
+            lsph 2, "hidden.png", 2, 2, :a
+            csp 1
+            print
+            windowback
+            windoweffect 10, 200
+            setwindow 16, 16, 20, 4, 26, 26, 0, 0, 0, 0, 0, "#ffffff", 0, 320, 639, 479
+            btn 1, "OK", 10, 10, 100, 40
+            spbtn 2, 3
+            exbtn 2, 3, "P2"
+            exbtn_d "C2"
+            btnwait %0
+            textbtnwait %1
+            csel "Yes", *yes, "No", *no
+            rmenu "Save", save, "Load", load
+            dwave 0, "a.wav"
+            dwaveloop 1, "b.mp3"
+            dwavestop 1
+            stop
+            numalias zero, 0
+            intlimit %0, 0, 5
+            add %0, 1
+            if %0 > 0 goto *yes
+            for %1 = 1 to 2
+            next
+            goto *yes
+            gosub *yes
+            return
+            wait 10
+            caption "title"
+            game
+            end
+            nsa
+            savefileexist %2, 0
+            savenumber 8
+            saveon
+            savetime 0, %3, %4, %5, %6
+            btndef "～"
+            erasetextwindow 1
+            mov 0, 99
+            jumpb
+            jumpf
+            mp3loop "music.mp3"
+            mp3 "once.mp3"
+            vsp 2, 1
+            textclear
+            repaint
+            click
+            *yes
+            end
+            *no
+            end
+        """.trimIndent()
+        val program = NscripterScriptProgram.parse(source)
+        val recognized = program.instructions.map { it.command }.toSet()
+        assertTrue(NscripterScriptProgram.supportedCommands.all { it in recognized })
+        assertTrue(program.instructions.none { it.command == "text" })
+    }
+}
+}save_str, "menu.bmp"
+            if %save_num <= 10 lsp %save_num+130,${'$'}save_str,84,35 + ( (%save_num - 10) * 49)
+            mov %save_num, 11
+            if %save_num >= 11 lsp %save_num+130,${'$'}save_str,440,18 + ( (%save_num - 10) * 49)
+            ready
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val result = vm.resume()
+        assertTrue(result is NscripterVmYield.Dialogue)
+        val sprites = vm.snapshot().sprites.associateBy { it.number }
+        assertEquals("menu.bmp", sprites[132]?.image)
+        assertEquals(84, sprites[132]?.x)
+        assertEquals(-357, sprites[132]?.y)
+        assertEquals("menu.bmp", sprites[141]?.image)
+        assertEquals(440, sprites[141]?.x)
+        assertEquals(67, sprites[141]?.y)
+    }
+
+    @Test
+    fun supportsMp3ClickVspTextclearAndRepaintCommands() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            mp3loop "music/title.mp3"
+            mp3 "music/sting.mp3"
+            lsp 7, "menu.bmp", 0, 0
+            text-before-clear
+            vsp 7, 0
+            textclear
+            repaint
+            click
+            vsp 7, 1
+            after-click
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val first = vm.resume()
+        assertTrue(first is NscripterVmYield.Dialogue)
+        assertEquals("text-before-clear", (first as NscripterVmYield.Dialogue).scene.dialogue)
+        val audio = vm.takeAudioActions()
+        assertEquals(2, audio.size)
+        assertEquals("music/title.mp3", audio[0].fileName)
+        assertEquals(50, audio[0].channel)
+        assertTrue(audio[0].loop)
+        assertEquals("music/sting.mp3", audio[1].fileName)
+        assertEquals(50, audio[1].channel)
+        assertFalse(audio[1].loop)
+
+        vm.acceptTap()
+        val cleared = vm.resume()
+        assertTrue(cleared is NscripterVmYield.Frame)
+        assertEquals("", (cleared as NscripterVmYield.Frame).scene.dialogue)
+        assertFalse(vm.snapshot().sprites.single().visible)
+
+        val clickWait = vm.resume()
+        assertTrue(clickWait is NscripterVmYield.Dialogue)
+        assertEquals("", (clickWait as NscripterVmYield.Dialogue).scene.dialogue)
+        vm.acceptTap()
+        val afterClick = vm.resume()
+        assertTrue(afterClick is NscripterVmYield.Dialogue)
+        assertEquals("after-click", (afterClick as NscripterVmYield.Dialogue).scene.dialogue)
+        assertTrue(vm.snapshot().sprites.single().visible)
+    }
+    @Test
+    fun parserRecognizesEveryRequestedRuntimeCommand() {
+        val source = """
+            bg "bg.jpg", 1
+            lsp 1, "sprite.png", 0, 0, :c
+            lsph 2, "hidden.png", 2, 2, :a
+            csp 1
+            print
+            windowback
+            windoweffect 10, 200
+            setwindow 16, 16, 20, 4, 26, 26, 0, 0, 0, 0, 0, "#ffffff", 0, 320, 639, 479
+            btn 1, "OK", 10, 10, 100, 40
+            spbtn 2, 3
+            exbtn 2, 3, "P2"
+            exbtn_d "C2"
+            btnwait %0
+            textbtnwait %1
+            csel "Yes", *yes, "No", *no
+            rmenu "Save", save, "Load", load
+            dwave 0, "a.wav"
+            dwaveloop 1, "b.mp3"
+            dwavestop 1
+            stop
+            numalias zero, 0
+            intlimit %0, 0, 5
+            add %0, 1
+            if %0 > 0 goto *yes
+            for %1 = 1 to 2
+            next
+            goto *yes
+            gosub *yes
+            return
+            wait 10
+            caption "title"
+            game
+            end
+            nsa
+            savefileexist %2, 0
+            savenumber 8
+            saveon
+            savetime 0, %3, %4, %5, %6
+            btndef "～"
+            erasetextwindow 1
+            mov 0, 99
+            jumpb
+            jumpf
+            mp3loop "music.mp3"
+            mp3 "once.mp3"
+            vsp 2, 1
+            textclear
+            repaint
+            click
+            *yes
+            end
+            *no
+            end
+        """.trimIndent()
+        val program = NscripterScriptProgram.parse(source)
+        val recognized = program.instructions.map { it.command }.toSet()
+        assertTrue(NscripterScriptProgram.supportedCommands.all { it in recognized })
+        assertTrue(program.instructions.none { it.command == "text" })
+    }
+}
+}save_str, "menu.bmp"
+            if %save_num <= 10 lsp %save_num+130,${',84,35 + ( (%save_num - 10) * 49)
+            mov %save_num, 11
+            if %save_num >= 11 lsp %save_num+130,${'$'}save_str,440,18 + ( (%save_num - 10) * 49)
             ready
             end
             """.trimIndent()
