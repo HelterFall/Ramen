@@ -140,9 +140,9 @@ data class NscripterScriptProgram(
                         throw IOException("Unsupported NScripter command at line " + (lineIndex + 1) + ": " + statement)
                     } else if (inDefineSection) {
                         instructions += NscripterInstruction("unsupported", statement, lineIndex + 1, speaker)
-                    } else if (command != null) {
-                        // An ASCII command-shaped line is an engine directive, not
-                        // player-facing dialogue. Unsupported directives are skipped.
+                    } else if (command != null && arguments.isNotBlank()) {
+                        // Unknown ASCII commands with parameters are treated as
+                        // engine directives; bare words remain valid dialogue.
                         instructions += NscripterInstruction(command, arguments, lineIndex + 1, speaker)
                     } else {
                         if (statement.startsWith(">")) statement = statement.drop(1)
