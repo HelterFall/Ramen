@@ -805,7 +805,7 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
-    fun haikeiYureMoveScreenRunsAfterItsOwnLayerTenBitmap() {
+    fun haikeiYureMoveScreenUsesNativeLayerTenEvenWithoutLayerBitmap() {
         val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
         val ordered = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
             bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 12),

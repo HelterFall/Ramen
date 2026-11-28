@@ -709,7 +709,7 @@ fun SystemNnnPlayerScreen(
                             screenEffectFrame, inlineHaikeiYureParameters
                         )
                         // Native CEffectHaikeiYure::Print(layerType=1) calls MoveScreen()
-                        // at its layer index: shift layers below it, then draw FADEIN/text above.
+                        // at its layer index: move the accumulated framebuffer through this layer, then draw upper layers.
                         Box(
                             Modifier.fillMaxSize().graphicsLayer {
                                 translationX = (viewportDpWidth.toPx() *
