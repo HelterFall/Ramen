@@ -9,15 +9,18 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -269,27 +272,21 @@ private fun Hsp3PlayerScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = title,
-                        color = Color(0xFFF4F1EA),
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1
-                    )
-                    Text(
-                        text = "HSP3.1 • 800×600 • ${if (session == null) "Подготовка" else "Запуск"}",
-                        color = Color(0xFFA8ADB7),
-                        fontSize = 10.sp
-                    )
-                }
+                Text(
+                    text = title,
+                    color = Color(0xFFF4F1EA),
+                    modifier = Modifier.weight(1f),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1
+                )
                 Text(
                     text = "Закрыть",
                     color = Color(0xFFF2B766),
                     modifier = Modifier
                         .clip(RoundedCornerShape(10.dp))
                         .background(Color(0xFF292E37))
-                        .pointerInput(Unit) { detectTapGestures(onTap = { onExit() }) }
+                        .clickable(onClick = onExit)
                         .padding(horizontal = 12.dp, vertical = 8.dp),
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Bold
@@ -376,6 +373,8 @@ private fun GamepadOverlay(
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .navigationBarsPadding()
+            .displayCutoutPadding()
             .background(Color(0x8020242D))
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -397,40 +396,59 @@ private fun GamepadOverlay(
 private fun DpadControl(input: Hsp3TouchInputController) {
     Box(
         modifier = Modifier
-            .size(width = 154.dp, height = 108.dp)
+            .size(width = 150.dp, height = 126.dp)
             .clip(RoundedCornerShape(18.dp))
             .background(Color(0x8020242D))
             .pointerInput(input) {
                 val zoneWidth = size.width.toFloat()
                 val zoneHeight = size.height.toFloat()
                 awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    val pointerId = down.id
+                    val down = awaitFirstDown(
+                        requireUnconsumed = false,
+                        pass = PointerEventPass.Initial
+                    )
+                    var activePointerId = down.id
+                    down.consume()
+                    input.setDpadPosition(down.position.x, down.position.y, zoneWidth, zoneHeight)
                     try {
-                        down.consume()
-                        input.setDpadPosition(
-                            down.position.x,
-                            down.position.y,
-                            zoneWidth,
-                            zoneHeight
-                        )
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                            if (!change.pressed) {
-                                change.consume()
-                                break
+                        var tracking = true
+                        while (tracking) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val activeChange = event.changes.firstOrNull {
+                                it.id == activePointerId
+                            } ?: continue
+                            activeChange.consume()
+                            if (activeChange.pressed) {
+                                input.setDpadPosition(
+                                    activeChange.position.x,
+                                    activeChange.position.y,
+                                    zoneWidth,
+                                    zoneHeight
+                                )
+                            } else {
+                                // Transfer to another finger still held inside the D-pad.
+                                val replacement = event.changes.firstOrNull {
+                                    it.id != activePointerId &&
+                                        it.pressed &&
+                                        it.position.x in 0f..zoneWidth &&
+                                        it.position.y in 0f..zoneHeight
+                                }
+                                if (replacement != null) {
+                                    activePointerId = replacement.id
+                                    replacement.consume()
+                                    input.setDpadPosition(
+                                        replacement.position.x,
+                                        replacement.position.y,
+                                        zoneWidth,
+                                        zoneHeight
+                                    )
+                                } else {
+                                    tracking = false
+                                }
                             }
-                            input.setDpadPosition(
-                                change.position.x,
-                                change.position.y,
-                                zoneWidth,
-                                zoneHeight
-                            )
-                            change.consume()
                         }
                     } finally {
-                        // Also runs for pointer cancellation or gesture interruption.
+                        // Always clear on up or cancellation; action-key bits are untouched.
                         input.setDpadMask(0)
                     }
                 }
@@ -439,14 +457,15 @@ private fun DpadControl(input: Hsp3TouchInputController) {
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(4.dp)
+            verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             DpadArrow("▲")
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                 DpadArrow("◀")
-                DpadArrow("▼")
+                DpadCenter()
                 DpadArrow("▶")
             }
+            DpadArrow("▼")
         }
     }
 }
@@ -455,8 +474,8 @@ private fun DpadControl(input: Hsp3TouchInputController) {
 private fun DpadArrow(label: String) {
     Box(
         modifier = Modifier
-            .size(width = 46.dp, height = 42.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .size(width = 46.dp, height = 38.dp)
+            .clip(RoundedCornerShape(9.dp))
             .background(Color(0xD938414E)),
         contentAlignment = Alignment.Center
     ) {
@@ -470,6 +489,16 @@ private fun DpadArrow(label: String) {
 }
 
 @Composable
+private fun DpadCenter() {
+    Box(
+        modifier = Modifier
+            .size(width = 46.dp, height = 38.dp)
+            .clip(RoundedCornerShape(9.dp))
+            .background(Color(0xD938414E))
+    )
+}
+
+@Composable
 private fun ControlKey(
     label: String,
     bits: Int,
@@ -480,17 +509,29 @@ private fun ControlKey(
             .size(width = if (label.length > 2) 66.dp else 46.dp, height = 42.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(Color(0xD938414E))
-            .pointerInput(bits) {
-                detectTapGestures(
-                    onPress = {
-                        input.setPressed(bits, true)
-                        try {
-                            tryAwaitRelease()
-                        } finally {
-                            input.setPressed(bits, false)
+            .pointerInput(input, bits) {
+                awaitEachGesture {
+                    val down = awaitFirstDown(
+                        requireUnconsumed = false,
+                        pass = PointerEventPass.Initial
+                    )
+                    val pointerId = down.id
+                    down.consume()
+                    input.setPressed(bits, true)
+                    try {
+                        var held = true
+                        while (held) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val change = event.changes.firstOrNull { it.id == pointerId }
+                                ?: continue
+                            change.consume()
+                            if (!change.pressed) held = false
                         }
+                    } finally {
+                        // This pointer releases only its own action key(s).
+                        input.setPressed(bits, false)
                     }
-                )
+                }
             },
         contentAlignment = Alignment.Center
     ) {

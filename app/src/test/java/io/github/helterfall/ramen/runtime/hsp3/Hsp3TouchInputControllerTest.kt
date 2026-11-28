@@ -7,6 +7,56 @@ import org.junit.Test
 
 class Hsp3TouchInputControllerTest {
     @Test
+    fun movingDownWithinLeftPetalDoesNotAddDownUntilEnteringBottomLeftCell() {
+        val input = Hsp3TouchInputController()
+        input.setDpadPosition(16f, 48f, 100f, 100f)
+        assertEquals(Hsp3TouchInputController.STICK_LEFT, input.stickMask())
+
+        // Small downward sliding stays in the middle-left rectangular petal.
+        input.setDpadPosition(16f, 62f, 100f, 100f)
+        assertEquals(Hsp3TouchInputController.STICK_LEFT, input.stickMask())
+        assertTrue(input.isKeyDown(37))
+        assertFalse(input.isKeyDown(40))
+
+        // Down is added only after entering the explicit bottom-left diagonal cell.
+        input.setDpadPosition(16f, 70f, 100f, 100f)
+        assertEquals(
+            Hsp3TouchInputController.STICK_LEFT or Hsp3TouchInputController.STICK_DOWN,
+            input.stickMask()
+        )
+    }
+
+    @Test
+    fun dpadAndEscXActionPointerCanBeHeldAndReleasedIndependently() {
+        val input = Hsp3TouchInputController()
+        val runBits = Hsp3TouchInputController.STICK_ESCAPE or
+            Hsp3TouchInputController.STICK_X
+
+        input.setDpadPosition(16f, 48f, 100f, 100f)
+        input.setPressed(runBits, true)
+        assertTrue(input.isKeyDown(37))
+        assertTrue(input.isKeyDown(27))
+        assertTrue(input.isKeyDown(88))
+        assertFalse(input.isKeyDown(40))
+
+        input.setDpadPosition(16f, 70f, 100f, 100f)
+        assertTrue(input.isKeyDown(37))
+        assertTrue(input.isKeyDown(40))
+        assertTrue(input.isKeyDown(27))
+        assertTrue(input.isKeyDown(88))
+
+        // Releasing the D-pad must leave the independent action pointer held.
+        input.setDpadMask(0)
+        assertFalse(input.isKeyDown(37))
+        assertFalse(input.isKeyDown(40))
+        assertTrue(input.isKeyDown(27))
+        assertTrue(input.isKeyDown(88))
+
+        input.setPressed(runBits, false)
+        assertEquals(0, input.stickMask())
+    }
+
+    @Test
     fun slidingFromDownIntoBottomLeftSectorKeepsDownAndAddsLeft() {
         val input = Hsp3TouchInputController()
         input.setDpadPosition(50f, 90f, 100f, 100f)

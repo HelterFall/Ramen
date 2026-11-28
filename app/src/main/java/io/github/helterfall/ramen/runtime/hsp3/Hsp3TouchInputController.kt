@@ -3,38 +3,32 @@ package io.github.helterfall.ramen.runtime.hsp3
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.math.abs
 
-/** Maps a single pointer within the complete D-pad area to one of eight directions. */
+/** Maps a pointer to the rectangular cells of a classic 3x3 cross-shaped D-pad. */
 internal object Hsp3DpadMapper {
-    private const val CENTER_DEAD_ZONE = 0.22f
-    // Diagonal sectors span 45 degrees and set both directional bits.
-    private const val DIAGONAL_RATIO = 0.41421357f
-
     fun directionMask(x: Float, y: Float, width: Float, height: Float): Int {
         if (width <= 0f || height <= 0f) return 0
 
-        // Normalize the axes independently so a non-square touch zone still has
-        // a circular dead zone and equal angular sectors.
-        val dx = ((x / width) * 2f - 1f).coerceIn(-1f, 1f)
-        val dy = ((y / height) * 2f - 1f).coerceIn(-1f, 1f)
-        if (dx * dx + dy * dy <= CENTER_DEAD_ZONE * CENTER_DEAD_ZONE) return 0
+        // Cardinal petals are the middle cells of each edge. The corners are
+        // explicit diagonal sectors; the center cell is a rectangular dead zone.
+        val column = ((x / width) * 3f).toInt().coerceIn(0, 2)
+        val row = ((y / height) * 3f).toInt().coerceIn(0, 2)
 
-        val horizontal = abs(dx)
-        val vertical = abs(dy)
-        val horizontalBit = if (dx < 0f) {
-            Hsp3TouchInputController.STICK_LEFT
-        } else {
-            Hsp3TouchInputController.STICK_RIGHT
-        }
-        val verticalBit = if (dy < 0f) {
-            Hsp3TouchInputController.STICK_UP
-        } else {
-            Hsp3TouchInputController.STICK_DOWN
-        }
-
-        return when {
-            vertical < horizontal * DIAGONAL_RATIO -> horizontalBit
-            horizontal < vertical * DIAGONAL_RATIO -> verticalBit
-            else -> horizontalBit or verticalBit
+        return when (row) {
+            0 -> when (column) {
+                0 -> Hsp3TouchInputController.STICK_UP or Hsp3TouchInputController.STICK_LEFT
+                1 -> Hsp3TouchInputController.STICK_UP
+                else -> Hsp3TouchInputController.STICK_UP or Hsp3TouchInputController.STICK_RIGHT
+            }
+            1 -> when (column) {
+                0 -> Hsp3TouchInputController.STICK_LEFT
+                1 -> 0
+                else -> Hsp3TouchInputController.STICK_RIGHT
+            }
+            else -> when (column) {
+                0 -> Hsp3TouchInputController.STICK_DOWN or Hsp3TouchInputController.STICK_LEFT
+                1 -> Hsp3TouchInputController.STICK_DOWN
+                else -> Hsp3TouchInputController.STICK_DOWN or Hsp3TouchInputController.STICK_RIGHT
+            }
         }
     }
 }
