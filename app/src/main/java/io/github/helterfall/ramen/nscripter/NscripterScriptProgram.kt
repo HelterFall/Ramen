@@ -116,7 +116,7 @@ data class NscripterScriptProgram(
                 // VM separates their condition from the following command chain.
                 val statements = when {
                     isIfStatement -> listOf(line)
-                    inline || commandLine -> splitStatements(line)
+                    inline || commandLine -> splitCommandStatements(line)
                     else -> listOf(line)
                 }
                 for (statementValue in statements) {
@@ -168,6 +168,29 @@ data class NscripterScriptProgram(
                 screenWidth = if (mode800) 800 else 640,
                 screenHeight = if (mode800) 600 else 480
             )
+        }
+
+        internal fun splitCommandStatements(value: String): List<String> {
+            val parts = ArrayList<String>()
+            var quote: Char? = null
+            var escaped = false
+            var start = 0
+            value.forEachIndexed { index, char ->
+                if (escaped) escaped = false
+                else if (char == '\\\\') escaped = true
+                else if (quote != null && char == quote) quote = null
+                else if (quote == null && (char == '"' || char.code == 96)) quote = char
+                else if (quote == null && char == ':') {
+                    val next = value.substring(index + 1).trimStart()
+                    val nextCommand = Regex("^([A-Za-z_][A-Za-z0-9_]*)").find(next)?.groupValues?.get(1)
+                    if (nextCommand != null && nextCommand.lowercase() in knownCommands) {
+                        parts += value.substring(start, index)
+                        start = index + 1
+                    }
+                }
+            }
+            parts += value.substring(start)
+            return parts
         }
 
         internal fun splitStatements(value: String): List<String> {
