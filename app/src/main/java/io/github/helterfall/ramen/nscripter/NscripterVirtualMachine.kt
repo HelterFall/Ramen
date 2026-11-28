@@ -433,7 +433,7 @@ class NscripterVirtualMachine(
                 escaped = false
                 continue
             }
-            if (char == '\\\\') {
+            if (char == '\\') {
                 escaped = true
                 continue
             }
@@ -461,7 +461,7 @@ class NscripterVirtualMachine(
             }
             val command = Regex("^([A-Za-z_][A-Za-z0-9_]*)\\b")
                 .find(arguments.substring(candidateStart))?.groupValues?.get(1)?.lowercase(Locale.ROOT)
-            if (command in IF_ACTION_COMMANDS) {
+            if (command != null && command in IF_ACTION_COMMANDS) {
                 return arguments.substring(0, index).trim() to arguments.substring(candidateStart).trim()
             }
         }
