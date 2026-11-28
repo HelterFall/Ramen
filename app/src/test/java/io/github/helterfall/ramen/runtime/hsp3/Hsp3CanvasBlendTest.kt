@@ -25,14 +25,16 @@ class Hsp3CanvasBlendTest {
     }
 
     @Test
-    fun gcopyModeTwoStillCopiesNonBlackPixels() {
+    fun gcopyModeTwoCachesNonBlackSourcePixelsAsOpaque() {
         val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
         try {
             prepareBlackAndGreenSource(renderer)
+            assertSurfacePixel(renderer, 1, 0, 255, 0, 1, 1)
             renderer.gsel(0)
             renderer.gmode(2, 2, 2, 0)
             renderer.gcopy(1, 0, 0, 2, 2, 0, 0)
-            assertPixel(renderer, 0, 255, 0, 1, 1)
+            assertCachedPixel(renderer, 1, 0, 255, 0, 1, 1)
+            assertEquals(1, renderer.colorKeyCacheBuildCount)
         } finally { renderer.close() }
     }
 
@@ -50,7 +52,7 @@ class Hsp3CanvasBlendTest {
     }
 
     @Test
-    fun gzoomModeTwoStillCopiesNonBlackPixels() {
+    fun gzoomModeTwoReusesOpaqueNonBlackSourcePixelsFromTheSameCache() {
         val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
         try {
             prepareBlackAndGreenSource(renderer)
@@ -58,7 +60,8 @@ class Hsp3CanvasBlendTest {
             renderer.gmode(2, 2, 2, 0)
             renderer.pos(2, 0)
             renderer.gzoom(4, 4, 1, 0, 0, 2, 2, 0)
-            assertPixel(renderer, 0, 255, 0, 4, 2)
+            assertCachedPixel(renderer, 1, 0, 255, 0, 1, 1)
+            assertEquals(1, renderer.colorKeyCacheBuildCount)
         } finally { renderer.close() }
     }
 
@@ -67,10 +70,12 @@ class Hsp3CanvasBlendTest {
         val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
         try {
             prepareBlackAndGreenSource(renderer)
+            assertSurfacePixel(renderer, 1, 0, 255, 0, 1, 1)
             renderer.gsel(0)
             renderer.gmode(2, 2, 2, 0)
             renderer.gcopy(1, 0, 0, 2, 2, 0, 0)
             assertEquals(1, renderer.colorKeyCacheBuildCount)
+            assertCachedPixel(renderer, 1, 0, 255, 0, 1, 1)
 
             renderer.pos(2, 0)
             renderer.gzoom(4, 4, 1, 0, 0, 2, 2, 0)
@@ -82,7 +87,7 @@ class Hsp3CanvasBlendTest {
             renderer.gsel(0)
             renderer.gcopy(1, 0, 0, 2, 2, 4, 0)
             assertEquals(2, renderer.colorKeyCacheBuildCount)
-            assertPixel(renderer, 0, 0, 255, 4, 0)
+            assertCachedPixel(renderer, 1, 0, 0, 255, 0, 0)
         } finally { renderer.close() }
     }
 
@@ -152,6 +157,22 @@ class Hsp3CanvasBlendTest {
             renderer.gcopy(1, 0, 0, 3, 3, 0, 0)
             assertPixel(renderer, 150, 0, 0, 1, 1)
         } finally { renderer.close() }
+    }
+
+    private fun assertCachedPixel(
+        renderer: Hsp3CanvasRenderer,
+        surfaceId: Int,
+        red: Int,
+        green: Int,
+        blue: Int,
+        x: Int,
+        y: Int
+    ) {
+        val bitmap = renderer.copyColorKeyBlackBitmap(surfaceId)
+        try {
+            val expected = 0xFF000000.toInt() or (red shl 16) or (green shl 8) or blue
+            assertEquals(expected, bitmap.getPixel(x, y))
+        } finally { bitmap.recycle() }
     }
 
     private fun assertSurfacePixel(
