@@ -162,6 +162,102 @@ class NscripterVirtualMachineTest {
         directory.deleteRecursively()
     }
 
+
+    @Test
+    fun evaluatesLogicalAndOrComparisonsInIfConditions() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            mov %a, 2
+            mov %b, 0
+            if %a == 2 && %b == 0 mov %result, 1
+            if %result == 1
+            logical-condition-ok
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val result = vm.resume()
+        assertTrue(result is NscripterVmYield.Dialogue)
+        assertEquals("logical-condition-ok", (result as NscripterVmYield.Dialogue).scene.dialogue)
+    }
+
+    @Test
+    fun executesColonSeparatedMovAndGotoActionsInsideIf() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            if 3 mov %102,1:mov %sys_mode,7:goto *loaded
+            should-not-run
+            end
+            *loaded
+            chain-ok
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val result = vm.resume()
+        assertTrue(result is NscripterVmYield.Dialogue)
+        assertEquals("chain-ok", (result as NscripterVmYield.Dialogue).scene.dialogue)
+    }
+
+    @Test
+    fun parsesBtndefErasetextwindowJumpbAndTildeAsCommandsNotDialogue() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *define
+            btndef "tui2\title_on.bmp"
+            clickstr "click"
+            defaultspeed 20
+            defmp3vol 100
+            defsevol 100
+            defvoicevol 100
+            globalon
+            kidokuskip
+            killmenu
+            menusetwindow 0,0,640,480
+            mode_ext
+            mode_wave_demo
+            selectcolor 1,2
+            textgosub *text
+            usewheel
+            cdfadeout 100
+            game
+            *start
+            erasetextwindow 1
+            ~
+            jumpb
+            ready
+            end
+            """.trimIndent()
+        )
+        assertTrue(program.instructions.none {
+            it.command == "text" && (it.sourceLine in 2..18 || it.sourceLine in 20..22)
+        })
+        assertTrue(program.instructions.any { it.command == "btndef" })
+        assertTrue(program.instructions.any { it.command == "erasetextwindow" })
+        assertTrue(program.instructions.any { it.command == "jumpb" })
+        assertTrue(program.instructions.any { it.command == "tilde" })
+        val vm = NscripterVirtualMachine(
+            NscripterScriptProgram.parse(
+                """
+                *define
+                btndef "tui2\title_on.bmp"
+                game
+                *start
+                erasetextwindow 1
+                ready
+                end
+                """.trimIndent()
+            ),
+            MemorySaveStore()
+        )
+        val result = vm.resume()
+        assertTrue(result is NscripterVmYield.Dialogue)
+        assertEquals("tui2\title_on.bmp", vm.snapshot().buttonDefinition)
+        assertTrue(vm.snapshot().eraseTextWindowDuringEffect)
+    }
+
     @Test
     fun parserRecognizesEveryRequestedRuntimeCommand() {
         val source = """
