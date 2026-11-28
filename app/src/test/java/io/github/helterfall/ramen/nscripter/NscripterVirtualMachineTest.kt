@@ -372,7 +372,7 @@ class NscripterVirtualMachineTest {
         assertEquals("hidden-window", (hidden as NscripterVmYield.Dialogue).scene.dialogue)
         assertFalse(vm.snapshot().textWindowVisible)
         val bgm = vm.takeAudioActions().single()
-        assertEquals("bgm\3_1.mp3", bgm.fileName)
+        assertEquals("bgm\\3_1.mp3", bgm.fileName)
         assertEquals(50, bgm.channel)
         assertTrue(bgm.loop)
 
