@@ -375,7 +375,7 @@ private fun GamepadOverlay(
             .fillMaxWidth()
             .navigationBarsPadding()
             .displayCutoutPadding()
-            .background(Color(0x8020242D))
+            .background(Color.Transparent)
             .padding(horizontal = 12.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.Bottom
@@ -387,6 +387,7 @@ private fun GamepadOverlay(
         ) {
             ControlKey("Enter / Z", Hsp3TouchInputController.STICK_ENTER or Hsp3TouchInputController.STICK_Z, input)
             ControlKey("Esc / X", Hsp3TouchInputController.STICK_ESCAPE or Hsp3TouchInputController.STICK_X, input)
+            ControlKey("R", Hsp3TouchInputController.STICK_R, input)
             ControlKey("Space", Hsp3TouchInputController.STICK_SPACE, input)
         }
     }

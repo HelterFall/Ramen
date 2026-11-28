@@ -27,6 +27,24 @@ class Hsp3TouchInputControllerTest {
     }
 
     @Test
+    fun rActionButtonMapsToKeyCode82AndReleasesIndependently() {
+        val input = Hsp3TouchInputController()
+
+        input.setPressed(Hsp3TouchInputController.STICK_R, true)
+        assertTrue(input.isKeyDown(82))
+        assertEquals(Hsp3TouchInputController.STICK_R, input.stickMask())
+
+        // Pressing and releasing other action buttons must not clear R.
+        input.setPressed(Hsp3TouchInputController.STICK_SPACE, true)
+        input.setPressed(Hsp3TouchInputController.STICK_SPACE, false)
+        assertTrue(input.isKeyDown(82))
+
+        input.setPressed(Hsp3TouchInputController.STICK_R, false)
+        assertFalse(input.isKeyDown(82))
+        assertEquals(0, input.stickMask())
+    }
+
+    @Test
     fun dpadAndEscXActionPointerCanBeHeldAndReleasedIndependently() {
         val input = Hsp3TouchInputController()
         val runBits = Hsp3TouchInputController.STICK_ESCAPE or

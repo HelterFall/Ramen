@@ -81,6 +81,7 @@ internal class Hsp3TouchInputController : Hsp3InputProvider {
             32 -> STICK_SPACE
             90 -> STICK_Z
             88 -> STICK_X
+            82 -> STICK_R
             else -> 0
         }
         return bit != 0 && (mask.get() and bit) != 0
@@ -96,6 +97,7 @@ internal class Hsp3TouchInputController : Hsp3InputProvider {
         const val STICK_ESCAPE = 128
         const val STICK_Z = 2048
         const val STICK_X = 4096
+        const val STICK_R = 8192
         private const val DPAD_MASK = STICK_LEFT or STICK_UP or STICK_RIGHT or STICK_DOWN
     }
 }
