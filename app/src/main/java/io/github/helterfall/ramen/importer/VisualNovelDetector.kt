@@ -27,8 +27,6 @@ class VisualNovelDetector {
             file.relativeTo(gameDirectory).invariantSeparatorsPath.lowercase()
         }
 
-        // Parse valid SPT candidates before assigning a parser-available status.
-        // A signature alone is used for fast filtering; load() validates bounds.
         val sptScript = scannedFiles.asSequence()
             .filter { file ->
                 file.extension.equals("spt", ignoreCase = true) &&
@@ -49,6 +47,51 @@ class VisualNovelDetector {
                     "${sptScript.commandByteCount} raw command-region bytes and " +
                     "${sptScript.textPool.size} Shift-JIS text/resource entries parsed. " +
                     "The playback interpreter is not connected yet."
+            )
+        }
+
+        val protectedNscripterMarker = files.firstOrNull { path ->
+            path == "nscr_sec.dat" || path == "nscript.___" ||
+                path == "onscript.nt2" || path == "onscript.nt3" ||
+                path == "arc.___" || ENCRYPTED_NSA_PATTERN.matches(path)
+        }
+        if (protectedNscripterMarker != null &&
+            "0.utf" !in files && "00.utf" !in files &&
+            "0.txt" !in files && "00.txt" !in files && "nscript.dat" !in files
+        ) {
+            return GameDetection(
+                engineId = "nscripter",
+                engineLabel = "NScripter / ONScripter (обнаружен защищённый формат)",
+                compatibilityStatus = "DETECTED_UNSUPPORTED",
+                evidence = "Found '$protectedNscripterMarker'; its encryption/archive variant " +
+                    "is recognized but not decoded by the current scanner."
+            )
+        }
+
+        val nscripterMarker = files.firstOrNull { path ->
+            if (path.contains('/')) {
+                false
+            } else {
+                path == "nscript.dat" ||
+                    path == "0.utf" ||
+                    path == "00.utf" ||
+                    UTF_NUMBERED_SCRIPT_PATTERN.matches(path) ||
+                    path == "0.txt" ||
+                    path == "00.txt" ||
+                    NUMBERED_SCRIPT_PATTERN.matches(path) ||
+                    path == "arc.nsa" ||
+                    path == "arc.sar" ||
+                    EXTRA_NSA_PATTERN.matches(path)
+            }
+        }
+        if (nscripterMarker != null) {
+            return GameDetection(
+                engineId = "nscripter",
+                engineLabel = "NScripter / ONScripter (встроенный плеер доступен)",
+                compatibilityStatus = "PARSER_AVAILABLE",
+                evidence = "Found NScripter marker '$nscripterMarker'. UTF-8 script decoding, " +
+                    "NSA/SPB resource loading and the native player entry point are available; " +
+                    "per-command compatibility depends on the game script."
             )
         }
 
@@ -127,5 +170,9 @@ class VisualNovelDetector {
     companion object {
         private const val MAX_SCAN_DEPTH = 4
         private const val MAX_SCANNED_FILES = 10_000
+        private val NUMBERED_SCRIPT_PATTERN = Regex("^(?:[1-9]|[1-9][0-9]|0[1-9])\\.txt$")
+        private val UTF_NUMBERED_SCRIPT_PATTERN = Regex("^(?:[1-9]|[1-9][0-9]|0[1-9])\\.utf$")
+        private val EXTRA_NSA_PATTERN = Regex("^arc[1-9]\\.nsa$")
+        private val ENCRYPTED_NSA_PATTERN = Regex("^arc[1-9]\\.___$")
     }
 }

@@ -1,0 +1,912 @@
+package io.github.helterfall.ramen.nscripter
+
+import java.io.IOException
+import java.io.Serializable
+import java.util.Calendar
+import java.util.Locale
+
+data class NscripterSpriteState(
+    val number: Int, val image: String, val x: Int, val y: Int,
+    val opacity: Int = 255, val visible: Boolean = true,
+    val transparency: String = "a", val maskFile: String? = null, val colorKey: String? = null
+) : Serializable
+
+data class NscripterHotspot(
+    val buttonNumber: Int, val x: Int, val y: Int, val width: Int, val height: Int,
+    val spriteNumber: Int? = null,
+    val label: String = ""
+) : Serializable
+
+data class NscripterChoice(val label: String, val destination: String) : Serializable
+data class NscripterMenuItem(val label: String, val action: String) : Serializable
+
+data class NscripterTextWindow(
+    val x: Int = 0, val y: Int = 320, val width: Int = 640, val height: Int = 145,
+    val textX: Int = 18, val textY: Int = 14, val columns: Int = 23,
+    val lines: Int = 16, val fontSizeX: Int = 26, val fontSizeY: Int = 26,
+    val color: String = "#999999", val backgroundImage: String? = null
+) : Serializable
+
+data class NscripterSceneState(
+    val background: String? = null, val backgroundColor: String? = "#000000",
+    val backgroundEffect: Int = 1, val sprites: List<NscripterSpriteState> = emptyList(),
+    val buttons: List<NscripterHotspot> = emptyList(),
+    val choices: List<NscripterChoice> = emptyList(),
+    val menu: List<NscripterMenuItem> = emptyList(), val dialogue: String = "",
+    val speaker: String? = null, val caption: String = "Ramen",
+    val textWindow: NscripterTextWindow = NscripterTextWindow(),
+    val textWindowVisible: Boolean = true, val windowBack: Boolean = false,
+    val windowEffect: Int = 10, val windowEffectMillis: Int = 0,
+    val buttonDefinition: String? = null,
+    val eraseTextWindowDuringEffect: Boolean = true
+) : Serializable
+
+data class NscripterSavedGame(
+    val programCounter: Int, val integerVariables: HashMap<String, Int>,
+    val stringVariables: HashMap<String, String>, val scene: NscripterSceneState,
+    val savedAtEpochMillis: Long
+) : Serializable
+
+interface NscripterSaveStore {
+    fun exists(slot: Int): Boolean
+    fun save(slot: Int, savedGame: NscripterSavedGame)
+    fun load(slot: Int): NscripterSavedGame?
+}
+
+sealed class NscripterVmYield {
+    data class Frame(val scene: NscripterSceneState) : NscripterVmYield()
+    data class Dialogue(val scene: NscripterSceneState) : NscripterVmYield()
+    data class TimedWait(val milliseconds: Int, val scene: NscripterSceneState) : NscripterVmYield()
+    data class ButtonWait(val scene: NscripterSceneState, val textButton: Boolean) : NscripterVmYield()
+    data class ChoiceWait(val scene: NscripterSceneState) : NscripterVmYield()
+    data class Finished(val scene: NscripterSceneState) : NscripterVmYield()
+}
+
+data class NscripterAudioAction(
+    val channel: Int, val fileName: String?, val loop: Boolean, val stop: Boolean
+)
+
+class NscripterVirtualMachine(
+    private val program: NscripterScriptProgram,
+    private val saveStore: NscripterSaveStore
+) {
+    private data class LoopFrame(
+        val variable: String, val endValue: Int, val step: Int, val bodyPc: Int
+    )
+    private enum class WaitState { NONE, TAP, TIMER, BUTTON, TEXT_BUTTON, CHOICE }
+
+    private var pc = program.defineInstruction ?: program.startInstruction
+    private var waitState = WaitState.NONE
+    private var buttonResultVariable: String? = null
+    private val loops = ArrayList<LoopFrame>()
+    private val callStack = java.util.ArrayDeque<Int>()
+    private val integerVariables = HashMap<String, Int>()
+    private val stringVariables = HashMap<String, String>()
+    private val numericAliases = HashMap<String, Int>()
+    private val integerLimits = HashMap<String, IntRange>()
+    private val audioActions = ArrayList<NscripterAudioAction>()
+    private var saveEnabled = true
+    private var saveCapacity = 9
+    var archiveEnabled: Boolean = true
+        private set
+    private var scene = NscripterSceneState(
+        textWindow = NscripterTextWindow(
+            width = program.screenWidth, y = program.screenHeight * 2 / 3
+        )
+    )
+
+    fun resume(): NscripterVmYield {
+        when (waitState) {
+            WaitState.TAP -> return NscripterVmYield.Dialogue(scene)
+            WaitState.TIMER -> return NscripterVmYield.TimedWait(0, scene)
+            WaitState.BUTTON, WaitState.TEXT_BUTTON ->
+                return NscripterVmYield.ButtonWait(scene, waitState == WaitState.TEXT_BUTTON)
+            WaitState.CHOICE -> return NscripterVmYield.ChoiceWait(scene)
+            WaitState.NONE -> Unit
+        }
+
+        var executed = 0
+        while (pc in program.instructions.indices && executed++ < MAX_COMMANDS_PER_SLICE) {
+            val instruction = program.instructions[pc++]
+            val args = splitNscripterArguments(instruction.arguments)
+            when (instruction.command) {
+                "text" -> {
+                    scene = scene.copy(
+                        dialogue = stripInlineTextControls(interpolate(instruction.arguments)),
+                        speaker = instruction.speaker ?: scene.speaker,
+                        choices = emptyList()
+                    )
+                    waitState = WaitState.TAP
+                    return NscripterVmYield.Dialogue(scene)
+                }
+                "bg" -> {
+                    val image = args.firstOrNull()?.let(::resolveString)
+                    val effect = args.getOrNull(1)?.let(::value) ?: 1
+                    scene = if (image.isNullOrBlank()) {
+                        scene.copy(background = null, backgroundColor = "#000000", backgroundEffect = effect)
+                    } else if (image.equals("black", true) || image.equals("white", true) || image.startsWith("#")) {
+                        scene.copy(background = null, backgroundColor = image, backgroundEffect = effect)
+                    } else {
+                        scene.copy(background = image, backgroundColor = null, backgroundEffect = effect)
+                    }
+                }
+                "lsp", "lsph" -> executeSpriteLoad(instruction, args)
+                "csp" -> {
+                    val number = value(args.firstOrNull() ?: "0")
+                    scene = scene.copy(sprites = if (number < 0) emptyList()
+                        else scene.sprites.filterNot { it.number == number })
+                }
+                "vsp" -> {
+                    requireArgs(instruction, args, 2)
+                    val number = value(args[0])
+                    val visible = value(args[1]) != 0
+                    scene = scene.copy(sprites = scene.sprites.map { sprite ->
+                        if (sprite.number == number) sprite.copy(visible = visible) else sprite
+                    })
+                }
+                "textclear" -> scene = scene.copy(dialogue = "", speaker = null)
+                "repaint", "print" -> return NscripterVmYield.Frame(scene)
+                "windowback" -> scene = scene.copy(windowBack = true)
+                "btndef" -> scene = scene.copy(
+                    buttonDefinition = args.firstOrNull()?.let(::resolveString)
+                )
+                "erasetextwindow" -> scene = scene.copy(
+                    eraseTextWindowDuringEffect = args.firstOrNull()?.let(::value)?.let { it != 0 } ?: true
+                )
+                "windoweffect" -> scene = scene.copy(
+                    windowEffect = args.getOrNull(0)?.let(::value) ?: 10,
+                    windowEffectMillis = args.getOrNull(1)?.let(::value)?.coerceIn(0, 10000) ?: 0
+                )
+                "setwindow" -> {
+                    requireArgs(instruction, args, 14)
+                    val old = scene.textWindow
+                    val left = args.getOrNull(12)?.let(::value) ?: 0
+                    val top = args.getOrNull(13)?.let(::value) ?: 0
+                    val right = args.getOrNull(14)?.let(::value) ?: (program.screenWidth - 1)
+                    val bottom = args.getOrNull(15)?.let(::value) ?: (program.screenHeight - 1)
+                    scene = scene.copy(
+                        textWindow = NscripterTextWindow(
+                            x = left, y = top,
+                            width = (right - left + 1).coerceAtLeast(1),
+                            height = (bottom - top + 1).coerceAtLeast(1),
+                            textX = args.getOrNull(0)?.let(::value) ?: old.textX,
+                            textY = args.getOrNull(1)?.let(::value) ?: old.textY,
+                            columns = args.getOrNull(2)?.let(::value) ?: old.columns,
+                            lines = args.getOrNull(3)?.let(::value) ?: old.lines,
+                            fontSizeX = args.getOrNull(4)?.let(::value) ?: old.fontSizeX,
+                            fontSizeY = args.getOrNull(5)?.let(::value) ?: old.fontSizeY,
+                            color = args.getOrNull(11)?.let(::resolveString) ?: old.color
+                        ),
+                        textWindowVisible = true
+                    )
+                }
+                "btn" -> {
+                    requireArgs(instruction, args, 2)
+                    val id = value(args[0])
+                    val labelOrX = args[1]
+                    val isLegacyGeometry = labelOrX.trim().toIntOrNull() != null
+                    val button = if (isLegacyGeometry) {
+                        NscripterHotspot(
+                            id, value(args[1]), value(args.getOrNull(2) ?: "0"),
+                            value(args.getOrNull(3) ?: "140").coerceAtLeast(1),
+                            value(args.getOrNull(4) ?: "42").coerceAtLeast(1)
+                        )
+                    } else {
+                        NscripterHotspot(
+                            id, value(args.getOrNull(2) ?: "0"), value(args.getOrNull(3) ?: "0"),
+                            value(args.getOrNull(4) ?: "180").coerceAtLeast(1),
+                            value(args.getOrNull(5) ?: "44").coerceAtLeast(1),
+                            label = resolveString(labelOrX)
+                        )
+                    }
+                    scene = scene.copy(buttons = scene.buttons.filterNot { it.buttonNumber == id } + button)
+                }
+                "spbtn" -> {
+                    requireArgs(instruction, args, 2)
+                    val spriteNo = value(args[0])
+                    val id = value(args[1])
+                    val sprite = scene.sprites.firstOrNull { it.number == spriteNo }
+                        ?: throw IOException("spbtn references missing sprite " + spriteNo)
+                    scene = scene.copy(buttons = scene.buttons.filterNot { it.buttonNumber == id } +
+                        NscripterHotspot(id, sprite.x, sprite.y, -1, -1, spriteNo))
+                }
+                "exbtn" -> {
+                    requireArgs(instruction, args, 3)
+                    val spriteNo = value(args[0])
+                    val id = value(args[1])
+                    val sprite = scene.sprites.firstOrNull { it.number == spriteNo }
+                        ?: throw IOException("exbtn references missing sprite " + spriteNo)
+                    scene = scene.copy(buttons = scene.buttons.filterNot { it.buttonNumber == id } +
+                        NscripterHotspot(id, sprite.x, sprite.y, -1, -1, spriteNo))
+                    applySpriteControl(resolveString(args[2]))
+                }
+                "exbtn_d" -> applySpriteControl(resolveString(args.firstOrNull() ?: ""))
+                "btnwait" -> {
+                    buttonResultVariable = args.firstOrNull()
+                    waitState = WaitState.BUTTON
+                    return NscripterVmYield.ButtonWait(scene, false)
+                }
+                "textbtnwait" -> {
+                    buttonResultVariable = args.firstOrNull()
+                    waitState = WaitState.TEXT_BUTTON
+                    return NscripterVmYield.ButtonWait(scene, true)
+                }
+                "csel" -> {
+                    val pairs = args.chunked(2)
+                    val choices = pairs.mapNotNull { pair ->
+                        if (pair.size != 2) null else NscripterChoice(
+                            resolveString(pair[0]), pair[1].trim().removePrefix("*").lowercase()
+                        )
+                    }
+                    if (choices.isEmpty()) throw IOException("csel requires choice/label pairs.")
+                    scene = scene.copy(choices = choices, dialogue = "")
+                    waitState = WaitState.CHOICE
+                    return NscripterVmYield.ChoiceWait(scene)
+                }
+                "rmenu" -> {
+                    scene = scene.copy(menu = args.chunked(2).mapNotNull { pair ->
+                        if (pair.size != 2) null
+                        else NscripterMenuItem(resolveString(pair[0]), pair[1].trim().lowercase())
+                    })
+                }
+                "dwave", "dwaveloop" -> {
+                    val channel = args.getOrNull(0)?.let(::value) ?: 0
+                    val file = args.getOrNull(1)?.let(::resolveString)
+                    if (!file.isNullOrBlank()) audioActions += NscripterAudioAction(
+                        channel, file, instruction.command == "dwaveloop", false
+                    )
+                }
+                "dwavestop" -> audioActions += NscripterAudioAction(
+                    args.firstOrNull()?.let(::value) ?: 0, null, false, true
+                )
+                "bgm", "mp3", "mp3loop" -> {
+                    val file = args.firstOrNull()?.let(::resolveString)
+                    if (!file.isNullOrBlank()) {
+                        audioActions += NscripterAudioAction(
+                            NSCRIPTER_BGM_CHANNEL, file,
+                            instruction.command == "mp3loop" || instruction.command == "bgm",
+                            false
+                        )
+                    }
+                }
+                "click" -> {
+                    scene = scene.copy(dialogue = "", speaker = null, choices = emptyList())
+                    waitState = WaitState.TAP
+                    return NscripterVmYield.Dialogue(scene)
+                }
+                "textshow" -> scene = scene.copy(textWindowVisible = true)
+                "texthide" -> scene = scene.copy(textWindowVisible = false)
+                "stop" -> audioActions += NscripterAudioAction(-1, null, false, true)
+                "numalias" -> {
+                    requireArgs(instruction, args, 2)
+                    numericAliases[args[0].trim().lowercase(Locale.ROOT)] = value(args[1])
+                }
+                "intlimit" -> {
+                    requireArgs(instruction, args, 3)
+                    val key = normalizeVariable(args[0])
+                    val min = value(args[1])
+                    val max = value(args[2])
+                    if (min > max) throw IOException("intlimit minimum exceeds maximum.")
+                    integerLimits[key] = min..max
+                    setInteger(key, integerVariables[key] ?: 0)
+                }
+                "add" -> {
+                    requireArgs(instruction, args, 2)
+                    val raw = args[0].trim()
+                    val key = normalizeVariable(raw)
+                    if (raw.startsWith("\$")) stringVariables[key] =
+                        (stringVariables[key] ?: "") + resolveString(args[1])
+                    else setInteger(key, (integerVariables[key] ?: 0) + value(args[1]))
+                }
+                "mov" -> {
+                    requireArgs(instruction, args, 2)
+                    val target = args[0].trim()
+                    val key = normalizeVariable(target)
+                    if (target.startsWith("\$")) stringVariables[key] = resolveString(args[1])
+                    else setInteger(key, value(args[1]))
+                }
+                "jumpb" -> jumpToMarker(backward = true)
+                "jumpf" -> jumpToMarker(backward = false)
+                "tilde" -> Unit
+                "if" -> executeIf(instruction)?.let { return it }
+                "for" -> beginFor(instruction)
+                "next" -> finishFor()
+                "goto" -> jump(args.firstOrNull())
+                "gosub" -> { callStack.addLast(pc); jump(args.firstOrNull()) }
+                "return" -> {
+                    if (callStack.isEmpty()) throw IOException("return without gosub.")
+                    pc = callStack.removeLast()
+                }
+                "wait" -> {
+                    val millis = value(args.firstOrNull() ?: "0").coerceIn(0, 60000)
+                    waitState = WaitState.TIMER
+                    return NscripterVmYield.TimedWait(millis, scene)
+                }
+                "caption" -> scene = scene.copy(caption = resolveString(args.firstOrNull() ?: "Ramen"))
+                "game" -> pc = program.startInstruction
+                "end" -> return NscripterVmYield.Finished(scene)
+                "nsa" -> archiveEnabled = true
+                "savefileexist" -> {
+                    requireArgs(instruction, args, 2)
+                    setInteger(normalizeVariable(args[0]), if (saveStore.exists(value(args[1]))) 1 else 0)
+                }
+                "savenumber" -> saveCapacity = value(args.firstOrNull() ?: "9").coerceIn(1, 20)
+                "saveon" -> saveEnabled = true
+                "savetime" -> {
+                    requireArgs(instruction, args, 5)
+                    val stored = saveStore.load(value(args[0]))
+                    val calendar = Calendar.getInstance()
+                    if (stored != null) calendar.timeInMillis = stored.savedAtEpochMillis
+                    val values = if (stored == null) listOf(0, 0, 0, 0) else listOf(
+                        calendar.get(Calendar.MONTH) + 1,
+                        calendar.get(Calendar.DAY_OF_MONTH),
+                        calendar.get(Calendar.HOUR_OF_DAY),
+                        calendar.get(Calendar.MINUTE)
+                    )
+                    args.drop(1).take(4).zip(values).forEach { pair ->
+                        setInteger(normalizeVariable(pair.first), pair.second)
+                    }
+                }
+                else -> {
+                    // Static parser recognized a valid NScripter command whose
+                    // runtime behavior is not implemented yet. Skip it safely;
+                    // it must never be displayed as a dialogue line.
+                }
+            }
+        }
+
+        if (executed >= MAX_COMMANDS_PER_SLICE) {
+            throw IOException("NScripter instruction budget exceeded (possible infinite loop).")
+        }
+        return NscripterVmYield.Finished(scene)
+    }
+
+    fun acceptTap() {
+        if (waitState == WaitState.TAP || waitState == WaitState.TIMER) {
+            waitState = WaitState.NONE
+            scene = scene.copy(dialogue = "")
+        }
+    }
+
+    fun completeTimedWait() {
+        if (waitState == WaitState.TIMER) waitState = WaitState.NONE
+    }
+
+    fun acceptButton(number: Int) {
+        if (waitState != WaitState.BUTTON && waitState != WaitState.TEXT_BUTTON) return
+        buttonResultVariable?.let { setInteger(normalizeVariable(it), number) }
+        buttonResultVariable = null
+        waitState = WaitState.NONE
+        scene = scene.copy(buttons = emptyList())
+    }
+
+    fun acceptChoice(index: Int) {
+        if (waitState != WaitState.CHOICE) return
+        val selected = scene.choices.getOrNull(index) ?: return
+        waitState = WaitState.NONE
+        scene = scene.copy(choices = emptyList(), dialogue = "")
+        jump(selected.destination)
+    }
+
+    fun performMenuAction(action: String, slot: Int = 1): Boolean {
+        val safeSlot = slot.coerceIn(0, saveCapacity - 1)
+        when (action.lowercase()) {
+            "save" -> {
+                if (!saveEnabled) return false
+                saveStore.save(safeSlot, createSave())
+            }
+            "load" -> {
+                val saved = saveStore.load(safeSlot) ?: return false
+                restoreSave(saved)
+            }
+            "lookback", "skip", "auto" -> return true
+            else -> return false
+        }
+        waitState = WaitState.NONE
+        return true
+    }
+
+    fun takeAudioActions(): List<NscripterAudioAction> {
+        val copy = audioActions.toList()
+        audioActions.clear()
+        return copy
+    }
+
+    fun snapshot(): NscripterSceneState = scene
+    fun saveSlots(): Int = saveCapacity
+
+    private fun executeIf(instruction: NscripterInstruction): NscripterVmYield? {
+        val (condition, actionText) = splitIfConditionAndActions(instruction.arguments)
+        if (!evaluateCondition(condition) || actionText.isNullOrBlank()) return null
+        for (rawAction in NscripterScriptProgram.splitCommandStatements(actionText)) {
+            val action = rawAction.trim()
+            if (action.isEmpty()) continue
+            val match = Regex("^([A-Za-z_][A-Za-z0-9_]*)\\s*(.*)$").matchEntire(action)
+                ?: throw IOException("Invalid command in if at line " + instruction.sourceLine + ": " + action)
+            val result = executeInlineIfCommand(
+                match.groupValues[1].lowercase(Locale.ROOT),
+                match.groupValues[2].trim(),
+                instruction
+            )
+            if (result != null) return result
+        }
+        return null
+    }
+
+    /**
+     * Splits at the first top-level token that turns the preceding text into a
+     * valid condition. It does not depend on an explicit command allow-list.
+     */
+    private fun splitIfConditionAndActions(arguments: String): Pair<String, String?> {
+        var quote: Char? = null
+        var escaped = false
+        var depth = 0
+        for (index in arguments.indices) {
+            val char = arguments[index]
+            if (escaped) {
+                escaped = false
+                continue
+            }
+            if (char == '\\') {
+                escaped = true
+                continue
+            }
+            if (quote != null) {
+                if (char == quote) quote = null
+                continue
+            }
+            if (char == '"' || char.code == 96) {
+                quote = char
+                continue
+            }
+            if (char == '(') {
+                depth++
+                continue
+            }
+            if (char == ')') {
+                depth = (depth - 1).coerceAtLeast(0)
+                continue
+            }
+            if (depth != 0 || !char.isWhitespace()) continue
+
+            var candidateStart = index
+            while (candidateStart < arguments.length && arguments[candidateStart].isWhitespace()) {
+                candidateStart++
+            }
+            val command = Regex("^([A-Za-z_][A-Za-z0-9_]*)\\b")
+                .find(arguments.substring(candidateStart))?.groupValues?.get(1)
+            if (command != null) {
+                val condition = arguments.substring(0, index).trim()
+                if (condition.isNotEmpty() && runCatching { evaluateCondition(condition) }.isSuccess) {
+                    return condition to arguments.substring(candidateStart).trim()
+                }
+            }
+        }
+        return arguments.trim() to null
+    }
+
+    private fun executeInlineIfCommand(
+        command: String,
+        arguments: String,
+        source: NscripterInstruction
+    ): NscripterVmYield? {
+        val action = source.copy(command = command, arguments = arguments)
+        val args = splitNscripterArguments(arguments)
+        when (command) {
+            "bg" -> {
+                val image = args.firstOrNull()?.let(::resolveString)
+                val effect = args.getOrNull(1)?.let(::value) ?: 1
+                scene = if (image.isNullOrBlank()) {
+                    scene.copy(background = null, backgroundColor = "#000000", backgroundEffect = effect)
+                } else if (image.equals("black", true) || image.equals("white", true) || image.startsWith("#")) {
+                    scene.copy(background = null, backgroundColor = image, backgroundEffect = effect)
+                } else {
+                    scene.copy(background = image, backgroundColor = null, backgroundEffect = effect)
+                }
+            }
+            "lsp", "lsph" -> executeSpriteLoad(action, args)
+            "csp" -> {
+                val number = value(args.firstOrNull() ?: "0")
+                scene = scene.copy(sprites = if (number < 0) emptyList()
+                    else scene.sprites.filterNot { it.number == number })
+            }
+            "vsp" -> {
+                requireArgs(action, args, 2)
+                val number = value(args[0])
+                val visible = value(args[1]) != 0
+                scene = scene.copy(sprites = scene.sprites.map {
+                    if (it.number == number) it.copy(visible = visible) else it
+                })
+            }
+            "textshow" -> scene = scene.copy(textWindowVisible = true)
+            "texthide" -> scene = scene.copy(textWindowVisible = false)
+            "textclear" -> scene = scene.copy(dialogue = "", speaker = null)
+            "windowback" -> scene = scene.copy(windowBack = true)
+            "bgm", "mp3", "mp3loop" -> {
+                val file = args.firstOrNull()?.let(::resolveString)
+                if (!file.isNullOrBlank()) audioActions += NscripterAudioAction(
+                    NSCRIPTER_BGM_CHANNEL, file,
+                    command == "bgm" || command == "mp3loop",
+                    false
+                )
+            }
+            "dwave", "dwaveloop" -> {
+                val file = args.getOrNull(1)?.let(::resolveString)
+                if (!file.isNullOrBlank()) audioActions += NscripterAudioAction(
+                    args.firstOrNull()?.let(::value) ?: 0,
+                    file, command == "dwaveloop", false
+                )
+            }
+            "dwavestop" -> audioActions += NscripterAudioAction(
+                args.firstOrNull()?.let(::value) ?: 0, null, false, true
+            )
+            "bgmstop" -> audioActions += NscripterAudioAction(NSCRIPTER_BGM_CHANNEL, null, false, true)
+            "stop" -> audioActions += NscripterAudioAction(-1, null, false, true)
+            "mov" -> {
+                requireArgs(action, args, 2)
+                val target = args[0].trim()
+                val key = normalizeVariable(target)
+                if (target.startsWith("\$")) stringVariables[key] = resolveString(args[1])
+                else setInteger(key, value(args[1]))
+            }
+            "add" -> {
+                requireArgs(action, args, 2)
+                val target = args[0].trim()
+                val key = normalizeVariable(target)
+                if (target.startsWith("\$")) stringVariables[key] =
+                    (stringVariables[key] ?: "") + resolveString(args[1])
+                else setInteger(key, (integerVariables[key] ?: 0) + value(args[1]))
+            }
+            "goto" -> jump(args.firstOrNull())
+            "jumpb" -> jumpToMarker(backward = true)
+            "jumpf" -> jumpToMarker(backward = false)
+            "gosub" -> { callStack.addLast(pc); jump(args.firstOrNull()) }
+            "return" -> {
+                if (callStack.isEmpty()) throw IOException("return without gosub.")
+                pc = callStack.removeLast()
+            }
+            "click" -> {
+                scene = scene.copy(dialogue = "", speaker = null, choices = emptyList())
+                waitState = WaitState.TAP
+                return NscripterVmYield.Dialogue(scene)
+            }
+            "wait" -> {
+                val millis = value(args.firstOrNull() ?: "0").coerceIn(0, 60000)
+                waitState = WaitState.TIMER
+                return NscripterVmYield.TimedWait(millis, scene)
+            }
+            "repaint", "print" -> return NscripterVmYield.Frame(scene)
+            "caption" -> scene = scene.copy(caption = resolveString(args.firstOrNull() ?: "Ramen"))
+            "end" -> return NscripterVmYield.Finished(scene)
+            else -> Unit
+        }
+        return null
+    }
+
+    private fun executeSpriteLoad(instruction: NscripterInstruction, args: List<String>) {
+        requireArgs(instruction, args, 4)
+        val number = value(args[0])
+        if (number !in 0..999) throw IOException("lsp sprite number must be in 0..999.")
+        val sprite = NscripterSpriteState(
+            number = number,
+            image = resolveString(args[1]),
+            x = value(args[2]),
+            y = value(args[3]),
+            opacity = args.getOrNull(5)?.let(::value)?.coerceIn(0, 255) ?: 255,
+            visible = instruction.command == "lsp",
+            transparency = args.getOrNull(4)?.let(::resolveString)?.lowercase() ?: "a",
+            maskFile = args.getOrNull(6)?.let(::resolveString),
+            colorKey = args.getOrNull(7)?.let(::resolveString)
+        )
+        scene = scene.copy(sprites = scene.sprites.filterNot { it.number == number } + sprite)
+    }
+
+    private fun jumpToMarker(backward: Boolean) {
+        val markerIndex = if (backward) {
+            (pc - 2 downTo 0).firstOrNull { program.instructions[it].command == "tilde" }
+        } else {
+            (pc until program.instructions.size).firstOrNull {
+                program.instructions[it].command == "tilde"
+            }
+        } ?: throw IOException("jump" + (if (backward) "b" else "f") + " has no matching '~' marker.")
+        pc = markerIndex + 1
+    }
+
+    private fun beginFor(instruction: NscripterInstruction) {
+        val match = Regex("^\\s*(%[A-Za-z0-9_]+)\\s*=\\s*(.+?)\\s+to\\s+(.+?)(?:\\s+step\\s+(.+))?\\s*$", RegexOption.IGNORE_CASE)
+            .matchEntire(instruction.arguments) ?: throw IOException("Invalid for syntax at line " + instruction.sourceLine)
+        val key = normalizeVariable(match.groupValues[1])
+        val first = value(match.groupValues[2])
+        val last = value(match.groupValues[3])
+        val step = match.groupValues[4].takeIf { it.isNotBlank() }?.let(::value) ?: 1
+        if (step == 0) throw IOException("for step cannot be zero.")
+        setInteger(key, first)
+        val enters = if (step > 0) first <= last else first >= last
+        if (enters) loops += LoopFrame(key, last, step, pc)
+        else pc = findMatchingNext(pc) + 1
+    }
+
+    private fun finishFor() {
+        val frame = loops.lastOrNull() ?: return
+        val next = (integerVariables[frame.variable] ?: 0) + frame.step
+        setInteger(frame.variable, next)
+        val repeats = if (frame.step > 0) next <= frame.endValue else next >= frame.endValue
+        if (repeats) pc = frame.bodyPc else loops.removeAt(loops.lastIndex)
+    }
+
+    private fun findMatchingNext(from: Int): Int {
+        var nested = 0
+        for (index in from until program.instructions.size) {
+            when (program.instructions[index].command) {
+                "for" -> nested++
+                "next" -> if (nested == 0) return index else nested--
+            }
+        }
+        throw IOException("for has no matching next.")
+    }
+
+    private fun evaluateCondition(expression: String): Boolean =
+        ConditionExpressionParser(expression, ::value).parse()
+
+    private class ConditionExpressionParser(
+        private val expression: String,
+        private val resolveValue: (String) -> Int
+    ) {
+        private val tokens = ArrayList<String>()
+        private var cursor = 0
+
+        init {
+            val pattern = Regex("\\|\\||&&|==|!=|>=|<=|[()!<>=]|-?0[xX][0-9A-Fa-f]+|-?\\d+|%[A-Za-z0-9_]+|[$][A-Za-z0-9_]+|[A-Za-z_][A-Za-z0-9_]*")
+            var offset = 0
+            for (match in pattern.findAll(expression)) {
+                if (expression.substring(offset, match.range.first).isNotBlank()) {
+                    throw IOException("Unsupported if condition: " + expression)
+                }
+                tokens += match.value
+                offset = match.range.last + 1
+            }
+            if (tokens.isEmpty() || expression.substring(offset).isNotBlank()) {
+                throw IOException("Unsupported if condition: " + expression)
+            }
+        }
+
+        fun parse(): Boolean {
+            val result = parseOr()
+            if (cursor != tokens.size) throw IOException("Unsupported if condition: " + expression)
+            return result
+        }
+
+        private fun parseOr(): Boolean {
+            var result = parseAnd()
+            while (peek() == "||") {
+                consume("||")
+                val right = parseAnd()
+                result = result || right
+            }
+            return result
+        }
+
+        private fun parseAnd(): Boolean {
+            var result = parseComparison()
+            while (peek() == "&&") {
+                consume("&&")
+                val right = parseComparison()
+                result = result && right
+            }
+            return result
+        }
+
+        private fun parseComparison(): Boolean {
+            val left = parseValueOrGroup()
+            val operator = peek()
+            if (operator != null && operator in setOf("==", "=", "!=", ">", "<", ">=", "<=")) {
+                consume()
+                val right = parseValueOrGroup()
+                return when (operator) {
+                    "=", "==" -> left == right
+                    "!=" -> left != right
+                    ">" -> left > right
+                    "<" -> left < right
+                    ">=" -> left >= right
+                    "<=" -> left <= right
+                    else -> false
+                }
+            }
+            return left != 0
+        }
+
+        private fun parseValueOrGroup(): Int {
+            if (peek() == "!") {
+                consume("!")
+                return if (parseValueOrGroup() == 0) 1 else 0
+            }
+            if (peek() == "(") {
+                consume("(")
+                val result = parseOr()
+                consume(")")
+                return if (result) 1 else 0
+            }
+            val token = consume()
+            if (token in setOf(")", "&&", "||", "==", "=", "!=", ">", "<", ">=", "<=")) {
+                throw IOException("Expected value in if condition: " + expression)
+            }
+            return resolveValue(token)
+        }
+
+        private fun peek(): String? = tokens.getOrNull(cursor)
+
+        private fun consume(expected: String? = null): String {
+            val token = tokens.getOrNull(cursor)
+                ?: throw IOException("Incomplete if condition: " + expression)
+            if (expected != null && token != expected) {
+                throw IOException("Expected '$expected' in if condition: " + expression)
+            }
+            cursor++
+            return token
+        }
+    }
+
+    private fun jump(raw: String?) {
+        val label = raw?.trim()?.removePrefix("*")?.lowercase()
+            ?: throw IOException("Jump requires a destination label.")
+        pc = program.labels[label] ?: throw IOException("Unknown NScripter label '*" + label + "'.")
+    }
+
+    private fun value(raw: String): Int =
+        NumericExpressionParser(raw.trim(), ::resolveNumericAtom).parse()
+
+    private fun resolveNumericAtom(raw: String): Int {
+        val token = raw.trim()
+        if (token.startsWith("%")) return integerVariables[normalizeVariable(token)] ?: 0
+        if (token.startsWith("$")) return stringVariables[normalizeVariable(token)]?.toIntOrNull() ?: 0
+        numericAliases[token.removePrefix("%").lowercase(Locale.ROOT)]?.let { return it }
+        token.toIntOrNull()?.let { return it }
+        token.removePrefix("0x").removePrefix("0X").toIntOrNull(16)?.let { return it }
+        throw IOException("Unsupported numeric expression: " + raw)
+    }
+
+    private class NumericExpressionParser(
+        private val expression: String,
+        private val resolveAtom: (String) -> Int
+    ) {
+        private val tokens = ArrayList<String>()
+        private var cursor = 0
+
+        init {
+            val pattern = Regex("0[xX][0-9A-Fa-f]+|[0-9]+|%[A-Za-z0-9_]+|[$][A-Za-z0-9_]+|[A-Za-z_][A-Za-z0-9_]*|[()+*/%+-]")
+            var offset = 0
+            for (match in pattern.findAll(expression)) {
+                if (expression.substring(offset, match.range.first).isNotBlank()) {
+                    throw IOException("Unsupported numeric expression: " + expression)
+                }
+                tokens += match.value
+                offset = match.range.last + 1
+            }
+            if (tokens.isEmpty() || expression.substring(offset).isNotBlank()) {
+                throw IOException("Unsupported numeric expression: " + expression)
+            }
+        }
+
+        fun parse(): Int {
+            val result = parseSum()
+            if (cursor != tokens.size) throw IOException("Unsupported numeric expression: " + expression)
+            return result
+        }
+
+        private fun parseSum(): Int {
+            var result = parseProduct()
+            while (peek() == "+" || peek() == "-") {
+                val operator = consume()
+                val right = parseProduct()
+                result = if (operator == "+") result + right else result - right
+            }
+            return result
+        }
+
+        private fun parseProduct(): Int {
+            var result = parseUnary()
+            while (peek() == "*" || peek() == "/" || peek() == "%") {
+                val operator = consume()
+                val right = parseUnary()
+                result = when (operator) {
+                    "*" -> result * right
+                    "/" -> {
+                        if (right == 0) throw IOException("Division by zero in numeric expression: " + expression)
+                        result / right
+                    }
+                    "%" -> {
+                        if (right == 0) throw IOException("Modulo by zero in numeric expression: " + expression)
+                        result % right
+                    }
+                    else -> result
+                }
+            }
+            return result
+        }
+
+        private fun parseUnary(): Int {
+            return when (peek()) {
+                "+" -> { consume(); parseUnary() }
+                "-" -> { consume(); -parseUnary() }
+                "(" -> {
+                    consume()
+                    val nested = parseSum()
+                    consume(")")
+                    nested
+                }
+                else -> resolveAtom(consume())
+            }
+        }
+
+        private fun peek(): String? = tokens.getOrNull(cursor)
+
+        private fun consume(expected: String? = null): String {
+            val token = tokens.getOrNull(cursor)
+                ?: throw IOException("Incomplete numeric expression: " + expression)
+            if (expected != null && token != expected) {
+                throw IOException("Expected '$expected' in numeric expression: " + expression)
+            }
+            cursor++
+            return token
+        }
+    }
+
+    private fun resolveString(raw: String): String = interpolate(nscripterUnquote(raw))
+
+    private fun stripInlineTextControls(raw: String): String =
+        raw.replace(Regex("(?i)!sd|!s\\s*\\d+|!w\\s*\\d+"), "")
+            .replace("^", "")
+            .replace("\\", "")
+
+    private fun interpolate(raw: String): String =
+        Regex("([%\\$])([A-Za-z0-9_]+)").replace(nscripterUnquote(raw)) { match ->
+            val key = match.groupValues[2].lowercase(Locale.ROOT)
+            if (match.groupValues[1] == "%") {
+                (integerVariables[key] ?: numericAliases[key] ?: 0).toString()
+            } else stringVariables[key] ?: ""
+        }
+
+    private fun normalizeVariable(raw: String): String =
+        raw.trim().removePrefix("%").removePrefix("\$").lowercase(Locale.ROOT)
+
+    private fun setInteger(key: String, value: Int) {
+        integerVariables[key] = integerLimits[key]?.let { value.coerceIn(it.first, it.last) } ?: value
+    }
+
+    private fun applySpriteControl(control: String) {
+        val sprites = scene.sprites.associateBy { it.number }.toMutableMap()
+        Regex("([PC])(\\d+)(?:,(\\d+))?", RegexOption.IGNORE_CASE).findAll(control).forEach { match ->
+            val op = match.groupValues[1].uppercase()
+            val number = match.groupValues[2].toIntOrNull() ?: return@forEach
+            if (op == "C") sprites.remove(number)
+            else sprites[number]?.let { sprites[number] = it.copy(visible = true) }
+        }
+        scene = scene.copy(sprites = sprites.values.sortedBy { it.number })
+    }
+
+    private fun createSave(): NscripterSavedGame = NscripterSavedGame(
+        pc, HashMap(integerVariables), HashMap(stringVariables), scene, System.currentTimeMillis()
+    )
+
+    private fun restoreSave(saved: NscripterSavedGame) {
+        pc = saved.programCounter.coerceIn(0, program.instructions.size)
+        integerVariables.clear()
+        integerVariables.putAll(saved.integerVariables)
+        stringVariables.clear()
+        stringVariables.putAll(saved.stringVariables)
+        scene = saved.scene
+        loops.clear()
+        callStack.clear()
+    }
+
+    private fun requireArgs(instruction: NscripterInstruction, args: List<String>, count: Int) {
+        if (args.size < count) throw IOException(
+            instruction.command + " requires " + count + " arguments at line " + instruction.sourceLine
+        )
+    }
+
+    companion object {
+        private const val MAX_COMMANDS_PER_SLICE = 100_000
+        private const val NSCRIPTER_BGM_CHANNEL = 50
+    }
+}
