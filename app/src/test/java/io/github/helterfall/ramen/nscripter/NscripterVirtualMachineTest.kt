@@ -280,6 +280,78 @@ class NscripterVirtualMachineTest {
     }
 
     @Test
+    fun evaluatesIfConditionBeforeLspWithArithmeticAndSpacedParentheses() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            mov %save_num, 2
+            mov $save_str, "menu.bmp"
+            if %save_num <= 10 lsp %save_num+130,$save_str,84,35 + ( (%save_num - 10) * 49)
+            mov %save_num, 11
+            if %save_num >= 11 lsp %save_num+130,$save_str,440,18 + ( (%save_num - 10) * 49)
+            ready
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val result = vm.resume()
+        assertTrue(result is NscripterVmYield.Dialogue)
+        val sprites = vm.snapshot().sprites.associateBy { it.number }
+        assertEquals("menu.bmp", sprites[132]?.image)
+        assertEquals(84, sprites[132]?.x)
+        assertEquals(-357, sprites[132]?.y)
+        assertEquals("menu.bmp", sprites[141]?.image)
+        assertEquals(440, sprites[141]?.x)
+        assertEquals(67, sprites[141]?.y)
+    }
+
+    @Test
+    fun supportsMp3ClickVspTextclearAndRepaintCommands() {
+        val program = NscripterScriptProgram.parse(
+            """
+            *start
+            mp3loop "music/title.mp3"
+            mp3 "music/sting.mp3"
+            lsp 7, "menu.bmp", 0, 0
+            text-before-clear
+            vsp 7, 0
+            textclear
+            repaint
+            click
+            vsp 7, 1
+            after-click
+            end
+            """.trimIndent()
+        )
+        val vm = NscripterVirtualMachine(program, MemorySaveStore())
+        val first = vm.resume()
+        assertTrue(first is NscripterVmYield.Dialogue)
+        assertEquals("text-before-clear", (first as NscripterVmYield.Dialogue).scene.dialogue)
+        val audio = vm.takeAudioActions()
+        assertEquals(2, audio.size)
+        assertEquals("music/title.mp3", audio[0].fileName)
+        assertEquals(50, audio[0].channel)
+        assertTrue(audio[0].loop)
+        assertEquals("music/sting.mp3", audio[1].fileName)
+        assertEquals(50, audio[1].channel)
+        assertFalse(audio[1].loop)
+
+        vm.acceptTap()
+        val cleared = vm.resume()
+        assertTrue(cleared is NscripterVmYield.Frame)
+        assertEquals("", (cleared as NscripterVmYield.Frame).scene.dialogue)
+        assertFalse(vm.snapshot().sprites.single().visible)
+
+        val clickWait = vm.resume()
+        assertTrue(clickWait is NscripterVmYield.Dialogue)
+        assertEquals("", (clickWait as NscripterVmYield.Dialogue).scene.dialogue)
+        vm.acceptTap()
+        val afterClick = vm.resume()
+        assertTrue(afterClick is NscripterVmYield.Dialogue)
+        assertEquals("after-click", (afterClick as NscripterVmYield.Dialogue).scene.dialogue)
+        assertTrue(vm.snapshot().sprites.single().visible)
+    }
+    @Test
     fun parserRecognizesEveryRequestedRuntimeCommand() {
         val source = """
             bg "bg.jpg", 1
