@@ -273,7 +273,12 @@ class Hsp3CanvasRenderer(
                             bitmap = bitmap, canvas = Canvas(bitmap), colorKeyBlackBitmap = null
                         ) ?: Surface(bitmap, Canvas(bitmap))
                         surfaces[targetId] = replacement
-                        old?.let(::recycleSurface)
+                        old?.let { previous ->
+                            // Surface.copy() transferred the suspended frame reference
+                            // to the replacement; release the old bitmap/cache only.
+                            previous.suspendedFrame = null
+                            recycleSurface(previous)
+                        }
                         cellGrids.remove(targetId)
                         replacement.cursorX = 0
                         replacement.cursorY = 0
@@ -293,7 +298,11 @@ class Hsp3CanvasRenderer(
                             colorKeyBlackBitmap = null
                         ) ?: Surface(replacement, Canvas(replacement))
                         surfaces[targetId] = replacementSurface
-                        old?.let(::recycleSurface)
+                        old?.let { previous ->
+                            // Preserve the frozen presentation snapshot across Surface replacement.
+                            previous.suspendedFrame = null
+                            recycleSurface(previous)
+                        }
                         cellGrids.remove(targetId)
                         replacementSurface.cursorX = 0
                         replacementSurface.cursorY = 0
