@@ -4,13 +4,12 @@ import java.io.File
 import java.io.IOException
 
 /**
- * Locates signatures in the PE overlay instead of assuming that the overlay
- * starts immediately after the last section's raw bytes. Installers commonly
- * align the overlay to a file-alignment boundary.
+ * Locates signatures in PE files using a chunked, streaming scan. The search
+ * limit defaults to the full available file; 64 KiB is only the I/O buffer
+ * size and never restricts how far an overlay may be appended.
  */
 object PeOverlayScanner {
-    const val DEFAULT_SEARCH_BYTES = 64 * 1024
-    private const val MAX_SEARCH_BYTES = 1024 * 1024
+    const val DEFAULT_SEARCH_BYTES = Long.MAX_VALUE
     private const val DOS_HEADER_BYTES = 64
     private const val PE_PREFIX_BYTES = 24
     private const val PE32_OPTIONAL_HEADER_MIN_BYTES = 96
@@ -20,11 +19,11 @@ object PeOverlayScanner {
     fun findSignature(
         file: File,
         signature: ByteArray,
-        maxSearchBytes: Int = DEFAULT_SEARCH_BYTES
+        maxSearchBytes: Long = Long.MAX_VALUE
     ): Long? {
         if (!file.isFile) throw IOException("The PE executable is not a regular file.")
         if (signature.isEmpty()) throw IllegalArgumentException("A signature cannot be empty.")
-        require(maxSearchBytes in 1..MAX_SEARCH_BYTES)
+        require(maxSearchBytes > 0L)
         FileRandomAccessSource(file).use { source ->
             val overlayStart = findOverlayStart(source)
             return findSignature(
@@ -41,32 +40,38 @@ object PeOverlayScanner {
         source: ReadOnlyRandomAccessSource,
         overlayStart: Long,
         signature: ByteArray,
-        maxSearchBytes: Int,
+        maxSearchBytes: Long,
         acceptCandidate: (Long) -> Boolean
     ): Long? {
         if (signature.isEmpty()) throw IllegalArgumentException("A signature cannot be empty.")
-        require(maxSearchBytes in 1..MAX_SEARCH_BYTES)
+        require(maxSearchBytes > 0L)
         if (overlayStart < 0L || overlayStart > source.sizeBytes) {
             throw IOException("The PE overlay start lies outside the file.")
         }
         val availableCandidates = source.sizeBytes - overlayStart - signature.size.toLong() + 1L
         if (availableCandidates <= 0L) return null
-        val candidateCount = minOf(maxSearchBytes.toLong(), availableCandidates).toInt()
-        val bytesToRead = candidateCount + signature.size - 1
-        val bytes = ByteArray(bytesToRead)
-        source.readFullyAt(overlayStart, bytes)
-        for (index in 0 until candidateCount) {
-            var matches = true
-            for (signatureIndex in signature.indices) {
-                if (bytes[index + signatureIndex] != signature[signatureIndex]) {
-                    matches = false
-                    break
+        var remaining = minOf(maxSearchBytes, availableCandidates)
+        var chunkOffset = overlayStart
+        val scanBufferSize = 64 * 1024
+        while (remaining > 0L) {
+            val candidateCount = minOf(scanBufferSize.toLong(), remaining).toInt()
+            val bytes = ByteArray(candidateCount + signature.size - 1)
+            source.readFullyAt(chunkOffset, bytes)
+            for (index in 0 until candidateCount) {
+                var matches = true
+                for (signatureIndex in signature.indices) {
+                    if (bytes[index + signatureIndex] != signature[signatureIndex]) {
+                        matches = false
+                        break
+                    }
+                }
+                if (matches) {
+                    val absoluteOffset = chunkOffset + index.toLong()
+                    if (acceptCandidate(absoluteOffset)) return absoluteOffset
                 }
             }
-            if (matches) {
-                val absoluteOffset = overlayStart + index.toLong()
-                if (acceptCandidate(absoluteOffset)) return absoluteOffset
-            }
+            chunkOffset += candidateCount.toLong()
+            remaining -= candidateCount.toLong()
         }
         return null
     }
@@ -91,7 +96,9 @@ object PeOverlayScanner {
         }
         val optionalOffset = checkedAdd(peOffset, PE_PREFIX_BYTES.toLong())
         val optional = readBytes(source, optionalOffset, optionalSize)
-        if (u16(optional, 0) != 0x10B) throw IOException("Only PE32 images are supported.")
+        if (u16(optional, 0) != 0x10B && u16(optional, 0) != 0x20B) {
+            throw IOException("The PE optional header is neither PE32 nor PE32+.")
+        }
         val sectionTable = checkedAdd(optionalOffset, optionalSize.toLong())
         var rawEnd = 0L
         repeat(sectionCount) { index ->

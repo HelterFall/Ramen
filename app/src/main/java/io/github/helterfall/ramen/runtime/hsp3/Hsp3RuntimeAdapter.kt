@@ -8,6 +8,7 @@ import io.github.helterfall.ramen.inspection.DpmxDecryptor
 import io.github.helterfall.ramen.inspection.DpmxFileEntry
 import io.github.helterfall.ramen.inspection.DpmxKeyResolution
 import io.github.helterfall.ramen.inspection.DpmxKeyResolver
+import io.github.helterfall.ramen.inspection.DpmxResourceValidationReport
 import io.github.helterfall.ramen.inspection.FileRandomAccessSource
 import io.github.helterfall.ramen.inspection.ReadOnlyRandomAccessSource
 import io.github.helterfall.ramen.parser.Hsp3BytecodeLoader
@@ -38,7 +39,15 @@ data class Hsp3PreparedGame(
     val scriptKey: DpmxKeyResolution?,
     val program: Hsp3Program,
     /** Non-null when the program was loaded from an unpacked local start.ax. */
-    val unpackedScriptFile: File? = null
+    val unpackedScriptFile: File? = null,
+    val resourceValidation: DpmxResourceValidationReport = DpmxResourceValidationReport(
+        totalEntries = 0,
+        unencryptedEntries = 0,
+        signatureValidatedEntries = 0,
+        keyDerivedEntries = 0,
+        unresolvedEncryptedEntries = 0,
+        archiveChecksumValid = null
+    )
 )
 
 /** Opens one DPMX resource at a time and decrypts it directly into the consumer. */
@@ -79,10 +88,22 @@ class DpmxAssetRepository(
         return try {
             val resolution = keyResolver.resolve(source, container, entry)
                 ?: throw IOException("DPMX key resolution failed for HSP asset '" + entry.name + "'.")
-            BoundedInputStream(
-                DpmxDecryptingInputStream(source, entry, resolution.key),
-                MAX_FILE_BYTES
-            )
+            val decodedStream = if (
+                resolution.method == DpmxKeyResolution.Method.UNENCRYPTED_ENTRY
+            ) {
+                object : FilterInputStream(container.openEntryStream(source, entry)) {
+                    override fun close() {
+                        try {
+                            super.close()
+                        } finally {
+                            source.close()
+                        }
+                    }
+                }
+            } else {
+                DpmxDecryptingInputStream(source, entry, resolution.key)
+            }
+            BoundedInputStream(decodedStream, MAX_FILE_BYTES)
         } catch (error: Exception) {
             source.close()
             throw error
@@ -275,16 +296,23 @@ class Hsp3RuntimeAdapter(
     ): Hsp3PreparedGame {
         if (!executable.isFile) throw IOException("The HSP3 executable is not a regular file.")
         val canonicalExecutable = executable.canonicalFile
+        val localScript = findLocalStartAx(canonicalExecutable, assetRoot)
         FileRandomAccessSource(canonicalExecutable).use { source ->
             val container = try {
                 containerParser.parse(source)
             } catch (error: Exception) {
-                throw IOException("PE32/DPMX parsing failed: ${error.message ?: error.javaClass.simpleName}", error)
+                if (localScript == null) {
+                    throw IOException(
+                        "PE/DPMX parsing failed and no unpacked start.ax is available: " +
+                            "${error.message ?: error.javaClass.simpleName}",
+                        error
+                    )
+                }
+                emptyDpmxContainer()
             }
 
             val archiveEntry = container.findEntry(START_SCRIPT_NAME)
             var localScriptFailure: Exception? = null
-            val localScript = findLocalStartAx(canonicalExecutable, assetRoot)
             if (localScript != null) {
                 val localProgram = try {
                     if (localScript.length() > maxScriptSizeBytes) {
@@ -297,13 +325,16 @@ class Hsp3RuntimeAdapter(
                 }
                 if (localProgram != null) {
                     validateRuntimeProfile(localProgram, validateRuntimeProfile)
+                    keyResolver.preferHspCipherVersion(container, localProgram.header.version)
+                    val resourceValidation = keyResolver.verifyArchiveResources(source, container)
                     return Hsp3PreparedGame(
                         executable = canonicalExecutable,
                         container = container,
                         scriptEntry = archiveEntry,
                         scriptKey = null,
                         program = localProgram,
-                        unpackedScriptFile = localScript
+                        unpackedScriptFile = localScript,
+                        resourceValidation = resourceValidation
                     )
                 }
             }
@@ -324,20 +355,30 @@ class Hsp3RuntimeAdapter(
             }
 
             val program = try {
-                val output = ByteArrayOutputStream(entry.sizeBytes.toInt())
-                DpmxDecryptor.decrypt(source, entry, resolution.key, output)
-                bytecodeLoader.load(ByteArrayRandomAccessSource(output.toByteArray()))
+                val scriptBytes = if (
+                    resolution.method == DpmxKeyResolution.Method.UNENCRYPTED_ENTRY
+                ) {
+                    val size = entry.sizeBytes.toInt()
+                    ByteArray(size).also { source.readFullyAt(entry.absoluteOffset, it) }
+                } else {
+                    ByteArrayOutputStream(entry.sizeBytes.toInt()).also { output ->
+                        DpmxDecryptor.decrypt(source, entry, resolution.key, output)
+                    }.toByteArray()
+                }
+                bytecodeLoader.load(ByteArrayRandomAccessSource(scriptBytes))
             } catch (error: Exception) {
                 throw IOException("HSPHED/CS/DS/OT/DI loading failed: ${error.message ?: error.javaClass.simpleName}", error)
             }
 
             validateRuntimeProfile(program, validateRuntimeProfile)
+            val resourceValidation = keyResolver.verifyArchiveResources(source, container)
             return Hsp3PreparedGame(
                 executable = canonicalExecutable,
                 container = container,
                 scriptEntry = entry,
                 scriptKey = resolution,
-                program = program
+                program = program,
+                resourceValidation = resourceValidation
             )
         }
     }
@@ -410,6 +451,18 @@ class Hsp3RuntimeAdapter(
             throw error
         }
     }
+
+    private fun emptyDpmxContainer() = DpmxContainer(
+        peOffset = 0L,
+        imageBase = 0L,
+        sections = emptyList(),
+        overlayOffset = 0L,
+        dataOffset = 0L,
+        dataAbsoluteOffset = 0L,
+        fileCount = 0,
+        optionalNameLength = 0,
+        entries = emptyList()
+    )
 
     companion object {
         const val ENGINE_ID = "hsp3-dpmx"

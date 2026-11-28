@@ -9,16 +9,32 @@ import java.nio.charset.Charset
 import java.nio.charset.CodingErrorAction
 import java.util.concurrent.ConcurrentHashMap
 
+enum class DpmxCipherVersion {
+    HSP_26_TO_32,
+    HSP_33_TO_36
+}
+
 data class DpmxCipherKey(
+    /** Subtraction seed (seed2x in the HSP reference implementation). */
     val al: Int,
+    /** XOR seed (seed1x in the HSP reference implementation). */
     val cl: Int,
-    val initialDl: Int = 0
+    val initialDl: Int = 0,
+    val version: DpmxCipherVersion = DpmxCipherVersion.HSP_26_TO_32
 ) {
     init {
         require(al in 0..0xFF)
         require(cl in 0..0xFF)
         require(initialDl in 0..0xFF)
     }
+}
+
+internal fun decryptDpmxDelta(encrypted: Int, key: DpmxCipherKey): Int =
+    when (key.version) {
+        DpmxCipherVersion.HSP_26_TO_32 ->
+            (((encrypted - key.al) and 0xFF) xor key.cl)
+        DpmxCipherVersion.HSP_33_TO_36 ->
+            (((encrypted xor key.cl) - key.al) and 0xFF)
 }
 
 /** Streaming DPMX feedback decryptor; state is carried across input chunks. */
@@ -45,8 +61,7 @@ object DpmxDecryptor {
             if (count == 0) continue
             for (index in 0 until count) {
                 val enc = encrypted[index].toInt() and 0xFF
-                val bl = ((enc - key.al) and 0xFF) xor key.cl
-                dl = (dl + bl) and 0xFF
+                dl = (dl + decryptDpmxDelta(enc, key)) and 0xFF
                 decoded[index] = dl.toByte()
             }
             output.write(decoded, 0, count)
@@ -73,32 +88,51 @@ object DpmxDecryptor {
         var dl = key.initialDl and 0xFF
         for (index in encrypted.indices) {
             val enc = encrypted[index].toInt() and 0xFF
-            val bl = ((enc - key.al) and 0xFF) xor key.cl
-            dl = (dl + bl) and 0xFF
+            dl = (dl + decryptDpmxDelta(enc, key)) and 0xFF
             result[index] = dl.toByte()
         }
         return result
     }
 }
 
-/**
- * Optional game-specific PE/.data key schedule. The caller-provided strategy
- * can implement the recovered arithmetic once its exact formula and vectors
- * are available. The resolver does not invent that missing transformation.
- */
-fun interface DpmxDataKeyDeriver {
-    fun derive(fileKey: Long, keyConstants: ByteArray): DpmxCipherKey?
-}
-
 data class DpmxKeyResolution(
     val key: DpmxCipherKey,
-    val method: Method
+    val method: Method,
+    val validation: Validation,
+    val deckey: Long? = null,
+    val globalSeed1: Int? = null,
+    val globalSeed2: Int? = null,
+    val detail: String = ""
 ) {
     enum class Method {
-        PE_DATA_DERIVER,
-        VERIFIED_SAMPLE_VECTOR,
+        PE_HSPHED_DECKEY,
         KNOWN_PLAINTEXT_HSP3,
-        SIGNATURE_AUTODETECT
+        SIGNATURE_AUTODETECT,
+        UNENCRYPTED_ENTRY
+    }
+
+    enum class Validation {
+        HSP3_BYTECODE_LOADER,
+        RESOURCE_SIGNATURE,
+        DPM_CHECKSUM,
+        KEY_DERIVED_ONLY
+    }
+
+    fun diagnosticLabel(): String {
+        val params = "AL=0x${key.al.toString(16).padStart(2, '0')} " +
+            "CL=0x${key.cl.toString(16).padStart(2, '0')} " +
+            "DL=0x${key.initialDl.toString(16).padStart(2, '0')} " +
+            "(${key.version})"
+        val archiveSeeds = buildList {
+            deckey?.let { add("deckey=0x${it.toString(16)}") }
+            globalSeed1?.let { add("seed1=0x${it.toString(16).padStart(2, '0')}") }
+            globalSeed2?.let { add("seed2=0x${it.toString(16).padStart(2, '0')}") }
+        }.joinToString(" ")
+        return "${method.name}: $params" +
+            if (archiveSeeds.isBlank()) "; validation=${validation.name}" +
+                (if (detail.isBlank()) "" else "; $detail")
+            else "; $archiveSeeds; validation=${validation.name}" +
+                (if (detail.isBlank()) "" else "; $detail")
     }
 }
 
@@ -159,15 +193,37 @@ private val SUPPORTED_BMP_DIB_HEADER_SIZES =
     setOf(12L, 40L, 52L, 56L, 108L, 124L)
 private val SUPPORTED_BMP_BITS_PER_PIXEL = setOf(1, 4, 8, 24, 32)
 
-/**
- * Resolves keys in this order: injected .data schedule, the two supplied
- * known-good sample vectors, then an exhaustive 256x256 signature search.
- * Fallback candidates are accepted only when their plaintext prefixes are identical.
- */
-class DpmxKeyResolver(
-    private val dataKeyDeriver: DpmxDataKeyDeriver? = null
+data class DpmxResourceValidationReport(
+    val totalEntries: Int,
+    val unencryptedEntries: Int,
+    val signatureValidatedEntries: Int,
+    val keyDerivedEntries: Int,
+    val unresolvedEncryptedEntries: Int,
+    val archiveChecksumValid: Boolean?
 ) {
-    private val resolvedByFileKey = ConcurrentHashMap<Long, DpmxKeyResolution>()
+    fun diagnosticLabel(): String =
+        "resources: total=$totalEntries, plain=$unencryptedEntries, " +
+            "signature-verified=$signatureValidatedEntries, key-derived=$keyDerivedEntries, " +
+            "unresolved=$unresolvedEncryptedEntries, DPM-checksum=" +
+            when (archiveChecksumValid) {
+                true -> "OK"
+                false -> "FAILED"
+                null -> "not present"
+            }
+}
+
+/**
+ * Resolves embedded HSP DPMX keys from executable metadata first. If the
+ * metadata is absent, damaged, or does not yield a valid start.ax, the
+ * resolver recovers the cipher parameters from the plaintext HSP3 header.
+ *
+ * DPM 2.6-3.2 and 3.3-3.6 share the archive/file-key schedule but use
+ * different byte decryption order and different file-key constants.
+ */
+class DpmxKeyResolver {
+    private val resolvedByEntry = ConcurrentHashMap<String, DpmxKeyResolution>()
+    private val archiveCipherVersions = ConcurrentHashMap<String, DpmxCipherVersion>()
+
     @Throws(IOException::class)
     fun resolve(
         source: ReadOnlyRandomAccessSource,
@@ -175,257 +231,487 @@ class DpmxKeyResolver(
         entry: DpmxFileEntry
     ): DpmxKeyResolution? {
         require(entry in container.entries) { "Entry does not belong to this DPMX container." }
-
-        resolvedByFileKey[entry.fileKey]?.let { cached ->
-            if (validates(source, entry, cached.key)) return cached
-            resolvedByFileKey.remove(entry.fileKey, cached)
+        val archiveId = archiveId(container)
+        val cacheKey = "$archiveId:${entry.fileKey}:${entry.name.lowercase()}"
+        resolvedByEntry[cacheKey]?.let { cached ->
+            if (validatesCached(source, entry, cached)) return cached
+            resolvedByEntry.remove(cacheKey, cached)
         }
 
-        val constants = container.readVirtualAddress(
-            source,
-            GAME_KEY_CONSTANTS_VA,
-            GAME_KEY_CONSTANTS_LENGTH
-        )
-        if (constants != null) {
-            val derived = dataKeyDeriver?.derive(entry.fileKey, constants)
-            if (derived != null && validates(source, entry, derived)) {
-                return DpmxKeyResolution(derived, DpmxKeyResolution.Method.PE_DATA_DERIVER)
-                    .also { resolvedByFileKey[entry.fileKey] = it }
+        if (entry.fileKey == 0L) {
+            val validation = validateUnencryptedEntry(source, entry) ?: return null
+            return DpmxKeyResolution(
+                key = DpmxCipherKey(0, 0),
+                method = DpmxKeyResolution.Method.UNENCRYPTED_ENTRY,
+                validation = validation,
+                detail = "fileKey=0; entry is stored without encryption"
+            ).also { resolvedByEntry[cacheKey] = it }
+        }
+
+        val metadata = container.executableMetadata
+        if (metadata != null && metadata.checksumValid && metadata.dpmOffset == container.overlayOffset) {
+            val dataSize = source.sizeBytes - metadata.dpmOffset - DPMX_HEADER_SIZE
+            if (dataSize >= 0L) {
+                val preferredVersion = archiveCipherVersions[archiveId]
+                val candidates = if (preferredVersion != null) {
+                    listOf(preferredVersion)
+                } else {
+                    DpmxCipherVersion.values().toList()
+                }
+                val isAx = isAxEntry(entry)
+                for (version in candidates) {
+                    val key = deriveEntryKey(metadata.deckey, entry.fileKey, dataSize, version)
+                    val validation = validateCandidate(source, entry, key)
+                    if (isAx && validation != DpmxKeyResolution.Validation.HSP3_BYTECODE_LOADER) {
+                        continue
+                    }
+                    if (!isAx && validation == null) continue
+                    val result = DpmxKeyResolution(
+                        key = key,
+                        method = DpmxKeyResolution.Method.PE_HSPHED_DECKEY,
+                        validation = validation ?: DpmxKeyResolution.Validation.KEY_DERIVED_ONLY,
+                        deckey = metadata.deckey,
+                        globalSeed1 = deriveGlobalSeeds(metadata.deckey, dataSize).first,
+                        globalSeed2 = deriveGlobalSeeds(metadata.deckey, dataSize).second,
+                        detail = "HSPHED checksum OK; fileKey=0x${entry.fileKey.toString(16)}; " +
+                            "entry=${entry.name}; sumSize=$dataSize"
+                    )
+                    if (isAx) archiveCipherVersions[archiveId] = version
+                    return result.also { resolvedByEntry[cacheKey] = it }
+                }
+
+                // A valid archive checksum and an exact HSP metadata record
+                // authenticate the global schedule. If this is an unknown
+                // resource extension, only reuse a version already proven by start.ax.
+                if (!isAx && preferredVersion != null) {
+                    val key = deriveEntryKey(metadata.deckey, entry.fileKey, dataSize, preferredVersion)
+                    val result = DpmxKeyResolution(
+                        key = key,
+                        method = DpmxKeyResolution.Method.PE_HSPHED_DECKEY,
+                        validation = DpmxKeyResolution.Validation.KEY_DERIVED_ONLY,
+                        deckey = metadata.deckey,
+                        globalSeed1 = deriveGlobalSeeds(metadata.deckey, dataSize).first,
+                        globalSeed2 = deriveGlobalSeeds(metadata.deckey, dataSize).second,
+                        detail = "HSPHED checksum OK; cipher version verified by start.ax; " +
+                            "fileKey=0x${entry.fileKey.toString(16)}; entry=${entry.name}"
+                    )
+                    return result.also { resolvedByEntry[cacheKey] = it }
+                }
             }
         }
 
-        val known = KNOWN_SAMPLE_KEYS[entry.fileKey]
-        if (known != null && validates(source, entry, known)) {
-            return DpmxKeyResolution(known, DpmxKeyResolution.Method.VERIFIED_SAMPLE_VECTOR)
-                .also { resolvedByFileKey[entry.fileKey] = it }
-        }
-
-        val isStartAx = entry.name.substringAfterLast('.', "").equals("ax", ignoreCase = true)
-        val detected = if (isStartAx) {
+        val isAx = isAxEntry(entry)
+        val fallback = if (isAx) {
             recoverStartAxKey(source, entry)
         } else {
-            autoDetect(source, entry)
+            autoDetectResourceKey(source, entry, archiveCipherVersions[archiveId])
         } ?: return null
-        val method = if (isStartAx) {
-            DpmxKeyResolution.Method.KNOWN_PLAINTEXT_HSP3
-        } else {
-            DpmxKeyResolution.Method.SIGNATURE_AUTODETECT
-        }
-        return DpmxKeyResolution(detected, method)
-            .also { resolvedByFileKey[entry.fileKey] = it }
-    }
 
-    private fun validates(
-        source: ReadOnlyRandomAccessSource,
-        entry: DpmxFileEntry,
-        key: DpmxCipherKey
-    ): Boolean {
-        val prefixLength = minOf(prefixLengthFor(entry), entry.sizeBytes.toIntSafe())
-        if (prefixLength == 0) return false
-        val prefix = DpmxDecryptor.decryptPrefix(source, entry, key, prefixLength)
-        return isPlausible(entry, prefix)
+        if (isAx) archiveCipherVersions[archiveId] = fallback.first.version
+        return DpmxKeyResolution(
+            key = fallback.first,
+            method = if (isAx) DpmxKeyResolution.Method.KNOWN_PLAINTEXT_HSP3
+                else DpmxKeyResolution.Method.SIGNATURE_AUTODETECT,
+            validation = fallback.second,
+            detail = if (isAx) {
+                "Recovered from HSP3 magic; full HSPHED/CS/DS/OT/DI accepted by Hsp3BytecodeLoader"
+            } else {
+                "Recovered from resource signature; fileKey=0x${entry.fileKey.toString(16)}; entry=${entry.name}"
+            }
+        ).also { resolvedByEntry[cacheKey] = it }
     }
 
     /**
-     * Recovers the feedback cipher parameters from the invariant HSP3 magic.
-     *
-     * For plaintext byte i > 0, (P[i] - P[i-1]) mod 256 equals
-     * ((C[i] - AL) mod 256) xor CL. The three known-byte differences therefore
-     * constrain AL/CL directly; the first known byte then determines initialDL.
-     * This avoids the old 65,536-pair search that incorrectly fixed initialDL=0.
+     * Uses an unpacked HSPHED version to select the matching DPMX cipher family
+     * when the encrypted start.ax is not available to identify it directly.
      */
+    fun preferHspCipherVersion(container: DpmxContainer, hspVersion: Long) {
+        val cipherVersion = if (hspVersion >= 0x00000330L) {
+            DpmxCipherVersion.HSP_33_TO_36
+        } else {
+            DpmxCipherVersion.HSP_26_TO_32
+        }
+        archiveCipherVersions[archiveId(container)] = cipherVersion
+    }
+
+    /**
+     * Validates every archive resource key before the game is reported as
+     * prepared. Signature checks are exact for common resource formats;
+     * unknown extensions are reported as derived-only when the archive
+     * metadata and the start.ax-selected cipher version make derivation safe.
+     */
+    @Throws(IOException::class)
+    fun verifyArchiveResources(
+        source: ReadOnlyRandomAccessSource,
+        container: DpmxContainer
+    ): DpmxResourceValidationReport {
+        var unencrypted = 0
+        var signatureValidated = 0
+        var keyDerived = 0
+        var unresolved = 0
+        val resources = container.entries.filterNot(::isAxEntry)
+        for (entry in resources) {
+            val resolution = resolve(source, container, entry)
+            if (resolution == null) {
+                unresolved++
+                continue
+            }
+            if (resolution.method == DpmxKeyResolution.Method.UNENCRYPTED_ENTRY) {
+                unencrypted++
+                continue
+            }
+            when (resolution.validation) {
+                DpmxKeyResolution.Validation.RESOURCE_SIGNATURE -> {
+                    if (resolution.method == DpmxKeyResolution.Method.UNENCRYPTED_ENTRY) {
+                        unencrypted++
+                    } else {
+                        signatureValidated++
+                    }
+                }
+                DpmxKeyResolution.Validation.KEY_DERIVED_ONLY,
+                DpmxKeyResolution.Validation.DPM_CHECKSUM -> keyDerived++
+                DpmxKeyResolution.Validation.HSP3_BYTECODE_LOADER -> signatureValidated++
+            }
+        }
+        return DpmxResourceValidationReport(
+            totalEntries = resources.size,
+            unencryptedEntries = unencrypted,
+            signatureValidatedEntries = signatureValidated,
+            keyDerivedEntries = keyDerived,
+            unresolvedEncryptedEntries = unresolved,
+            archiveChecksumValid = container.executableMetadata?.checksumValid
+        )
+    }
+
+    private fun deriveEntryKey(
+        deckey: Long,
+        fileKey: Long,
+        sumSize: Long,
+        version: DpmxCipherVersion
+    ): DpmxCipherKey {
+        val seeds = deriveGlobalSeeds(deckey, sumSize)
+        val f1 = fileKey.toInt() and 0xFF
+        val f2 = (fileKey.toInt() ushr 8) and 0xFF
+        val f3 = (fileKey.toInt() ushr 16) and 0xFF
+        val f4 = (fileKey.toInt() ushr 24) and 0xFF
+        val constant1 = if (version == DpmxCipherVersion.HSP_33_TO_36) 0x5A else 0x55
+        val constant2 = if (version == DpmxCipherVersion.HSP_33_TO_36) 0xA5 else 0xAA
+        // dpm_enc1/2 are int expressions in the HSP runtime: do not truncate
+        // the addition to one byte before the XOR. The final sum is truncated.
+        val fileSeed1 = ((f1 + constant1) xor f3)
+        val fileSeed2 = ((f2 + constant2) xor f4)
+        return DpmxCipherKey(
+            al = (seeds.second + fileSeed2) and 0xFF,
+            cl = (seeds.first + fileSeed1) and 0xFF,
+            version = version
+        )
+    }
+
+    private fun deriveGlobalSeeds(deckey: Long, sumSize: Long): Pair<Int, Int> {
+        if (deckey == 0xFFFF_FFFFL) return 0xAA to 0x55
+        val d1 = deckey.toInt() and 0xFF
+        val d2 = (deckey.toInt() ushr 8) and 0xFF
+        val d3 = (deckey.toInt() ushr 16) and 0xFF
+        val d4 = (deckey.toInt() ushr 24) and 0xFF
+        val seed1 = (((d1 * d3 / 3) xor sumSize.toInt()) and 0xFF)
+        val seed2 = (((d2 * d4 / 5) xor sumSize.toInt() xor 0xAA) and 0xFF)
+        return seed1 to seed2
+    }
+
+    private fun validateCandidate(
+        source: ReadOnlyRandomAccessSource,
+        entry: DpmxFileEntry,
+        key: DpmxCipherKey
+    ): DpmxKeyResolution.Validation? {
+        if (isAxEntry(entry)) {
+            val plain = readDecryptedEntry(source, entry, key)
+            return if (isValidHspHeader(entry, plain) && loadsWithHsp3BytecodeLoader(plain)) {
+                DpmxKeyResolution.Validation.HSP3_BYTECODE_LOADER
+            } else null
+        }
+        val prefixLength = minOf(prefixLengthFor(entry), entry.sizeBytes.toIntSafe())
+        if (prefixLength <= 0) return null
+        val plain = DpmxDecryptor.decryptPrefix(source, entry, key, prefixLength)
+        return if (isPlausibleResource(entry, plain)) {
+            DpmxKeyResolution.Validation.RESOURCE_SIGNATURE
+        } else null
+    }
+
+    private fun validateUnencryptedEntry(
+        source: ReadOnlyRandomAccessSource,
+        entry: DpmxFileEntry
+    ): DpmxKeyResolution.Validation? {
+        if (isAxEntry(entry)) {
+            val plain = readEntryBytes(source, entry)
+            return if (isValidHspHeader(entry, plain) && loadsWithHsp3BytecodeLoader(plain)) {
+                DpmxKeyResolution.Validation.HSP3_BYTECODE_LOADER
+            } else null
+        }
+        val prefixLength = minOf(prefixLengthFor(entry), entry.sizeBytes.toIntSafe())
+        if (prefixLength <= 0) return null
+        val bytes = ByteArray(prefixLength)
+        source.readFullyAt(entry.absoluteOffset, bytes)
+        return if (isPlausibleResource(entry, bytes)) {
+            DpmxKeyResolution.Validation.RESOURCE_SIGNATURE
+        } else DpmxKeyResolution.Validation.KEY_DERIVED_ONLY
+    }
+
+    private fun validatesCached(
+        source: ReadOnlyRandomAccessSource,
+        entry: DpmxFileEntry,
+        resolution: DpmxKeyResolution
+    ): Boolean = when (resolution.method) {
+        DpmxKeyResolution.Method.UNENCRYPTED_ENTRY ->
+            validateUnencryptedEntry(source, entry) != null
+        else ->
+            validateCandidate(source, entry, resolution.key) == resolution.validation ||
+                resolution.validation == DpmxKeyResolution.Validation.KEY_DERIVED_ONLY
+    }
+
     private fun recoverStartAxKey(
         source: ReadOnlyRandomAccessSource,
         entry: DpmxFileEntry
-    ): DpmxCipherKey? {
-        val sampleLength = minOf(HSPHED_SIZE_BYTES, entry.sizeBytes.toIntSafe())
-        if (sampleLength < HSPHED_SIZE_BYTES) return null
-
-        val encrypted = ByteArray(sampleLength)
+    ): Pair<DpmxCipherKey, DpmxKeyResolution.Validation>? {
+        if (entry.sizeBytes < HSPHED_SIZE_BYTES) return null
+        val encrypted = ByteArray(HSPHED_SIZE_BYTES)
         source.readFullyAt(entry.absoluteOffset, encrypted)
         val known = HSP3_MAGIC
-        val delta1 = (known[1] - known[0]) and 0xFF
-        val delta2 = (known[2] - known[1]) and 0xFF
-        val delta3 = (known[3] - known[2]) and 0xFF
+        val expectedDeltas = IntArray(3) { index ->
+            (known[index + 1] - known[index]) and 0xFF
+        }
+        val fullLength = entry.sizeBytes.toIntSafe()
+        if (fullLength.toLong() != entry.sizeBytes || fullLength > MAX_HSP_VALIDATION_BYTES) return null
+        var selectedKey: DpmxCipherKey? = null
 
-        var candidate: DpmxCipherKey? = null
-        var candidatePlaintext: ByteArray? = null
-
-        for (al in 0..0xFF) {
-            val cl = delta1 xor (((encrypted[1].toInt() and 0xFF) - al) and 0xFF)
-            val secondDelta = (((encrypted[2].toInt() and 0xFF) - al) and 0xFF) xor cl
-            if (secondDelta != delta2) continue
-            val thirdDelta = (((encrypted[3].toInt() and 0xFF) - al) and 0xFF) xor cl
-            if (thirdDelta != delta3) continue
-
-            val firstDelta = (((encrypted[0].toInt() and 0xFF) - al) and 0xFF) xor cl
-            val initialDl = (known[0] - firstDelta) and 0xFF
-            val key = canonicalizeSymmetricKey(DpmxCipherKey(al, cl, initialDl))
-            val plaintext = DpmxDecryptor.decryptBytes(encrypted, key)
-            if (!isValidHspHeader(entry, plaintext)) continue
-
-            val previousPlaintext = candidatePlaintext
-            if (previousPlaintext != null && !previousPlaintext.contentEquals(plaintext)) {
-                // The known prefix is insufficient if distinct valid HSPHEDs survive.
-                return null
-            }
-            if (candidate == null || compareKeys(key, candidate!!) < 0) {
-                candidate = key
-                candidatePlaintext = plaintext
+        for (version in DpmxCipherVersion.values()) {
+            for (al in 0..0xFF) {
+                val enc1 = encrypted[1].toInt() and 0xFF
+                val cl = when (version) {
+                    DpmxCipherVersion.HSP_26_TO_32 ->
+                        expectedDeltas[0] xor ((enc1 - al) and 0xFF)
+                    DpmxCipherVersion.HSP_33_TO_36 ->
+                        enc1 xor ((expectedDeltas[0] + al) and 0xFF)
+                }
+                var matches = true
+                for (index in 1..2) {
+                    val enc = encrypted[index + 1].toInt() and 0xFF
+                    val delta = when (version) {
+                        DpmxCipherVersion.HSP_26_TO_32 ->
+                            (((enc - al) and 0xFF) xor cl)
+                        DpmxCipherVersion.HSP_33_TO_36 ->
+                            (((enc xor cl) - al) and 0xFF)
+                    }
+                    if (delta != expectedDeltas[index]) {
+                        matches = false
+                        break
+                    }
+                }
+                if (!matches) continue
+                val enc0 = encrypted[0].toInt() and 0xFF
+                val firstDelta = when (version) {
+                    DpmxCipherVersion.HSP_26_TO_32 ->
+                        (((enc0 - al) and 0xFF) xor cl)
+                    DpmxCipherVersion.HSP_33_TO_36 ->
+                        (((enc0 xor cl) - al) and 0xFF)
+                }
+                val initialDl = (known[0] - firstDelta) and 0xFF
+                val key = canonicalizeSymmetricKey(DpmxCipherKey(al, cl, initialDl, version))
+                val headerPlain = DpmxDecryptor.decryptBytes(encrypted, key)
+                if (!isValidHspHeader(entry, headerPlain)) continue
+                val fullPlain = DpmxDecryptor.decryptPrefix(source, entry, key, fullLength)
+                if (!loadsWithHsp3BytecodeLoader(fullPlain)) continue
+                if (selectedKey != null && selectedKey != key) return null
+                selectedKey = key
             }
         }
-        return candidate
+        return selectedKey?.let {
+            it to DpmxKeyResolution.Validation.HSP3_BYTECODE_LOADER
+        }
     }
 
-    private fun autoDetect(
+    private fun autoDetectResourceKey(
         source: ReadOnlyRandomAccessSource,
-        entry: DpmxFileEntry
-    ): DpmxCipherKey? {
+        entry: DpmxFileEntry,
+        preferredVersion: DpmxCipherVersion?
+    ): Pair<DpmxCipherKey, DpmxKeyResolution.Validation>? {
+        val extension = entry.name.substringAfterLast('.', "").lowercase()
+        val expected = expectedFirstByte(entry)
         val sampleLength = minOf(prefixLengthFor(entry), entry.sizeBytes.toIntSafe())
-        if (sampleLength < MIN_SAMPLE_LENGTH) return null
+        if (sampleLength < 3) return null
         val encrypted = ByteArray(sampleLength)
         source.readFullyAt(entry.absoluteOffset, encrypted)
-
-        var candidate: DpmxCipherKey? = null
-        var candidatePlaintext: ByteArray? = null
-        var ambiguous = false
-
-        fun consider(al: Int, cl: Int) {
-            if (ambiguous) return
-            // BMP candidates are evaluated with the format's required initial DL=0.
-            val testedKey = DpmxCipherKey(al, cl, initialDl = 0)
-            val plaintext = DpmxDecryptor.decryptBytes(encrypted, testedKey)
-            if (!isPlausible(entry, plaintext)) return
-
-            val canonical = canonicalizeSymmetricKey(testedKey)
-            if (candidate == null) {
-                candidate = canonical
-                candidatePlaintext = plaintext
-            } else if (!candidatePlaintext!!.contentEquals(plaintext)) {
-                // More than one distinct plausible plaintext means the signature
-                // is insufficient to identify a key safely.
-                ambiguous = true
-            } else if (compareKeys(canonical, candidate!!) < 0) {
-                candidate = canonical
+        val versions = preferredVersion?.let(::listOf) ?: DpmxCipherVersion.values().toList()
+        var selected: DpmxCipherKey? = null
+        var selectedPlain: ByteArray? = null
+        for (version in versions) {
+            if (expected == null && extension in TEXT_RESOURCE_EXTENSIONS) {
+                for (al in 0..0xFF) {
+                    for (cl in 0..0xFF) {
+                        val key = DpmxCipherKey(al, cl, version = version)
+                        val plain = DpmxDecryptor.decryptBytes(encrypted, key)
+                        if (!isPrintableShiftJis(plain)) continue
+                        if (selectedPlain != null && !selectedPlain.contentEquals(plain)) return null
+                        if (selected == null || compareKeys(key, selected) < 0) {
+                            selected = canonicalizeSymmetricKey(key)
+                            selectedPlain = plain
+                        }
+                    }
+                }
+            } else if (expected != null) {
+                for (al in 0..0xFF) {
+                    val first = encrypted[0].toInt() and 0xFF
+                    val cl = when (version) {
+                        DpmxCipherVersion.HSP_26_TO_32 ->
+                            (((first - al) and 0xFF) xor expected)
+                        DpmxCipherVersion.HSP_33_TO_36 ->
+                            (first xor ((expected + al) and 0xFF))
+                    }
+                    val key = DpmxCipherKey(al, cl, version = version)
+                    val plain = DpmxDecryptor.decryptBytes(encrypted, key)
+                    if (!isPlausibleResource(entry, plain)) continue
+                    if (selectedPlain != null && !selectedPlain.contentEquals(plain)) return null
+                    if (selected == null || compareKeys(key, selected) < 0) {
+                        selected = canonicalizeSymmetricKey(key)
+                        selectedPlain = plain
+                    }
+                }
+            } else {
+                return null
             }
         }
-
-        if (entry.name.substringAfterLast('.', "").equals("bmp", ignoreCase = true)) {
-            // The first plaintext byte must be 'B'. For every AL there is only one
-            // CL that can produce it, reducing BMP key search from 65,536 candidates
-            // to 256 without dropping any possible (AL, CL) pair.
-            val firstEncrypted = encrypted[0].toInt() and 0xFF
-            for (al in 0..0xFF) {
-                val cl = (((firstEncrypted - al) and 0xFF) xor 'B'.code)
-                consider(al, cl)
-            }
-        } else {
-            for (al in 0..0xFF) {
-                for (cl in 0..0xFF) consider(al, cl)
-            }
+        return selected?.let {
+            it to DpmxKeyResolution.Validation.RESOURCE_SIGNATURE
         }
-        return if (ambiguous) null else candidate
     }
 
-    private fun prefixLengthFor(entry: DpmxFileEntry): Int =
-        when (entry.name.substringAfterLast('.', "").lowercase()) {
-            "ax" -> HSPHED_SIZE_BYTES
-            "bmp" -> BMP_PREFIX_LENGTH
-            "txt", "ini", "as", "hsp", "cfg" -> TEXT_PREFIX_LENGTH
-            else -> MIN_SAMPLE_LENGTH
+    private fun readDecryptedEntry(
+        source: ReadOnlyRandomAccessSource,
+        entry: DpmxFileEntry,
+        key: DpmxCipherKey
+    ): ByteArray {
+        val length = entry.sizeBytes.toIntSafe()
+        if (length.toLong() != entry.sizeBytes || length > MAX_HSP_VALIDATION_BYTES) {
+            throw IOException("The HSP3 start.ax exceeds the resolver validation bound.")
         }
+        return DpmxDecryptor.decryptPrefix(source, entry, key, length)
+    }
 
-    private fun isPlausible(entry: DpmxFileEntry, bytes: ByteArray): Boolean {
-        return when (entry.name.substringAfterLast('.', "").lowercase()) {
-            "ax" -> isValidHspHeader(entry, bytes)
-            "bmp" -> isPlausibleDpmxBmpHeader(bytes, entry.sizeBytes)
-            "txt", "ini", "as", "hsp", "cfg" -> isPrintableShiftJis(bytes)
-            else -> false
+    private fun readEntryBytes(
+        source: ReadOnlyRandomAccessSource,
+        entry: DpmxFileEntry
+    ): ByteArray {
+        val length = entry.sizeBytes.toIntSafe()
+        if (length.toLong() != entry.sizeBytes || length > MAX_HSP_VALIDATION_BYTES) {
+            throw IOException("The DPMX entry exceeds the resolver validation bound.")
         }
+        return ByteArray(length).also { source.readFullyAt(entry.absoluteOffset, it) }
+    }
+
+    private fun loadsWithHsp3BytecodeLoader(bytes: ByteArray): Boolean = try {
+        io.github.helterfall.ramen.parser.Hsp3BytecodeLoader().load(ByteArraySource(bytes))
+        true
+    } catch (_: Exception) {
+        false
     }
 
     private fun isValidHspHeader(entry: DpmxFileEntry, bytes: ByteArray): Boolean {
-        if (bytes.size < HSPHED_SIZE_BYTES ||
-            bytes[0] != 'H'.code.toByte() ||
-            bytes[1] != 'S'.code.toByte() ||
-            bytes[2] != 'P'.code.toByte() ||
-            bytes[3] != '3'.code.toByte()
-        ) return false
-
+        if (bytes.size < HSPHED_SIZE_BYTES || !bytes.copyOfRange(0, 4).contentEquals(HSP3_MAGIC)) {
+            return false
+        }
         val version = readUInt32(bytes, 4)
         if (version !in HSP3_VERSION_MIN..HSP3_VERSION_MAX) return false
-
         val allSize = readUInt32(bytes, 12)
-        if (allSize < HSPHED_SIZE_BYTES.toLong() || allSize > entry.sizeBytes) return false
-
+        if (allSize < HSPHED_SIZE_BYTES || allSize > entry.sizeBytes) return false
         if (readUInt32(bytes, 8) > MAX_HSP3_VARIABLES) return false
-
-        val code = SegmentRange(readUInt32(bytes, 16), readUInt32(bytes, 20))
-        val data = SegmentRange(readUInt32(bytes, 24), readUInt32(bytes, 28))
-        val objectTemp = SegmentRange(readUInt32(bytes, 32), readUInt32(bytes, 36))
-        val debug = SegmentRange(readUInt32(bytes, 40), readUInt32(bytes, 44))
-        if (code.size == 0L || code.size % 2L != 0L) return false
-
-        val ranges = listOf(code, data, objectTemp, debug)
-        if (ranges.any { segment ->
-                segment.size < 0L ||
-                    (segment.size == 0L && segment.offset > allSize) ||
-                    (segment.size > 0L &&
-                        (segment.offset < HSPHED_SIZE_BYTES.toLong() ||
-                            segment.offset > allSize ||
-                            segment.size > allSize - segment.offset))
+        val ranges = listOf(
+            SegmentRange(readUInt32(bytes, 16), readUInt32(bytes, 20)),
+            SegmentRange(readUInt32(bytes, 24), readUInt32(bytes, 28)),
+            SegmentRange(readUInt32(bytes, 32), readUInt32(bytes, 36)),
+            SegmentRange(readUInt32(bytes, 40), readUInt32(bytes, 44))
+        )
+        if (ranges.first().size == 0L || ranges.first().size % 2L != 0L) return false
+        if (ranges.any { range ->
+                range.size == 0L && range.offset > allSize ||
+                    range.size > 0L && (range.offset < HSPHED_SIZE_BYTES ||
+                        range.offset > allSize || range.size > allSize - range.offset)
             }
         ) return false
-
-        // Segment tables in HSPHED describe disjoint byte ranges. Overlap can
-        // make a random decryption candidate look superficially plausible.
-        for (leftIndex in ranges.indices) {
-            val left = ranges[leftIndex]
-            if (left.size == 0L) continue
-            for (rightIndex in leftIndex + 1 until ranges.size) {
-                val right = ranges[rightIndex]
-                if (right.size == 0L) continue
-                if (left.offset < right.offset + right.size &&
-                    right.offset < left.offset + left.size
+        for (left in ranges.indices) {
+            for (right in left + 1 until ranges.size) {
+                val a = ranges[left]
+                val b = ranges[right]
+                if (a.size > 0L && b.size > 0L &&
+                    a.offset < b.offset + b.size && b.offset < a.offset + a.size
                 ) return false
             }
         }
         return true
     }
 
-    private data class SegmentRange(val offset: Long, val size: Long)
+    private fun isAxEntry(entry: DpmxFileEntry): Boolean =
+        entry.name.substringAfterLast('.', "").equals("ax", ignoreCase = true)
 
-    /** The cipher has a 128-step key symmetry; always expose the lower-al form. */
+    private fun expectedFirstByte(entry: DpmxFileEntry): Int? =
+        when (entry.name.substringAfterLast('.', "").lowercase()) {
+            "bmp" -> 'B'.code
+            "png" -> 0x89
+            "jpg", "jpeg" -> 0xFF
+            "gif" -> 'G'.code
+            "wav" -> 'R'.code
+            "ogg" -> 'O'.code
+            else -> null
+        }
+
+    private fun prefixLengthFor(entry: DpmxFileEntry): Int =
+        when (entry.name.substringAfterLast('.', "").lowercase()) {
+            "ax" -> HSPHED_SIZE_BYTES
+            "bmp" -> BMP_PREFIX_LENGTH
+            "png" -> 8
+            "jpg", "jpeg" -> 3
+            "gif" -> 6
+            "wav" -> 12
+            "ogg" -> 4
+            "txt", "ini", "as", "hsp", "cfg" -> TEXT_PREFIX_LENGTH
+            else -> MIN_SAMPLE_LENGTH
+        }
+
+    private fun isPlausibleResource(entry: DpmxFileEntry, bytes: ByteArray): Boolean =
+        when (entry.name.substringAfterLast('.', "").lowercase()) {
+            "bmp" -> isPlausibleDpmxBmpHeader(bytes, entry.sizeBytes)
+            "png" -> bytes.size >= 8 && bytes.copyOfRange(0, 8).contentEquals(
+                byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+            )
+            "jpg", "jpeg" -> bytes.size >= 3 && bytes[0] == 0xFF.toByte() &&
+                bytes[1] == 0xD8.toByte() && bytes[2] == 0xFF.toByte()
+            "gif" -> bytes.size >= 6 &&
+                (String(bytes, 0, 6, Charsets.US_ASCII) == "GIF87a" ||
+                    String(bytes, 0, 6, Charsets.US_ASCII) == "GIF89a")
+            "wav" -> bytes.size >= 12 &&
+                String(bytes, 0, 4, Charsets.US_ASCII) == "RIFF" &&
+                String(bytes, 8, 4, Charsets.US_ASCII) == "WAVE"
+            "ogg" -> bytes.size >= 4 && String(bytes, 0, 4, Charsets.US_ASCII) == "OggS"
+            else -> false
+        }
+
+    private fun isPrintableShiftJis(bytes: ByteArray): Boolean = try {
+        val decoded = SHIFT_JIS.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+            .decode(ByteBuffer.wrap(bytes))
+            .toString()
+        decoded.isNotEmpty() && decoded.all { character ->
+            character == '\\r' || character == '\\n' || character == '\\t' ||
+                !Character.isISOControl(character)
+        }
+    } catch (_: CharacterCodingException) {
+        false
+    }
+
     private fun canonicalizeSymmetricKey(key: DpmxCipherKey): DpmxCipherKey =
-        if (key.al >= 0x80) {
-            DpmxCipherKey(key.al xor 0x80, key.cl xor 0x80, key.initialDl)
-        } else {
-            key
-        }
+        if (key.al >= 0x80) key.copy(al = key.al xor 0x80, cl = key.cl xor 0x80) else key
 
-    private fun compareKeys(left: DpmxCipherKey, right: DpmxCipherKey): Int {
-        val alOrder = left.al.compareTo(right.al)
-        if (alOrder != 0) return alOrder
-        val clOrder = left.cl.compareTo(right.cl)
-        if (clOrder != 0) return clOrder
-        return left.initialDl.compareTo(right.initialDl)
-    }
-
-    private fun isPrintableShiftJis(bytes: ByteArray): Boolean {
-        return try {
-            val decoded = SHIFT_JIS.newDecoder()
-                .onMalformedInput(CodingErrorAction.REPORT)
-                .onUnmappableCharacter(CodingErrorAction.REPORT)
-                .decode(ByteBuffer.wrap(bytes))
-                .toString()
-            decoded.isNotEmpty() && decoded.all { character ->
-                character == '\r' || character == '\n' || character == '\t' ||
-                    !Character.isISOControl(character)
-            }
-        } catch (_: CharacterCodingException) {
-            false
-        }
-    }
+    private fun compareKeys(left: DpmxCipherKey, right: DpmxCipherKey): Int =
+        compareValuesBy(left, right, DpmxCipherKey::al, DpmxCipherKey::cl, DpmxCipherKey::initialDl)
 
     private fun readUInt32(bytes: ByteArray, offset: Int): Long =
         (bytes[offset].toLong() and 0xFFL) or
@@ -436,22 +722,35 @@ class DpmxKeyResolver(
     private fun Long.toIntSafe(): Int =
         minOf(Int.MAX_VALUE.toLong(), maxOf(0L, this)).toInt()
 
+    private fun archiveId(container: DpmxContainer): String =
+        "${container.peOffset}:${container.overlayOffset}:${container.dataAbsoluteOffset}:${container.fileCount}"
+
+    private class ByteArraySource(private val bytes: ByteArray) : ReadOnlyRandomAccessSource {
+        override val sizeBytes: Long get() = bytes.size.toLong()
+        override fun readAt(position: Long, target: ByteArray, targetOffset: Int, length: Int): Int {
+            require(position >= 0L && targetOffset >= 0 && length >= 0 &&
+                targetOffset <= target.size - length)
+            if (length == 0) return 0
+            if (position >= bytes.size.toLong()) return -1
+            val count = minOf(length.toLong(), bytes.size.toLong() - position).toInt()
+            bytes.copyInto(target, targetOffset, position.toInt(), position.toInt() + count)
+            return count
+        }
+        override fun close() = Unit
+    }
+
     companion object {
-        const val GAME_KEY_CONSTANTS_VA = 0x00429E40L
-        const val GAME_KEY_CONSTANTS_LENGTH = 0x1C
-        private const val HSP3_VERSION_MIN = 0x00000300L
-        private const val HSP3_VERSION_MAX = 0x00000399L
+        private const val DPMX_HEADER_SIZE = 16L
         private const val HSPHED_SIZE_BYTES = 0x60
+        private const val MAX_HSP_VALIDATION_BYTES = 64 * 1024 * 1024
+        private const val HSP3_VERSION_MIN = 0x00000301L
+        private const val HSP3_VERSION_MAX = 0x00000399L
         private const val MAX_HSP3_VARIABLES = 1_000_000L
-        private val HSP3_MAGIC = intArrayOf(0x48, 0x53, 0x50, 0x33)
+        private val HSP3_MAGIC = byteArrayOf(0x48, 0x53, 0x50, 0x33)
         private const val BMP_PREFIX_LENGTH = 30
         private const val TEXT_PREFIX_LENGTH = 32
         private const val MIN_SAMPLE_LENGTH = 6
+        private val TEXT_RESOURCE_EXTENSIONS = setOf("txt", "ini", "as", "hsp", "cfg")
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
-
-        private val KNOWN_SAMPLE_KEYS = mapOf(
-            0xB2B8EDB5L to DpmxCipherKey(al = 0xB2, cl = 0x53),
-            0x7C01AD18L to DpmxCipherKey(al = 0x38, cl = 0x8D)
-        )
     }
 }

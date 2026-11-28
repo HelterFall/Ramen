@@ -16,7 +16,7 @@ class Hsp3RuntimeAdapterTest {
 
             assertEquals(0x400L, prepared.container.overlayOffset)
             assertEquals("start.ax", prepared.scriptEntry?.name)
-            assertEquals(DpmxKeyResolution.Method.VERIFIED_SAMPLE_VECTOR, prepared.scriptKey?.method)
+            assertEquals(DpmxKeyResolution.Method.KNOWN_PLAINTEXT_HSP3, prepared.scriptKey?.method)
             assertEquals(0x301L, prepared.program.header.version)
             assertEquals(42L, prepared.program.tokens().single().value)
         }
@@ -70,6 +70,29 @@ class Hsp3RuntimeAdapterTest {
             assertEquals(unpackedAx.canonicalFile, prepared.unpackedScriptFile)
             assertEquals(null, prepared.scriptEntry)
             assertEquals(null, prepared.scriptKey)
+        } finally {
+            gameRoot.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun loadsUnpackedStartAxWhenExecutableHasNoDpmxOverlay() {
+        val gameRoot = Files.createTempDirectory("ramen-hsp3-plain-ax-only").toFile()
+        try {
+            val executableDirectory = File(gameRoot, "bin")
+            assertTrue(executableDirectory.mkdirs())
+            val executable = File(executableDirectory, "game.exe")
+            executable.writeBytes(createExecutableFixture(includeScript = false).copyOf(0x400))
+            val expectedAx = createAxFixture(validCommand = true)
+            File(gameRoot, "start.ax").writeBytes(expectedAx)
+
+            val prepared = Hsp3RuntimeAdapter().prepare(executable, gameRoot)
+
+            assertEquals(0x301L, prepared.program.header.version)
+            assertEquals(0x10L, prepared.program.tokens().single().value)
+            assertTrue(prepared.container.entries.isEmpty())
+            assertEquals(null, prepared.scriptKey)
+            assertEquals(File(gameRoot, "start.ax").canonicalFile, prepared.unpackedScriptFile)
         } finally {
             gameRoot.deleteRecursively()
         }

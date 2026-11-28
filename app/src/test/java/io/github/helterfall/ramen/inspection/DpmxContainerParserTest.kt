@@ -31,23 +31,20 @@ class DpmxContainerParserTest {
     }
 
     @Test
-    fun findsDpmxAtAnAlignedOffsetWithinTheOverlaySearchWindow() {
+    fun findsDpmxBeyondFormer64KiBOverlayLimit() {
         val payload = byteArrayOf(7, 8, 9)
         val fixture = createPeDpmxFixture(
             "aligned.bin",
             payload,
             0x12345678L,
-            overlayOffset = 0x2B000,
-            sectionRawSize = 0x2A200
+            overlayOffset = 0x31000,
+            sectionRawSize = 0x200
         )
-        fixture.bytes[0x2A400] = 'D'.code.toByte()
-        fixture.bytes[0x2A401] = 'P'.code.toByte()
-        fixture.bytes[0x2A402] = 'M'.code.toByte()
-        fixture.bytes[0x2A403] = 'X'.code.toByte()
+
         withSource(fixture.bytes) { source ->
             val container = DpmxContainerParser().parse(source)
-            assertEquals(0x2B000L, container.overlayOffset)
-            assertEquals(0x2B080L, container.dataAbsoluteOffset)
+            assertEquals(0x31000L, container.overlayOffset)
+            assertEquals(0x31080L, container.dataAbsoluteOffset)
             assertArrayEquals(
                 payload,
                 container.openEntryStream(source, container.entries.single()).readBytes()
@@ -111,14 +108,14 @@ class DpmxContainerParserTest {
             val container = DpmxContainerParser().parse(source)
             val resolution = DpmxKeyResolver().resolve(source, container, container.entries.single())
             assertNotNull(resolution)
-            assertEquals(DpmxKeyResolution.Method.VERIFIED_SAMPLE_VECTOR, resolution!!.method)
-            assertEquals(key, resolution.key)
+            assertEquals(DpmxKeyResolution.Method.KNOWN_PLAINTEXT_HSP3, resolution!!.method)
+            assertEquals(DpmxCipherKey(al = key.al xor 0x80, cl = key.cl xor 0x80), resolution.key)
         }
     }
 
     @Test
     fun autodetectsStartAxAndChoosesCanonicalSymmetricKey() {
-        val plainAx = validHspHeader(version = 0x0300L)
+        val plainAx = validHspHeader(version = 0x0301L)
         val actualKey = DpmxCipherKey(al = 0x32, cl = 0x17)
         val fixture = createPeDpmxFixture("start.ax", encrypt(plainAx, actualKey), 0x01020304L)
         withSource(fixture.bytes) { source ->
@@ -150,6 +147,96 @@ class DpmxContainerParserTest {
             assertArrayEquals(
                 plainAx,
                 DpmxDecryptor.decryptPrefix(source, entry, resolution.key, plainAx.size)
+            )
+        }
+    }
+
+    @Test
+    fun recoversStartAxKeyFromEmbeddedHsphedDeckeyAndFileKey() {
+        val plainAx = validHspHeader(version = 0x0301L)
+        val deckey = 0x81AA9ECDL
+        val fileKey = 0xB2B8EDB5L
+        val overlayOffset = 0x21000
+        val dataSize = plainAx.size.toLong()
+        val sumSize = dataSize + 0x80L - 16L
+        val key = deriveHspEntryKey(deckey, fileKey, sumSize, DpmxCipherVersion.HSP_26_TO_32)
+        val fixture = createPeDpmxFixture(
+            "start.ax",
+            encrypt(plainAx, key),
+            fileKey,
+            overlayOffset = overlayOffset
+        )
+        writeHspExecutableMetadata(fixture.bytes, overlayOffset, deckey, includeRuntimeMarker = true)
+
+        withSource(fixture.bytes) { source ->
+            val container = DpmxContainerParser().parse(source)
+            val metadata = container.executableMetadata
+            assertNotNull(metadata)
+            assertEquals(overlayOffset.toLong(), metadata!!.dpmOffset)
+            assertTrue(metadata.checksumValid)
+
+            val resolution = DpmxKeyResolver().resolve(source, container, container.entries.single())
+            assertNotNull(resolution)
+            assertEquals(DpmxKeyResolution.Method.PE_HSPHED_DECKEY, resolution!!.method)
+            assertEquals(DpmxKeyResolution.Validation.HSP3_BYTECODE_LOADER, resolution.validation)
+            assertEquals(key, resolution.key)
+        }
+    }
+
+    @Test
+    fun resolvesHsp33DeckeyUsingRevisedFileKeyScheduleAndCipherOrder() {
+        val plainAx = validHspHeader(version = 0x0330L)
+        val deckey = 0x81AA9ECDL
+        val fileKey = 0x7C01AD18L
+        val overlayOffset = 0x21000
+        val sumSize = 0x80L + plainAx.size - 16L
+        val key = deriveHspEntryKey(deckey, fileKey, sumSize, DpmxCipherVersion.HSP_33_TO_36)
+        val fixture = createPeDpmxFixture(
+            "start.ax",
+            encrypt(plainAx, key),
+            fileKey,
+            overlayOffset = overlayOffset
+        )
+        writeHspExecutableMetadata(fixture.bytes, overlayOffset, deckey)
+
+        withSource(fixture.bytes) { source ->
+            val container = DpmxContainerParser().parse(source)
+            assertTrue(container.executableMetadata!!.checksumValid)
+            val resolution = DpmxKeyResolver().resolve(source, container, container.entries.single())
+            assertNotNull(resolution)
+            assertEquals(DpmxKeyResolution.Method.PE_HSPHED_DECKEY, resolution!!.method)
+            assertEquals(DpmxCipherVersion.HSP_33_TO_36, resolution.key.version)
+            assertArrayEquals(
+                plainAx,
+                DpmxDecryptor.decryptPrefix(source, container.entries.single(), resolution.key, plainAx.size)
+            )
+        }
+    }
+
+    @Test
+    fun fallsBackToKnownHsp3HeaderWhenEmbeddedMetadataChecksumFails() {
+        val plainAx = validHspHeader(version = 0x0301L)
+        val expectedKey = DpmxCipherKey(al = 0x41, cl = 0xB3)
+        val deckey = 0x81AA9ECDL
+        val overlayOffset = 0x21000
+        val fixture = createPeDpmxFixture(
+            "start.ax",
+            encrypt(plainAx, expectedKey),
+            0x01020304L,
+            overlayOffset = overlayOffset
+        )
+        writeHspExecutableMetadata(fixture.bytes, overlayOffset, deckey)
+        fixture.bytes[0x300 + 29] = (fixture.bytes[0x300 + 29].toInt() xor 0x01).toByte()
+
+        withSource(fixture.bytes) { source ->
+            val container = DpmxContainerParser().parse(source)
+            assertEquals(false, container.executableMetadata?.checksumValid)
+            val resolution = DpmxKeyResolver().resolve(source, container, container.entries.single())
+            assertNotNull(resolution)
+            assertEquals(DpmxKeyResolution.Method.KNOWN_PLAINTEXT_HSP3, resolution!!.method)
+            assertArrayEquals(
+                plainAx,
+                DpmxDecryptor.decryptPrefix(source, container.entries.single(), resolution.key, plainAx.size)
             )
         }
     }
@@ -224,6 +311,62 @@ class DpmxContainerParserTest {
         return bytes
     }
 
+    private fun deriveHspEntryKey(
+        deckey: Long,
+        fileKey: Long,
+        sumSize: Long,
+        version: DpmxCipherVersion
+    ): DpmxCipherKey {
+        val d1 = deckey.toInt() and 0xFF
+        val d2 = (deckey.toInt() ushr 8) and 0xFF
+        val d3 = (deckey.toInt() ushr 16) and 0xFF
+        val d4 = (deckey.toInt() ushr 24) and 0xFF
+        val seed1 = (((d1 * d3 / 3) xor sumSize.toInt()) and 0xFF)
+        val seed2 = (((d2 * d4 / 5) xor sumSize.toInt() xor 0xAA) and 0xFF)
+        val f1 = fileKey.toInt() and 0xFF
+        val f2 = (fileKey.toInt() ushr 8) and 0xFF
+        val f3 = (fileKey.toInt() ushr 16) and 0xFF
+        val f4 = (fileKey.toInt() ushr 24) and 0xFF
+        val a = if (version == DpmxCipherVersion.HSP_33_TO_36) 0x5A else 0x55
+        val b = if (version == DpmxCipherVersion.HSP_33_TO_36) 0xA5 else 0xAA
+        val fileSeed1 = (f1 + a) xor f3
+        val fileSeed2 = (f2 + b) xor f4
+        return DpmxCipherKey(
+            al = (seed2 + fileSeed2) and 0xFF,
+            cl = (seed1 + fileSeed1) and 0xFF,
+            version = version
+        )
+    }
+
+    private fun writeHspExecutableMetadata(
+        bytes: ByteArray,
+        dpmOffset: Int,
+        deckey: Long,
+        includeRuntimeMarker: Boolean = false
+    ) {
+        val offset = 0x300
+        if (includeRuntimeMarker) {
+            "HSPHED~~".toByteArray(Charsets.US_ASCII).copyInto(bytes, offset)
+        }
+        val storedPointer = (dpmOffset - 0x10000).toString()
+        storedPointer.toByteArray(Charsets.US_ASCII).copyInto(bytes, offset + 9)
+        bytes[offset + 17] = 0
+        bytes[offset + 18] = 0
+        bytes[offset + 19] = 'x'.code.toByte()
+        bytes[offset + 22] = 'y'.code.toByte()
+        bytes[offset + 25] = 'd'.code.toByte()
+        bytes[offset + 28] = 's'.code.toByte()
+        bytes[offset + 31] = 'k'.code.toByte()
+        putUInt32(bytes, offset + 32, deckey)
+        val sumSeed = ((deckey ushr 24) and 0xFFL).toInt() / 7
+        var checksum = 0
+        for (index in dpmOffset until bytes.size) {
+            checksum = (checksum + (bytes[index].toInt() and 0xFF) + sumSeed) and 0xFFFF
+        }
+        bytes[offset + 29] = checksum.toByte()
+        bytes[offset + 30] = (checksum ushr 8).toByte()
+    }
+
     private data class Fixture(val bytes: ByteArray)
 
     private fun createPeDpmxFixture(
@@ -287,7 +430,10 @@ class DpmxContainerParserTest {
         for (index in plain.indices) {
             val current = plain[index].toInt() and 0xFF
             val delta = (current - previous) and 0xFF
-            val enc = ((delta xor key.cl) + key.al) and 0xFF
+            val enc = when (key.version) {
+                DpmxCipherVersion.HSP_26_TO_32 -> ((delta xor key.cl) + key.al) and 0xFF
+                DpmxCipherVersion.HSP_33_TO_36 -> ((delta + key.al) and 0xFF) xor key.cl
+            }
             result[index] = enc.toByte()
             previous = current
         }

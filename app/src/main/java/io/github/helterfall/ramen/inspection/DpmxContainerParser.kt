@@ -32,6 +32,14 @@ data class DpmxFileEntry(
     val absoluteOffset: Long
 )
 
+data class DpmxExecutableMetadata(
+    val headerOffset: Long,
+    val dpmOffset: Long,
+    val checksum: Int,
+    val deckey: Long,
+    val checksumValid: Boolean
+)
+
 data class DpmxContainer(
     val peOffset: Long,
     val imageBase: Long,
@@ -41,7 +49,8 @@ data class DpmxContainer(
     val dataAbsoluteOffset: Long,
     val fileCount: Int,
     val optionalNameLength: Int,
-    val entries: List<DpmxFileEntry>
+    val entries: List<DpmxFileEntry>,
+    val executableMetadata: DpmxExecutableMetadata? = null
 ) {
     fun findEntry(name: String): DpmxFileEntry? =
         entries.firstOrNull { it.name.equals(name, ignoreCase = true) }
@@ -76,7 +85,7 @@ data class DpmxContainer(
 }
 
 /**
- * Read-only parser for a PE32 executable with a DPMX overlay.
+ * Read-only parser for a PE32/PE32+ executable with a DPMX overlay.
  * Reads headers and table records positionally; the executable is never
  * materialized as a single byte array.
  */
@@ -120,10 +129,12 @@ class DpmxContainerParser(
         val optionalHeaderOffset = checkedAdd(peOffset, PE_HEADER_PREFIX_SIZE.toLong())
         requireRange(source.sizeBytes, optionalHeaderOffset, optionalHeaderSize.toLong(), "PE optional header")
         val optionalHeader = readBytes(source, optionalHeaderOffset, optionalHeaderSize)
-        if (readUInt16(optionalHeader, 0) != PE32_MAGIC) {
-            throw IOException("Only PE32 images are supported by this DPMX parser.")
+        val optionalMagic = readUInt16(optionalHeader, 0)
+        val imageBase = when (optionalMagic) {
+            PE32_MAGIC -> readUInt32(optionalHeader, PE32_IMAGE_BASE_OFFSET)
+            PE32_PLUS_MAGIC -> readUInt64(optionalHeader, PE32_PLUS_IMAGE_BASE_OFFSET)
+            else -> throw IOException("The PE optional header is neither PE32 nor PE32+.")
         }
-        val imageBase = readUInt32(optionalHeader, PE32_IMAGE_BASE_OFFSET)
         val sectionTableOffset = checkedAdd(optionalHeaderOffset, optionalHeaderSize.toLong())
         val sectionTableBytes = checkedMultiply(sectionCount.toLong(), PE_SECTION_SIZE.toLong())
         requireRange(source.sizeBytes, sectionTableOffset, sectionTableBytes, "PE section table")
@@ -148,16 +159,24 @@ class DpmxContainerParser(
             sections += DpmxPeSection(sectionName, virtualSize, virtualAddress, rawSize, rawPointer)
         }
 
+        val executableMetadata = findExecutableMetadata(source)
+        val metadataOffset = executableMetadata?.dpmOffset
+            ?.takeIf { candidate -> isPlausibleDpmxCandidate(source, candidate) }
         val lastSectionRawEnd = overlayOffset
-        overlayOffset = PeOverlayScanner.findSignature(
+        overlayOffset = metadataOffset ?: PeOverlayScanner.findSignature(
             source = source,
             overlayStart = lastSectionRawEnd,
             signature = DPMX_MAGIC,
-            maxSearchBytes = MAX_OVERLAY_SEARCH_BYTES,
+            maxSearchBytes = Long.MAX_VALUE,
+            acceptCandidate = { candidate -> isPlausibleDpmxCandidate(source, candidate) }
+        ) ?: PeOverlayScanner.findSignature(
+            source = source,
+            overlayStart = 0L,
+            signature = DPMX_MAGIC,
+            maxSearchBytes = Long.MAX_VALUE,
             acceptCandidate = { candidate -> isPlausibleDpmxCandidate(source, candidate) }
         ) ?: throw IOException(
-            "A structurally valid DPMX overlay was not found within the first " +
-                MAX_OVERLAY_SEARCH_BYTES + " bytes after the last PE raw section."
+            "A structurally valid DPMX archive was not found in the PE image or appended overlay."
         )
         requireRange(source.sizeBytes, overlayOffset, DPMX_HEADER_SIZE.toLong(), "DPMX header")
         val header = readBytes(source, overlayOffset, DPMX_HEADER_SIZE)
@@ -213,8 +232,89 @@ class DpmxContainerParser(
             dataAbsoluteOffset = dataAbsoluteOffset,
             fileCount = fileCount,
             optionalNameLength = optionalNameLength,
-            entries = entries
+            entries = entries,
+            executableMetadata = executableMetadata
         )
+    }
+
+    /**
+     * Finds the compiled HSP runtime option block. In a built executable the
+     * original "HSPHED~~" placeholder is normally zeroed, so the stable x/y/d/s/k
+     * markers and the DPM offset field are used instead of relying on that text.
+     */
+    private fun findExecutableMetadata(
+        source: ReadOnlyRandomAccessSource
+    ): DpmxExecutableMetadata? {
+        val metadataBytes = 36
+        val chunkSize = 64 * 1024
+        var cursor = 0L
+        var invalidChecksumCandidate: DpmxExecutableMetadata? = null
+        while (cursor < source.sizeBytes) {
+            val length = minOf((chunkSize + metadataBytes - 1).toLong(), source.sizeBytes - cursor).toInt()
+            if (length < metadataBytes) break
+            val chunk = readBytes(source, cursor, length)
+            val limit = length - metadataBytes
+            for (index in 0..limit) {
+                val hasRuntimeMarker = chunk.copyOfRange(index, index + HSPHED_RUNTIME_MARKER.size)
+                    .contentEquals(HSPHED_RUNTIME_MARKER)
+                val runtimeType = chunk[index + 17].toInt() and 0xFF
+                val hasPatchedMetadata = runtimeType in setOf(0, 'f'.code, 's'.code) &&
+                    chunk[index + 18] == 0.toByte() &&
+                    chunk[index + 19] == 'x'.code.toByte() &&
+                    chunk[index + 22] == 'y'.code.toByte() &&
+                    chunk[index + 25] == 'd'.code.toByte() &&
+                    chunk[index + 28] == 's'.code.toByte()
+                if ((!hasRuntimeMarker && !hasPatchedMetadata) ||
+                    chunk[index + 31] != 'k'.code.toByte()
+                ) continue
+
+                val pointerText = String(
+                    chunk, index + 9, 8, Charsets.US_ASCII
+                ).substringBefore(0.toChar()).trim()
+                if (pointerText.isEmpty() || pointerText.any { it !in '0'..'9' }) continue
+                val encodedOffset = pointerText.toLongOrNull() ?: continue
+                val dpmOffset = encodedOffset + 0x10000L
+                if (dpmOffset < 0L || dpmOffset > source.sizeBytes - DPMX_HEADER_SIZE) continue
+                if (!readBytes(source, dpmOffset, DPMX_MAGIC.size).contentEquals(DPMX_MAGIC)) continue
+                if (!isPlausibleDpmxCandidate(source, dpmOffset)) continue
+
+                val checksum = readUInt16(chunk, index + 29)
+                val deckey = readUInt32(chunk, index + 32)
+                val expectedChecksum = calculateDpmChecksum(source, dpmOffset, deckey)
+                val metadata = DpmxExecutableMetadata(
+                    headerOffset = cursor + index,
+                    dpmOffset = dpmOffset,
+                    checksum = checksum,
+                    deckey = deckey,
+                    checksumValid = checksum == expectedChecksum
+                )
+                if (metadata.checksumValid) return metadata
+                if (invalidChecksumCandidate == null) invalidChecksumCandidate = metadata
+            }
+            cursor += (length - metadataBytes + 1).toLong()
+        }
+        return invalidChecksumCandidate
+    }
+
+    private fun calculateDpmChecksum(
+        source: ReadOnlyRandomAccessSource,
+        dpmOffset: Long,
+        deckey: Long
+    ): Int {
+        val seed = ((deckey ushr 24) and 0xFFL).toInt() / 7
+        val buffer = ByteArray(16 * 1024)
+        var cursor = dpmOffset
+        var sum = 0L
+        while (cursor < source.sizeBytes) {
+            val count = minOf(buffer.size.toLong(), source.sizeBytes - cursor).toInt()
+            source.readFullyAt(cursor, buffer, 0, count)
+            for (index in 0 until count) {
+                sum += (buffer[index].toInt() and 0xFF) + seed
+                sum = sum and 0xFFFFL
+            }
+            cursor += count.toLong()
+        }
+        return sum.toInt()
     }
 
     /** Validates enough of a candidate header/table to skip incidental DPMX byte strings. */
@@ -277,12 +377,15 @@ class DpmxContainerParser(
         } catch (error: CharacterCodingException) {
             throw IOException("A DPMX filename is not valid Shift-JIS.", error)
         }
-        if (decoded.isBlank() || decoded == "." || decoded == ".." ||
-            decoded.any { it.isISOControl() || it == '/' || it == '\\' || it == ':' }
+        val normalized = decoded.replace('\\', '/')
+        val pathParts = normalized.split('/')
+        if (decoded.isBlank() || normalized.startsWith('/') || normalized.contains(':') ||
+            decoded.any { it.isISOControl() } ||
+            pathParts.any { it.isBlank() || it == "." || it == ".." }
         ) {
-            throw IOException("A DPMX entry contains an unsafe filename.")
+            throw IOException("A DPMX entry contains an unsafe relative filename or path.")
         }
-        return decoded
+        return normalized
     }
 
     private fun decodeSectionName(bytes: ByteArray): String {
@@ -297,11 +400,12 @@ class DpmxContainerParser(
         private const val PE_POINTER_OFFSET = 0x3C
         private const val PE_HEADER_PREFIX_SIZE = 24
         private const val PE32_MAGIC = 0x10B
+        private const val PE32_PLUS_MAGIC = 0x20B
         private const val PE32_MIN_OPTIONAL_HEADER_SIZE = 96
         private const val PE32_IMAGE_BASE_OFFSET = 28
+        private const val PE32_PLUS_IMAGE_BASE_OFFSET = 24
         private const val PE_SECTION_SIZE = 40
         private const val SECTION_NAME_SIZE = 8
-        private const val MAX_OVERLAY_SEARCH_BYTES = 64 * 1024
         private const val DPMX_HEADER_SIZE = 16
         private const val DPMX_ENTRY_SIZE = 32
         private const val ENTRY_NAME_SIZE = 16
@@ -312,6 +416,7 @@ class DpmxContainerParser(
         private const val DEFAULT_MAX_SECTIONS = 96
         private const val DEFAULT_MAX_ENTRIES = 100_000
         private const val DEFAULT_MAX_OPTIONAL_NAME_LENGTH = 4096
+        private val HSPHED_RUNTIME_MARKER = "HSPHED~~".toByteArray(Charsets.US_ASCII)
         private val DPMX_MAGIC = byteArrayOf(0x44, 0x50, 0x4D, 0x58)
         private val SHIFT_JIS: Charset = Charset.forName("Shift_JIS")
 
@@ -320,6 +425,15 @@ class DpmxContainerParser(
             offset: Long,
             length: Int
         ): ByteArray = ByteArray(length).also { source.readFullyAt(offset, it) }
+
+        private fun readUInt64(bytes: ByteArray, offset: Int): Long {
+            val low = readUInt32(bytes, offset)
+            val high = readUInt32(bytes, offset + 4)
+            if (high > 0x7FFF_FFFFL) {
+                throw IOException("The PE image base exceeds the supported signed address range.")
+            }
+            return (high shl 32) or low
+        }
 
         private fun readUInt16(bytes: ByteArray, offset: Int): Int {
             if (offset < 0 || offset > bytes.size - 2) throw EOFException("A 16-bit field extends beyond its structure.")

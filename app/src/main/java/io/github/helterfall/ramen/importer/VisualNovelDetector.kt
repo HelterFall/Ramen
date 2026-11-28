@@ -60,12 +60,15 @@ class VisualNovelDetector {
         var decoderDiagnostics: List<io.github.helterfall.ramen.runtime.hsp3.Hsp3DecodeDiagnostic> = emptyList()
         var dpmxFailure: GameDetection? = null
         var nsisMarker: Pair<File, Long>? = null
+        val unpackedStartAx = scannedFiles.firstOrNull {
+            it.name.equals(Hsp3RuntimeAdapter.START_SCRIPT_NAME, ignoreCase = true)
+        }
 
         for (executable in executables) {
             val dpmxOffset = findOverlayMarker(executable, DPMX_SIGNATURE)
             val nsisOffset = findOverlayMarker(executable, NSIS_SIGNATURE)
             val attempt = runCatching {
-                val prepared=Hsp3RuntimeAdapter().prepare(executable)
+                val prepared=Hsp3RuntimeAdapter().prepare(executable, gameDirectory)
                 val decoder=Hsp3BytecodeDecoder()
                 val instructions=runCatching { decoder.decode(prepared.program) }.getOrElse { emptyList() }
                 Triple(prepared,instructions,decoder.diagnostics)
@@ -77,15 +80,18 @@ class VisualNovelDetector {
                 break
             }
 
-            if (dpmxOffset != null && dpmxFailure == null) {
+            if ((dpmxOffset != null || unpackedStartAx != null) && dpmxFailure == null) {
                 val reason = attempt.exceptionOrNull()?.let(::formatFailure)
                     ?: "The HSP3 preparation pipeline did not return a program."
+                val sourceEvidence = when {
+                    dpmxOffset != null -> "DPMX overlay signature at 0x${dpmxOffset.toString(16)}"
+                    else -> "Unpacked start.ax at ${unpackedStartAx!!.relativeTo(gameDirectory).invariantSeparatorsPath}"
+                }
                 dpmxFailure = GameDetection(
                     engineId = Hsp3RuntimeAdapter.ENGINE_ID,
                     engineLabel = Hsp3RuntimeAdapter.ENGINE_LABEL,
                     compatibilityStatus = "DETECTED_UNSUPPORTED",
-                    evidence = "DPMX overlay signature at 0x${dpmxOffset.toString(16)}; " +
-                        "HSP3 validation stage failed: $reason"
+                    evidence = "$sourceEvidence; HSP3 preparation failed: $reason"
                 )
             }
             if (nsisOffset != null && nsisMarker == null) {
@@ -99,14 +105,32 @@ class VisualNovelDetector {
                 engineId = Hsp3RuntimeAdapter.ENGINE_ID,
                 engineLabel = Hsp3RuntimeAdapter.ENGINE_LABEL,
                 compatibilityStatus = "PARSER_AVAILABLE",
-                evidence = "Validated PE32/DPMX overlay at 0x" +
-                    prepared.container.overlayOffset.toString(16) + "; " +
-                    prepared.container.fileCount + " DPMX entries; " +
-                    "HSP3.1 HSPHED with CS/DS/OT/DI segments; " +
-                    decodedInstructions.size + " CS commands decoded, " +
-                    unsupportedCount + " command IDs retained as runtime-unsupported markers. " +
-                    "Android Canvas player and touch controls are connected." +
-                    if(decoderDiagnostics.isNotEmpty()) " Decoder warnings (non-blocking): "+decoderDiagnostics.take(8).joinToString(" | "){it.asLogMessage()} else ""
+                evidence = buildString {
+                    if (prepared.unpackedScriptFile != null) {
+                        append("Unpacked start.ax: ")
+                        append(prepared.unpackedScriptFile.relativeTo(gameDirectory).invariantSeparatorsPath)
+                        append("; HSPHED/CS/DS/OT/DI accepted by Hsp3BytecodeLoader. ")
+                    } else {
+                        append("PE/DPMX overlay at 0x")
+                        append(prepared.container.overlayOffset.toString(16))
+                        append("; ")
+                        append(prepared.scriptKey?.diagnosticLabel() ?: "start.ax key validation: unavailable")
+                        append(". ")
+                    }
+                    append("HSP version 0x")
+                    append(prepared.program.header.version.toString(16))
+                    append("; ")
+                    append(prepared.resourceValidation.diagnosticLabel())
+                    append("; ")
+                    append(decodedInstructions.size)
+                    append(" CS commands decoded, ")
+                    append(unsupportedCount)
+                    append(" runtime-unsupported command IDs. Android Canvas player and touch controls are connected.")
+                    if (decoderDiagnostics.isNotEmpty()) {
+                        append(" Decoder warnings (non-blocking): ")
+                        append(decoderDiagnostics.take(8).joinToString(" | ") { it.asLogMessage() })
+                    }
+                }
             )
         }
 

@@ -62,8 +62,7 @@ class DpmxDecryptingInputStream(
 
             for (index in 0 until count) {
                 val enc = encrypted[index].toInt() and 0xFF
-                val bl = ((enc - key.al) and 0xFF) xor key.cl
-                dl = (dl + bl) and 0xFF
+                dl = (dl + decryptDpmxDelta(enc, key)) and 0xFF
                 decoded[index] = dl.toByte()
             }
             decodedOffset = 0
