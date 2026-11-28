@@ -171,7 +171,8 @@ class NscripterVirtualMachineTest {
             mov %a, 2
             mov %b, 0
             if %a == 2 && %b == 0 mov %result, 1
-            if %result == 1
+            if %a != 0 || %b == 1 mov %or_result, 1
+            if %result == 1 && %or_result == 1
             logical-condition-ok
             end
             """.trimIndent()
@@ -254,7 +255,7 @@ class NscripterVirtualMachineTest {
         )
         val result = vm.resume()
         assertTrue(result is NscripterVmYield.Dialogue)
-        assertEquals("tui2\title_on.bmp", vm.snapshot().buttonDefinition)
+        assertEquals("""tui2\title_on.bmp""", vm.snapshot().buttonDefinition)
         assertTrue(vm.snapshot().eraseTextWindowDuringEffect)
     }
 
