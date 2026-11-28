@@ -269,10 +269,13 @@ class Hsp3VirtualMachine(
 
     fun runSlice(
         instructions: List<Hsp3Instruction>,
-        instructionBudget: Int = DEFAULT_INSTRUCTION_BUDGET
+        instructionBudget: Int = DEFAULT_INSTRUCTION_BUDGET,
+        includeState: Boolean = true
     ): Hsp3VmSnapshot {
         require(instructionBudget > 0)
-        if (status == Hsp3VmStatus.ENDED || status == Hsp3VmStatus.FAILED) return snapshot()
+        if (status == Hsp3VmStatus.ENDED || status == Hsp3VmStatus.FAILED) {
+            return snapshot(includeState)
+        }
 
         // OpenHSP resumes an await against the original deadline. A late host wake
         // completes the await at the actual resume tick, which becomes the origin
@@ -283,7 +286,7 @@ class Hsp3VirtualMachine(
             if (remaining > 0L) {
                 status = Hsp3VmStatus.YIELDED
                 yieldDelayMillis = remaining
-                return snapshot()
+                return snapshot(includeState)
             }
             lastAwaitTickMillis = now
             pendingAwaitDeadlineMillis = null
@@ -634,7 +637,7 @@ class Hsp3VirtualMachine(
                             pendingAwaitDeadlineMillis = deadline
                             status = Hsp3VmStatus.YIELDED
                             yieldDelayMillis = remaining
-                            return snapshot()
+                            return snapshot(includeState)
                         }
                         lastAwaitTickMillis = now
                     }
@@ -642,7 +645,7 @@ class Hsp3VirtualMachine(
                         programCounter += 1
                         status = Hsp3VmStatus.YIELDED
                         yieldDelayMillis = DEFAULT_WAIT_MS
-                        return snapshot()
+                        return snapshot(includeState)
                     }
                     is Hsp3Instruction.WaitFor -> {
                         val requestedDelay = instruction.delayExpression
@@ -653,13 +656,13 @@ class Hsp3VirtualMachine(
                         if (delay > 0L) {
                             status = Hsp3VmStatus.YIELDED
                             yieldDelayMillis = delay
-                            return snapshot()
+                            return snapshot(includeState)
                         }
                         // OpenHSP code_exec_wait() continues immediately when waitcount <= 0.
                     }
                     Hsp3Instruction.End -> {
                         status = Hsp3VmStatus.ENDED
-                        return snapshot()
+                        return snapshot(includeState)
                     }
                     is Hsp3Instruction.Unsupported -> {
                         val message = instruction.detail.ifBlank {
@@ -674,16 +677,35 @@ class Hsp3VirtualMachine(
                 status = Hsp3VmStatus.YIELDED
                 yieldDelayMillis = BUDGET_YIELD_MS
             }
-            return snapshot()
+            return snapshot(includeState)
         } catch (error: Exception) {
             status = Hsp3VmStatus.FAILED
             hspError = 1
             errorMessage = error.message ?: "HSP virtual machine execution failed."
-            return snapshot()
+            return snapshot(includeState)
         }
     }
 
-    fun snapshot(): Hsp3VmSnapshot {
+    /**
+     * Creates a public diagnostic snapshot. The frame runner requests only the
+     * scalar control fields; copying the VM's growing variable/array maps every
+     * frame would add O(state-size) work and garbage to the gameplay hot path.
+     */
+    fun snapshot(includeState: Boolean = true): Hsp3VmSnapshot {
+        if (!includeState) {
+            return Hsp3VmSnapshot(
+                programCounter = programCounter,
+                executedInstructions = executedInstructions,
+                status = status,
+                variables = emptyMap(),
+                errorMessage = errorMessage,
+                values = emptyMap(),
+                yieldDelayMillis = yieldDelayMillis,
+                arrayValues = emptyMap(),
+                diagnostics = emptyList()
+            )
+        }
+
         val numericValues = variables.mapValues { (_, value) -> value.asInt() }
         return Hsp3VmSnapshot(
             programCounter = programCounter,

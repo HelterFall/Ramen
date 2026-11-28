@@ -63,7 +63,10 @@ class Hsp3PlayerActivity : ComponentActivity() {
             val generation = frameGeneration
             try {
                 startupExecutor.execute {
-                    val result = session.runSlice(instructionBudget = VM_FRAME_BUDGET)
+                    val result = session.runSlice(
+                        instructionBudget = VM_FRAME_BUDGET,
+                        includeState = false
+                    )
                     mainHandler.post {
                         if (generation != frameGeneration ||
                             sessionState.value !== session ||

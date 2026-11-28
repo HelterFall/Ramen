@@ -360,8 +360,12 @@ class Hsp3RuntimeSession internal constructor(
     val virtualMachine: Hsp3VirtualMachine,
     private val audio: Hsp3AudioPlayer
 ) : Closeable {
-    fun runSlice(instructionBudget: Int = 10_000): Hsp3VmSnapshot =
-        virtualMachine.runSlice(instructions, instructionBudget)
+    fun runSlice(
+        instructionBudget: Int = 10_000,
+        includeState: Boolean = true
+    ): Hsp3VmSnapshot = virtualMachine.runSlice(
+        instructions, instructionBudget, includeState
+    )
 
     override fun close() {
         renderer.close()

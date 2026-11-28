@@ -7,6 +7,31 @@ import java.io.Closeable
 
 class Hsp3VirtualMachineTest {
     @Test
+    fun lightweightFrameSnapshotSkipsCopyingGrowingVmStateButKeepsControlFields() {
+        val vm = Hsp3VirtualMachine(RecordingGraphics())
+        val frame = vm.runSlice(
+            listOf(
+                Hsp3Instruction.SetInt(7, 42),
+                Hsp3Instruction.End
+            ),
+            includeState = false
+        )
+
+        assertEquals(Hsp3VmStatus.ENDED, frame.status)
+        assertEquals(2, frame.programCounter)
+        assertEquals(0L, frame.yieldDelayMillis)
+        assertTrue(frame.variables.isEmpty())
+        assertTrue(frame.values.isEmpty())
+        assertTrue(frame.arrayValues.isEmpty())
+        assertTrue(frame.diagnostics.isEmpty())
+
+        // Detailed state remains available on demand for diagnostics and tests.
+        val detailed = vm.snapshot()
+        assertEquals(42, detailed.variables[7])
+        assertEquals(Hsp3RuntimeValue.IntegerValue(42), detailed.values[7])
+    }
+
+    @Test
     fun runsScreenBufferBlitTextAndRedrawCommands() {
         val graphics = RecordingGraphics()
         val vm = Hsp3VirtualMachine(graphics)
