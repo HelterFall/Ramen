@@ -177,7 +177,7 @@ data class NscripterScriptProgram(
             var start = 0
             value.forEachIndexed { index, char ->
                 if (escaped) escaped = false
-                else if (char == '\\\\') escaped = true
+                else if (char == '\\') escaped = true
                 else if (quote != null && char == quote) quote = null
                 else if (quote == null && (char == '"' || char.code == 96)) quote = char
                 else if (quote == null && char == ':') {
