@@ -77,6 +77,7 @@ class Hsp3CanvasRenderer(
         val canvas: Canvas,
         var shouldPresent: Boolean = true,
         var suspendedFrame: Bitmap? = null,
+        var colorKeyBlackBitmap: Bitmap? = null,
         var cursorX: Int = 0,
         var cursorY: Int = 0,
         var currentColor: Int = Color.WHITE,
@@ -110,6 +111,12 @@ class Hsp3CanvasRenderer(
     private var activeId = 0
     private var currentTitle = ""
     private var closed = false
+    private var presentationRevision = 0L
+    internal var colorKeyCacheBuildCount: Int = 0
+        private set
+
+    @Synchronized
+    internal fun presentationRevision(): Long = presentationRevision
 
     // These fields belong to the active OpenHSP Bmscr. Switching gsel changes
     // the whole graphics context, not just the backing bitmap.
@@ -162,7 +169,9 @@ class Hsp3CanvasRenderer(
     @Synchronized
     override fun cls(mode: Int) {
         checkOpen()
-        activeSurface().canvas.drawColor(Color.BLACK, PorterDuff.Mode.SRC)
+        val surface = activeSurface()
+        surface.canvas.drawColor(Color.BLACK, PorterDuff.Mode.SRC)
+        markSurfaceChanged(surface)
         cursorX = 0
         cursorY = 0
     }
@@ -218,6 +227,7 @@ class Hsp3CanvasRenderer(
         } finally {
             canvas.restoreToCount(saved)
         }
+        markSurfaceChanged(activeSurface())
     }
 
     @Synchronized
@@ -259,29 +269,35 @@ class Hsp3CanvasRenderer(
                 when (mode) {
                     0 -> {
                         val old = surfaces[targetId]
-                        val replacement = old?.copy(bitmap = bitmap, canvas = Canvas(bitmap))
-                            ?: Surface(bitmap, Canvas(bitmap))
+                        val replacement = old?.copy(
+                            bitmap = bitmap, canvas = Canvas(bitmap), colorKeyBlackBitmap = null
+                        ) ?: Surface(bitmap, Canvas(bitmap))
                         surfaces[targetId] = replacement
-                        old?.bitmap?.recycle()
+                        old?.let(::recycleSurface)
                         cellGrids.remove(targetId)
                         replacement.cursorX = 0
                         replacement.cursorY = 0
+                        markSurfaceChanged(replacement)
                     }
                     1 -> {
                         val destination = activeSurface()
                         destination.canvas.drawBitmap(bitmap, cursorX.toFloat(), cursorY.toFloat(), null)
+                        markSurfaceChanged(destination)
                     }
                     2 -> {
                         val replacement = resized!!
                         val old = surfaces[targetId]
                         val replacementSurface = old?.copy(
-                            bitmap = replacement, canvas = Canvas(replacement)
+                            bitmap = replacement,
+                            canvas = Canvas(replacement),
+                            colorKeyBlackBitmap = null
                         ) ?: Surface(replacement, Canvas(replacement))
                         surfaces[targetId] = replacementSurface
-                        old?.bitmap?.recycle()
+                        old?.let(::recycleSurface)
                         cellGrids.remove(targetId)
                         replacementSurface.cursorX = 0
                         replacementSurface.cursorY = 0
+                        markSurfaceChanged(replacementSurface)
                     }
                 }
             }
@@ -323,8 +339,7 @@ class Hsp3CanvasRenderer(
                 val targetId = if (id >= 0) id else generateSequence(1) { it + 1 }
                     .first { !surfaces.containsKey(it) }
                 val old = surfaces.put(targetId, Surface(bitmap, Canvas(bitmap)))
-                old?.bitmap?.recycle()
-                old?.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
+                old?.let(::recycleSurface)
                 cellGrids.remove(targetId)
                 preloadedCellIds.entries.removeAll { it.value == targetId }
                 if (id == -2) preloadedCellIds[cacheKey] = targetId
@@ -482,6 +497,7 @@ class Hsp3CanvasRenderer(
         for (row in top until bottom) {
             bitmap.setPixels(scanline, 0, scanline.size, left, row, scanline.size, 1)
         }
+        markSurfaceChanged(activeSurface())
     }
 
     @Synchronized
@@ -539,6 +555,7 @@ class Hsp3CanvasRenderer(
         textPaint.style = baseStyle
         textPaint.strokeWidth = baseStroke
         textPaint.color = foreground
+        markSurfaceChanged(activeSurface())
     }
 
     @Synchronized
@@ -620,7 +637,8 @@ class Hsp3CanvasRenderer(
         // Keep the last presented screen image so Compose invalidations cannot
         // replace a deliberately frozen HSP frame with a cleared Canvas.
         val surface = activeSurface()
-        if (!enabled && activeId == 0 && surface.shouldPresent) {
+        val wasEnabled = surface.shouldPresent
+        if (!enabled && activeId == 0 && wasEnabled) {
             surface.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
             surface.suspendedFrame = surface.bitmap.copy(Bitmap.Config.ARGB_8888, false)
                 ?: throw IOException("Could not snapshot the last presented HSP frame.")
@@ -629,6 +647,7 @@ class Hsp3CanvasRenderer(
             surface.suspendedFrame = null
         }
         surface.shouldPresent = enabled
+        if (enabled && !wasEnabled && activeId == 0) presentationRevision++
     }
 
     /** Presents the visible HSP window (screen ID 0), never an offscreen buffer. */
@@ -692,23 +711,24 @@ class Hsp3CanvasRenderer(
         if (sourceRect.width() <= 0 || sourceRect.height() <= 0 ||
             destinationRect.width() <= 0f || destinationRect.height() <= 0f
         ) return
+        val destination = activeSurface()
         val effectiveMode = if (applyGmode) blendMode else 0
         if (effectiveMode == ADDITIVE_BLEND || effectiveMode == SUBTRACTIVE_BLEND) {
             drawArithmeticBlend(
                 source, sourceRect, destinationRect, filter,
                 rotationDegrees, rotationPivotX, rotationPivotY, effectiveMode
             )
+            markSurfaceChanged(destination)
             return
         }
         if (effectiveMode == COLOR_KEY_BLACK || effectiveMode == COLOR_KEY_CURRENT) {
-            // Apply color keys in destination pixel space. Canvas SRC_OVER with a
-            // temporary transparent bitmap can filter black-key edges differently
-            // across Android backends; HSP's mode 2/4 semantics are exact pixel
-            // skips followed (for mode 4) by the specified gfrate channel blend.
+            // Mode 2 uses a cached alpha mask per source surface; mode 4 retains
+            // dynamic current-color keying and gfrate blending.
             drawColorKeyBlend(
                 source, sourceRect, destinationRect, filter,
                 rotationDegrees, rotationPivotX, rotationPivotY, effectiveMode
             )
+            markSurfaceChanged(destination)
             return
         }
 
@@ -720,7 +740,7 @@ class Hsp3CanvasRenderer(
             255
         }
         bitmapPaint.xfermode = null
-        val canvas = activeSurface().canvas
+        val canvas = destination.canvas
         val saveCount = canvas.save()
         try {
             if (rotationDegrees != 0f) {
@@ -737,6 +757,7 @@ class Hsp3CanvasRenderer(
             bitmapPaint.xfermode = null
             bitmapPaint.isFilterBitmap = true
         }
+        markSurfaceChanged(destination)
     }
 
     /** HSP modes 2/4 use exact RGB color keys; mode 4 then applies gfrate. */
@@ -750,10 +771,36 @@ class Hsp3CanvasRenderer(
         rotationPivotY: Float?,
         mode: Int
     ) {
+        if (mode == COLOR_KEY_BLACK) {
+            val keyedBitmap = cachedBlackKeyBitmap(source)
+            bitmapPaint.color = Color.WHITE
+            bitmapPaint.alpha = 255
+            bitmapPaint.isFilterBitmap = filter
+            bitmapPaint.xfermode = null
+            val canvas = activeSurface().canvas
+            val saveCount = canvas.save()
+            try {
+                if (rotationDegrees != 0f) {
+                    canvas.rotate(
+                        rotationDegrees,
+                        rotationPivotX ?: destinationRect.centerX(),
+                        rotationPivotY ?: destinationRect.centerY()
+                    )
+                }
+                canvas.drawBitmap(keyedBitmap, sourceRect, destinationRect, bitmapPaint)
+            } finally {
+                canvas.restoreToCount(saveCount)
+                bitmapPaint.alpha = 255
+                bitmapPaint.xfermode = null
+                bitmapPaint.isFilterBitmap = true
+            }
+            return
+        }
+
         val destination = activeSurface().bitmap
         val sourceBitmap = source.bitmap
-        val keyColor = (if (mode == COLOR_KEY_BLACK) Color.BLACK else currentColor) and 0x00FFFFFF
-        val rate = if (mode == COLOR_KEY_BLACK) 256 else blendAlpha.coerceIn(0, 256)
+        val keyColor = currentColor and 0x00FFFFFF
+        val rate = blendAlpha.coerceIn(0, 256)
         if (rate == 0) return
 
         val pivotX = rotationPivotX ?: destinationRect.centerX()
@@ -1068,8 +1115,32 @@ class Hsp3CanvasRenderer(
         validateDimensions(width, height)
         val bitmap = MutableArgbBitmapDecoder.create(width, height)
         val old = surfaces.put(id, Surface(bitmap, Canvas(bitmap)))
-        old?.bitmap?.recycle()
-        old?.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
+        old?.let(::recycleSurface)
+        if (id == 0) presentationRevision++
+    }
+
+    private fun cachedBlackKeyBitmap(source: Surface): Bitmap {
+        source.colorKeyBlackBitmap?.let { cached ->
+            if (!cached.isRecycled) return cached
+        }
+        val cached = makeColorTransparent(source.bitmap, Color.BLACK)
+        source.colorKeyBlackBitmap = cached
+        colorKeyCacheBuildCount++
+        return cached
+    }
+
+    private fun markSurfaceChanged(surface: Surface) {
+        surface.colorKeyBlackBitmap?.let { if (!it.isRecycled) it.recycle() }
+        surface.colorKeyBlackBitmap = null
+        if (surfaces[0] === surface && surface.shouldPresent) presentationRevision++
+    }
+
+    private fun recycleSurface(surface: Surface) {
+        if (!surface.bitmap.isRecycled) surface.bitmap.recycle()
+        surface.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
+        surface.colorKeyBlackBitmap?.let { if (!it.isRecycled) it.recycle() }
+        surface.suspendedFrame = null
+        surface.colorKeyBlackBitmap = null
     }
 
     private fun activeSurface(): Surface =
@@ -1103,10 +1174,7 @@ class Hsp3CanvasRenderer(
     override fun close() {
         if (closed) return
         closed = true
-        surfaces.values.forEach { surface ->
-            if (!surface.bitmap.isRecycled) surface.bitmap.recycle()
-            surface.suspendedFrame?.let { if (!it.isRecycled) it.recycle() }
-        }
+        surfaces.values.forEach(::recycleSurface)
         surfaces.clear()
     }
 

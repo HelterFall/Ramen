@@ -42,6 +42,35 @@ class Hsp3BytecodeLoaderTest {
     }
 
     @Test
+    fun decodesRussianCp1251StringsFromTheDataSegment() {
+        val encoded = "Привет".toByteArray(Hsp3StringEncoding.WINDOWS_1251)
+        val bytes = createProgramBytes()
+        encoded.copyInto(bytes, 0x6A)
+        bytes[0x6A + encoded.size] = 0
+        withBytes(bytes) { file ->
+            val program = Hsp3BytecodeLoader().load(file)
+            assertEquals("Привет", program.stringAt(0))
+            assertEquals(
+                "Привет",
+                program.stringAt(0, charsetOverride = Hsp3StringEncoding.WINDOWS_1251)
+            )
+        }
+    }
+
+    @Test
+    fun decodesUtf8StringsWhenTheDataSegmentContainsValidUtf8() {
+        val encoded = "Яя".toByteArray(Hsp3StringEncoding.UTF_8)
+        val bytes = createProgramBytes().apply {
+            encoded.copyInto(this, 0x6A)
+            this[0x6A + encoded.size] = 0
+        }
+        withBytes(bytes) { file ->
+            val program = Hsp3BytecodeLoader().load(file)
+            assertEquals("Яя", program.stringAt(0))
+        }
+    }
+
+    @Test
     fun decodesNarrowAndWideTokenValues() {
         withProgramBytes { program ->
             val tokens = program.tokens().toList()

@@ -53,6 +53,7 @@ class Hsp3PlayerActivity : ComponentActivity() {
     private lateinit var startupExecutor: java.util.concurrent.ExecutorService
     private var activityResumed = false
     private var frameGeneration = 0
+    private var lastPresentationRevision = -1L
 
     private val frameRunner = object : Runnable {
         override fun run() {
@@ -68,7 +69,11 @@ class Hsp3PlayerActivity : ComponentActivity() {
                             !activityResumed || isFinishing || isDestroyed
                         ) return@post
 
-                        frameCounter.value += 1
+                        val revision = session.renderer.presentationRevision()
+                        if (revision != lastPresentationRevision) {
+                            lastPresentationRevision = revision
+                            frameCounter.value += 1
+                        }
                         when (result.status) {
                             Hsp3VmStatus.ENDED -> mainHandler.removeCallbacks(this)
                             Hsp3VmStatus.FAILED -> {
@@ -122,6 +127,7 @@ class Hsp3PlayerActivity : ComponentActivity() {
                         session.close()
                     } else {
                         sessionState.value?.close()
+                        lastPresentationRevision = session.renderer.presentationRevision()
                         sessionState.value = session
                         mainHandler.removeCallbacks(frameRunner)
                         if (activityResumed) mainHandler.post(frameRunner)
@@ -226,7 +232,7 @@ class Hsp3PlayerActivity : ComponentActivity() {
         const val EXTRA_GAME_ID = "io.github.helterfall.ramen.extra.HSP3_GAME_ID"
         private const val MAX_GAME_SCAN_DEPTH = 12
         private const val MAX_DISCOVERED_FILES = 10_000
-        private const val VM_FRAME_BUDGET = 2_000
+        private const val VM_FRAME_BUDGET = 10_000
         private const val FRAME_INTERVAL_MS = 16L
         private const val MAX_HOST_DELAY_MS = 60_000L
 

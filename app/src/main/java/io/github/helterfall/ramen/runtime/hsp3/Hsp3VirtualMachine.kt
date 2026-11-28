@@ -648,10 +648,14 @@ class Hsp3VirtualMachine(
                         val requestedDelay = instruction.delayExpression
                             ?.let { evaluate(it).asInt().toLong() * instruction.delayMultiplier }
                             ?: instruction.delayMillis
+                        val delay = requestedDelay.coerceIn(0L, MAX_WAIT_MS)
                         programCounter += 1
-                        status = Hsp3VmStatus.YIELDED
-                        yieldDelayMillis = requestedDelay.coerceIn(0L, MAX_WAIT_MS)
-                        return snapshot()
+                        if (delay > 0L) {
+                            status = Hsp3VmStatus.YIELDED
+                            yieldDelayMillis = delay
+                            return snapshot()
+                        }
+                        // OpenHSP code_exec_wait() continues immediately when waitcount <= 0.
                     }
                     Hsp3Instruction.End -> {
                         status = Hsp3VmStatus.ENDED
@@ -1195,7 +1199,7 @@ class Hsp3VirtualMachine(
         private const val DEFAULT_MAX_LOOP_DEPTH = 32
         private const val DEFAULT_INSTRUCTION_BUDGET = 10_000
         private const val DEFAULT_WAIT_MS = 100L
-        private const val BUDGET_YIELD_MS = 16L
+        private const val BUDGET_YIELD_MS = 1L
         private const val MAX_WAIT_MS = 60_000L
         private const val MAX_ARRAY_DIMENSION = 65_536
         private const val MAX_ARRAY_ELEMENTS = 1_000_000L

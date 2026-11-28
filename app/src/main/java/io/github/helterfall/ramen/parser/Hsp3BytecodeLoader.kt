@@ -7,6 +7,7 @@ import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.charset.Charset
+import java.nio.charset.CodingErrorAction
 
 data class Hsp3Segment(
     val fileOffset: Long,
@@ -54,12 +55,46 @@ data class Hsp3Token(
 )
 
 /**
- * HSP 3.1 Windows binaries use the active Windows ANSI code page for script
- * strings. Japanese Windows games use CP932 / Windows-31J, not strict JIS
- * Shift_JIS. DPMX decryption is applied to the whole start.ax before DS is read.
+ * HSPHED does not store a string code page: Windows builds use the ANSI page
+ * active at compile time. Japanese builds commonly use CP932; Russian
+ * localizations can use CP1251. AUTO accepts valid UTF-8, detects strong
+ * CP1251-vs-CP932 mojibake signatures, then falls back to Windows-31J.
  */
 object Hsp3StringEncoding {
     val WINDOWS_31J: Charset = Charset.forName("windows-31j")
+    val WINDOWS_1251: Charset = Charset.forName("windows-1251")
+    val UTF_8: Charset = Charsets.UTF_8
+
+    fun decode(bytes: ByteArray, offset: Int, length: Int, charsetOverride: Charset? = null): String {
+        if (charsetOverride != null) return String(bytes, offset, length, charsetOverride)
+        if (length == 0) return ""
+
+        decodeStrict(bytes, offset, length, UTF_8)?.let { return it }
+
+        val cp1251 = String(bytes, offset, length, WINDOWS_1251)
+        val windows31j = String(bytes, offset, length, WINDOWS_31J)
+        val cyrillic = cp1251.count { it in '\u0400'..'\u052F' }
+        val cyrillicRatio = cyrillic.toDouble() / cp1251.length.coerceAtLeast(1)
+        val replacementCount = windows31j.count { it == '\uFFFD' }
+        val privateUseCount = windows31j.count { it in '\uE000'..'\uF8FF' }
+        val corruptionMarkers = replacementCount + privateUseCount
+        // Kana alone is ambiguous because Japanese CP932 may legitimately use it.
+        val hasCp1251Signature = cyrillic >= 2 &&
+            cyrillicRatio >= 0.55 &&
+            corruptionMarkers >= maxOf(1, length / 12)
+        return if (hasCp1251Signature) cp1251 else windows31j
+    }
+
+    private fun decodeStrict(bytes: ByteArray, offset: Int, length: Int, charset: Charset): String? =
+        try {
+            charset.newDecoder()
+                .onMalformedInput(CodingErrorAction.REPORT)
+                .onUnmappableCharacter(CodingErrorAction.REPORT)
+                .decode(java.nio.ByteBuffer.wrap(bytes, offset, length))
+                .toString()
+        } catch (_: java.nio.charset.CharacterCodingException) {
+            null
+        }
 }
 
 /**
@@ -120,7 +155,11 @@ class Hsp3Program internal constructor(
 
     /** Returns a Shift-JIS NUL-terminated string addressed from the DS start. */
     @Throws(IOException::class)
-    fun stringAt(dataOffset: Long, maxBytes: Int = DEFAULT_MAX_STRING_BYTES): String {
+    fun stringAt(
+        dataOffset: Long,
+        maxBytes: Int = DEFAULT_MAX_STRING_BYTES,
+        charsetOverride: Charset? = null
+    ): String {
         if (dataOffset < 0L || dataOffset >= dataSegment.sizeBytes.toLong()) {
             throw IOException("The HSP3 string offset is outside the Data Segment.")
         }
@@ -132,7 +171,7 @@ class Hsp3Program internal constructor(
         if (end == limit && (end == dataSegment.bytes.size || end - start == maxBytes)) {
             throw IOException("The HSP3 string is not NUL-terminated within the configured bound.")
         }
-        return String(dataSegment.bytes, start, end - start, Hsp3StringEncoding.WINDOWS_31J)
+        return Hsp3StringEncoding.decode(dataSegment.bytes, start, end - start, charsetOverride)
     }
 
     /** Reads an IEEE-754 little-endian double from the Data Segment. */

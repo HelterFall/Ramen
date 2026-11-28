@@ -3,6 +3,7 @@ package io.github.helterfall.ramen.runtime.hsp3
 import android.graphics.Bitmap
 import java.io.ByteArrayInputStream
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -58,6 +59,46 @@ class Hsp3CanvasBlendTest {
             renderer.pos(2, 0)
             renderer.gzoom(4, 4, 1, 0, 0, 2, 2, 0)
             assertPixel(renderer, 0, 255, 0, 4, 2)
+        } finally { renderer.close() }
+    }
+
+    @Test
+    fun gmodeTwoReusesCachedMaskAndInvalidatesItWhenSourceChanges() {
+        val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
+        try {
+            prepareBlackAndGreenSource(renderer)
+            renderer.gsel(0)
+            renderer.gmode(2, 2, 2, 0)
+            renderer.gcopy(1, 0, 0, 2, 2, 0, 0)
+            assertEquals(1, renderer.colorKeyCacheBuildCount)
+
+            renderer.pos(2, 0)
+            renderer.gzoom(4, 4, 1, 0, 0, 2, 2, 0)
+            assertEquals(1, renderer.colorKeyCacheBuildCount)
+
+            renderer.gsel(1)
+            renderer.color(0, 0, 255)
+            renderer.boxf(0, 0, 0, 0)
+            renderer.gsel(0)
+            renderer.gcopy(1, 0, 0, 2, 2, 4, 0)
+            assertEquals(2, renderer.colorKeyCacheBuildCount)
+            assertPixel(renderer, 0, 0, 255, 4, 0)
+        } finally { renderer.close() }
+    }
+
+    @Test
+    fun redrawOffKeepsPresentationRevisionStableUntilRedrawOn() {
+        val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(byteArrayOf()) }, 6, 4)
+        try {
+            renderer.screen(0, 6, 4)
+            renderer.redraw(false)
+            val frozenRevision = renderer.presentationRevision()
+            renderer.color(0, 255, 0)
+            renderer.boxf(0, 0, 5, 3)
+            assertEquals(frozenRevision, renderer.presentationRevision())
+
+            renderer.redraw(true)
+            assertTrue(renderer.presentationRevision() > frozenRevision)
         } finally { renderer.close() }
     }
 

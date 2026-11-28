@@ -284,6 +284,30 @@ class Hsp3VirtualMachineTest {
     }
 
     @Test
+    fun waitZeroContinuesImmediatelyWithoutAnArtificialHostFrameDelay() {
+        val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
+            listOf(Hsp3Instruction.WaitFor(0L), Hsp3Instruction.End)
+        )
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertEquals(0L, snapshot.yieldDelayMillis)
+    }
+
+    @Test
+    fun exhaustedInstructionBudgetUsesOneMillisecondCooperativeYield() {
+        val snapshot = Hsp3VirtualMachine(RecordingGraphics()).runSlice(
+            listOf(
+                Hsp3Instruction.AddInt(0, 1),
+                Hsp3Instruction.AddInt(0, 1),
+                Hsp3Instruction.End
+            ),
+            instructionBudget = 1
+        )
+        assertEquals(Hsp3VmStatus.YIELDED, snapshot.status)
+        assertEquals(1L, snapshot.yieldDelayMillis)
+        assertEquals(1, snapshot.variables[0])
+    }
+
+    @Test
     fun awaitSchedulesOnlyTheTimeRemainingSinceThePreviousAwaitCompleted() {
         // First await starts at 100ms and resumes at 200ms. The script reaches
         // the next await at 270ms, so only 30ms of its 100ms cadence remain.
