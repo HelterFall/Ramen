@@ -763,13 +763,76 @@ internal object SystemNnnNativeEffectRenderer {
         return result
     }
 
-    /**
-     * SUNA (29) has no source bitmap: native Print paints its random 64x64
-     * noise texture into 128x128 tiles of the shared framebuffer at this
-     * layer's position. This deterministic overlay preserves that composition
-     * point and native rectangle/strength parameters without depending on a
-     * game-provided bitmap.
-     */
+    data class SunaNoiseTile(
+        val destinationX: Int, val destinationY: Int,
+        val destinationWidth: Int, val destinationHeight: Int,
+        val sourceX: Int, val sourceY: Int,
+        val sourceWidth: Int, val sourceHeight: Int
+    )
+
+    /** Native CEffectSuna constructs one reusable 128x128 grayscale image and mask. */
+    fun sunaNoiseTexture(seed: Int): IntArray = IntArray(128 * 128) { index ->
+        val gray = randomMix(index * 0x119DE1F3 xor seed * 0x3449F5) and 0xFF
+        argb(gray, gray, gray, gray)
+    }
+
+    /** Native CEffectSuna global opacity (para[1], para[2..5]). */
+    fun sunaOverlayStrength(frame: Int, parameters: List<Int>): Int {
+        val configuredDuration = parameters.getOrNull(0) ?: 0
+        val countMax = configuredDuration.coerceAtLeast(1)
+        val count = if (configuredDuration <= 0) 0 else frame.coerceIn(0, countMax)
+        if ((parameters.getOrNull(1) ?: 0) == 0) return 100
+        return SystemNnnVisualEffectMath.nativeSpeedValue(
+            count, countMax,
+            (parameters.getOrNull(3) ?: 100).coerceIn(0, 100),
+            (parameters.getOrNull(2) ?: 100).coerceIn(0, 100),
+            parameters.getOrNull(5) ?: 0,
+            parameters.getOrNull(4) ?: 0
+        ).coerceIn(0, 100)
+    }
+
+    /** Native SUNA 128x128 destination tiles and 64x64 source patch rectangles. */
+    fun sunaOverlayTiles(
+        width: Int, height: Int, frame: Int, parameters: List<Int>
+    ): List<SunaNoiseTile> {
+        if (width <= 0 || height <= 0) return emptyList()
+        val left = ((parameters.getOrNull(6) ?: 0) and -8).coerceIn(0, width)
+        val top = ((parameters.getOrNull(7) ?: 0) and -2).coerceIn(0, height)
+        val requestedWidth = ((parameters.getOrNull(8) ?: width) and -8).coerceAtLeast(0)
+        val requestedHeight = ((parameters.getOrNull(9) ?: height) and -2).coerceAtLeast(0)
+        val right = min(width, left + requestedWidth)
+        val bottom = min(height, top + requestedHeight)
+        if (right <= left || bottom <= top) return emptyList()
+
+        val regionWidth = right - left
+        val regionHeight = bottom - top
+        val tileColumns = (regionWidth + 127) / 128
+        val tileRows = (regionHeight + 127) / 128
+        return buildList(tileColumns * tileRows) {
+            for (tileY in 0 until tileRows) {
+                for (tileX in 0 until tileColumns) {
+                    val destinationX = left + tileX * 128
+                    val destinationY = top + tileY * 128
+                    val destinationWidth = min(128, right - destinationX)
+                    val destinationHeight = min(128, bottom - destinationY)
+                    val tileIndex = tileY * tileColumns + tileX
+                    val tileSeed = randomMix(tileIndex * 0x45D9F3B xor frame * 0x3449F5)
+                    val sourceX = tileSeed and 63
+                    val sourceY = randomMix(tileSeed xor 0x119DE1F3) and 63
+                    val sourceWidth = destinationWidth / 2
+                    val sourceHeight = destinationHeight / 2
+                    if (sourceWidth > 0 && sourceHeight > 0) {
+                        add(SunaNoiseTile(
+                            destinationX, destinationY, destinationWidth, destinationHeight,
+                            sourceX, sourceY, sourceWidth, sourceHeight
+                        ))
+                    }
+                }
+            }
+        }
+    }
+
+    /** Legacy software preview; the live renderer draws masked tiles on the GPU. */
     fun sunaNoiseOverlay(
         width: Int,
         height: Int,

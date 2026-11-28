@@ -71,6 +71,37 @@ class SystemNnnNativeEffectRendererTest {
     }
 
     @Test
+    fun sunaUsesNativeTranslucentStrengthAnd128PixelMaskedTiles() {
+        val parameters = listOf(0, 1, 10, 30, 5, 60, 0, 0, 800, 600)
+        assertEquals(30, SystemNnnNativeEffectRenderer.sunaOverlayStrength(0, parameters))
+        assertEquals(100, SystemNnnNativeEffectRenderer.sunaOverlayStrength(
+            0, listOf(0, 0, 10, 30, 5, 60, 0, 0, 800, 600)
+        ))
+        val tiles = SystemNnnNativeEffectRenderer.sunaOverlayTiles(800, 600, 0, parameters)
+        assertEquals(35, tiles.size)
+        assertEquals(128, tiles.first().destinationWidth)
+        assertEquals(128, tiles.first().destinationHeight)
+        assertEquals(32, tiles.last().destinationWidth)
+        assertEquals(88, tiles.last().destinationHeight)
+        assertTrue(tiles.all { tile ->
+            tile.sourceX >= 0 && tile.sourceY >= 0 &&
+                tile.sourceX + tile.sourceWidth <= 128 &&
+                tile.sourceY + tile.sourceHeight <= 128 &&
+                tile.sourceWidth * 2 == tile.destinationWidth &&
+                tile.sourceHeight * 2 == tile.destinationHeight
+        })
+        val texture = SystemNnnNativeEffectRenderer.sunaNoiseTexture(seed = 29)
+        assertEquals(128 * 128, texture.size)
+        assertTrue(texture.all { pixel ->
+            val alpha = pixel ushr 24 and 0xFF
+            val red = pixel ushr 16 and 0xFF
+            val green = pixel ushr 8 and 0xFF
+            val blue = pixel and 0xFF
+            alpha == red && red == green && green == blue
+        })
+    }
+
+    @Test
     fun keParticlesAdvanceThroughTheNativeSpriteSheetCells() {
         val parameters = listOf(1, 32, 32, 16, 0, 10, 5, 1, 100, 0, 4, 120)
         val first = SystemNnnNativeEffectRenderer.keParticles(

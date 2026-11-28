@@ -787,6 +787,13 @@ fun SystemNnnPlayerScreen(
             }
         }
 
+        val overrapIsCrossFade = state.overrapTransitionType == 0
+        val overrapFrame = (
+            state.overrapProgress.coerceIn(0f, 1f) *
+                state.overrapTransitionDurationFrames.coerceAtLeast(1)
+            ).roundToInt()
+        val overrapCrossFadeAlpha = SystemNnnNativeEffectRenderer
+            .overrapWeights(overrapFrame, state.overrapTransitionDurationFrames)[1] / 100f
         val overrapFrameBitmap = remember(
             state.overrapTransitionId,
             state.overrapTransitionType,
@@ -797,7 +804,8 @@ fun SystemNnnPlayerScreen(
         ) {
             val from = state.overrapFromBitmap
             val to = state.overrapToBitmap
-            if (!SystemNnnVisualEffectMath.shouldRenderOverrapFrame(
+            if (overrapIsCrossFade ||
+                !SystemNnnVisualEffectMath.shouldRenderOverrapFrame(
                     sourceAvailable = from != null && !from.isRecycled,
                     targetAvailable = to != null && !to.isRecycled
                 ) || from == null || to == null ||
@@ -813,20 +821,17 @@ fun SystemNnnPlayerScreen(
                     val duration = state.overrapTransitionDurationFrames.coerceAtLeast(1)
                     val frame = (state.overrapProgress.coerceIn(0f, 1f) * duration).roundToInt()
                     val mixed = SystemNnnNativeEffectRenderer.renderOverrapFrame(
-                        start = fromPixels,
-                        end = toPixels,
+                        start = fromPixels, end = toPixels,
                         transitionType = state.overrapTransitionType,
-                        frame = frame,
-                        length = duration,
-                        width = from.width,
-                        height = from.height
+                        frame = frame, length = duration,
+                        width = from.width, height = from.height
                     ) ?: return@runCatching null
                     Bitmap.createBitmap(mixed, from.width, from.height, Bitmap.Config.ARGB_8888)
                 }.onFailure { failure ->
                     SystemNnnDiagnosticLog.active?.recordException(
                         "overrap_frame_render_failure",
                         failure,
-                        "transitionId=${state.overrapTransitionId} type=${state.overrapTransitionType}"
+                        "transitionId=" + state.overrapTransitionId + " type=" + state.overrapTransitionType
                     )
                 }.getOrNull()
             }
@@ -846,7 +851,15 @@ fun SystemNnnPlayerScreen(
                 if (to != null && to !== from && !to.isRecycled) to.recycle()
             }
         }
-        overrapFrameBitmap?.let { bitmap ->
+        val overrapFrom = state.overrapFromBitmap
+        val overrapTo = state.overrapToBitmap
+        val canDrawGpuCrossFade = overrapIsCrossFade &&
+            SystemNnnVisualEffectMath.shouldRenderOverrapFrame(
+                sourceAvailable = overrapFrom != null && !overrapFrom.isRecycled,
+                targetAvailable = overrapTo != null && !overrapTo.isRecycled
+            ) && overrapFrom != null && overrapTo != null &&
+            overrapFrom.width == overrapTo.width && overrapFrom.height == overrapTo.height
+        if (canDrawGpuCrossFade || overrapFrameBitmap != null) {
             Canvas(Modifier.fillMaxSize()) {
                 val viewport = SystemNnnVisualEffectMath.aspectFitViewportBounds(
                     canvasWidth = size.width.roundToInt(),
@@ -854,19 +867,29 @@ fun SystemNnnPlayerScreen(
                     sceneWidth = state.logicalWidth,
                     sceneHeight = state.logicalHeight
                 )
-                // Opaque replacement prevents the live dialogue/text from showing
-                // through the captured OVERrap frame.
                 drawRect(
                     color = Color.Black,
                     topLeft = Offset(viewport.x.toFloat(), viewport.y.toFloat()),
                     size = Size(viewport.width.toFloat(), viewport.height.toFloat())
                 )
                 if (viewport.width > 0 && viewport.height > 0) {
-                    drawImage(
-                        image = bitmap.asImageBitmap(),
-                        dstOffset = IntOffset(viewport.x, viewport.y),
-                        dstSize = IntSize(viewport.width, viewport.height)
-                    )
+                    val destination = IntOffset(viewport.x, viewport.y)
+                    val destinationSize = IntSize(viewport.width, viewport.height)
+                    if (canDrawGpuCrossFade && overrapFrom != null && overrapTo != null) {
+                        drawImage(overrapFrom.asImageBitmap(), dstOffset = destination, dstSize = destinationSize)
+                        if (overrapCrossFadeAlpha > 0f) {
+                            drawImage(
+                                overrapTo.asImageBitmap(),
+                                dstOffset = destination,
+                                dstSize = destinationSize,
+                                alpha = overrapCrossFadeAlpha
+                            )
+                        }
+                    } else {
+                        overrapFrameBitmap?.let { bitmap ->
+                            drawImage(bitmap.asImageBitmap(), dstOffset = destination, dstSize = destinationSize)
+                        }
+                    }
                 }
             }
         }
@@ -1914,40 +1937,56 @@ private fun BoxScope.SystemNnnStandaloneLayerSuna(
             frame = if (frame == Int.MAX_VALUE) 0 else frame + 1
         }
     }
-    val bitmap = remember(animationKey, frame, referenceWidth, referenceHeight) {
-        val width = referenceWidth.roundToInt().coerceAtLeast(1)
-        val height = referenceHeight.roundToInt().coerceAtLeast(1)
+    val noiseBitmap = remember(animationKey) {
         runCatching {
-            val pixels = SystemNnnNativeEffectRenderer.sunaNoiseOverlay(
-                width = width,
-                height = height,
-                frame = frame,
-                parameters = parameters
-            )
-            if (pixels.size == width * height) {
-                Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
-            } else null
+            val seed = (effect.commandOffset?.toInt() ?: effect.layerIndex) xor 0x2953554E
+            Bitmap.createBitmap(
+                SystemNnnNativeEffectRenderer.sunaNoiseTexture(seed),
+                128, 128, Bitmap.Config.ARGB_8888
+            ).apply { setHasAlpha(true) }
         }.onFailure { failure ->
             SystemNnnDiagnosticLog.active?.recordException(
-                "suna_layer_overlay_failure",
+                "suna_layer_texture_failure",
                 failure,
-                "layer=" + effect.layerIndex + " params=" + parameters + " frame=" + frame
+                "layer=" + effect.layerIndex + " params=" + parameters
             )
         }.getOrNull()
     }
-    DisposableEffect(bitmap) {
+    DisposableEffect(noiseBitmap) {
         onDispose {
-            if (bitmap != null && !bitmap.isRecycled) bitmap.recycle()
+            if (noiseBitmap != null && !noiseBitmap.isRecycled) noiseBitmap.recycle()
         }
     }
-    bitmap?.let {
-        Image(
-            bitmap = it.asImageBitmap(),
-            contentDescription = "SUNA layer noise",
-            modifier = Modifier.fillMaxSize(),
-            contentScale = ContentScale.FillBounds,
-            alignment = Alignment.TopStart
+    val noiseImage = remember(noiseBitmap) { noiseBitmap?.asImageBitmap() }
+    val logicalWidth = referenceWidth.roundToInt().coerceAtLeast(1)
+    val logicalHeight = referenceHeight.roundToInt().coerceAtLeast(1)
+    val tiles = remember(animationKey, frame, logicalWidth, logicalHeight) {
+        SystemNnnNativeEffectRenderer.sunaOverlayTiles(
+            logicalWidth, logicalHeight, frame, parameters
         )
+    }
+    val strength = SystemNnnNativeEffectRenderer.sunaOverlayStrength(frame, parameters)
+    if (noiseImage != null && strength > 0 && tiles.isNotEmpty()) {
+        Canvas(Modifier.fillMaxSize()) {
+            val scaleX = size.width / logicalWidth.toFloat()
+            val scaleY = size.height / logicalHeight.toFloat()
+            tiles.forEach { tile ->
+                drawImage(
+                    image = noiseImage,
+                    srcOffset = IntOffset(tile.sourceX, tile.sourceY),
+                    srcSize = IntSize(tile.sourceWidth, tile.sourceHeight),
+                    dstOffset = IntOffset(
+                        (tile.destinationX * scaleX).roundToInt(),
+                        (tile.destinationY * scaleY).roundToInt()
+                    ),
+                    dstSize = IntSize(
+                        (tile.destinationWidth * scaleX).roundToInt().coerceAtLeast(1),
+                        (tile.destinationHeight * scaleY).roundToInt().coerceAtLeast(1)
+                    ),
+                    alpha = strength / 100f
+                )
+            }
+        }
     }
 }
 
