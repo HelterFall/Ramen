@@ -65,6 +65,7 @@ import io.github.helterfall.ramen.runtime.html5.Html5PlayerActivity
 import io.github.helterfall.ramen.runtime.resources.ResourceInspectorActivity
 import io.github.helterfall.ramen.runtime.systemnnn.SystemNnnPlayerActivity
 import io.github.helterfall.ramen.library.GameRecord
+import io.github.helterfall.ramen.library.GameLaunchPolicy
 import io.github.helterfall.ramen.library.LibraryRepository
 import io.github.helterfall.ramen.nscripter.NscripterScanReport
 import io.github.helterfall.ramen.nscripter.NscripterStaticScanner
