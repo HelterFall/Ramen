@@ -397,6 +397,12 @@ class NscripterVirtualMachineTest {
             mov 0, 99
             jumpb
             jumpf
+            mp3loop "music.mp3"
+            mp3 "once.mp3"
+            vsp 2, 1
+            textclear
+            repaint
+            click
             *yes
             end
             *no
