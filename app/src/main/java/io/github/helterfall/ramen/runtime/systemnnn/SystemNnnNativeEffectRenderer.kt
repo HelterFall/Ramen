@@ -786,8 +786,11 @@ internal object SystemNnnNativeEffectRenderer {
         val bottom = min(height, top + requestedHeight)
         if (right <= left || bottom <= top) return IntArray(width * height)
 
-        val countMax = (parameters.getOrNull(0) ?: 1).coerceAtLeast(1)
-        val count = frame.coerceIn(0, countMax)
+        val configuredDuration = parameters.getOrNull(0) ?: 0
+        val countMax = configuredDuration.coerceAtLeast(1)
+        // CEffectSuna::Calcu clamps count to para[0]; a zero duration therefore
+        // keeps the effect at its start percentage while the noise texture changes.
+        val count = if (configuredDuration <= 0) 0 else frame.coerceIn(0, countMax)
         val transparentMode = (parameters.getOrNull(1) ?: 0) != 0
         val strength = if (transparentMode) {
             SystemNnnVisualEffectMath.nativeSpeedValue(
