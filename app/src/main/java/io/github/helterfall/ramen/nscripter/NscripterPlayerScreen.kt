@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -47,6 +48,8 @@ fun NscripterPlayerScreen(
     onButton: (Int) -> Unit,
     onChoice: (Int) -> Unit,
     onMenu: (String) -> Unit,
+    menuVisible: Boolean,
+    onToggleMenu: () -> Unit,
     onTimedWaitComplete: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -58,12 +61,19 @@ fun NscripterPlayerScreen(
         }
     }
 
+    val screenInteractionSource = remember { MutableInteractionSource() }
+    val textInteractionSource = remember { MutableInteractionSource() }
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Color(scene.backgroundColor?.let(::parseSceneColor) ?: 0xFF000000.toInt()))
-            .clickable(enabled = scene.buttons.isEmpty() && scene.choices.isEmpty() &&
-                timedWaitMillis == null && !isEnded, onClick = onTap)
+            .clickable(
+                interactionSource = screenInteractionSource,
+                indication = null,
+                enabled = scene.buttons.isEmpty() && scene.choices.isEmpty() &&
+                    timedWaitMillis == null && !isEnded,
+                onClick = onTap
+            )
     ) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val background = remember(scene.background, resources) {
@@ -158,7 +168,12 @@ fun NscripterPlayerScreen(
                             width = maxWidth * (window.width.toFloat() / screenWidth.coerceAtLeast(1)),
                             height = maxHeight * (window.height.toFloat() / screenHeight.coerceAtLeast(1))
                         )
-                        .clickable(enabled = timedWaitMillis == null, onClick = onTap)
+                        .clickable(
+                            interactionSource = textInteractionSource,
+                            indication = null,
+                            enabled = timedWaitMillis == null,
+                            onClick = onTap
+                        )
                 ) {
                     Column(
                         Modifier.fillMaxSize().padding(
@@ -192,13 +207,15 @@ fun NscripterPlayerScreen(
                 modifier = Modifier.align(Alignment.TopEnd).padding(12.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Button(onClick = { scene.menu.forEach { onMenu(it.action) } }) {
+                Button(onClick = onToggleMenu) {
                     Text("МЕНЮ")
                 }
-                scene.menu.forEach { item ->
-                    Surface(color = Color(0xE6222832), shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.clickable { onMenu(item.action) }) {
-                        Text(item.label, color = Color.White, modifier = Modifier.padding(10.dp))
+                if (menuVisible) {
+                    scene.menu.forEach { item ->
+                        Surface(color = Color(0xE6222832), shape = RoundedCornerShape(6.dp),
+                            modifier = Modifier.clickable { onMenu(item.action) }) {
+                            Text(item.label, color = Color.White, modifier = Modifier.padding(10.dp))
+                        }
                     }
                 }
             }
