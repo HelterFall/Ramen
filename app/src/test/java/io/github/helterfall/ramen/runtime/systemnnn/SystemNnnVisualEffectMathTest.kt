@@ -814,7 +814,7 @@ class SystemNnnVisualEffectMathTest {
         val split = SystemNnnVisualEffectMath.splitNativeLayerStackAtScreenEffect(ordered, 10)
 
         assertTrue(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(100, parameters))
-        assertEquals(listOf(1, 6, 7, 8, 9, 10), ordered)
+        assertEquals(listOf(1, 6, 7, 8, 9, 10, 12), ordered)
         assertEquals(listOf(1, 6, 7, 8, 9, 10), split.beforeScreenEffect)
         assertEquals(listOf(12), split.afterScreenEffect)
     }
