@@ -739,22 +739,26 @@ private fun GameCard(
                 fontWeight = FontWeight.SemiBold
             )
             Text(
-                text = game.engineLabel,
+                text = if (GameLaunchPolicy.canLaunch(game) && game.engineId == "nscripter") {
+                    "NScripter / ONScripter (встроенный плеер доступен)"
+                } else {
+                    game.engineLabel
+                },
                 color = RamenAccent,
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Bold
             )
             Text(
-                text = when (game.compatibilityStatus) {
-                    "PARSER_AVAILABLE" ->
-                        if (game.engineId == "system-nnn-spt") {
-                            "Доступен запуск System-NNN с декодированием указателей текста и ресурсов."
-                        } else {
-                            "Формат сценария распознан; запуск пока не подключён."
-                        }
-                    "SUPPORTED_LIMITED" ->
+                text = when {
+                    game.engineId == "nscripter" &&
+                        game.compatibilityStatus == "PARSER_AVAILABLE" ->
+                        "Доступен встроенный NScripter-плеер; поддержка команд и ресурсов зависит от сценария."
+                    game.compatibilityStatus == "PARSER_AVAILABLE" &&
+                        game.engineId == "system-nnn-spt" ->
+                        "Доступен запуск System-NNN с декодированием указателей текста и ресурсов."
+                    game.compatibilityStatus == "SUPPORTED_LIMITED" ->
                         "Доступен ограниченный автономный HTML5-запуск."
-                    "UNKNOWN" ->
+                    game.compatibilityStatus == "UNKNOWN" ->
                         "Движок пока не определён. Запуск недоступен."
                     else ->
                         "Движок распознан, но игровой модуль пока не подключён."
@@ -764,7 +768,13 @@ private fun GameCard(
                 lineHeight = 17.sp
             )
             Text(
-                text = game.evidence,
+                text = if (game.engineId == "nscripter" &&
+                    game.compatibilityStatus == "PARSER_AVAILABLE"
+                ) {
+                    "Загрузка UTF-8/NScripter-сценария и ресурсов из папки игры/NSA."
+                } else {
+                    game.evidence
+                },
                 color = RamenMuted,
                 fontSize = 10.sp,
                 lineHeight = 14.sp
@@ -788,9 +798,7 @@ private fun GameCard(
                     )
                 }
             }
-            if (game.compatibilityStatus == "SUPPORTED_LIMITED" ||
-                (game.engineId == "system-nnn-spt" && game.compatibilityStatus == "PARSER_AVAILABLE")
-            ) {
+            if (GameLaunchPolicy.canLaunch(game)) {
                 Button(
                     onClick = onLaunch,
                     modifier = Modifier.fillMaxWidth(),

@@ -87,10 +87,11 @@ class VisualNovelDetector {
         if (nscripterMarker != null) {
             return GameDetection(
                 engineId = "nscripter",
-                engineLabel = "NScripter / ONScripter (статический сканер доступен)",
+                engineLabel = "NScripter / ONScripter (встроенный плеер доступен)",
                 compatibilityStatus = "PARSER_AVAILABLE",
-                evidence = "Found NScripter marker '$nscripterMarker'. Script decoding and " +
-                    "NSA/SAR index auditing are available; no playback renderer is connected."
+                evidence = "Found NScripter marker '$nscripterMarker'. UTF-8 script decoding, " +
+                    "NSA/SPB resource loading and the native player entry point are available; " +
+                    "per-command compatibility depends on the game script."
             )
         }
 
