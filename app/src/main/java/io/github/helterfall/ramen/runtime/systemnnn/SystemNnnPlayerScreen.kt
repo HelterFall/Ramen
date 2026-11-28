@@ -34,7 +34,6 @@ import androidx.compose.material3.Text
 import android.graphics.Bitmap
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
@@ -81,9 +80,9 @@ fun SystemNnnPlayerScreen(
     onAutomaticAdvance: () -> Unit,
     onAutoMessageTimerElapsed: () -> Unit,
     onAutoModeChanged: (Boolean) -> Unit,
+    onDrawFrameProgress: () -> Unit,
     onDrawFrameCompleted: () -> Unit,
     onScreenCaptureReady: (Long, Bitmap?) -> Unit,
-    onOverrapTransitionFinished: (Long) -> Unit,
     onChoiceSelected: (String) -> Unit,
     onTypewriterProgress: (Int) -> Unit,
     onTypewriterFinished: () -> Unit,
@@ -101,12 +100,18 @@ fun SystemNnnPlayerScreen(
     var viewportSizePx by remember { mutableStateOf(IntSize.Zero) }
     val viewportCaptureLayer = rememberGraphicsLayer()
     var screenEffectSourceBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val inlineHaikeiYureLayerEffect = state.layerEffects.firstOrNull { effect ->
+        SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(effect.effectId, effect.parameters)
+    }
     val screenEffectKey = listOf(
         state.screenEffectId, state.screenEffectParameters, state.screenEffectCommandOffset,
-        state.screenEffectLayerIndex, state.drawEventId, state.frameId
+        state.screenEffectLayerIndex,
+        inlineHaikeiYureLayerEffect?.layerIndex,
+        inlineHaikeiYureLayerEffect?.effectId,
+        inlineHaikeiYureLayerEffect?.parameters,
+        state.drawEventId, state.frameId
     )
     var screenEffectFrame by remember(screenEffectKey) { mutableIntStateOf(0) }
-    var overrapProgress by remember(state.overrapTransitionId) { mutableFloatStateOf(0f) }
 
     // The recorder writes on its own thread. Poll the immutable tail slowly so
     // per-animation-frame trace events cannot trigger a recomposition storm.
@@ -226,7 +231,7 @@ fun SystemNnnPlayerScreen(
         state.screenEffectId,
         state.screenEffectParameters,
         screenEffectFrame,
-        overrapProgress,
+        state.overrapProgress,
         canvasSizePx,
         viewportSizePx
     ) {
@@ -476,7 +481,7 @@ fun SystemNnnPlayerScreen(
                     "transitionId" to state.overrapTransitionId,
                     "type" to state.overrapTransitionType,
                     "durationFrames" to state.overrapTransitionDurationFrames,
-                    "progress" to overrapProgress,
+                    "progress" to state.overrapProgress,
                     "fromSize" to state.overrapFromBitmap?.let { "${it.width}x${it.height}" },
                     "toSize" to state.overrapToBitmap?.let { "${it.width}x${it.height}" }
                 )
@@ -494,60 +499,10 @@ fun SystemNnnPlayerScreen(
         }
     }
 
-    LaunchedEffect(state.overrapTransitionId, state.overrapFromBitmap, state.overrapToBitmap) {
-        val transitionId = state.overrapTransitionId
-        // Zero is the sentinel for "no active OVERRAP". The initial UI state
-        // intentionally has no snapshot bitmaps, so never run the transition
-        // body or checkNotNull() until a real transition ID has been assigned.
-        if (transitionId == 0L) return@LaunchedEffect
-
-        val from = state.overrapFromBitmap
-        val to = state.overrapToBitmap
-        val skipReason = when {
-            from == null -> "OVERRAP source bitmap is missing"
-            to == null -> "OVERRAP destination bitmap is missing"
-            from.isRecycled -> "OVERRAP source bitmap was recycled"
-            to.isRecycled -> "OVERRAP destination bitmap was recycled"
-            from.width != to.width || from.height != to.height ->
-                "OVERRAP bitmap dimensions differ: ${from.width}x${from.height} vs ${to.width}x${to.height}"
-            else -> null
-        }
-        if (skipReason != null) {
-            SystemNnnDiagnosticLog.active?.recordTrace(
-                "overrap_transition_fallback",
-                mapOf(
-                    "transitionId" to transitionId,
-                    "transitionType" to state.overrapTransitionType,
-                    "fromSize" to from?.let { "${it.width}x${it.height}" },
-                    "toSize" to to?.let { "${it.width}x${it.height}" },
-                    "fromRecycled" to from?.isRecycled,
-                    "toRecycled" to to?.isRecycled,
-                    "reason" to skipReason
-                ),
-                summary = skipReason
-            )
-            return@LaunchedEffect
-        }
-        val validFrom = checkNotNull(from)
-        val validTo = checkNotNull(to)
-        val duration = state.overrapTransitionDurationFrames.coerceIn(1, 9_999)
-        for (frame in 0..duration) {
-            if (validFrom.isRecycled || validTo.isRecycled) {
-                SystemNnnDiagnosticLog.active?.recordTrace(
-                    "overrap_transition_interrupted",
-                    mapOf("transitionId" to transitionId, "frame" to frame, "reason" to "Bitmap recycled during transition")
-                )
-                return@LaunchedEffect
-            }
-            overrapProgress = frame.toFloat() / duration.toFloat()
-            if (frame < duration) delay(state.nativeRuntime.frameTimeMillis.coerceAtLeast(1).toLong())
-        }
-        onOverrapTransitionFinished(transitionId)
-    }
-
     LaunchedEffect(screenEffectKey) {
-        val effectId = state.screenEffectId ?: return@LaunchedEffect
-        val parameters = state.screenEffectParameters
+        val inlineHaikeiYure = inlineHaikeiYureLayerEffect
+        val effectId = inlineHaikeiYure?.effectId ?: state.screenEffectId ?: return@LaunchedEffect
+        val parameters = inlineHaikeiYure?.parameters ?: state.screenEffectParameters
         val duration = if (effectId in setOf(55, 71)) 9_999
             else (parameters.firstOrNull() ?: 20).coerceIn(1, 9_999)
         val repeats = effectId in setOf(55, 71) ||
@@ -573,11 +528,17 @@ fun SystemNnnPlayerScreen(
         state.nativeRuntime.cannotSkip
     ) {
         val frames = state.pendingDrawFrameCount ?: return@LaunchedEffect
+        val frameCount = frames.coerceIn(1, 9_999)
         if (skipMode && state.nativeRuntime.cannotSkip <= 0) {
+            repeat(frameCount) { onDrawFrameProgress() }
             onDrawFrameCompleted()
             return@LaunchedEffect
         }
-        delay(frames.coerceIn(1, 9_999) * state.nativeRuntime.frameTimeMillis.coerceAtLeast(1).toLong())
+        val frameDelayMillis = state.nativeRuntime.frameTimeMillis.coerceAtLeast(1).toLong()
+        repeat(frameCount) {
+            delay(frameDelayMillis)
+            onDrawFrameProgress()
+        }
         onDrawFrameCompleted()
     }
 
@@ -732,16 +693,20 @@ fun SystemNnnPlayerScreen(
                         bitmapLayerIndices = spritesByLayer.keys,
                         effectLayers = standaloneLayerEffects.map { it.layerIndex to it.effectId }
                     )
-                    val inlineHaikeiYure = SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
-                        state.screenEffectId, state.screenEffectParameters
-                    )
-                    val screenEffectLayerIndex = state.screenEffectLayerIndex ?: 10
+                    val inlineHaikeiYure = inlineHaikeiYureLayerEffect != null ||
+                        SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
+                            state.screenEffectId, state.screenEffectParameters
+                        )
+                    val inlineHaikeiYureParameters =
+                        inlineHaikeiYureLayerEffect?.parameters ?: state.screenEffectParameters
+                    val screenEffectLayerIndex =
+                        inlineHaikeiYureLayerEffect?.layerIndex ?: state.screenEffectLayerIndex ?: 10
                     if (inlineHaikeiYure) {
                         val split = SystemNnnVisualEffectMath.splitNativeLayerStackAtScreenEffect(
                             renderLayers, screenEffectLayerIndex
                         )
                         val movement = SystemNnnVisualEffectMath.haikeiYureOffset(
-                            screenEffectFrame, state.screenEffectParameters
+                            screenEffectFrame, inlineHaikeiYureParameters
                         )
                         // Native CEffectHaikeiYure::Print(layerType=1) calls MoveScreen()
                         // at its layer index: shift layers below it, then draw FADEIN/text above.
@@ -805,10 +770,7 @@ fun SystemNnnPlayerScreen(
                         }
                     }
                 }
-                if (!SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(
-                        state.screenEffectId, state.screenEffectParameters
-                    )
-                ) {
+                if (!inlineHaikeiYure) {
                     state.screenEffectId?.let { effectId ->
                         SystemNnnScreenEffectOverlay(
                             effectId = effectId,
@@ -831,11 +793,14 @@ fun SystemNnnPlayerScreen(
             state.overrapTransitionDurationFrames,
             state.overrapFromBitmap,
             state.overrapToBitmap,
-            overrapProgress
+            state.overrapProgress
         ) {
             val from = state.overrapFromBitmap
             val to = state.overrapToBitmap
-            if (from == null || to == null || from.isRecycled || to.isRecycled ||
+            if (!SystemNnnVisualEffectMath.shouldRenderOverrapFrame(
+                    sourceAvailable = from != null && !from.isRecycled,
+                    targetAvailable = to != null && !to.isRecycled
+                ) || from == null || to == null ||
                 from.width != to.width || from.height != to.height
             ) {
                 null
@@ -846,7 +811,7 @@ fun SystemNnnPlayerScreen(
                     from.getPixels(fromPixels, 0, from.width, 0, 0, from.width, from.height)
                     to.getPixels(toPixels, 0, to.width, 0, 0, to.width, to.height)
                     val duration = state.overrapTransitionDurationFrames.coerceAtLeast(1)
-                    val frame = (overrapProgress.coerceIn(0f, 1f) * duration).roundToInt()
+                    val frame = (state.overrapProgress.coerceIn(0f, 1f) * duration).roundToInt()
                     val mixed = SystemNnnNativeEffectRenderer.renderOverrapFrame(
                         start = fromPixels,
                         end = toPixels,

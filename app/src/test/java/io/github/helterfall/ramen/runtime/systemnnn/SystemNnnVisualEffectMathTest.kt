@@ -764,6 +764,30 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
+    fun drawOneThenDrawSixtyFinishesOverrapAndLeavesFilm18LayersUncovered() {
+        val duration = 60
+        var elapsed = 0
+
+        // The initial OVERRAP boundary consumes DRAW(1), followed by DRAW(60).
+        elapsed = SystemNnnVisualEffectMath.advanceOverrapFrames(elapsed, 1, duration)
+        assertEquals(1f / 60f, SystemNnnVisualEffectMath.overrapProgress(elapsed, duration), 0.0001f)
+        elapsed = SystemNnnVisualEffectMath.advanceOverrapFrames(elapsed, 60, duration)
+
+        assertEquals(duration, elapsed)
+        assertEquals(1f, SystemNnnVisualEffectMath.overrapProgress(elapsed, duration), 0f)
+        assertFalse(SystemNnnVisualEffectMath.shouldRenderOverrapFrame(
+            sourceAvailable = false,
+            targetAvailable = false
+        ))
+
+        val step131Layers = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+            bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 12),
+            effectLayers = emptyList()
+        )
+        assertEquals(listOf(1, 6, 7, 8, 9, 12), step131Layers)
+    }
+
+    @Test
     fun haikeiYureScreenModeRunsAtItsNativeLayerWithoutViewportCapture() {
         val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
 
@@ -778,6 +802,20 @@ class SystemNnnVisualEffectMathTest {
             100, parameters.toMutableList().apply { this[5] = 0 }
         ))
         assertFalse(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(55, parameters))
+    }
+
+    @Test
+    fun haikeiYureMoveScreenRunsAfterItsOwnLayerTenBitmap() {
+        val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+        val ordered = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+            bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 10, 12),
+            effectLayers = listOf(10 to 100)
+        )
+        val split = SystemNnnVisualEffectMath.splitNativeLayerStackAtScreenEffect(ordered, 10)
+
+        assertTrue(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(100, parameters))
+        assertEquals(listOf(1, 6, 7, 8, 9, 10), split.beforeScreenEffect)
+        assertEquals(listOf(12), split.afterScreenEffect)
     }
 
     @Test

@@ -451,9 +451,30 @@ internal object SystemNnnVisualEffectMath {
         orderedLayerIndices: List<Int>,
         effectLayerIndex: Int
     ): SystemNnnNativeLayerStackSplit = SystemNnnNativeLayerStackSplit(
-        beforeScreenEffect = orderedLayerIndices.filter { it < effectLayerIndex },
+        // Native Print() blits the layer bitmap first, then calls the layer effect.
+        // Therefore a MoveScreen effect at layer N includes layer N in the shifted set.
+        beforeScreenEffect = orderedLayerIndices.filter { it <= effectLayerIndex },
         afterScreenEffect = orderedLayerIndices.filter { it > effectLayerIndex }
     )
+
+    /** Consume only frames advanced by DRAW/ShakinHensai, never wall-clock time. */
+    fun advanceOverrapFrames(
+        elapsedFrames: Int,
+        drawFrames: Int,
+        durationFrames: Int
+    ): Int {
+        if (durationFrames <= 0) return 0
+        return (
+            elapsedFrames.coerceAtLeast(0).toLong() + drawFrames.coerceAtLeast(0).toLong()
+        ).coerceAtMost(durationFrames.toLong()).toInt()
+    }
+
+    fun overrapProgress(elapsedFrames: Int, durationFrames: Int): Float =
+        if (durationFrames <= 0) 1f
+        else (elapsedFrames.coerceIn(0, durationFrames).toFloat() / durationFrames.toFloat())
+
+    fun shouldRenderOverrapFrame(sourceAvailable: Boolean, targetAvailable: Boolean): Boolean =
+        sourceAvailable && targetAvailable
 
     fun shouldClearNativeScreenEffect(
         clearLayerIndex: Int,

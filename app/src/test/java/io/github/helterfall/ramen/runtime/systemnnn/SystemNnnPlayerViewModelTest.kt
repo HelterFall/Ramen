@@ -13,6 +13,43 @@ import org.junit.Test
 class SystemNnnPlayerViewModelTest {
 
     @Test
+    fun drawFramesDriveOverrapProgressAndReleaseSnapshotsAtDuration() {
+        var state = SystemNnnPlayerUiState(
+            pendingDrawFrameCount = 1,
+            overrapTransitionId = 1L,
+            overrapTransitionType = 0,
+            overrapTransitionDurationFrames = 60,
+            overrapProgress = 0f
+        )
+
+        state = state.advanceOverrapForNativeDrawFrame()
+        assertEquals(1, state.overrapFramesElapsed)
+        assertEquals(1f / 60f, state.overrapProgress, 0.0001f)
+
+        // DRAW(1) completes; the following DRAW(60) is the next native frame block.
+        state = state.copy(pendingDrawFrameCount = null).copy(pendingDrawFrameCount = 60)
+        repeat(60) { state = state.advanceOverrapForNativeDrawFrame() }
+
+        assertEquals(60, state.overrapFramesElapsed)
+        assertEquals(1f, state.overrapProgress, 0f)
+        assertEquals(0, state.overrapTransitionDurationFrames)
+        assertNull(state.overrapFromBitmap)
+        assertNull(state.overrapToBitmap)
+        assertFalse(SystemNnnVisualEffectMath.shouldRenderOverrapFrame(
+            state.overrapFromBitmap != null,
+            state.overrapToBitmap != null
+        ))
+
+        assertEquals(
+            listOf(1, 6, 7, 8, 9, 12),
+            SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+                bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 12),
+                effectLayers = emptyList()
+            )
+        )
+    }
+
+    @Test
     fun waitsForTypewriterThenShowsChoiceAndBranchesToSelectedTarget() {
         val offsets = recordOffsets()
         val decoder = FakeDecoder(
@@ -803,6 +840,37 @@ class SystemNnnPlayerViewModelTest {
         )
         assertNull(viewModel.uiState.screenEffectId)
         assertTrue(viewModel.uiState.sprites.isEmpty())
+        assertNull(viewModel.uiState.errorMessage)
+    }
+
+    @Test
+    fun haikeiYureLayerTypeOneStaysOnNativeLayerTenInsteadOfScreenBufferLayerThirtyOne() {
+        val lengths = List(3) { 3 }
+        val offsets = recordOffsets(lengths)
+        val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+        val decoder = FakeDecoder(
+            mapOf(
+                offsets[0] to SystemNnnDecodedCommand.SetImageLayerEffect(
+                    nextCommandOffset = offsets[1],
+                    layerIndex = 10,
+                    effectId = 100,
+                    parameters = parameters
+                ),
+                offsets[1] to SystemNnnDecodedCommand.Dialogue(
+                    nextCommandOffset = offsets[2],
+                    textEntryOffset = testTextStartOffset(lengths)
+                )
+            )
+        )
+        val viewModel = SystemNnnPlayerViewModel()
+
+        viewModel.start(testScript(lengths), decoder, EmptyAssets)
+
+        assertEquals(listOf(10 to 100), viewModel.uiState.layerEffects.map { it.layerIndex to it.effectId })
+        assertNull(viewModel.uiState.screenEffectId)
+        assertNull(viewModel.uiState.screenEffectLayerIndex)
+        assertTrue(SystemNnnVisualEffectMath.isInlineLayerStackScreenEffect(100, parameters))
+        assertFalse(SystemNnnVisualEffectMath.requiresNativeScreenBufferCapture(100, parameters))
         assertNull(viewModel.uiState.errorMessage)
     }
 

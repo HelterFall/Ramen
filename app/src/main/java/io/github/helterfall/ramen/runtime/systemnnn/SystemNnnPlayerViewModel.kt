@@ -175,10 +175,34 @@ data class SystemNnnPlayerUiState(
     val overrapTransitionId: Long = 0L,
     val overrapTransitionType: Int = 0,
     val overrapTransitionDurationFrames: Int = 0,
+    /** Frames consumed by the same native DRAW scheduler that presents the scene. */
+    val overrapFramesElapsed: Int = 0,
+    /** 1f means the transition is finished; snapshots are released at that boundary. */
+    val overrapProgress: Float = 1f,
     val overrapOptionButtonPrintFlag: Int = 1,
     val overrapSceneButtonPrintFlag: Int = 1,
     val nativeRuntime: SystemNnnNativeRuntimeState = SystemNnnNativeRuntimeState()
 )
+
+/** Advance one native ShakinHensai frame; completion releases both snapshot bitmaps. */
+internal fun SystemNnnPlayerUiState.advanceOverrapForNativeDrawFrame(): SystemNnnPlayerUiState {
+    val duration = overrapTransitionDurationFrames
+    if (overrapTransitionId == 0L || duration <= 0) return this
+
+    val elapsed = SystemNnnVisualEffectMath.advanceOverrapFrames(
+        elapsedFrames = overrapFramesElapsed,
+        drawFrames = 1,
+        durationFrames = duration
+    )
+    val finished = elapsed >= duration
+    return copy(
+        overrapFramesElapsed = elapsed,
+        overrapProgress = SystemNnnVisualEffectMath.overrapProgress(elapsed, duration),
+        overrapFromBitmap = if (finished) null else overrapFromBitmap,
+        overrapToBitmap = if (finished) null else overrapToBitmap,
+        overrapTransitionDurationFrames = if (finished) 0 else duration
+    )
+}
 
 /**
  * Resource lookup contract used by scene commands. Scene resources may be
@@ -1154,6 +1178,13 @@ class SystemNnnPlayerViewModel : ViewModel() {
      * Called by the screen after presenting the requested number of native DRAW frames.
      * The next SPT command is not executed until this boundary has been displayed.
      */
+    /** Called once for each frame actually consumed by the native DRAW scheduler. */
+    fun onDrawFrameProgress() {
+        val current = uiState
+        if (current.pendingDrawFrameCount == null || current.isLoading || current.isEnded) return
+        uiState = current.advanceOverrapForNativeDrawFrame()
+    }
+
     fun onDrawFrameCompleted() {
         val current = uiState
         diagnosticLog?.recordTrace(
@@ -1275,7 +1306,10 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         overrapTransitionId = current.overrapTransitionId + 1L,
                         overrapTransitionType = pendingOverrapType,
                         overrapTransitionDurationFrames = pendingOverrapLengthFrames,
-                        pendingDrawFrameCount = null
+                        overrapFramesElapsed = 0,
+                        overrapProgress = 0f,
+                        // ExecScript's OVERRAP boundary still consumes its initial DRAW(1).
+                        pendingDrawFrameCount = 1
                     )
                 }
             }
@@ -1289,20 +1323,6 @@ class SystemNnnPlayerViewModel : ViewModel() {
                 advanceToVisibleEvent()
             }
         }
-    }
-
-    /** Called by Compose after the two native overrap snapshots reach their final mix. */
-    fun onOverrapTransitionFinished(transitionId: Long) {
-        val current = uiState
-        if (transitionId == 0L || transitionId != current.overrapTransitionId ||
-            current.overrapFromBitmap == null || current.overrapToBitmap == null
-        ) return
-        uiState = current.copy(
-            overrapFromBitmap = null,
-            overrapToBitmap = null,
-            overrapTransitionDurationFrames = 0
-        )
-        advanceToVisibleEvent()
     }
 
     /**
@@ -2046,15 +2066,11 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         if (command.effectId != 1 &&
                             SystemNnnVisualEffectMath.shouldApplyNativeLayerEffectCommand(command.effectId)
                         ) {
-                            val screenWideHaikeiYure = command.effectId == 100 &&
-                                (command.parameters.getOrNull(5) ?: 0) == 1
-                            // FADEIN, SUNA and FILL print into the shared framebuffer
-                            // at this layer's native position. Only an explicit layer 31
-                            // command is a viewport-wide screen effect.
+route-haikei-comment
                             val explicitViewportEffect = command.layerIndex == SCREEN_EFFECT_LAYER_INDEX &&
                                 command.effectId in setOf(10, 11, 29, 54)
                             if (command.effectId in SCREEN_BUFFER_EFFECT_IDS ||
-                                explicitViewportEffect || screenWideHaikeiYure
+                                explicitViewportEffect
                             ) {
                                 pendingScreenEffectId = command.effectId
                                 pendingScreenEffectParameters = command.parameters
