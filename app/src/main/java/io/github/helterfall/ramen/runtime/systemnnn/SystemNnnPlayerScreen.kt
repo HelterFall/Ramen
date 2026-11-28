@@ -174,27 +174,45 @@ fun SystemNnnPlayerScreen(
 
     LaunchedEffect(screenEffectKey) {
         val effectId = state.screenEffectId
-        val needsCapturedScreen = effectId in NATIVE_SCREEN_BUFFER_RENDER_EFFECTS &&
-            (effectId != 100 || (state.screenEffectParameters.getOrNull(5) ?: 0) != 0)
+        val parameters = state.screenEffectParameters
+        val needsCapturedScreen = SystemNnnVisualEffectMath.requiresNativeScreenBufferCapture(
+            effectId, parameters
+        )
         if (!needsCapturedScreen) {
             screenEffectSourceBitmap = null
             return@LaunchedEffect
         }
-        withFrameNanos { }
-        screenEffectSourceBitmap = runCatching {
-            viewportCaptureLayer.toImageBitmap().asAndroidBitmap()
-                .copy(Bitmap.Config.ARGB_8888, true)
-        }.onFailure { failure ->
+        screenEffectSourceBitmap = null
+
+        var captured: Bitmap? = null
+        var lastFailure: Throwable? = null
+        repeat(3) {
+            if (captured == null) {
+                withFrameNanos { }
+                val attempt = runCatching {
+                    val viewport = viewportCaptureLayer.toImageBitmap().asAndroidBitmap()
+                    if (viewport.width > 0 && viewport.height > 0) {
+                        viewport.copy(Bitmap.Config.ARGB_8888, true)
+                    } else {
+                        null
+                    }
+                }
+                if (attempt.isFailure) lastFailure = attempt.exceptionOrNull()
+                captured = attempt.getOrNull()
+            }
+        }
+        lastFailure?.let { failure ->
             SystemNnnDiagnosticLog.active?.recordException(
                 "screen_effect_capture_failure",
                 failure,
                 "effectId=$effectId frame=$screenEffectFrame"
             )
-        }.getOrNull()
-        if (screenEffectSourceBitmap == null) {
+        }
+        screenEffectSourceBitmap = captured
+        if (captured == null) {
             SystemNnnDiagnosticLog.active?.recordTrace(
                 "screen_effect_capture_missing",
-                mapOf("effectId" to effectId, "frame" to screenEffectFrame)
+                mapOf("effectId" to effectId, "frame" to screenEffectFrame, "attempts" to 3)
             )
         }
     }
@@ -763,6 +781,13 @@ fun SystemNnnPlayerScreen(
                         modifier = Modifier.fillMaxSize()
                     )
                 }
+                if (SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
+                        state.screenCaptureRequestId, state.screenCapturePurpose
+                    )
+                ) {
+                    // Capture is read from viewportCaptureLayer above; this cover is display-only.
+                    Box(Modifier.fillMaxSize().background(Color.Black))
+                }
             }
         }
 
@@ -1135,9 +1160,10 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     var keFrame by remember(animationKey) { mutableIntStateOf(0) }
     LaunchedEffect(animationKey, nativeFrameMillis, isKe) {
         if (isKe) {
-            while (keFrame < 10_000) {
+            while (true) {
                 delay(nativeFrameMillis.toLong())
-                keFrame += 1
+                // CEffectKe::Calcu resets its counter after it exceeds 10,000.
+                keFrame = if (keFrame >= 10_000) 0 else keFrame + 1
             }
         }
     }
@@ -2040,24 +2066,34 @@ private fun SystemNnnScreenEffectOverlay(
             }.getOrNull()
         }
     }
-    LaunchedEffect(effectId, parameters, frame, renderedBitmap, source) {
+    LaunchedEffect(effectId, parameters, frame, renderedBitmap, source, sourcePixels) {
         if (renderedBitmap == null) {
             val composeImplementedEffect = effectId == 18
             val supportedPainterFallback = effectId in setOf(10, 11, 54, 55) || composeImplementedEffect
-            val fallbackReason = if (composeImplementedEffect) {
-                "Rendered by the viewport shake transform, not by a bitmap overlay"
-            } else {
-                "No native bitmap renderer produced an output"
+            val sourceAvailable = source != null && !source.isRecycled && sourcePixels != null
+            val waitingForSource = SystemNnnVisualEffectMath.isWaitingForNativeScreenBufferSource(
+                effectId, parameters, sourceAvailable
+            )
+            val fallbackReason = when {
+                waitingForSource -> "Waiting for a captured viewport frame"
+                composeImplementedEffect ->
+                    "Rendered by the viewport shake transform, not by a bitmap overlay"
+                else -> "No native bitmap renderer produced an output"
+            }
+            val diagnosticEvent = when {
+                waitingForSource -> "screen_effect_waiting_for_source"
+                supportedPainterFallback -> "screen_effect_fallback"
+                else -> "screen_effect_unsupported"
             }
             SystemNnnDiagnosticLog.active?.recordTrace(
-                if (supportedPainterFallback) "screen_effect_fallback" else "screen_effect_unsupported",
+                diagnosticEvent,
                 mapOf(
                     "effect_id" to effectId,
                     "effectName" to SystemNnnVisualEffectMath.observedEffectName(effectId),
                     "parameters_raw" to parameters,
                     "para_0_to_15" to (0 until 16).map { parameters.getOrNull(it) },
                     "currentFrame" to frame,
-                    "sourceAvailable" to (source != null && !source.isRecycled),
+                    "sourceAvailable" to sourceAvailable,
                     "rendererAvailable" to (effectId in NATIVE_SCREEN_BUFFER_RENDER_EFFECTS),
                     "fallbackPainterAvailable" to supportedPainterFallback,
                     "reason" to fallbackReason

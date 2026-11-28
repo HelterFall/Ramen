@@ -889,7 +889,8 @@ internal object SystemNnnNativeEffectRenderer {
         val jitter = (parameters.getOrNull(10) ?: 0).coerceIn(0, 64)
         val edgeChangeProbability = (parameters.getOrNull(11) ?: 0).coerceIn(0, 10_000)
         val rows = (bitmapHeight / cellHeight).coerceAtLeast(1)
-        val totalFrames = frame.coerceIn(0, 10_000)
+        // CEffectKe::Calcu resets the effect counter once it exceeds 10,000.
+        val totalFrames = if (frame > 10_000) 0 else frame.coerceAtLeast(0)
 
         return List(particleCount) { index ->
             val seed = randomMix(index * 0x45D9F3B xor 0x27C0FFEE)

@@ -438,6 +438,28 @@ internal object SystemNnnVisualEffectMath {
         return layers.sorted()
     }
 
+    /** Hide the live DrawOverrap target while the compositor snapshots its final frame. */
+    fun shouldCoverViewportDuringOverrapTargetCapture(
+        requestId: Long,
+        purpose: SystemNnnScreenCapturePurpose?
+    ): Boolean = requestId > 0L && purpose == SystemNnnScreenCapturePurpose.OVERRAP_TARGET
+
+    /** True only for effects whose native screen-mode implementation reads the current framebuffer. */
+    fun requiresNativeScreenBufferCapture(
+        effectId: Int?,
+        parameters: List<Int>
+    ): Boolean = when (effectId) {
+        2, 20, 22, 29, 31, 43, 50, 69, 71, 74 -> true
+        100 -> (parameters.getOrNull(5) ?: 0) == 1
+        else -> false
+    }
+
+    fun isWaitingForNativeScreenBufferSource(
+        effectId: Int,
+        parameters: List<Int>,
+        sourceAvailable: Boolean
+    ): Boolean = requiresNativeScreenBufferCapture(effectId, parameters) && !sourceAvailable
+
     /** CEffectKe::SetParam overrides the script's para[0] with 999999. */
     fun nativeEffectDurationFrames(
         effectId: Int?,

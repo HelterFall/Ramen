@@ -740,6 +740,66 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
+    fun overrapTargetCaptureCoversTheLiveViewportButNotOtherCapturePurposes() {
+        assertTrue(
+            SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
+                1L, SystemNnnScreenCapturePurpose.OVERRAP_TARGET
+            )
+        )
+        assertFalse(
+            SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
+                0L, SystemNnnScreenCapturePurpose.OVERRAP_TARGET
+            )
+        )
+        assertFalse(
+            SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
+                1L, SystemNnnScreenCapturePurpose.PREPARE_OVERRAP
+            )
+        )
+        assertFalse(
+            SystemNnnVisualEffectMath.shouldCoverViewportDuringOverrapTargetCapture(
+                1L, SystemNnnScreenCapturePurpose.GET_BUFFER
+            )
+        )
+    }
+
+    @Test
+    fun haikeiYureScreenModeWaitsForTheCapturedViewportInsteadOfBeingMarkedUnsupported() {
+        val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+
+        assertTrue(SystemNnnVisualEffectMath.requiresNativeScreenBufferCapture(100, parameters))
+        assertTrue(
+            SystemNnnVisualEffectMath.isWaitingForNativeScreenBufferSource(
+                100, parameters, sourceAvailable = false
+            )
+        )
+        assertFalse(
+            SystemNnnVisualEffectMath.isWaitingForNativeScreenBufferSource(
+                100, parameters, sourceAvailable = true
+            )
+        )
+        assertFalse(
+            SystemNnnVisualEffectMath.requiresNativeScreenBufferCapture(
+                100, parameters.toMutableList().apply { this[5] = 0 }
+            )
+        )
+    }
+
+    @Test
+    fun nativeFadeInBlendsTheExistingFramebufferBeforeHigherNumberedLayers() {
+        val parameters = listOf(60, 0, 0, 0, 0)
+        assertEquals(1f, checkNotNull(SystemNnnVisualEffectMath.screenFade(10, 0, parameters)).alpha)
+        assertEquals(0.5f, checkNotNull(SystemNnnVisualEffectMath.screenFade(10, 30, parameters)).alpha)
+        assertEquals(0f, checkNotNull(SystemNnnVisualEffectMath.screenFade(10, 60, parameters)).alpha)
+
+        val order = SystemNnnVisualEffectMath.nativeLayerRenderOrder(
+            bitmapLayerIndices = listOf(1, 6, 7, 8, 9, 12),
+            effectLayers = listOf(11 to 10)
+        )
+        assertEquals(listOf(1, 6, 7, 8, 9, 11, 12), order)
+    }
+
+    @Test
     fun oldFilmPaintsIndependentLayerScratchesWithoutAteBitmap() {
         val parameters = listOf(20, 0, 0, 800, 600, 5, 1, 21, 19, 9, 200, 80, 100)
         val first = SystemNnnVisualEffectMath.oldFilmMarks(

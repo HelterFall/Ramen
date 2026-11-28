@@ -302,6 +302,60 @@ class SystemNnnNativeEffectRendererTest {
     }
 
     @Test
+    fun keParticlesDisappearForNativeHiddenIntervalThenRespawn() {
+        val parameters = listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120)
+
+        val initial = SystemNnnNativeEffectRenderer.keParticles(
+            320, 160, 0, parameters, screenWidth = 800, screenHeight = 600
+        )
+        val firstHidden = SystemNnnNativeEffectRenderer.keParticles(
+            320, 160, 17, parameters, screenWidth = 800, screenHeight = 600
+        )
+        val laterHidden = SystemNnnNativeEffectRenderer.keParticles(
+            320, 160, 26, parameters, screenWidth = 800, screenHeight = 600
+        )
+        val respawned = SystemNnnNativeEffectRenderer.keParticles(
+            320, 160, 42, parameters, screenWidth = 800, screenHeight = 600
+        )
+
+        // These exact counts match the captured layer_animation_frame sequence.
+        assertEquals(3, initial.size)
+        assertTrue(firstHidden.isEmpty())
+        assertTrue(laterHidden.isEmpty())
+        assertEquals(2, respawned.size)
+    }
+
+    @Test
+    fun keCounterWrapsAtTheNativeTenThousandFrameBoundary() {
+        val parameters = listOf(1, 32, 32, 16, 0, 10, 5, 1, 12, 81, 4, 120)
+        val atZero = SystemNnnNativeEffectRenderer.keParticles(
+            320, 160, 0, parameters, screenWidth = 800, screenHeight = 600
+        )
+        val afterNativeReset = SystemNnnNativeEffectRenderer.keParticles(
+            320, 160, 10_001, parameters, screenWidth = 800, screenHeight = 600
+        )
+        assertEquals(atZero, afterNativeReset)
+    }
+
+    @Test
+    fun haikeiYureScreenModeRendersWhenTheCapturedViewportBufferIsAvailable() {
+        val source = IntArray(8 * 4) { 0xFF123456.toInt() }
+        val parameters = listOf(9_999, 2, 1, 7, 26, 1, 0, 0, 0, 0, 0, 1, 4, 0)
+
+        val output = SystemNnnNativeEffectRenderer.renderScreenBufferEffect(
+            effectId = 100,
+            frame = 1,
+            parameters = parameters,
+            source = source,
+            width = 8,
+            height = 4
+        )
+
+        assertNotNull(output)
+        assertEquals(source.size, output!!.size)
+    }
+
+    @Test
     fun sunaNoiseAcceptsTheFourOperandGameFormWithNativeDefaults() {
         val source = IntArray(8 * 8) { 0xFF123456.toInt() }
         val first = SystemNnnNativeEffectRenderer.sunaNoise(
