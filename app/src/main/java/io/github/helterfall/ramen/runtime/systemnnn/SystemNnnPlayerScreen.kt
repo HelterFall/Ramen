@@ -793,7 +793,7 @@ fun SystemNnnPlayerScreen(
                 state.overrapTransitionDurationFrames.coerceAtLeast(1)
             ).roundToInt()
         val overrapCrossFadeAlpha = SystemNnnNativeEffectRenderer
-            .overrapWeights(overrapFrame, state.overrapTransitionDurationFrames)[1] / 100f
+            .overrapWeights(overrapFrame, state.overrapTransitionDurationFrames).second / 100f
         val overrapFrameBitmap = remember(
             state.overrapTransitionId,
             state.overrapTransitionType,
