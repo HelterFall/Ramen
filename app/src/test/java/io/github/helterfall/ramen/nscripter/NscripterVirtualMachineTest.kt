@@ -225,6 +225,7 @@ class NscripterVirtualMachineTest {
             cdfadeout 100
             game
             *start
+            narcissu_custom_command 1
             erasetextwindow 1
             ~
             jumpb
@@ -233,7 +234,7 @@ class NscripterVirtualMachineTest {
             """.trimIndent()
         )
         assertTrue(program.instructions.none {
-            it.command == "text" && (it.sourceLine in 2..18 || it.sourceLine in 20..22)
+            it.command == "text" && (it.sourceLine in 2..18 || it.sourceLine in 20..23)
         })
         assertTrue(program.instructions.any { it.command == "btndef" })
         assertTrue(program.instructions.any { it.command == "erasetextwindow" })
