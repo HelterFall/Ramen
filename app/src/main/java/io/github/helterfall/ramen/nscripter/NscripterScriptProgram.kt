@@ -166,7 +166,7 @@ data class NscripterScriptProgram(
             )
         }
 
-        private fun splitStatements(value: String): List<String> {
+        internal fun splitStatements(value: String): List<String> {
             val parts = ArrayList<String>()
             var quote: Char? = null
             var escaped = false
