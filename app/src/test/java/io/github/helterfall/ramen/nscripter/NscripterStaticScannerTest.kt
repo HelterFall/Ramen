@@ -102,11 +102,11 @@ class NscripterStaticScannerTest {
             assertEquals(listOf(10), unsupported["custom_header_directive"]?.lineNumbers)
 
             val json = scanner.toJson(report)
-            assertTrue(json.contains("\\"spi\\": 1"))
-            assertTrue(json.contains("\\"versionstr\\": 1"))
-            assertTrue(json.contains("\\"effect\\": 5"))
-            assertTrue(json.contains("\\"directive\\": \\"spi\\""))
-            assertTrue(json.contains("\\"directive\\": \\"versionstr\\""))
+            assertTrue(json.contains("\"spi\": 1"))
+            assertTrue(json.contains("\"versionstr\": 1"))
+            assertTrue(json.contains("\"effect\": 5"))
+            assertTrue(json.contains("\"directive\": \"spi\""))
+            assertTrue(json.contains("\"directive\": \"versionstr\""))
         } finally {
             root.deleteRecursively()
         }

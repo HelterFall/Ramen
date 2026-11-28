@@ -353,7 +353,7 @@ class NscripterStaticScanner(
             if (line.isEmpty()) return@forEachIndexed
 
             if (line.startsWith("*")) {
-                val label = line.drop(1).trim().substringBefore(Regex("\\s")).lowercase(Locale.ROOT)
+                val label = line.drop(1).trim().substringBefore(' ').substringBefore('\t').lowercase(Locale.ROOT)
                 if (label == "define") inDefineSection = true
                 if (label == "start") inDefineSection = false
                 return@forEachIndexed
