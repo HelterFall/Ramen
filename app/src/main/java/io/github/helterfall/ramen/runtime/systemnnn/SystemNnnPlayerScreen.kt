@@ -1144,6 +1144,16 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     val t = progress.value.coerceIn(0f, 1f)
     val frame = if (isKe) keFrame else
         (t * durationFrames).roundToInt().coerceIn(0, durationFrames)
+    val keParticleStamps = if (isKe) {
+        SystemNnnNativeEffectRenderer.keParticles(
+            bitmapWidth = sprite.bitmap.width,
+            bitmapHeight = sprite.bitmap.height,
+            frame = frame,
+            parameters = parameters,
+            screenWidth = referenceWidth.roundToInt().coerceAtLeast(1),
+            screenHeight = referenceHeight.roundToInt().coerceAtLeast(1)
+        )
+    } else emptyList()
     val cycleFrame = (cycle.value * cycleFrames).roundToInt().coerceIn(0, cycleFrames)
     val movedRect = if (fromRect != null && nativeRect != null) {
         SystemNnnVisualEffectMath.moveRect(frame, durationFrames, fromRect, nativeRect)
@@ -1333,6 +1343,19 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
                     "durationFrames" to durationFrames,
                     "dstRect" to movedRect?.let { mapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height) },
                     "srcRect" to fromRect?.let { mapOf("x" to it.x, "y" to it.y, "w" to it.width, "h" to it.height) },
+                    "particleCount" to if (isKe) (parameters.getOrNull(3) ?: 1) else null,
+                    "visibleParticleCount" to if (isKe) keParticleStamps.size else null,
+                    "particleSourceRects" to if (isKe) keParticleStamps.map { particle ->
+                        mapOf(
+                            "x" to particle.sourceRect.left,
+                            "y" to particle.sourceRect.top,
+                            "w" to particle.sourceRect.width,
+                            "h" to particle.sourceRect.height
+                        )
+                    } else null,
+                    "particleCenters" to if (isKe) keParticleStamps.map { particle ->
+                        mapOf("x" to particle.x, "y" to particle.y)
+                    } else null,
                     "alpha" to layerAlpha,
                     "stretchAlpha" to stretchAlpha,
                     "blendMode" to "SRC_OVER",
@@ -1447,14 +1470,7 @@ private fun BoxScope.SystemNnnAnimatedSpriteLayer(
     }) {
         when {
             isKe -> {
-                val particles = SystemNnnNativeEffectRenderer.keParticles(
-                    bitmapWidth = sprite.bitmap.width,
-                    bitmapHeight = sprite.bitmap.height,
-                    frame = frame,
-                    parameters = parameters,
-                    screenWidth = safeReferenceWidth.roundToInt().coerceAtLeast(1),
-                    screenHeight = safeReferenceHeight.roundToInt().coerceAtLeast(1)
-                )
+                val particles = keParticleStamps
                 Canvas(Modifier.fillMaxSize()) {
                     val image = sprite.bitmap.asImageBitmap()
                     particles.forEach { particle ->

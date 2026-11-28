@@ -94,6 +94,7 @@ class SystemNnnNativeEffectRendererTest {
         assertEquals(16, next.size)
         assertTrue(first.all { it.sourceRect.top == 0 })
         assertTrue(next.all { it.sourceRect.top == 32 })
+        assertNotEquals(first.map { it.x to it.y }, next.map { it.x to it.y })
         assertNotEquals(first, next)
     }
 
