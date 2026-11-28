@@ -130,26 +130,22 @@ class NscripterVirtualMachine(
                         scene.copy(background = image, backgroundColor = null, backgroundEffect = effect)
                     }
                 }
-                "lsp", "lsph" -> {
-                    requireArgs(instruction, args, 4)
-                    val number = value(args[0])
-                    if (number !in 0..999) throw IOException("lsp sprite number must be in 0..999.")
-                    val sprite = NscripterSpriteState(
-                        number, resolveString(args[1]), value(args[2]), value(args[3]),
-                        args.getOrNull(5)?.let(::value)?.coerceIn(0, 255) ?: 255,
-                        instruction.command == "lsp",
-                        args.getOrNull(4)?.let(::resolveString)?.lowercase() ?: "a",
-                        args.getOrNull(6)?.let(::resolveString),
-                        args.getOrNull(7)?.let(::resolveString)
-                    )
-                    scene = scene.copy(sprites = scene.sprites.filterNot { it.number == number } + sprite)
-                }
+                "lsp", "lsph" -> executeSpriteLoad(instruction, args)
                 "csp" -> {
                     val number = value(args.firstOrNull() ?: "0")
                     scene = scene.copy(sprites = if (number < 0) emptyList()
                         else scene.sprites.filterNot { it.number == number })
                 }
-                "print" -> return NscripterVmYield.Frame(scene)
+                "vsp" -> {
+                    requireArgs(instruction, args, 2)
+                    val number = value(args[0])
+                    val visible = value(args[1]) != 0
+                    scene = scene.copy(sprites = scene.sprites.map { sprite ->
+                        if (sprite.number == number) sprite.copy(visible = visible) else sprite
+                    })
+                }
+                "textclear" -> scene = scene.copy(dialogue = "", speaker = null)
+                "repaint", "print" -> return NscripterVmYield.Frame(scene)
                 "windowback" -> scene = scene.copy(windowBack = true)
                 "btndef" -> scene = scene.copy(
                     buttonDefinition = args.firstOrNull()?.let(::resolveString)
@@ -263,6 +259,19 @@ class NscripterVirtualMachine(
                 "dwavestop" -> audioActions += NscripterAudioAction(
                     args.firstOrNull()?.let(::value) ?: 0, null, false, true
                 )
+                "mp3", "mp3loop" -> {
+                    val file = args.firstOrNull()?.let(::resolveString)
+                    if (!file.isNullOrBlank()) {
+                        audioActions += NscripterAudioAction(
+                            NSCRIPTER_BGM_CHANNEL, file, instruction.command == "mp3loop", false
+                        )
+                    }
+                }
+                "click" -> {
+                    scene = scene.copy(dialogue = "", speaker = null, choices = emptyList())
+                    waitState = WaitState.TAP
+                    return NscripterVmYield.Dialogue(scene)
+                }
                 "stop" -> audioActions += NscripterAudioAction(-1, null, false, true)
                 "numalias" -> {
                     requireArgs(instruction, args, 2)
@@ -405,7 +414,7 @@ class NscripterVirtualMachine(
     private fun executeIf(instruction: NscripterInstruction) {
         val (condition, actionText) = splitIfConditionAndActions(instruction.arguments)
         if (!evaluateCondition(condition) || actionText.isNullOrBlank()) return
-        for (rawAction in NscripterScriptProgram.splitStatements(actionText)) {
+        for (rawAction in NscripterScriptProgram.splitCommandStatements(actionText)) {
             val action = rawAction.trim()
             if (action.isEmpty()) continue
             val match = Regex("^([A-Za-z_][A-Za-z0-9_]*)\\s*(.*)$").matchEntire(action)
@@ -415,18 +424,54 @@ class NscripterVirtualMachine(
     }
 
     private fun splitIfConditionAndActions(arguments: String): Pair<String, String?> {
-        val actionStart = Regex(
-            "\\s+(?=(?:mov|goto|jumpb|jumpf|gosub|return|end|add)\\b)",
-            RegexOption.IGNORE_CASE
-        ).find(arguments)
-        if (actionStart == null) return arguments.trim() to null
-        return arguments.substring(0, actionStart.range.first).trim() to
-            arguments.substring(actionStart.range.last + 1).trim()
+        var quote: Char? = null
+        var escaped = false
+        var depth = 0
+        for (index in arguments.indices) {
+            val char = arguments[index]
+            if (escaped) {
+                escaped = false
+                continue
+            }
+            if (char == '\\\\') {
+                escaped = true
+                continue
+            }
+            if (quote != null) {
+                if (char == quote) quote = null
+                continue
+            }
+            if (char == '"' || char.code == 96) {
+                quote = char
+                continue
+            }
+            if (char == '(') {
+                depth++
+                continue
+            }
+            if (char == ')') {
+                depth = (depth - 1).coerceAtLeast(0)
+                continue
+            }
+            if (depth != 0 || !char.isWhitespace()) continue
+
+            var candidateStart = index
+            while (candidateStart < arguments.length && arguments[candidateStart].isWhitespace()) {
+                candidateStart++
+            }
+            val command = Regex("^([A-Za-z_][A-Za-z0-9_]*)\\b")
+                .find(arguments.substring(candidateStart))?.groupValues?.get(1)?.lowercase(Locale.ROOT)
+            if (command in IF_ACTION_COMMANDS) {
+                return arguments.substring(0, index).trim() to arguments.substring(candidateStart).trim()
+            }
+        }
+        return arguments.trim() to null
     }
 
     private fun executeInlineIfCommand(command: String, arguments: String, source: NscripterInstruction) {
         val args = splitNscripterArguments(arguments)
         when (command) {
+            "lsp", "lsph" -> executeSpriteLoad(source.copy(command = command), args)
             "mov" -> {
                 requireArgs(source.copy(command = "mov"), args, 2)
                 val target = args[0].trim()
@@ -453,6 +498,24 @@ class NscripterVirtualMachine(
             }
             else -> Unit
         }
+    }
+
+    private fun executeSpriteLoad(instruction: NscripterInstruction, args: List<String>) {
+        requireArgs(instruction, args, 4)
+        val number = value(args[0])
+        if (number !in 0..999) throw IOException("lsp sprite number must be in 0..999.")
+        val sprite = NscripterSpriteState(
+            number = number,
+            image = resolveString(args[1]),
+            x = value(args[2]),
+            y = value(args[3]),
+            opacity = args.getOrNull(5)?.let(::value)?.coerceIn(0, 255) ?: 255,
+            visible = instruction.command == "lsp",
+            transparency = args.getOrNull(4)?.let(::resolveString)?.lowercase() ?: "a",
+            maskFile = args.getOrNull(6)?.let(::resolveString),
+            colorKey = args.getOrNull(7)?.let(::resolveString)
+        )
+        scene = scene.copy(sprites = scene.sprites.filterNot { it.number == number } + sprite)
     }
 
     private fun jumpToMarker(backward: Boolean) {
@@ -606,12 +669,103 @@ class NscripterVirtualMachine(
         pc = program.labels[label] ?: throw IOException("Unknown NScripter label '*" + label + "'.")
     }
 
-    private fun value(raw: String): Int {
+    private fun value(raw: String): Int =
+        NumericExpressionParser(raw.trim(), ::resolveNumericAtom).parse()
+
+    private fun resolveNumericAtom(raw: String): Int {
         val token = raw.trim()
         if (token.startsWith("%")) return integerVariables[normalizeVariable(token)] ?: 0
+        if (token.startsWith("$")) return stringVariables[normalizeVariable(token)]?.toIntOrNull() ?: 0
         numericAliases[token.removePrefix("%").lowercase(Locale.ROOT)]?.let { return it }
-        return token.toIntOrNull() ?: token.removePrefix("0x").toIntOrNull(16)
-            ?: throw IOException("Unsupported numeric expression: " + raw)
+        token.toIntOrNull()?.let { return it }
+        token.removePrefix("0x").removePrefix("0X").toIntOrNull(16)?.let { return it }
+        throw IOException("Unsupported numeric expression: " + raw)
+    }
+
+    private class NumericExpressionParser(
+        private val expression: String,
+        private val resolveAtom: (String) -> Int
+    ) {
+        private val tokens = ArrayList<String>()
+        private var cursor = 0
+
+        init {
+            val pattern = Regex("0[xX][0-9A-Fa-f]+|[0-9]+|%[A-Za-z0-9_]+|[$][A-Za-z0-9_]+|[A-Za-z_][A-Za-z0-9_]*|[()+*/%+-]")
+            var offset = 0
+            for (match in pattern.findAll(expression)) {
+                if (expression.substring(offset, match.range.first).isNotBlank()) {
+                    throw IOException("Unsupported numeric expression: " + expression)
+                }
+                tokens += match.value
+                offset = match.range.last + 1
+            }
+            if (tokens.isEmpty() || expression.substring(offset).isNotBlank()) {
+                throw IOException("Unsupported numeric expression: " + expression)
+            }
+        }
+
+        fun parse(): Int {
+            val result = parseSum()
+            if (cursor != tokens.size) throw IOException("Unsupported numeric expression: " + expression)
+            return result
+        }
+
+        private fun parseSum(): Int {
+            var result = parseProduct()
+            while (peek() == "+" || peek() == "-") {
+                val operator = consume()
+                val right = parseProduct()
+                result = if (operator == "+") result + right else result - right
+            }
+            return result
+        }
+
+        private fun parseProduct(): Int {
+            var result = parseUnary()
+            while (peek() == "*" || peek() == "/" || peek() == "%") {
+                val operator = consume()
+                val right = parseUnary()
+                result = when (operator) {
+                    "*" -> result * right
+                    "/" -> {
+                        if (right == 0) throw IOException("Division by zero in numeric expression: " + expression)
+                        result / right
+                    }
+                    "%" -> {
+                        if (right == 0) throw IOException("Modulo by zero in numeric expression: " + expression)
+                        result % right
+                    }
+                    else -> result
+                }
+            }
+            return result
+        }
+
+        private fun parseUnary(): Int {
+            return when (peek()) {
+                "+" -> { consume(); parseUnary() }
+                "-" -> { consume(); -parseUnary() }
+                "(" -> {
+                    consume()
+                    val nested = parseSum()
+                    consume(")")
+                    nested
+                }
+                else -> resolveAtom(consume())
+            }
+        }
+
+        private fun peek(): String? = tokens.getOrNull(cursor)
+
+        private fun consume(expected: String? = null): String {
+            val token = tokens.getOrNull(cursor)
+                ?: throw IOException("Incomplete numeric expression: " + expression)
+            if (expected != null && token != expected) {
+                throw IOException("Expected '$expected' in numeric expression: " + expression)
+            }
+            cursor++
+            return token
+        }
     }
 
     private fun resolveString(raw: String): String = interpolate(nscripterUnquote(raw))
@@ -665,5 +819,10 @@ class NscripterVirtualMachine(
 
     companion object {
         private const val MAX_COMMANDS_PER_SLICE = 100_000
+        private const val NSCRIPTER_BGM_CHANNEL = 50
+        private val IF_ACTION_COMMANDS = setOf(
+            "lsp", "lsph", "mov", "add", "goto", "gosub", "return", "end",
+            "jumpb", "jumpf"
+        )
     }
 }
