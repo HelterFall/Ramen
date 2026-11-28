@@ -553,7 +553,7 @@ class NscripterVirtualMachine(
         private fun parseComparison(): Boolean {
             val left = parseValueOrGroup()
             val operator = peek()
-            if (operator in setOf("==", "=", "!=", ">", "<", ">=", "<=")) {
+            if (operator != null && operator in setOf("==", "=", "!=", ">", "<", ">=", "<=")) {
                 consume()
                 val right = parseValueOrGroup()
                 return when (operator) {
