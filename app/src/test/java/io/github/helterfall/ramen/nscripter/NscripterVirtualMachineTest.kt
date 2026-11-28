@@ -299,6 +299,11 @@ class NscripterVirtualMachineTest {
             savenumber 8
             saveon
             savetime 0, %3, %4, %5, %6
+            btndef "～"
+            erasetextwindow 1
+            mov 0, 99
+            jumpb
+            jumpf
             *yes
             end
             *no
