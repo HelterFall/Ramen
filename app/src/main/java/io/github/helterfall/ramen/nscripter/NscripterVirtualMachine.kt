@@ -36,7 +36,9 @@ data class NscripterSceneState(
     val speaker: String? = null, val caption: String = "Ramen",
     val textWindow: NscripterTextWindow = NscripterTextWindow(),
     val textWindowVisible: Boolean = true, val windowBack: Boolean = false,
-    val windowEffect: Int = 10, val windowEffectMillis: Int = 0
+    val windowEffect: Int = 10, val windowEffectMillis: Int = 0,
+    val buttonDefinition: String? = null,
+    val eraseTextWindowDuringEffect: Boolean = true
 ) : Serializable
 
 data class NscripterSavedGame(
@@ -149,6 +151,12 @@ class NscripterVirtualMachine(
                 }
                 "print" -> return NscripterVmYield.Frame(scene)
                 "windowback" -> scene = scene.copy(windowBack = true)
+                "btndef" -> scene = scene.copy(
+                    buttonDefinition = args.firstOrNull()?.let(::resolveString)
+                )
+                "erasetextwindow" -> scene = scene.copy(
+                    eraseTextWindowDuringEffect = args.firstOrNull()?.let(::value)?.let { it != 0 } ?: true
+                )
                 "windoweffect" -> scene = scene.copy(
                     windowEffect = args.getOrNull(0)?.let(::value) ?: 10,
                     windowEffectMillis = args.getOrNull(1)?.let(::value)?.coerceIn(0, 10000) ?: 0
@@ -277,6 +285,16 @@ class NscripterVirtualMachine(
                         (stringVariables[key] ?: "") + resolveString(args[1])
                     else setInteger(key, (integerVariables[key] ?: 0) + value(args[1]))
                 }
+                "mov" -> {
+                    requireArgs(instruction, args, 2)
+                    val target = args[0].trim()
+                    val key = normalizeVariable(target)
+                    if (target.startsWith("\$")) stringVariables[key] = resolveString(args[1])
+                    else setInteger(key, value(args[1]))
+                }
+                "jumpb" -> jumpToMarker(backward = true)
+                "jumpf" -> jumpToMarker(backward = false)
+                "tilde" -> Unit
                 "if" -> executeIf(instruction)
                 "for" -> beginFor(instruction)
                 "next" -> finishFor()
@@ -385,25 +403,67 @@ class NscripterVirtualMachine(
     fun saveSlots(): Int = saveCapacity
 
     private fun executeIf(instruction: NscripterInstruction) {
-        val match = Regex("^(.*?)(?:\\s+)(goto|gosub|return|end|add)\\s*(.*)$", RegexOption.IGNORE_CASE)
-            .matchEntire(instruction.arguments)
-        val condition = match?.groupValues?.get(1) ?: instruction.arguments
-        if (!evaluateCondition(condition) || match == null) return
-        val op = match.groupValues[2].lowercase()
-        val rest = match.groupValues[3]
-        when (op) {
-            "goto" -> jump(rest)
-            "gosub" -> { callStack.addLast(pc); jump(rest) }
-            "return" -> if (callStack.isNotEmpty()) pc = callStack.removeLast()
+        val (condition, actionText) = splitIfConditionAndActions(instruction.arguments)
+        if (!evaluateCondition(condition) || actionText.isNullOrBlank()) return
+        for (rawAction in NscripterScriptProgram.splitStatements(actionText)) {
+            val action = rawAction.trim()
+            if (action.isEmpty()) continue
+            val match = Regex("^([A-Za-z_][A-Za-z0-9_]*)\\s*(.*)$").matchEntire(action)
+                ?: throw IOException("Invalid command in if at line " + instruction.sourceLine + ": " + action)
+            executeInlineIfCommand(match.groupValues[1].lowercase(Locale.ROOT), match.groupValues[2].trim(), instruction)
+        }
+    }
+
+    private fun splitIfConditionAndActions(arguments: String): Pair<String, String?> {
+        val actionStart = Regex(
+            "\\s+(?=(?:mov|goto|jumpb|jumpf|gosub|return|end|add)\\b)",
+            RegexOption.IGNORE_CASE
+        ).find(arguments)
+        if (actionStart == null) return arguments.trim() to null
+        return arguments.substring(0, actionStart.range.first).trim() to
+            arguments.substring(actionStart.range.last + 1).trim()
+    }
+
+    private fun executeInlineIfCommand(command: String, arguments: String, source: NscripterInstruction) {
+        val args = splitNscripterArguments(arguments)
+        when (command) {
+            "mov" -> {
+                requireArgs(source.copy(command = "mov"), args, 2)
+                val target = args[0].trim()
+                val key = normalizeVariable(target)
+                if (target.startsWith("\$")) stringVariables[key] = resolveString(args[1])
+                else setInteger(key, value(args[1]))
+            }
+            "goto" -> jump(args.firstOrNull())
+            "jumpb" -> jumpToMarker(backward = true)
+            "jumpf" -> jumpToMarker(backward = false)
+            "gosub" -> { callStack.addLast(pc); jump(args.firstOrNull()) }
+            "return" -> {
+                if (callStack.isEmpty()) throw IOException("return without gosub.")
+                pc = callStack.removeLast()
+            }
             "end" -> pc = program.instructions.size
             "add" -> {
-                val pair = splitNscripterArguments(rest)
-                if (pair.size >= 2) {
-                    val key = normalizeVariable(pair[0])
-                    setInteger(key, (integerVariables[key] ?: 0) + value(pair[1]))
-                }
+                requireArgs(source.copy(command = "add"), args, 2)
+                val target = args[0].trim()
+                val key = normalizeVariable(target)
+                if (target.startsWith("\$")) stringVariables[key] =
+                    (stringVariables[key] ?: "") + resolveString(args[1])
+                else setInteger(key, (integerVariables[key] ?: 0) + value(args[1]))
             }
+            else -> Unit
         }
+    }
+
+    private fun jumpToMarker(backward: Boolean) {
+        val markerIndex = if (backward) {
+            (pc - 2 downTo 0).firstOrNull { program.instructions[it].command == "tilde" }
+        } else {
+            (pc until program.instructions.size).firstOrNull {
+                program.instructions[it].command == "tilde"
+            }
+        } ?: throw IOException("jump" + (if (backward) "b" else "f") + " has no matching '~' marker.")
+        pc = markerIndex + 1
     }
 
     private fun beginFor(instruction: NscripterInstruction) {
@@ -439,19 +499,104 @@ class NscripterVirtualMachine(
         throw IOException("for has no matching next.")
     }
 
-    private fun evaluateCondition(expression: String): Boolean {
-        val match = Regex("^\\s*(.*?)\\s*(==|!=|>=|<=|=|>|<)\\s*(.*?)\\s*$")
-            .matchEntire(expression) ?: throw IOException("Unsupported if condition: " + expression)
-        val left = value(match.groupValues[1])
-        val right = value(match.groupValues[3])
-        return when (match.groupValues[2]) {
-            "=", "==" -> left == right
-            "!=" -> left != right
-            ">" -> left > right
-            "<" -> left < right
-            ">=" -> left >= right
-            "<=" -> left <= right
-            else -> false
+    private fun evaluateCondition(expression: String): Boolean =
+        ConditionExpressionParser(expression, ::value).parse()
+
+    private class ConditionExpressionParser(
+        private val expression: String,
+        private val resolveValue: (String) -> Int
+    ) {
+        private val tokens = ArrayList<String>()
+        private var cursor = 0
+
+        init {
+            val pattern = Regex("\\|\\||&&|==|!=|>=|<=|[()!<>=]|-?0[xX][0-9A-Fa-f]+|-?\\d+|[%$]?[A-Za-z_][A-Za-z0-9_]*")
+            var offset = 0
+            for (match in pattern.findAll(expression)) {
+                if (expression.substring(offset, match.range.first).isNotBlank()) {
+                    throw IOException("Unsupported if condition: " + expression)
+                }
+                tokens += match.value
+                offset = match.range.last + 1
+            }
+            if (tokens.isEmpty() || expression.substring(offset).isNotBlank()) {
+                throw IOException("Unsupported if condition: " + expression)
+            }
+        }
+
+        fun parse(): Boolean {
+            val result = parseOr()
+            if (cursor != tokens.size) throw IOException("Unsupported if condition: " + expression)
+            return result
+        }
+
+        private fun parseOr(): Boolean {
+            var result = parseAnd()
+            while (peek() == "||") {
+                consume("||")
+                val right = parseAnd()
+                result = result || right
+            }
+            return result
+        }
+
+        private fun parseAnd(): Boolean {
+            var result = parseComparison()
+            while (peek() == "&&") {
+                consume("&&")
+                val right = parseComparison()
+                result = result && right
+            }
+            return result
+        }
+
+        private fun parseComparison(): Boolean {
+            val left = parseValueOrGroup()
+            val operator = peek()
+            if (operator in setOf("==", "=", "!=", ">", "<", ">=", "<=")) {
+                consume()
+                val right = parseValueOrGroup()
+                return when (operator) {
+                    "=", "==" -> left == right
+                    "!=" -> left != right
+                    ">" -> left > right
+                    "<" -> left < right
+                    ">=" -> left >= right
+                    "<=" -> left <= right
+                    else -> false
+                }
+            }
+            return left != 0
+        }
+
+        private fun parseValueOrGroup(): Int {
+            if (peek() == "!") {
+                consume("!")
+                return if (parseValueOrGroup() == 0) 1 else 0
+            }
+            if (peek() == "(") {
+                consume("(")
+                val result = parseOr()
+                consume(")")
+                return if (result) 1 else 0
+            }
+            val token = consume()
+            if (token in setOf(")", "&&", "||", "==", "=", "!=", ">", "<", ">=", "<=")) {
+                throw IOException("Expected value in if condition: " + expression)
+            }
+            return resolveValue(token)
+        }
+
+        private fun peek(): String? = tokens.getOrNull(cursor)
+
+        private fun consume(expected: String? = null): String {
+            val token = tokens.getOrNull(cursor)
+                ?: throw IOException("Incomplete if condition: " + expression)
+            if (expected != null && token != expected) {
+                throw IOException("Expected '$expected' in if condition: " + expression)
+            }
+            cursor++
+            return token
         }
     }
 
