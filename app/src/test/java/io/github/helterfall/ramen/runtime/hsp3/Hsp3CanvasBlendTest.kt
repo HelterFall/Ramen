@@ -107,6 +107,37 @@ class Hsp3CanvasBlendTest {
         } finally { renderer.close() }
     }
 
+    @Test
+    fun picloadWhileRedrawIsOffPreservesTheSuspendedFrameSnapshot() {
+        val image = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
+        val encoded = try {
+            image.setPixel(0, 0, 0xFF0000FF.toInt())
+            java.io.ByteArrayOutputStream().use { output ->
+                image.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        } finally {
+            image.recycle()
+        }
+        val renderer = Hsp3CanvasRenderer({ ByteArrayInputStream(encoded) }, 4, 4)
+        val target = Bitmap.createBitmap(4, 4, Bitmap.Config.ARGB_8888)
+        try {
+            renderer.screen(0, 4, 4)
+            renderer.color(255, 0, 0)
+            renderer.boxf(0, 0, 3, 3)
+            renderer.redraw(false)
+            renderer.color(0, 255, 0)
+            renderer.boxf(0, 0, 3, 3)
+
+            renderer.picload("replacement.png", 0)
+            renderer.draw(android.graphics.Canvas(target))
+            assertEquals(0xFFFF0000.toInt(), target.getPixel(1, 1))
+        } finally {
+            renderer.close()
+            target.recycle()
+        }
+    }
+
     private fun prepareBlackAndGreenSource(renderer: Hsp3CanvasRenderer) {
         renderer.screen(0, 6, 4)
         renderer.color(255, 0, 0)
