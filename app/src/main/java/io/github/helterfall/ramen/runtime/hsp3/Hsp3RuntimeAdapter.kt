@@ -303,7 +303,7 @@ class Hsp3RuntimeAdapter(
             } catch (error: Exception) {
                 if (localScript == null) {
                     throw IOException(
-                        "PE/DPMX parsing failed and no unpacked start.ax is available: " +
+                        "PE32/DPMX parsing failed (PE32 and PE32+ supported) and no unpacked start.ax is available: " +
                             "${error.message ?: error.javaClass.simpleName}",
                         error
                     )
