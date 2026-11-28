@@ -1,5 +1,9 @@
 package io.github.helterfall.ramen.runtime.hsp3
 
+import io.github.helterfall.ramen.parser.Hsp3ExternalFunctionInfo
+import io.github.helterfall.ramen.parser.Hsp3ExternalLibraryManifest
+import io.github.helterfall.ramen.parser.Hsp3LibraryInfo
+
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -237,6 +241,62 @@ class Hsp3VirtualMachineTest {
             listOf(0, 0, 66, 67, 0, 88, 0, 0),
             storage.files.getValue("save.bin").map { it.toInt() and 0xFF }
         )
+    }
+
+    @Test
+    fun win32DllFunctionUsesZeroReturnCompatibilityShimWithoutNativeLoad() {
+        val manifest = Hsp3ExternalLibraryManifest(
+            libraries = listOf(Hsp3LibraryInfo(0, 1, 0, "kernel32.dll", "")),
+            functions = listOf(
+                Hsp3ExternalFunctionInfo(
+                    index = 0, libraryIndex = 0, subId = -3, parameterIndex = 0,
+                    parameterCount = 0, nameIndex = 13, name = "GetTickCount",
+                    libraryName = "kernel32.dll", stackBytes = 4, flags = 0
+                )
+            ),
+            plugins = emptyList(),
+            moduleParameterCount = 0,
+            functionInfo2SizeBytes = 0,
+            variablePluginTypeCount = 0,
+            diagnostics = emptyList()
+        )
+        val logged = mutableListOf<String>()
+        val snapshot = Hsp3VirtualMachine(
+            RecordingGraphics(),
+            externalLibraries = manifest,
+            externalCallShim = Hsp3ExternalCallShim { logged += it }
+        ).runSlice(
+            listOf(
+                Hsp3Instruction.NativeCommand(
+                    Hsp3BytecodeDecoder.TYPE_DLLFUNC, 0, emptyList()
+                ),
+                Hsp3Instruction.Assign(
+                    variable = 0,
+                    operator = Hsp3BytecodeDecoder.CALCCODE_EQ,
+                    expression = Hsp3Expression(
+                        Hsp3ExpressionNode.ExternalFunction(
+                            Hsp3BytecodeDecoder.TYPE_DLLFUNC, 0, emptyList()
+                        )
+                    )
+                ),
+                Hsp3Instruction.End
+            )
+        )
+
+        assertEquals(Hsp3VmStatus.ENDED, snapshot.status)
+        assertTrue(snapshot.diagnostics.any { it.contains("kernel32.dll!GetTickCount") })
+        assertTrue(snapshot.diagnostics.any { it.contains("returned 0") })
+        assertTrue(logged.isEmpty()) // known stub handled locally; no native loading
+    }
+
+    @Test
+    fun unknownDllFunctionIsLoggedAndReturnsZeroWithoutFailingVm() {
+        val logged = mutableListOf<String>()
+        val shim = Hsp3ExternalCallShim { logged += it }
+        val result = shim.invoke("custom-plugin.dll", "UnknownCall", 2)
+        assertEquals(0L, result.returnValue)
+        assertTrue(!result.recognized)
+        assertTrue(logged.single().contains("Unknown external call"))
     }
 
     @Test

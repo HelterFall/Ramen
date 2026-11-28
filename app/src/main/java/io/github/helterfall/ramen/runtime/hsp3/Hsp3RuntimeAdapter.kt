@@ -413,20 +413,8 @@ class Hsp3RuntimeAdapter(
         return null
     }
 
-    private fun validateRuntimeProfile(program: Hsp3Program, enabled: Boolean) {
-        if (enabled && (
-                program.header.libraryInfoSizeBytes != 0L ||
-                    program.header.functionInfoSizeBytes != 0L ||
-                    program.header.moduleInfoSizeBytes != 0L ||
-                    program.header.functionInfo2SizeBytes != 0L ||
-                    program.header.hasExternalPluginData
-                )
-        ) {
-            throw IOException(
-                "HSP3 external-library validation failed: this runtime profile does not load DLL/HPI plugin segments."
-            )
-        }
-    }
+    // External imports are parsed as metadata and handled by Hsp3ExternalCallShim.
+    // Native DLL/HPI code is never loaded on Android.
 
     @Throws(IOException::class)
     fun createSession(
@@ -442,7 +430,8 @@ class Hsp3RuntimeAdapter(
             val decodedInstructions = instructionDecoder.decode(prepared.program)
             val renderer = Hsp3CanvasRenderer(openAsset = assets::open)
             val vm = Hsp3VirtualMachine(
-                renderer, input, fileStorage = assets, audio = audio
+                renderer, input, fileStorage = assets, audio = audio,
+                externalLibraries = prepared.program.externalLibraries
             )
             return Hsp3RuntimeSession(prepared, decodedInstructions, assets, renderer, vm, audio)
         } catch (error: Exception) {

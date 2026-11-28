@@ -28,6 +28,27 @@ class Hsp3BytecodeLoaderTest {
     }
 
     @Test
+    fun parsesLibdatFinfoAndHpiPluginMetadataWithoutLoadingNativeCode() {
+        val bytes = createExternalLibraryProgramBytes()
+        withBytes(bytes) { file ->
+            val program = Hsp3BytecodeLoader().load(file)
+            val manifest = program.externalLibraries
+
+            assertEquals(1, manifest.libraries.size)
+            assertEquals("kernel32.dll", manifest.libraries.single().name)
+            assertEquals(1, manifest.functions.size)
+            assertEquals("GetTickCount", manifest.functions.single().name)
+            assertEquals("kernel32.dll", manifest.functions.single().libraryName)
+            assertEquals(-3, manifest.functions.single().subId)
+            assertEquals(1, manifest.plugins.size)
+            assertEquals("kernel32.dll", manifest.plugins.single().libraryName)
+            assertEquals("GetTickCount", manifest.plugins.single().functionName)
+            assertTrue(manifest.diagnosticLabel().contains("kernel32.dll"))
+            assertTrue(manifest.diagnosticLabel().contains("GetTickCount"))
+        }
+    }
+
+    @Test
     fun decodesWindows31jExtensionCharactersFromTheDataSegment() {
         val bytes = createProgramBytes().apply {
             // CP932 0x8740 is U+2460 CIRCLED DIGIT ONE; strict Shift_JIS rejects it.
@@ -168,6 +189,63 @@ class Hsp3BytecodeLoaderTest {
         putUInt32(bytes, 0x72, 0L)
         bytes[0x76] = 7
         bytes[0x77] = 8
+        return bytes
+    }
+
+    private fun createExternalLibraryProgramBytes(): ByteArray {
+        val bytes = ByteArray(0xC6)
+        "HSP3".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0)
+        putUInt32(bytes, 4, 0x360L)
+        putUInt32(bytes, 8, 1032L)
+        putUInt32(bytes, 12, bytes.size.toLong())
+
+        putUInt32(bytes, 16, 0x60L) // CS
+        putUInt32(bytes, 20, 4L)
+        putUInt32(bytes, 24, 0x64L) // DS
+        putUInt32(bytes, 28, 26L)
+        putUInt32(bytes, 32, 0x7EL) // OT
+        putUInt32(bytes, 36, 4L)
+        putUInt32(bytes, 40, 0L) // DI
+        putUInt32(bytes, 44, 0L)
+        putUInt32(bytes, 48, 0x82L) // LIBDAT
+        putUInt32(bytes, 52, 16L)
+        putUInt32(bytes, 56, 0x92L) // FINFO
+        putUInt32(bytes, 60, 28L)
+        putUInt32(bytes, 64, 0xAEL) // MINFO
+        putUInt32(bytes, 68, 8L)
+        putUInt32(bytes, 72, 0xB6L) // FINFO2
+        putUInt32(bytes, 76, 0L)
+        putUInt32(bytes, 80, 0xB6L) // HPIDAT
+        putUInt16(bytes, 84, 16)
+        putUInt16(bytes, 86, 0)
+
+        putUInt16(bytes, 0x60, 4)
+        putUInt16(bytes, 0x62, 0)
+        "kernel32.dll\u0000GetTickCount\u0000".toByteArray(Charsets.US_ASCII).copyInto(bytes, 0x64)
+        putUInt32(bytes, 0x7E, 0L)
+
+        putUInt32(bytes, 0x82, 1L) // LIBDAT flag: DLL
+        putUInt32(bytes, 0x86, 0L) // DS offset of kernel32.dll
+        putUInt32(bytes, 0x8A, 0L) // native handle is ignored
+        putUInt32(bytes, 0x8E, 0L)
+
+        putUInt16(bytes, 0x92, 0) // FINFO library index
+        putUInt16(bytes, 0x94, 0xFFFD) // STRUCTPRM_SUBID_DLL (-3)
+        putUInt32(bytes, 0x96, 0L)
+        putUInt32(bytes, 0x9A, 0L)
+        putUInt32(bytes, 0x9E, 13L) // DS offset of GetTickCount
+        putUInt32(bytes, 0xA2, 4L)
+        putUInt32(bytes, 0xA6, 0L)
+        putUInt32(bytes, 0xAA, 0L)
+        // MINFO: one zeroed STRUCTPRM record.
+        putUInt32(bytes, 0xAE, 0L)
+        putUInt32(bytes, 0xB2, 0L)
+
+        putUInt16(bytes, 0xB6, 0) // HPI TYPEFUNC
+        putUInt16(bytes, 0xB8, 0)
+        putUInt32(bytes, 0xBA, 0L)
+        putUInt32(bytes, 0xBE, 13L)
+        putUInt32(bytes, 0xC2, 0L)
         return bytes
     }
 

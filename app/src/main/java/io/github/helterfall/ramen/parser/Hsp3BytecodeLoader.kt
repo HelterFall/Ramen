@@ -106,7 +106,13 @@ class Hsp3Program internal constructor(
     val codeSegment: Hsp3Segment,
     val dataSegment: Hsp3Segment,
     val objectTempSegment: Hsp3Segment,
-    val debugInfoSegment: Hsp3Segment
+    val debugInfoSegment: Hsp3Segment,
+    val libraryInfoSegment: Hsp3Segment,
+    val moduleInfoSegment: Hsp3Segment,
+    val functionInfoSegment: Hsp3Segment,
+    val functionInfo2Segment: Hsp3Segment,
+    val hpiDataSegment: Hsp3Segment,
+    val externalLibraries: Hsp3ExternalLibraryManifest
 ) {
     /**
      * Decodes the common HSP3 token envelope. It does not assign command
@@ -283,11 +289,33 @@ class Hsp3BytecodeLoader(
         val debug = readSegment(
             source, header.allSizeBytes, header.debugInfoOffset, header.debugInfoSizeBytes, "DI"
         )
+        val libraryInfo = readSegment(
+            source, header.allSizeBytes, header.libraryInfoOffset, header.libraryInfoSizeBytes, "LIBDAT"
+        )
+        val functionInfo = readSegment(
+            source, header.allSizeBytes, header.functionInfoOffset, header.functionInfoSizeBytes, "FINFO"
+        )
+        val moduleInfo = readSegment(
+            source, header.allSizeBytes, header.moduleInfoOffset, header.moduleInfoSizeBytes, "MINFO"
+        )
+        val functionInfo2 = readSegment(
+            source, header.allSizeBytes, header.functionInfo2Offset, header.functionInfo2SizeBytes, "FINFO2"
+        )
+        val hpiData = readSegment(
+            source, header.allSizeBytes, header.hpiDataOffset, header.maxHpiBytes.toLong(), "HPI"
+        )
 
         if (code.sizeBytes % 2 != 0) {
             throw IOException("The HSP3 Code Segment must contain complete 16-bit words.")
         }
-        return Hsp3Program(header, code, data, objectTemp, debug)
+        val externalLibraries = Hsp3ExternalLibraryManifest.parse(
+            data.bytes, libraryInfo.bytes, moduleInfo.bytes, functionInfo.bytes,
+            functionInfo2.bytes, hpiData.bytes, header.maxVariableHpi
+        )
+        return Hsp3Program(
+            header, code, data, objectTemp, debug,
+            libraryInfo, moduleInfo, functionInfo, functionInfo2, hpiData, externalLibraries
+        )
     }
 
     private fun parseHeader(bytes: ByteArray): Hsp3Header = Hsp3Header(

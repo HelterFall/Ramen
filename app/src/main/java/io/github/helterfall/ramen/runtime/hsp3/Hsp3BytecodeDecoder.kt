@@ -107,6 +107,7 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
     }
 
     private fun isUnsupportedCommand(t:Hsp3Token):Boolean = when(t.type) {
+        TYPE_DLLFUNC, TYPE_DLLCTRL -> false
         TYPE_EXTCMD -> t.value.toInt() !in SUPPORTED_EXT_COMMANDS
         TYPE_INTCMD -> t.value.toInt() !in setOf(
             INTCMD_EXIST, INTCMD_BLOAD, INTCMD_BSAVE, INTCMD_GETKEY, INTCMD_RANDOMIZE
@@ -246,8 +247,13 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                         val (args,nextIndex)=readParenthesizedArguments(tokens,i+1,program)
                         stack.addLast(Hsp3ExpressionNode.Function(t.value.toInt(),args)); i=nextIndex-1
                     }
+                    TYPE_DLLFUNC, TYPE_DLLCTRL -> {
+                        val (args, nextIndex) = readParenthesizedArguments(tokens, i + 1, program)
+                        stack.addLast(Hsp3ExpressionNode.ExternalFunction(t.type, t.value.toInt(), args))
+                        i = nextIndex - 1
+                    }
                     TYPE_STRUCT,TYPE_INTCMD,TYPE_EXTCMD,TYPE_CMPCMD,TYPE_MODCMD,
-                    TYPE_PROGCMD,TYPE_DLLFUNC,TYPE_DLLCTRL,TYPE_USERDEF -> {
+                    TYPE_PROGCMD,TYPE_USERDEF -> {
                         if(t.type!=TYPE_STRUCT) {
                             val next=tokens.getOrNull(i+1)
                             if(next?.type==TYPE_MARK && next.value=='('.code.toLong()) {
@@ -435,6 +441,9 @@ class Hsp3BytecodeDecoder : Hsp3InstructionDecoder {
                         )
                     }
                 }
+            }
+            TYPE_DLLFUNC, TYPE_DLLCTRL -> PendingInstruction(pc) { _, _ ->
+                Hsp3Instruction.NativeCommand(command.type, commandId, args)
             }
             TYPE_PROGCMD -> decodeProgramCommand(program, command, args)
             TYPE_CMPCMD -> decodeConditionalCommand(program, command, args)
@@ -829,6 +838,11 @@ sealed class Hsp3ExpressionNode {
     data class SystemVariable(val index: Int, val external: Boolean = false) : Hsp3ExpressionNode()
     data class Opaque(val tokenType:Int,val tokenValue:Int) : Hsp3ExpressionNode()
     data class Function(val id: Int, val arguments: List<Hsp3Expression?>) : Hsp3ExpressionNode()
+    data class ExternalFunction(
+        val commandType: Int,
+        val id: Int,
+        val arguments: List<Hsp3Expression?>
+    ) : Hsp3ExpressionNode()
     data class Binary(
         val operator: Int,
         val left: Hsp3ExpressionNode,
@@ -876,9 +890,12 @@ class Hsp3Expression internal constructor(
         arrayVariable: (Int, List<Int>) -> Hsp3RuntimeValue = { index, _ ->
             throw IOException("HSP array variable $index was evaluated without an array runtime.")
         },
-        externalSystemVariable: (Int) -> Hsp3RuntimeValue = systemVariable
+        externalSystemVariable: (Int) -> Hsp3RuntimeValue = systemVariable,
+        externalFunction: (Int, Int, List<Hsp3RuntimeValue?>) -> Hsp3RuntimeValue = { _, _, _ ->
+            Hsp3RuntimeValue.IntegerValue(0)
+        }
     ): Hsp3RuntimeValue = evaluateNode(
-        root, variable, systemVariable, function, arrayVariable, externalSystemVariable
+        root, variable, systemVariable, function, arrayVariable, externalSystemVariable, externalFunction
     )
 
     fun singleVariableReference(): Int? =
@@ -901,7 +918,8 @@ class Hsp3Expression internal constructor(
         systemVariable: (Int) -> Hsp3RuntimeValue,
         function: (Int, List<Hsp3RuntimeValue?>) -> Hsp3RuntimeValue,
         arrayVariable: (Int, List<Int>) -> Hsp3RuntimeValue,
-        externalSystemVariable: (Int) -> Hsp3RuntimeValue
+        externalSystemVariable: (Int) -> Hsp3RuntimeValue,
+        externalFunction: (Int, Int, List<Hsp3RuntimeValue?>) -> Hsp3RuntimeValue
     ): Hsp3RuntimeValue = when (node) {
         is Hsp3ExpressionNode.Literal -> node.value
         is Hsp3ExpressionNode.Variable -> {
@@ -912,7 +930,7 @@ class Hsp3Expression internal constructor(
                     node.index,
                     node.indices.map { indexExpression ->
                         indexExpression.evaluate(
-                            variable, systemVariable, function, arrayVariable, externalSystemVariable
+                            variable, systemVariable, function, arrayVariable, externalSystemVariable, externalFunction
                         ).asInt()
                     }
                 )
@@ -926,14 +944,23 @@ class Hsp3Expression internal constructor(
             node.id,
             node.arguments.map { argument ->
                 argument?.evaluate(
-                    variable, systemVariable, function, arrayVariable, externalSystemVariable
+                    variable, systemVariable, function, arrayVariable, externalSystemVariable, externalFunction
+                )
+            }
+        )
+        is Hsp3ExpressionNode.ExternalFunction -> externalFunction(
+            node.commandType,
+            node.id,
+            node.arguments.map { argument ->
+                argument?.evaluate(
+                    variable, systemVariable, function, arrayVariable, externalSystemVariable, externalFunction
                 )
             }
         )
         is Hsp3ExpressionNode.Binary -> applyBinary(
             node.operator,
-            evaluateNode(node.left, variable, systemVariable, function, arrayVariable, externalSystemVariable),
-            evaluateNode(node.right, variable, systemVariable, function, arrayVariable, externalSystemVariable)
+            evaluateNode(node.left, variable, systemVariable, function, arrayVariable, externalSystemVariable, externalFunction),
+            evaluateNode(node.right, variable, systemVariable, function, arrayVariable, externalSystemVariable, externalFunction)
         )
     }
 

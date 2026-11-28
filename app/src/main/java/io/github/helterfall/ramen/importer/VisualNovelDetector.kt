@@ -126,6 +126,8 @@ class VisualNovelDetector {
                     append(" CS commands decoded, ")
                     append(unsupportedCount)
                     append(" runtime-unsupported command IDs. Android Canvas player and touch controls are connected.")
+                    append(" ")
+                    append(prepared.program.externalLibraries.diagnosticLabel())
                     if (decoderDiagnostics.isNotEmpty()) {
                         append(" Decoder warnings (non-blocking): ")
                         append(decoderDiagnostics.take(8).joinToString(" | ") { it.asLogMessage() })

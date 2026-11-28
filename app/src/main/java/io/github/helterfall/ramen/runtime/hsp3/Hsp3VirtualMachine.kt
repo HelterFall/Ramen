@@ -230,7 +230,10 @@ class Hsp3VirtualMachine(
     private val maxLoopDepth: Int = DEFAULT_MAX_LOOP_DEPTH,
     private val fileStorage: Hsp3FileStorage = Hsp3UnavailableFileStorage,
     private val audio: Hsp3AudioPlayer = Hsp3UnavailableAudioPlayer,
-    private val monotonicMillis: () -> Long = { System.nanoTime() / 1_000_000L }
+    private val monotonicMillis: () -> Long = { System.nanoTime() / 1_000_000L },
+    private val externalLibraries: io.github.helterfall.ramen.parser.Hsp3ExternalLibraryManifest =
+        io.github.helterfall.ramen.parser.Hsp3ExternalLibraryManifest.EMPTY,
+    private val externalCallShim: Hsp3ExternalCallShim = Hsp3ExternalCallShim()
 ) {
     private data class RepeatFrame(
         val bodyStart: Int,
@@ -261,6 +264,7 @@ class Hsp3VirtualMachine(
     private var referenceDouble = 0.0
     private var randomGenerator = java.util.Random()
     private val vmDiagnostics = mutableListOf<String>()
+    private val handledExternalCallKeys = mutableSetOf<String>()
 
     init {
         require(maxCallDepth > 0)
@@ -752,6 +756,13 @@ class Hsp3VirtualMachine(
             arg(index, Hsp3RuntimeValue.DoubleValue(default)).asDouble()
         fun resolvedArguments(): List<Hsp3RuntimeValue?> = args.indices.map(::resolved)
 
+        if (command.commandType == Hsp3BytecodeDecoder.TYPE_DLLFUNC ||
+            command.commandType == Hsp3BytecodeDecoder.TYPE_DLLCTRL
+        ) {
+            invokeExternalFunction(command.commandType, command.commandId, resolvedArguments())
+            return
+        }
+
         if (command.commandType == Hsp3BytecodeDecoder.TYPE_EXTCMD) {
             when (command.commandId) {
                 Hsp3CommandIds.MMLOAD -> {
@@ -997,8 +1008,29 @@ class Hsp3VirtualMachine(
             systemVariable = ::systemValue,
             function = ::evaluateFunction,
             arrayVariable = ::arrayValueOf,
-            externalSystemVariable = ::externalSystemValue
+            externalSystemVariable = ::externalSystemValue,
+            externalFunction = ::invokeExternalFunction
         )
+
+    private fun invokeExternalFunction(
+        commandType: Int,
+        commandId: Int,
+        arguments: List<Hsp3RuntimeValue?>
+    ): Hsp3RuntimeValue {
+        val import = if (commandType == Hsp3BytecodeDecoder.TYPE_DLLFUNC) {
+            externalLibraries.functionAt(commandId)?.let { it.libraryName to it.name }
+                ?: ("<FINFO #$commandId>" to "<unknown function>")
+        } else {
+            externalLibraries.plugins.getOrNull(commandId)?.let { it.libraryName to it.functionName }
+                ?: ("<HPIDAT #$commandId>" to "<unknown plugin function>")
+        }
+        val result = externalCallShim.invoke(import.first, import.second, arguments.size)
+        val key = "$commandType:${import.first}!${import.second}"
+        if (handledExternalCallKeys.add(key)) vmDiagnostics += result.diagnostic
+        hspStat = result.returnValue.toInt()
+        statValue = result.returnValue.toInt()
+        return Hsp3RuntimeValue.IntegerValue(result.returnValue.toInt())
+    }
 
     /** Executes the common built-ins defined by OpenHSP's TYPE_INTFUNC table. */
     private fun evaluateFunction(
