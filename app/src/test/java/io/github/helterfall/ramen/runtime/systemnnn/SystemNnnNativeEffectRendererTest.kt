@@ -66,6 +66,7 @@ class SystemNnnNativeEffectRendererTest {
         assertEquals(0, first[0])
         assertEquals(0, first[7 * width + 7])
         assertEquals(76, first[4 * width + 8] ushr 24)
+        assertEquals(76, next[4 * width + 8] ushr 24)
         assertTrue(!first.contentEquals(next))
     }
 
