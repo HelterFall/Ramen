@@ -455,6 +455,11 @@ internal object SystemNnnVisualEffectMath {
         afterScreenEffect = orderedLayerIndices.filter { it > effectLayerIndex }
     )
 
+    fun shouldClearNativeScreenEffect(
+        clearLayerIndex: Int,
+        screenEffectLayerIndex: Int?
+    ): Boolean = clearLayerIndex == (screenEffectLayerIndex ?: 31)
+
     /** Hide the live DrawOverrap target while the compositor snapshots its final frame. */
     fun shouldCoverViewportDuringOverrapTargetCapture(
         requestId: Long,

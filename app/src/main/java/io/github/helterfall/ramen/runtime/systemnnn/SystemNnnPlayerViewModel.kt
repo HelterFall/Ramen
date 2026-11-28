@@ -1946,13 +1946,14 @@ class SystemNnnPlayerViewModel : ViewModel() {
                             )
                         }
                         pendingLayerVisuals.remove(command.layerIndex)
-                        if (command.layerIndex == SCREEN_EFFECT_LAYER_INDEX ||
-                            command.layerIndex == pendingScreenEffectLayerIndex
+                        if (SystemNnnVisualEffectMath.shouldClearNativeScreenEffect(
+                                command.layerIndex, pendingScreenEffectLayerIndex
+                            )
                         ) {
                             pendingScreenEffectId = null
                             pendingScreenEffectParameters = emptyList()
                             pendingScreenEffectCommandOffset = null
-                pendingScreenEffectLayerIndex = null
+                            pendingScreenEffectLayerIndex = null
                             if (pendingSpriteLayers.remove(command.layerIndex) != null) {
                                 pendingSpriteLayersChanged = true
                             }
@@ -1973,7 +1974,7 @@ class SystemNnnPlayerViewModel : ViewModel() {
                         pendingScreenEffectId = null
                         pendingScreenEffectParameters = emptyList()
                         pendingScreenEffectCommandOffset = null
-                pendingScreenEffectLayerIndex = null
+                        pendingScreenEffectLayerIndex = null
                         pendingSpriteLayersChanged = true
                         commandsWithoutVisibleOutput += 1
                     }

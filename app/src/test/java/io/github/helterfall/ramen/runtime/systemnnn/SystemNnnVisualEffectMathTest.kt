@@ -781,6 +781,14 @@ class SystemNnnVisualEffectMathTest {
     }
 
     @Test
+    fun clearingImageLayerOnlyClearsTheScreenEffectAtItsActualNativeLayer() {
+        assertTrue(SystemNnnVisualEffectMath.shouldClearNativeScreenEffect(10, 10))
+        assertFalse(SystemNnnVisualEffectMath.shouldClearNativeScreenEffect(31, 10))
+        assertTrue(SystemNnnVisualEffectMath.shouldClearNativeScreenEffect(31, null))
+        assertFalse(SystemNnnVisualEffectMath.shouldClearNativeScreenEffect(10, null))
+    }
+
+    @Test
     fun film18Draw131ComposesEverySceneLayerAroundHaikeiAndFadeIn() {
         val parameters = listOf(60, 0, 0, 0, 0)
         assertEquals(1f, checkNotNull(SystemNnnVisualEffectMath.screenFade(10, 0, parameters)).alpha)
